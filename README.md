@@ -12,22 +12,29 @@ A lightweight desktop client for [Crush](https://github.com/charmbracelet/crush)
 
 ## Stack baseline
 
-The initial implementation is pinned to the following baseline as of **2026-08-26**:
+The initial implementation is pinned to the following **latest stable** baseline as of **2026-08-26**:
 
 | Layer | Version / choice |
 | --- | --- |
 | Go | **1.27.0** |
-| Wails | **v2.15.0** |
-| Svelte | **5.56.8** |
-| TypeScript | **6.0.x** |
+| Wails | **v2.13.0** |
+| Svelte | **5.56.10** |
+| TypeScript | **7.0.2** |
 | Desktop web runtime | **System WebView** |
 | Crush integration | **REST + SSE API** |
-| Editor | **CodeMirror 6** |
-| Terminal | **xterm.js**, lazy-loaded |
+| CodeMirror umbrella package | **6.0.2** |
+| `@codemirror/view` | **6.43.9** |
+| `@xterm/xterm` | **6.0.0**, lazy-loaded |
+
+Notes:
+
+- Wails v3 is still pre-release, so `gotack` stays on the latest stable Wails v2 release.
+- CodeMirror 6 is split across independently versioned packages. `codemirror@6.0.2` is the umbrella/basic-setup package, while core packages such as `@codemirror/view` have their own current versions.
+- xterm.js beta builds are intentionally excluded from the baseline.
 
 Version policy:
 
-- pin exact Go, Wails, and Svelte versions for reproducible builds;
+- pin exact toolchain and direct dependency versions for reproducible builds;
 - stay on the Wails v2 stable line until Wails v3 reaches a production-stable release and migration is justified;
 - allow patch updates after CI/build verification;
 - do not upgrade major frontend/runtime dependencies automatically;
