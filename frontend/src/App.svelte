@@ -33,11 +33,7 @@
   let theme = $state<Theme>('system')
   let backendReady = $state(false)
   let isStreaming = $state(false)
-  let messagesBySession = $state<Record<string, Message[]>>({
-    welcome: [],
-    workspace: [],
-    crush: [],
-  })
+  let messagesBySession = $state<Record<string, Message[]>>({ welcome: [], workspace: [], crush: [] })
 
   let activeSession = $derived(sessions.find((session) => session.id === activeSessionId))
   let activeMessages = $derived(messagesBySession[activeSessionId] ?? [])
@@ -113,7 +109,6 @@
     messagesBySession[activeSessionId] = [...current, { role: 'user', content }]
     input = ''
     sessions = sessions.map((session) => session.id === activeSessionId ? { ...session, updatedAt: Date.now() } : session)
-
     isStreaming = true
     sessions = sessions.map((session) => session.id === activeSessionId ? { ...session, streaming: true } : session)
 
@@ -136,21 +131,19 @@
 
 <div class="app-shell">
   <div class="workspace-frame" style={`--sidebar-col: ${sidebarOpen ? 'var(--mm-sidebar-w)' : '0px'}`}>
-    {#if sidebarOpen}
-      <Sidebar
-        {sessions}
-        {activeSessionId}
-        {workspace}
-        onNewSession={newSession}
-        onSelectSession={selectSession}
-        onCollapse={() => (sidebarOpen = false)}
-        onOpenSettings={() => (settingsOpen = true)}
-        onRename={renameSession}
-        onTogglePin={togglePinSession}
-        onDelete={deleteSession}
-        onPickWorkspace={pickWorkspace}
-      />
-    {/if}
+    <Sidebar
+      {sessions}
+      {activeSessionId}
+      {workspace}
+      onNewSession={newSession}
+      onSelectSession={selectSession}
+      onCollapse={() => (sidebarOpen = false)}
+      onOpenSettings={() => (settingsOpen = true)}
+      onRename={renameSession}
+      onTogglePin={togglePinSession}
+      onDelete={deleteSession}
+      onPickWorkspace={pickWorkspace}
+    />
 
     <main class="min-w-0 flex flex-col overflow-hidden bg-mm-bg">
       <ChatArea
