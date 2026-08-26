@@ -16,4 +16,6 @@ export type Conversation = {
   messages: Message[]
 }
 
-export type SessionSummary = Pick<Conversation, 'id' | 'title' | 'updatedAt' | 'pinned' | 'status'>
+export type SessionSummary = Pick<Conversation, 'id' | 'title' | 'updatedAt' | 'pinned'> & {
+  streaming: boolean
+}
