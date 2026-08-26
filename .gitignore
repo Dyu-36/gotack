@@ -6,7 +6,7 @@ build/bin/
 *.rpm
 
 # Frontend
-frontend/node_modules/
+node_modules/
 frontend/dist/*
 !frontend/dist/.gitkeep
 frontend/.vite/
@@ -17,3 +17,23 @@ frontend/.vite/
 Thumbs.db
 .env
 .env.*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & temp
+*.log
+tmp/
+
+# Test coverage
+coverage/
+
+# OS
+.DS_Store
+Desktop.ini
+
+# Wails generated bindings (rebuilt by wails dev/build)
+frontend/wailsjs/

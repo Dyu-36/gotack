@@ -125,10 +125,10 @@
     <div class="flex-1 flex flex-col items-center justify-center px-6 py-6 overflow-y-auto min-h-0">
       <div class="w-full max-w-3xl mx-auto flex flex-col items-center py-4">
         <div class="flex flex-col items-center text-center mb-8">
-          <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4">
-            <div class="hero-mark">G</div>
+          <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4 p-2.5">
+            <img src="/tack.png" alt="Tack Logo" class="w-full h-full object-contain" />
           </div>
-          <h2 class="hero-title font-bold tracking-tight text-mm-text mb-2.5">Gotack AI Assistant</h2>
+          <h2 class="hero-title font-bold tracking-tight text-mm-text mb-2.5">Tack AI Assistant</h2>
           <p class="text-base text-mm-secondary max-w-lg text-center leading-relaxed">Trợ lý AI desktop chạy trên Crush, với giao diện kế thừa từ Stack</p>
         </div>
 
@@ -152,7 +152,9 @@
         {#each messages as message}
           <article class:user-row={message.role === 'user'} class="message-row">
             {#if message.role === 'assistant'}
-              <div class="assistant-mark">G</div>
+              <div class="assistant-mark overflow-hidden p-0.5">
+                <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
+              </div>
             {/if}
             <div class:user-bubble={message.role === 'user'} class:assistant-copy={message.role === 'assistant'} class="message-copy">
               {message.content}
@@ -161,7 +163,9 @@
         {/each}
         {#if isStreaming}
           <div class="message-row">
-            <div class="assistant-mark">G</div>
+            <div class="assistant-mark overflow-hidden p-0.5">
+              <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
+            </div>
             <div class="flex items-center gap-1.5 py-2" aria-label="Đang trả lời"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div>
           </div>
         {/if}
@@ -175,17 +179,6 @@
 </div>
 
 <style>
-  .hero-mark {
-    width: 40px;
-    height: 40px;
-    display: grid;
-    place-items: center;
-    border-radius: 10px;
-    background: var(--mm-inverse-surface, #322f29);
-    color: var(--mm-inverse-text, #fff);
-    font-size: 19px;
-    font-weight: 750;
-  }
   .hero-title { font-size: 24px; line-height: 32px; }
   .status-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--mm-tertiary); }
   .status-dot.online { background: var(--mm-success, #448361); }
