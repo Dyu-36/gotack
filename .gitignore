@@ -1,0 +1,19 @@
+# Go / Wails
+build/bin/
+*.exe
+*.app
+*.deb
+*.rpm
+
+# Frontend
+frontend/node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/.vite/
+*.tsbuildinfo
+
+# Local files
+.DS_Store
+Thumbs.db
+.env
+.env.*
