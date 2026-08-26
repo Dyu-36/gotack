@@ -82,7 +82,7 @@
 <aside class="w-sidebar h-full flex flex-col bg-mm-sidebar border-r border-mm-border overflow-hidden" aria-label="Danh sách hội thoại">
   <div class="flex items-center justify-between px-3 pt-3 pb-1" data-wails-drag-region>
     <div class="flex items-center gap-2">
-      <div class="brand-mark" aria-hidden="true">G</div>
+      <img src="/tack.png" alt="Gotack Logo" class="w-6 h-6 object-contain" />
       <span class="text-sm font-semibold text-mm-text">Gotack</span>
     </div>
     <button
@@ -218,7 +218,9 @@
 
   <div class="border-t border-mm-border px-2.5 py-2 flex items-center justify-between">
     <div class="flex items-center gap-2 min-w-0">
-      <div class="w-7 h-7 rounded-full bg-mm-panel border border-mm-border grid place-items-center text-xs font-semibold">G</div>
+      <div class="w-7 h-7 rounded-full bg-mm-panel border border-mm-border flex items-center justify-center p-1 overflow-hidden">
+        <img src="/tack.png" alt="Gotack Logo" class="w-full h-full object-contain" />
+      </div>
       <div class="min-w-0"><div class="text-xs font-medium text-mm-text truncate">Gotack</div><div class="text-2xs text-mm-tertiary">Desktop</div></div>
     </div>
     <button type="button" class="p-1.5 rounded hover:bg-mm-hover" title="Cài đặt" aria-label="Mở cài đặt" onclick={onOpenSettings}>
@@ -228,19 +230,6 @@
 </aside>
 
 <style>
-  .brand-mark {
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    border-radius: 7px;
-    background: var(--mm-inverse-surface, #322f29);
-    color: var(--mm-inverse-text, #fff);
-    font-size: 13px;
-    font-weight: 750;
-    letter-spacing: -0.02em;
-  }
-
   .session-actions { display: none; }
   .session-row:hover .session-actions, .session-row:focus-within .session-actions { display: flex; }
   .session-row:hover > .mm-nav-item > div, .session-row:focus-within > .mm-nav-item > div { padding-right: 58px; }

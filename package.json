@@ -1,0 +1,12 @@
+{
+  "name": "gotack",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.20.0",
+  "scripts": {
+    "dev": "pnpm --filter gotack-frontend dev",
+    "build": "pnpm --filter gotack-frontend build",
+    "preview": "pnpm --filter gotack-frontend preview",
+    "check": "pnpm --filter gotack-frontend check"
+  }
+}
