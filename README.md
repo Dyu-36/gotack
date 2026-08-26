@@ -10,15 +10,28 @@ A lightweight desktop client for [Crush](https://github.com/charmbracelet/crush)
 - Favor native/system components over bundled heavyweight runtimes.
 - Start fast and stay responsive while Crush, LSPs, shells, and build tools are running.
 
-## Proposed stack
+## Stack baseline
 
-- **Go** for the desktop/backend layer.
-- **Wails 2** as the desktop shell.
-- **Svelte + TypeScript** for the UI.
-- **System WebView** instead of bundling Chromium.
-- **Crush REST + SSE API** as the engine boundary.
-- **CodeMirror 6** for lightweight file viewing/editing when needed.
-- **xterm.js**, lazy-loaded, for terminal support.
+The initial implementation is pinned to the following baseline as of **2026-08-26**:
+
+| Layer | Version / choice |
+| --- | --- |
+| Go | **1.27.0** |
+| Wails | **v2.15.0** |
+| Svelte | **5.56.8** |
+| TypeScript | **6.0.x** |
+| Desktop web runtime | **System WebView** |
+| Crush integration | **REST + SSE API** |
+| Editor | **CodeMirror 6** |
+| Terminal | **xterm.js**, lazy-loaded |
+
+Version policy:
+
+- pin exact Go, Wails, and Svelte versions for reproducible builds;
+- stay on the Wails v2 stable line until Wails v3 reaches a production-stable release and migration is justified;
+- allow patch updates after CI/build verification;
+- do not upgrade major frontend/runtime dependencies automatically;
+- keep the Crush protocol boundary versioned independently from the desktop UI.
 
 ## Architecture
 
