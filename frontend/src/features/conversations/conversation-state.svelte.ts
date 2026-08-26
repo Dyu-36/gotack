@@ -113,7 +113,13 @@ export function createConversationState() {
 
   return {
     get sessions(): SessionSummary[] {
-      return conversations.map(({ id, title, updatedAt, pinned, status }) => ({ id, title, updatedAt, pinned, status }))
+      return conversations.map(({ id, title, updatedAt, pinned, status }) => ({
+        id,
+        title,
+        updatedAt,
+        pinned,
+        streaming: status === 'streaming',
+      }))
     },
     get activeId() {
       return activeId
