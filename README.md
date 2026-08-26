@@ -10,6 +10,14 @@ A lightweight desktop client for [Crush](https://github.com/charmbracelet/crush)
 - Favor native/system components over bundled heavyweight runtimes.
 - Start fast and stay responsive while Crush, LSPs, shells, and build tools are running.
 
+## Desktop-specific upgrades
+
+Beyond bringing Crush into a native desktop workflow, `gotack` extends the agent with a small set of capabilities designed specifically for day-to-day desktop use:
+
+- **Timetable Skills** — dedicated timetable-generation skills for creating schedules from user constraints, with support for custom rules, preferences, formats, and institution-specific requirements.
+- **Office CLI integration** — built-in workflows for working with Word, Excel, and PowerPoint documents through CLI-based tools, allowing the agent to inspect, generate, and modify office files as part of a normal task.
+- **Zalo integration** — connect `gotack` to Zalo so the local agent can receive requests and return results remotely, making the desktop agent accessible even when the user is away from the computer.
+
 ## Stack baseline
 
 The initial implementation is pinned to the following **latest stable** baseline as of **2026-08-26**:
