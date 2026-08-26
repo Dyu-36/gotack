@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="vi" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Gotack desktop AI assistant" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Gotack</title>
+    <script>
+      ;(function () {
+        try {
+          var pref = localStorage.getItem('gotack.theme') || 'system'
+          var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var root = document.documentElement
+          root.classList.toggle('dark', dark)
+          root.dataset.theme = dark ? 'dark' : 'light'
+          root.style.colorScheme = dark ? 'dark' : 'light'
+          root.style.backgroundColor = dark ? '#191919' : '#ffffff'
+        } catch (_) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
