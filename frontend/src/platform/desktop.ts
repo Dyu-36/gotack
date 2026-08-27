@@ -2,7 +2,7 @@
 // every host event subscription goes through this module. Method names mirror
 // docs/contracts/wails-bindings.md.
 
-type EngineInfo = {
+export type EngineInfo = {
   status: 'stopped' | 'starting' | 'running' | 'error'
   running: boolean
   endpoint: string
@@ -11,32 +11,10 @@ type EngineInfo = {
   error?: string
 }
 
-type WorkspaceInfo = {
-  path: string
-  workspace_id: string
-}
-
-type SessionInfo = {
-  id: string
-  title: string
-  message_count: number
-  cost: number
-  updated_at: number
-  is_busy: boolean
-}
-
-type MessageInfo = {
-  id: string
-  role: 'user' | 'assistant' | 'system' | 'tool'
-  text: string
-  created_at: number
-}
-
-type ChangedFileInfo = {
-  path: string
-  size: number
-  updated_at: number
-}
+export type WorkspaceInfo = { path: string; workspace_id: string }
+export type SessionInfo = { id: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
+export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; created_at: number }
+export type ChangedFileInfo = { path: string; size: number; updated_at: number }
 
 export type SettingsInfo = {
   theme: string
@@ -48,7 +26,7 @@ export type SettingsInfo = {
   custom_url: string
 }
 
-type PermissionRequestEvent = {
+export type PermissionRequestEvent = {
   id: string
   session_id: string
   tool_call_id: string
@@ -59,43 +37,18 @@ type PermissionRequestEvent = {
   path: string
 }
 
-type QuestionChoice = { id: string; label: string; description?: string }
-
-type QuestionRequestEvent = {
+export type QuestionChoice = { id: string; label: string; description?: string }
+export type QuestionRequestEvent = {
   id: string
   session_id: string
   tool_call_id: string
-  questions: Array<{
-    id: string
-    type: string
-    label?: string
-    question: string
-    description?: string
-    choices?: QuestionChoice[]
-  }>
+  questions: Array<{ id: string; type: string; label?: string; question: string; description?: string; choices?: QuestionChoice[] }>
   confirm_title?: string
   confirm_description?: string
 }
 
-export type SessionDeltaEvent = {
-  session_id: string
-  message_id: string
-  text: string
-  // Suffix of `text` that the UI has not seen yet, relative to the previous
-  // delta for the same message_id. Equal to `text` on the first delta for a
-  // message; empty after the last one. UI implementations can either keep
-  // replacing `text` in place (current contract) or switch to appending
-  // `append` to a local buffer; both stay correct because the host still
-  // sends the full text on every delta.
-  append: string
-}
-
-export type SessionDoneEvent = {
-  session_id: string
-  text?: string
-  error?: string
-  cancelled?: boolean
-}
+export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string }
+export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 
 type BackendApp = {
   BackendReady: () => Promise<boolean>
@@ -103,6 +56,7 @@ type BackendApp = {
   StartEngine: () => Promise<EngineInfo>
   StopEngine: () => Promise<EngineInfo>
   ReconnectEngine: () => Promise<void>
+  SelectWorkspace: () => Promise<string>
   ListRecentWorkspaces: () => Promise<string[]>
   OpenWorkspace: (path: string) => Promise<WorkspaceInfo>
   CurrentWorkspace: () => Promise<WorkspaceInfo | null>
@@ -113,15 +67,7 @@ type BackendApp = {
   SendPrompt: (id: string, text: string) => Promise<string>
   CancelPrompt: (id: string) => Promise<void>
   AnswerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => Promise<boolean>
-  AnswerQuestion: (
-    requestID: string,
-    answers: Array<{
-      request_id: string
-      selected_ids?: string[]
-      fill_in_text?: string
-      yes?: boolean | null
-    }>,
-  ) => Promise<boolean>
+  AnswerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => Promise<boolean>
   ChangedFiles: (sessionID: string) => Promise<ChangedFileInfo[]>
   FileDiff: (sessionID: string, path: string) => Promise<string>
   OpenTerminal: (cwd: string) => Promise<string>
@@ -134,15 +80,8 @@ type BackendApp = {
 
 declare global {
   interface Window {
-    go?: {
-      main?: {
-        App?: Partial<BackendApp>
-      }
-    }
-    runtime?: {
-      EventsOn: (name: string, cb: (...data: unknown[]) => void) => void
-      EventsOff: (name: string, ...additional: string[]) => void
-    }
+    go?: { main?: { App?: Partial<BackendApp> } }
+    runtime?: { EventsOn: (name: string, cb: (...data: unknown[]) => void) => void; EventsOff: (name: string, ...additional: string[]) => void }
   }
 }
 
@@ -151,23 +90,12 @@ function app(): BackendApp | null {
   return (bound as BackendApp) ?? null
 }
 
-// Host event names, mirroring internal/uievents/names.go.
 export const events = {
-  engineStatus: 'engine:status',
-  sessionDelta: 'session:delta',
-  sessionDone: 'session:done',
-  toolActivity: 'tool:activity',
-  permissionRequest: 'permission:request',
-  questionRequest: 'question:request',
-  changesUpdated: 'changes:updated',
-  terminalData: 'terminal:data',
-  terminalExit: 'terminal:exit',
+  engineStatus: 'engine:status', sessionDelta: 'session:delta', sessionDone: 'session:done', toolActivity: 'tool:activity',
+  permissionRequest: 'permission:request', questionRequest: 'question:request', changesUpdated: 'changes:updated', terminalData: 'terminal:data', terminalExit: 'terminal:exit',
 } as const
-
 export type EventName = (typeof events)[keyof typeof events]
 
-// on subscribes to a host event; returns an unsubscribe function.
-// Uses the Wails runtime injected as window.runtime.
 export function on<T>(event: EventName, handler: (payload: T) => void): () => void {
   const rt = window.runtime
   if (!rt) return () => {}
@@ -183,47 +111,14 @@ function call<K extends keyof BackendApp>(method: K, ...args: Parameters<Backend
 }
 
 export const desktop = {
-  available(): boolean {
-    return app() !== null
-  },
-
-  async backendReady(): Promise<boolean> {
-    const ready = app()?.BackendReady
-    if (!ready) return false
-    return ready()
-  },
-
-  engineStatus: () => call('EngineStatus'),
-  startEngine: () => call('StartEngine'),
-  stopEngine: () => call('StopEngine'),
-  reconnectEngine: () => call('ReconnectEngine'),
-
-  listRecentWorkspaces: () => call('ListRecentWorkspaces'),
-  openWorkspace: (path: string) => call('OpenWorkspace', path),
-  currentWorkspace: () => call('CurrentWorkspace'),
-
-  listSessions: () => call('ListSessions'),
-  createSession: (title: string) => call('CreateSession', title),
-  switchSession: (id: string) => call('SwitchSession', id),
-  sessionMessages: (id: string) => call('SessionMessages', id),
-  sendPrompt: (id: string, text: string) => call('SendPrompt', id, text),
-  cancelPrompt: (id: string) => call('CancelPrompt', id),
-
-  answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') =>
-    call('AnswerPermission', requestID, decision),
-  answerQuestion: (
-    requestID: string,
-    answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>,
-  ) => call('AnswerQuestion', requestID, answers),
-
-  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID),
-  fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
-
-  openTerminal: (cwd: string) => call('OpenTerminal', cwd),
-  writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data),
-  resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows),
-  closeTerminal: (id: string) => call('CloseTerminal', id),
-
-  getSettings: () => call('GetSettings'),
-  saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
+  available: () => app() !== null,
+  backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
+  engineStatus: () => call('EngineStatus'), startEngine: () => call('StartEngine'), stopEngine: () => call('StopEngine'), reconnectEngine: () => call('ReconnectEngine'),
+  selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), currentWorkspace: () => call('CurrentWorkspace'),
+  listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string) => call('SendPrompt', id, text), cancelPrompt: (id: string) => call('CancelPrompt', id),
+  answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
+  answerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => call('AnswerQuestion', requestID, answers),
+  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
+  openTerminal: (cwd: string) => call('OpenTerminal', cwd), writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data), resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows), closeTerminal: (id: string) => call('CloseTerminal', id),
+  getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
 }
