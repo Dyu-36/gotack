@@ -191,7 +191,7 @@ export function createLiveConversationState() {
     }
     if (s.thinking) thinking = s.thinking as ReasoningEffort
     autostartEngine = s.autostart_engine
-    apiKey = '' // credential is write-only; backend never returns it
+    apiKey = ''
     customUrl = s.custom_url ?? ''
   }
 
@@ -340,7 +340,7 @@ export function createLiveConversationState() {
   return {
     get sessions(): SessionSummary[] { return conversations.map(({ id, title, updatedAt, pinned, status }) => ({ id, title, updatedAt, pinned, streaming: status === 'streaming' })) },
     get activeId() { return activeId }, get active() { return activeConversation() }, get input() { return input }, get workspace() { return workspace }, get backendReady() { return backendReady }, get engine() { return engine }, get error() { return error }, get permission() { return permission }, get question() { return question },
-    get provider() { return provider }, get model() { return model }, get smallModel() { return smallModel }, get modelLabel() { return modelLabel }, get thinking() { return thinking }, get thinkingLabel() { const opt = REASONING_EFFORT_OPTIONS.find((o) => o.id === thinking); return opt ? `Think: ${opt.short}` : 'Think: Auto' }, get apiKey() { return apiKey }, get customUrl() { return customUrl }, get customModelId() { return customModelId },
+    get provider() { return provider }, get model() { return model }, get smallModel() { return smallModel }, get modelLabel() { return modelLabel }, get thinking() { return thinking }, get thinkingLabel() { const opt = REASONING_EFFORT_OPTIONS.find((o) => o.id === thinking); return opt ? `Think: ${opt.short}` : 'Think: Auto' }, get apiKey() { return apiKey }, get customUrl() { return customUrl }, get customModelId() { return customModelId }, get autostartEngine() { return autostartEngine },
     setInput: (v: string) => (input = v), setModel, setThinking, setProvider: (v: string) => (provider = v), setApiKey: (v: string) => (apiKey = v), setCustomUrl: (v: string) => (customUrl = v), setCustomModelId: (v: string) => (customModelId = v),
     init, destroy, pickWorkspace, create, select, send, cancel, rename, delete: remove, answerPermission, answerQuestion, loadSettings, saveSettings,
   }
