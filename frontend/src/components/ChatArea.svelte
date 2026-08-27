@@ -1,5 +1,6 @@
 <script lang="ts">
   import Composer from './Composer.svelte'
+  import type { ModelType, ReasoningEffort } from '../features/conversations/types'
 
   type Message = {
     role: 'user' | 'assistant'
@@ -14,12 +15,18 @@
     input: string
     backendReady?: boolean
     isStreaming?: boolean
+    modelLabel?: string
+    thinkingLabel?: string
+    selectedModelId?: string
+    selectedThinkingId?: string
     onInput: (value: string) => void
     onSend: () => void
     onOpenSidebar: () => void
     onOpenSettings: () => void
     onRenameSession: (title: string) => void
     onPickWorkspace: () => void
+    onSelectModel?: (id: string, label: string, providerId?: string, type?: ModelType) => void
+    onSelectThinking?: (id: ReasoningEffort) => void
   }
 
   let {
@@ -30,12 +37,18 @@
     input,
     backendReady = false,
     isStreaming = false,
+    modelLabel = 'Qwen 3.7 Plus',
+    thinkingLabel = 'Think: High',
+    selectedModelId = 'qwen3.7-plus',
+    selectedThinkingId = 'high',
     onInput,
     onSend,
     onOpenSidebar,
     onOpenSettings,
     onRenameSession,
     onPickWorkspace,
+    onSelectModel = () => {},
+    onSelectThinking = () => {},
   }: Props = $props()
 
   let isRenaming = $state(false)
@@ -174,7 +187,19 @@
   {/if}
 
   <div class="shrink-0 pt-2">
-    <Composer value={input} onInput={onInput} onSend={onSend} {isStreaming} />
+    <Composer
+      value={input}
+      onInput={onInput}
+      onSend={onSend}
+      {isStreaming}
+      {modelLabel}
+      {thinkingLabel}
+      {selectedModelId}
+      {selectedThinkingId}
+      {onSelectModel}
+      {onSelectThinking}
+      {onOpenSettings}
+    />
   </div>
 </div>
 

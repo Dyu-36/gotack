@@ -17,12 +17,13 @@
 
   $effect(() => {
     theme.initialize()
+    void conversations.loadSettings()
     void desktop.backendReady().then((ready) => (backendReady = ready)).catch(() => (backendReady = false))
     return theme.destroy
   })
 
   function pickWorkspace() {
-    if (workspace === 'Chọn thư mục...') workspace = 'gotack'
+    if (workspace === 'Chọn thư mục...') workspace = 'Tack'
   }
 </script>
 
@@ -44,25 +45,45 @@
 
     <main class="min-w-0 flex flex-col overflow-hidden bg-mm-bg">
       <ChatArea
-        sessionTitle={conversations.active?.title ?? 'Gotack'}
+        sessionTitle={conversations.active?.title ?? 'Tack'}
         {workspace}
         {sidebarOpen}
         messages={conversations.active?.messages ?? []}
         input={conversations.input}
         {backendReady}
         isStreaming={conversations.active?.status === 'streaming'}
+        modelLabel={conversations.modelLabel}
+        thinkingLabel={conversations.thinkingLabel}
+        selectedModelId={conversations.model}
+        selectedThinkingId={conversations.thinking}
         onInput={conversations.setInput}
         onSend={() => conversations.sendPreviewMessage(backendReady)}
         onOpenSidebar={() => (sidebarOpen = true)}
         onOpenSettings={() => (settingsOpen = true)}
         onRenameSession={(title) => conversations.rename(conversations.activeId, title)}
         onPickWorkspace={pickWorkspace}
+        onSelectModel={(id, label, pId, type) => conversations.setModel(id, label, pId, type)}
+        onSelectThinking={(t) => conversations.setThinking(t)}
       />
     </main>
   </div>
 
   {#if settingsOpen}
-    <SettingsModal theme={theme.value} onThemeChange={theme.set} onClose={() => (settingsOpen = false)} />
+    <SettingsModal
+      theme={theme.value}
+      provider={conversations.provider}
+      model={conversations.model}
+      smallModel={conversations.smallModel}
+      thinking={conversations.thinking}
+      apiKey={conversations.apiKey}
+      customUrl={conversations.customUrl}
+      onThemeChange={theme.set}
+      onSaveSettings={(s) => {
+        void conversations.saveSettings(s)
+        theme.set(s.theme)
+      }}
+      onClose={() => (settingsOpen = false)}
+    />
   {/if}
 
   <Toaster theme={theme.value === 'system' ? 'system' : theme.value} position="bottom-right" richColors closeButton />
