@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  CRUSH_COMMIT: 6d14dd93a9e526505f7de54ae5999431bc32a793
+  WAILS_VERSION: v2.15.0
+  PNPM_VERSION: 11.20.0
+
 jobs:
   go:
     name: Go test and vet
@@ -39,7 +44,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.20.0
+          version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Set up Node.js
@@ -57,3 +62,66 @@ jobs:
 
       - name: Build frontend
         run: pnpm --filter gotack-frontend build
+
+  windows:
+    name: Windows Wails portable build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build pinned Crush
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none https://github.com/charmbracelet/crush.git "$env:RUNNER_TEMP\crush"
+          git -C "$env:RUNNER_TEMP\crush" checkout $env:CRUSH_COMMIT
+          New-Item -ItemType Directory -Force build\bin\resources | Out-Null
+          Push-Location "$env:RUNNER_TEMP\crush"
+          go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\crush.exe" .
+          Pop-Location
+
+      - name: Build Gotack
+        shell: pwsh
+        run: wails build -platform windows/amd64 -clean
+
+      - name: Assemble portable directory
+        shell: pwsh
+        run: |
+          $out = 'artifacts\gotack-windows-amd64'
+          New-Item -ItemType Directory -Force "$out\resources" | Out-Null
+          Copy-Item build\bin\gotack.exe "$out\gotack.exe"
+          Copy-Item build\bin\resources\crush.exe "$out\resources\crush.exe"
+          Copy-Item build\windows\README.md "$out\README.txt"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gotack-windows-amd64
+          path: artifacts/gotack-windows-amd64
+          if-no-files-found: error
