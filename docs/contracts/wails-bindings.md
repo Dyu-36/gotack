@@ -14,6 +14,7 @@ Namespace: `window.go.main.App.<Method>`.
 | `StartEngine()` | `bind_engine.go` | đã có |
 | `StopEngine()` | `bind_engine.go` | đã có |
 | `ReconnectEngine()` | `bind_engine.go` | đã có |
+| `SelectWorkspace()` | `bind_dialog.go` | đã có, native folder picker |
 | `ListRecentWorkspaces()` | `bind_workspace.go` | đã có |
 | `OpenWorkspace(path)` | `bind_workspace.go` | đã có |
 | `CurrentWorkspace()` | `bind_workspace.go` | đã có |
