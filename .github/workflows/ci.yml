@@ -21,16 +21,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Test
         run: go test ./...
-
       - name: Vet
         run: go vet ./...
 
@@ -40,26 +37,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Check frontend
         run: pnpm --filter gotack-frontend check
-
       - name: Build frontend
         run: pnpm --filter gotack-frontend build
 
@@ -69,33 +61,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Install Wails CLI
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
+      - name: Build Gotack
+        shell: pwsh
+        run: wails build -platform windows/amd64 -clean
       - name: Build pinned Crush
         shell: pwsh
         run: |
@@ -105,11 +94,6 @@ jobs:
           Push-Location "$env:RUNNER_TEMP\crush"
           go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\crush.exe" .
           Pop-Location
-
-      - name: Build Gotack
-        shell: pwsh
-        run: wails build -platform windows/amd64 -clean
-
       - name: Assemble portable directory
         shell: pwsh
         run: |
@@ -118,7 +102,6 @@ jobs:
           Copy-Item build\bin\gotack.exe "$out\gotack.exe"
           Copy-Item build\bin\resources\crush.exe "$out\resources\crush.exe"
           Copy-Item build\windows\README.md "$out\README.txt"
-
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
