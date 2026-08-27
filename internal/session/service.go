@@ -19,9 +19,8 @@ import (
 // The UI shows this until the user renames the session.
 const defaultTitle = "New session"
 
-// Service orchestrates session lifecycle: list/create/switch and the two
-// per-prompt flows (send, cancel). It does not own session state; the engine
-// does. It only caches nothing and forwards every call.
+// Service orchestrates session lifecycle. It owns no durable session state;
+// every mutation is forwarded to Crush, which remains the source of truth.
 type Service struct {
 	api *crushapi.Client
 	ws  *workspace.Service
@@ -34,9 +33,6 @@ func NewService(api *crushapi.Client, ws *workspace.Service) *Service {
 	return &Service{api: api, ws: ws}
 }
 
-// currentWorkspaceID returns the id of the workspace the user has opened. An
-// error here is reported to the caller; there is no implicit fallback because
-// every session call needs a workspace scope.
 func (s *Service) currentWorkspaceID() (string, error) {
 	if s.ws == nil {
 		return "", errors.New("workspace service not configured")
@@ -60,9 +56,7 @@ func (s *Service) List(ctx context.Context) ([]crushapi.Session, error) {
 	return s.api.ListSessions(ctx, wsID)
 }
 
-// Create opens a new session under the current workspace. Presence
-// (current-session) tracking happens at the bind layer once the workspace
-// stream is attached; the engine rejects current-session updates otherwise.
+// Create opens a new session under the current workspace.
 func (s *Service) Create(ctx context.Context, title string) (crushapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -81,6 +75,54 @@ func (s *Service) Create(ctx context.Context, title string) (crushapi.Session, e
 	return sess, nil
 }
 
+// Rename fetches the current complete session snapshot and persists the title
+// with Crush's PUT session endpoint so the change survives UI restarts.
+func (s *Service) Rename(ctx context.Context, id, title string) (crushapi.Session, error) {
+	wsID, err := s.currentWorkspaceID()
+	if err != nil {
+		return crushapi.Session{}, err
+	}
+	if s.api == nil {
+		return crushapi.Session{}, errors.New("engine client not configured")
+	}
+	if id == "" {
+		return crushapi.Session{}, errors.New("session id is required")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return crushapi.Session{}, errors.New("session title is required")
+	}
+	sess, err := s.api.GetSession(ctx, wsID, id)
+	if err != nil {
+		return crushapi.Session{}, fmt.Errorf("get session before rename: %w", err)
+	}
+	sess.Title = title
+	saved, err := s.api.SaveSession(ctx, wsID, sess)
+	if err != nil {
+		return crushapi.Session{}, fmt.Errorf("rename session: %w", err)
+	}
+	return saved, nil
+}
+
+// Delete removes a session from Crush. Messages and file history are deleted
+// by the engine's session service in the same transaction.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	wsID, err := s.currentWorkspaceID()
+	if err != nil {
+		return err
+	}
+	if s.api == nil {
+		return errors.New("engine client not configured")
+	}
+	if id == "" {
+		return errors.New("session id is required")
+	}
+	if err := s.api.DeleteSession(ctx, wsID, id); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
+}
+
 // Messages returns the full message history for the given session.
 func (s *Service) Messages(ctx context.Context, id string) ([]crushapi.Message, error) {
 	wsID, err := s.currentWorkspaceID()
@@ -96,9 +138,7 @@ func (s *Service) Messages(ctx context.Context, id string) ([]crushapi.Message, 
 	return s.api.Messages(ctx, wsID, id)
 }
 
-// Send submits a prompt to the engine. The returned run id is a fresh UUID
-// per call; the caller can correlate it with the eventual run_complete
-// stream event for that prompt.
+// Send submits a prompt to the engine.
 func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -120,9 +160,7 @@ func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
 	return runID, nil
 }
 
-// Cancel asks the engine to abort the in-flight prompt for the session. The
-// engine replies 202; a missing or already-finished run is not an error from
-// the host's perspective.
+// Cancel asks the engine to abort the in-flight prompt for the session.
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
