@@ -49,6 +49,9 @@ export type QuestionRequestEvent = {
 
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
+export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
+export type TerminalDataEvent = { id: string; data: string }
+export type TerminalExitEvent = { id: string; code?: number; error?: string }
 
 type BackendApp = {
   BackendReady: () => Promise<boolean>
@@ -62,6 +65,8 @@ type BackendApp = {
   CurrentWorkspace: () => Promise<WorkspaceInfo | null>
   ListSessions: () => Promise<SessionInfo[]>
   CreateSession: (title: string) => Promise<SessionInfo>
+  RenameSession: (id: string, title: string) => Promise<SessionInfo>
+  DeleteSession: (id: string) => Promise<void>
   SwitchSession: (id: string) => Promise<void>
   SessionMessages: (id: string) => Promise<MessageInfo[]>
   SendPrompt: (id: string, text: string) => Promise<string>
@@ -115,7 +120,7 @@ export const desktop = {
   backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
   engineStatus: () => call('EngineStatus'), startEngine: () => call('StartEngine'), stopEngine: () => call('StopEngine'), reconnectEngine: () => call('ReconnectEngine'),
   selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), currentWorkspace: () => call('CurrentWorkspace'),
-  listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string) => call('SendPrompt', id, text), cancelPrompt: (id: string) => call('CancelPrompt', id),
+  listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string) => call('SendPrompt', id, text), cancelPrompt: (id: string) => call('CancelPrompt', id),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
   answerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => call('AnswerQuestion', requestID, answers),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
