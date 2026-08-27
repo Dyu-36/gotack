@@ -11,6 +11,8 @@ frontend/dist/*
 !frontend/dist/.gitkeep
 frontend/.vite/
 *.tsbuildinfo
+*.md5
+frontend/package.json.md5
 
 # Local files
 .DS_Store
@@ -18,15 +20,20 @@ Thumbs.db
 .env
 .env.*
 
-# Editor / IDE
+# Editor / IDE / Agent configs
 .vscode/
 .idea/
 *.swp
 *.swo
+.omp/
+mcp.json
+.codebase-memory/
+.cbmignore
 
 # Logs & temp
 *.log
 tmp/
+*.tmp
 
 # Test coverage
 coverage/
@@ -37,3 +44,6 @@ Desktop.ini
 
 # Wails generated bindings (rebuilt by wails dev/build)
 frontend/wailsjs/
+
+# Vendored upstream source (own git history)
+/third_party/crush/

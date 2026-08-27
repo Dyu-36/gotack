@@ -82,8 +82,8 @@
 <aside class="w-sidebar h-full flex flex-col bg-mm-sidebar border-r border-mm-border overflow-hidden" aria-label="Danh sách hội thoại">
   <div class="flex items-center justify-between px-3 pt-3 pb-1" data-wails-drag-region>
     <div class="flex items-center gap-2">
-      <img src="/tack.png" alt="Gotack Logo" class="w-6 h-6 object-contain" />
-      <span class="text-sm font-semibold text-mm-text">Gotack</span>
+      <img src="/tack.png" alt="Tack Logo" class="w-6 h-6 object-contain" />
+      <span class="text-sm font-semibold text-mm-text">Tack</span>
     </div>
     <button
       type="button"
@@ -219,9 +219,9 @@
   <div class="border-t border-mm-border px-2.5 py-2 flex items-center justify-between">
     <div class="flex items-center gap-2 min-w-0">
       <div class="w-7 h-7 rounded-full bg-mm-panel border border-mm-border flex items-center justify-center p-1 overflow-hidden">
-        <img src="/tack.png" alt="Gotack Logo" class="w-full h-full object-contain" />
+        <img src="/tack.png" alt="Tack Logo" class="w-full h-full object-contain" />
       </div>
-      <div class="min-w-0"><div class="text-xs font-medium text-mm-text truncate">Gotack</div><div class="text-2xs text-mm-tertiary">Desktop</div></div>
+      <div class="min-w-0"><div class="text-xs font-medium text-mm-text truncate">Tack</div><div class="text-2xs text-mm-tertiary">Desktop</div></div>
     </div>
     <button type="button" class="p-1.5 rounded hover:bg-mm-hover" title="Cài đặt" aria-label="Mở cài đặt" onclick={onOpenSettings}>
       <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>

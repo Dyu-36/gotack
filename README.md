@@ -20,25 +20,31 @@ Beyond bringing Crush into a native desktop workflow, `gotack` extends the agent
 
 ## Stack baseline
 
-The initial implementation is pinned to the following **latest stable** baseline as of **2026-08-26**:
+Baseline as of **2026-08-26**. Rows marked *installed* are what the repo builds
+against today; the rest are target versions for features that have not landed.
+This table records intent, so it must be reconciled with `go.mod` and
+`frontend/package.json` whenever either changes.
 
-| Layer | Version / choice |
-| --- | --- |
-| Go | **1.27.0** |
-| Wails | **v2.13.0** |
-| Svelte | **5.56.10** |
-| TypeScript | **7.0.2** |
-| Desktop web runtime | **System WebView** |
-| Crush integration | **REST + SSE API** |
-| CodeMirror umbrella package | **6.0.2** |
-| `@codemirror/view` | **6.43.9** |
-| `@xterm/xterm` | **6.0.0**, lazy-loaded |
+| Layer | Version / choice | Status |
+| --- | --- | --- |
+| Go | **1.27.0** | installed, pinned in `go.mod` |
+| Wails | **v2.15.0** | installed |
+| Svelte | **5.56.10** | installed |
+| TypeScript | **~5.9.3** | installed |
+| Desktop web runtime | **System WebView** | installed |
+| Crush integration | **REST + SSE API** | installed |
+| CodeMirror umbrella package | **6.0.2** | planned, not installed |
+| `@codemirror/view` | **6.43.9** | planned, not installed |
+| `@xterm/xterm` | **6.0.0**, lazy-loaded | planned, not installed |
 
 Notes:
 
 - Wails v3 is still pre-release, so `gotack` stays on the latest stable Wails v2 release.
+- TypeScript is held at 5.9.x deliberately: TS 7 fails `pnpm check` against the current Svelte tooling (commit `1a67994`). Revisit when `svelte-check` supports it.
 - CodeMirror 6 is split across independently versioned packages. `codemirror@6.0.2` is the umbrella/basic-setup package, while core packages such as `@codemirror/view` have their own current versions.
 - xterm.js beta builds are intentionally excluded from the baseline.
+- The editor and terminal rows are targets for when those features land. Neither package is in `frontend/package.json` yet because both sit outside Milestone 1 (`docs/roadmap.md`).
+- Open deviation: `frontend/package.json` still uses caret ranges for most dev dependencies, which contradicts the "pin exact versions" policy below. Pin them or relax the policy; leaving the two in conflict makes the policy unenforceable.
 
 Version policy:
 
@@ -137,3 +143,19 @@ Early development. Architecture and APIs may change while the initial desktop cl
 Crush is developed by Charmbracelet:
 
 - https://github.com/charmbracelet/crush
+
+## Repository layout
+
+```text
+main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindings)
+internal/                              host implementation, one package per role
+  appconfig  logging  engine  crushapi
+  workspace  session  permission  changes  terminal  uievents
+frontend/                              Svelte 5 UI (folder name required by Wails v2)
+third_party/crush/                     vendored Crush engine (own git history)
+docs/                                  architecture, contracts, decisions, guides
+build/                                 Wails packaging assets
+scripts/                               developer entry points
+```
+
+Folder-by-folder roles and the rules that keep the layers apart: `docs/README.md`.
