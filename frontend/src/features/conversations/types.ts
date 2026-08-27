@@ -4,6 +4,9 @@ export type Message = {
   id?: string
   role: MessageRole
   content: string
+  kind?: 'message' | 'tool'
+  toolName?: string
+  toolFinished?: boolean
 }
 
 export type ConversationStatus = 'idle' | 'streaming'
