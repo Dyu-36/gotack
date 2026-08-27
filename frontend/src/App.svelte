@@ -26,8 +26,6 @@
   })
 
   function pickWorkspace() {
-    // Terminal cwd belongs to the workspace that opened it. Close the panel
-    // before switching so its component teardown closes the PTY as well.
     rightPanel = null
     void conversations.pickWorkspace()
   }
@@ -107,6 +105,7 @@
       thinking={conversations.thinking}
       apiKey={conversations.apiKey}
       customUrl={conversations.customUrl}
+      autostartEngine={conversations.autostartEngine}
       onThemeChange={theme.set}
       onSaveSettings={(settings) => {
         void conversations.saveSettings(settings)
