@@ -5,6 +5,9 @@
   type Message = {
     role: 'user' | 'assistant'
     content: string
+    kind?: 'message' | 'tool'
+    toolName?: string
+    toolFinished?: boolean
   }
 
   type Props = {
@@ -21,6 +24,7 @@
     selectedThinkingId?: string
     onInput: (value: string) => void
     onSend: () => void
+    onStop: () => void
     onOpenSidebar: () => void
     onOpenSettings: () => void
     onRenameSession: (title: string) => void
@@ -37,12 +41,13 @@
     input,
     backendReady = false,
     isStreaming = false,
-    modelLabel = 'Qwen 3.7 Plus',
-    thinkingLabel = 'Think: High',
-    selectedModelId = 'qwen3.7-plus',
-    selectedThinkingId = 'high',
+    modelLabel = 'Crush model',
+    thinkingLabel = 'Think: Auto',
+    selectedModelId = '',
+    selectedThinkingId = 'none',
     onInput,
     onSend,
+    onStop,
     onOpenSidebar,
     onOpenSettings,
     onRenameSession,
@@ -55,34 +60,10 @@
   let renameValue = $state('')
 
   const promptCards = [
-    {
-      key: 'create',
-      icon: '📅',
-      title: 'Tạo TKB thông minh',
-      desc: 'Tự động sắp xếp lịch học, tối ưu thời gian trống',
-      prompt: 'Hãy giúp tôi tạo thời khóa biểu cho tuần này với các môn học: ',
-    },
-    {
-      key: 'adjust',
-      icon: '🔄',
-      title: 'Điều chỉnh lịch học',
-      desc: 'Đổi tiết học, dời lịch hoặc tránh xung đột giờ',
-      prompt: 'Tôi muốn điều chỉnh lại thời khóa biểu để: ',
-    },
-    {
-      key: 'analyze',
-      icon: '📊',
-      title: 'Phân tích & Tối ưu',
-      desc: 'Đánh giá phân bổ thời gian và tải học tập',
-      prompt: 'Hãy phân tích và đánh giá thời khóa biểu hiện tại của tôi: ',
-    },
-    {
-      key: 'suggest',
-      icon: '💡',
-      title: 'Gợi ý môn học',
-      desc: 'Tư vấn đăng ký tín chỉ và kế hoạch học tập',
-      prompt: 'Gợi ý cho tôi các môn học phù hợp trong học kỳ tới dựa trên: ',
-    },
+    { key: 'explain', icon: '⌘', title: 'Giải thích codebase', desc: 'Phân tích kiến trúc, luồng dữ liệu và điểm nóng', prompt: 'Hãy phân tích codebase hiện tại và giải thích kiến trúc, luồng dữ liệu chính và các điểm cần chú ý. ' },
+    { key: 'fix', icon: '✓', title: 'Sửa lỗi', desc: 'Đi từ triệu chứng tới root cause và patch', prompt: 'Hãy điều tra lỗi sau, tìm root cause, sửa tối thiểu và chạy kiểm tra liên quan: ' },
+    { key: 'refactor', icon: '↻', title: 'Refactor an toàn', desc: 'Cải thiện cấu trúc nhưng giữ nguyên behavior', prompt: 'Hãy refactor phần sau để code rõ hơn, ít coupling hơn và giữ nguyên behavior: ' },
+    { key: 'test', icon: '◇', title: 'Bổ sung test', desc: 'Thêm test cho behavior và edge case quan trọng', prompt: 'Hãy bổ sung test cho phần sau, ưu tiên behavior, regression và edge cases: ' },
   ]
 
   function startRename() {
@@ -126,7 +107,7 @@
         <span class="truncate">{workspace}</span>
       </button>
 
-      <span class:online={backendReady} class="status-dot" title={backendReady ? 'Wails backend connected' : 'Frontend preview'}></span>
+      <span class:online={backendReady} class="status-dot" title={backendReady ? 'Wails backend connected' : 'Backend unavailable'}></span>
     </div>
 
     <button type="button" class="p-1.5 rounded hover:bg-mm-hover" title="Cài đặt" aria-label="Mở cài đặt" onclick={onOpenSettings}>
@@ -138,22 +119,15 @@
     <div class="flex-1 flex flex-col items-center justify-center px-6 py-6 overflow-y-auto min-h-0">
       <div class="w-full max-w-3xl mx-auto flex flex-col items-center py-4">
         <div class="flex flex-col items-center text-center mb-8">
-          <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4 p-2.5">
-            <img src="/tack.png" alt="Tack Logo" class="w-full h-full object-contain" />
-          </div>
-          <h2 class="hero-title font-bold tracking-tight text-mm-text mb-2.5">Tack AI Assistant</h2>
-          <p class="text-base text-mm-secondary max-w-lg text-center leading-relaxed">Trợ lý AI desktop chạy trên Crush, với giao diện kế thừa từ Stack</p>
+          <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4 p-2.5"><img src="/tack.png" alt="Tack Logo" class="w-full h-full object-contain" /></div>
+          <h2 class="hero-title font-bold tracking-tight text-mm-text mb-2.5">Tack AI Coding Assistant</h2>
+          <p class="text-base text-mm-secondary max-w-lg text-center leading-relaxed">Desktop shell nhẹ cho Crush: session, tools, permission, diff và terminal.</p>
         </div>
-
         <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           {#each promptCards as card (card.key)}
             <button type="button" class="group relative flex items-start gap-3.5 p-4 rounded-xl bg-mm-panel hover:bg-mm-hover border border-mm-border/70 hover:border-mm-border-strong text-left transition-all duration-150 cursor-pointer shadow-sm hover:shadow-panel" onclick={() => onInput(card.prompt)}>
               <span class="text-xl p-2 rounded-lg bg-mm-bg border border-mm-border/50 shrink-0 leading-none" aria-hidden="true">{card.icon}</span>
-              <div class="flex-1 min-w-0 pr-4">
-                <div class="text-sm font-semibold text-mm-text group-hover:text-mm-accent transition-colors">{card.title}</div>
-                <div class="text-xs text-mm-secondary mt-1 leading-relaxed">{card.desc}</div>
-              </div>
-              <svg class="w-4 h-4 text-mm-tertiary group-hover:text-mm-text group-hover:translate-x-0.5 transition-all shrink-0 self-center absolute right-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+              <div class="flex-1 min-w-0 pr-4"><div class="text-sm font-semibold text-mm-text group-hover:text-mm-accent transition-colors">{card.title}</div><div class="text-xs text-mm-secondary mt-1 leading-relaxed">{card.desc}</div></div>
             </button>
           {/each}
         </div>
@@ -161,45 +135,29 @@
     </div>
   {:else}
     <div class="relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại">
-      <div class="max-w-3xl mx-auto px-4 pt-6 pb-6 space-y-6">
+      <div class="max-w-3xl mx-auto px-4 pt-6 pb-6 space-y-4">
         {#each messages as message}
-          <article class:user-row={message.role === 'user'} class="message-row">
-            {#if message.role === 'assistant'}
-              <div class="assistant-mark overflow-hidden p-0.5">
-                <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
-              </div>
-            {/if}
-            <div class:user-bubble={message.role === 'user'} class:assistant-copy={message.role === 'assistant'} class="message-copy">
-              {message.content}
+          {#if message.kind === 'tool'}
+            <div class="tool-row" aria-label={`Tool ${message.toolName ?? ''}`}>
+              <span class:done={message.toolFinished} class="tool-dot"></span>
+              <span class="font-mono text-xs">{message.toolName ?? 'tool'}</span>
+              <span class="text-2xs text-mm-tertiary">{message.toolFinished ? 'done' : 'running'}</span>
+              {#if message.content}<span class="truncate text-2xs text-mm-secondary">{message.content}</span>{/if}
             </div>
-          </article>
+          {:else}
+            <article class:user-row={message.role === 'user'} class="message-row">
+              {#if message.role === 'assistant'}<div class="assistant-mark overflow-hidden p-0.5"><img src="/tack.png" alt="Tack" class="w-full h-full object-contain" /></div>{/if}
+              <div class:user-bubble={message.role === 'user'} class:assistant-copy={message.role === 'assistant'} class="message-copy">{message.content}</div>
+            </article>
+          {/if}
         {/each}
-        {#if isStreaming}
-          <div class="message-row">
-            <div class="assistant-mark overflow-hidden p-0.5">
-              <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
-            </div>
-            <div class="flex items-center gap-1.5 py-2" aria-label="Đang trả lời"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div>
-          </div>
-        {/if}
+        {#if isStreaming}<div class="message-row"><div class="assistant-mark overflow-hidden p-0.5"><img src="/tack.png" alt="Tack" class="w-full h-full object-contain" /></div><div class="flex items-center gap-1.5 py-2" aria-label="Đang trả lời"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>{/if}
       </div>
     </div>
   {/if}
 
   <div class="shrink-0 pt-2">
-    <Composer
-      value={input}
-      onInput={onInput}
-      onSend={onSend}
-      {isStreaming}
-      {modelLabel}
-      {thinkingLabel}
-      {selectedModelId}
-      {selectedThinkingId}
-      {onSelectModel}
-      {onSelectThinking}
-      {onOpenSettings}
-    />
+    <Composer value={input} onInput={onInput} onSend={onSend} onStop={onStop} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
   </div>
 </div>
 
@@ -213,5 +171,8 @@
   .message-copy { max-width: min(680px, 86%); font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
   .assistant-copy { padding-top: 2px; color: var(--mm-text); }
   .user-bubble { padding: 9px 13px; border-radius: 14px; background: var(--mm-panel); border: 1px solid var(--mm-border); color: var(--mm-text); }
+  .tool-row { display: flex; align-items: center; gap: 7px; min-width: 0; margin-left: 36px; padding: 6px 9px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); }
+  .tool-dot { width: 7px; height: 7px; border-radius: 999px; background: #c89336; flex: 0 0 auto; }
+  .tool-dot.done { background: var(--mm-success, #448361); }
   .input-inline { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--mm-accent); border-radius: 5px; background: var(--mm-bg); color: var(--mm-text); font: inherit; outline: none; }
 </style>
