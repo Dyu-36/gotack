@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { CRUSH_MODELS, CRUSH_PROVIDERS, REASONING_EFFORT_OPTIONS } from '../features/conversations/conversation-state.svelte'
+  import { toast } from 'svelte-sonner'
+  import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
+  import { desktop, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
   import type { ReasoningEffort } from '../features/conversations/types'
 
   type Theme = 'system' | 'light' | 'dark'
@@ -8,6 +10,7 @@
     autostart_engine: boolean
     provider: string
     model: string
+    small_model: string
     thinking: string
     api_key: string
     custom_url: string
@@ -29,8 +32,9 @@
 
   let {
     theme,
-    provider = 'hyper',
-    model = 'qwen3.7-plus',
+    provider = '',
+    model = '',
+    smallModel = '',
     thinking = 'high',
     apiKey = '',
     customUrl = '',
@@ -41,41 +45,60 @@
   }: Props = $props()
 
   let selectedTheme = $state<Theme>('system')
-  let selectedProvider = $state('hyper')
-  let selectedModel = $state('qwen3.7-plus')
+  let selectedProvider = $state('')
+  let selectedModel = $state('')
+  let selectedSmallModel = $state('')
   let selectedThinking = $state<ReasoningEffort>('high')
   let currentApiKey = $state('')
   let currentCustomUrl = $state('')
   let startEngine = $state(true)
   let showApiKey = $state(false)
 
+  let zaloEnabled = $state(false)
+  let zaloToken = $state('')
+  let zaloChatsInput = $state('')
+  let zaloHasToken = $state(false)
+  let zaloStatus = $state<ZaloStatusInfo | null>(null)
+  let zaloSaving = $state(false)
+
   $effect(() => {
     selectedTheme = theme
     selectedProvider = provider
     selectedModel = model
+    selectedSmallModel = smallModel
     selectedThinking = thinking as ReasoningEffort
     currentApiKey = apiKey
     currentCustomUrl = customUrl
     startEngine = autostartEngine
+    if (catalog.status === 'idle') void catalog.refresh()
+    void loadZalo()
   })
 
-  let providerInfo = $derived(CRUSH_PROVIDERS.find((item) => item.id === selectedProvider))
-  let models = $derived(CRUSH_MODELS.filter((item) => item.providerId === selectedProvider))
-  let selectedModelInfo = $derived(CRUSH_MODELS.find((item) => item.providerId === selectedProvider && item.id === selectedModel))
-  let supportsAPIKey = $derived(providerInfo?.authType === 'api_key' || providerInfo?.authType === 'azure_openai')
-  let supportsEndpoint = $derived(providerInfo?.authType === 'endpoint_local' || providerInfo?.type === 'openai-compat' || selectedProvider === 'azure')
-  let upstreamManagedAuth = $derived(providerInfo?.authType === 'oauth_hyper' || providerInfo?.authType === 'oauth_copilot' || providerInfo?.authType === 'aws_sso' || providerInfo?.authType === 'vertex_gcp')
+  async function loadZalo() {
+    try {
+      const config = await desktop.getZaloConfig()
+      zaloEnabled = config.enabled
+      zaloHasToken = config.has_token
+      zaloChatsInput = config.allowed_chats.join(', ')
+      zaloStatus = await desktop.zaloStatus()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  let providerInfo = $derived(catalog.provider(selectedProvider))
+  let models = $derived(providerInfo?.models ?? [])
 
   function chooseProvider(id: string) {
     selectedProvider = id
-    const info = CRUSH_PROVIDERS.find((item) => item.id === id)
-    const preferred = info?.defaultLargeModelId
-    const first = CRUSH_MODELS.find((item) => item.providerId === id)?.id
-    selectedModel = preferred && CRUSH_MODELS.some((item) => item.providerId === id && item.id === preferred) ? preferred : (first ?? '')
-    const picked = CRUSH_MODELS.find((item) => item.providerId === id && item.id === selectedModel)
-    selectedThinking = (picked?.defaultReasoningEffort as ReasoningEffort | undefined) ?? 'none'
+    const info = catalog.provider(id)
+    const preferred = info?.default_large_model_id
+    selectedModel = preferred && info?.models.some((item) => item.id === preferred) ? preferred : (info?.models[0]?.id ?? '')
+    const preferredSmall = info?.default_small_model_id
+    selectedSmallModel = preferredSmall && info?.models.some((item) => item.id === preferredSmall) ? preferredSmall : ''
+    selectedThinking = (info?.models.find((item) => item.id === selectedModel)?.default_reasoning_effort as ReasoningEffort | undefined) ?? 'none'
     currentApiKey = ''
-    currentCustomUrl = info?.apiEndpoint ?? ''
+    currentCustomUrl = info?.api_endpoint ?? ''
   }
 
   function save() {
@@ -84,6 +107,7 @@
       autostart_engine: startEngine,
       provider: selectedProvider,
       model: selectedModel,
+      small_model: selectedSmallModel,
       thinking: selectedThinking,
       api_key: currentApiKey.trim(),
       custom_url: currentCustomUrl.trim(),
@@ -95,10 +119,27 @@
     currentApiKey = ''
     onClose()
   }
+
+  async function saveZalo() {
+    zaloSaving = true
+    try {
+      const allowed = zaloChatsInput.split(',').map((id) => id.trim()).filter(Boolean)
+      const update: ZaloConfigUpdate = { enabled: zaloEnabled, allowed_chats: allowed }
+      if (zaloToken.trim()) update.token = zaloToken.trim()
+      zaloStatus = await desktop.saveZaloConfig(update)
+      zaloHasToken = zaloHasToken || zaloToken.trim() !== ''
+      zaloToken = ''
+      toast.success(zaloStatus.bot_name ? `Zalo đã nối: ${zaloStatus.bot_name}` : 'Đã lưu cấu hình Zalo')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      zaloSaving = false
+    }
+  }
 </script>
 
 <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-sm flex items-center justify-center p-4" role="presentation">
-  <section class="settings-card" role="dialog" aria-modal="true" aria-label="Cài đặt Gotack">
+  <div class="settings-card" role="dialog" aria-modal="true" aria-label="Cài đặt Gotack">
     <header class="px-5 py-4 border-b border-mm-border flex items-center justify-between">
       <div>
         <h2 class="text-base font-semibold text-mm-text">Cài đặt</h2>
@@ -123,61 +164,110 @@
 
       <section class="setting-section">
         <div class="section-title">Provider</div>
-        <select class="field" value={selectedProvider} onchange={(event) => chooseProvider(event.currentTarget.value)} aria-label="Provider">
-          {#each CRUSH_PROVIDERS as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
-        </select>
-        {#if providerInfo?.description}<p class="hint">{providerInfo.description}</p>{/if}
-
-        {#if upstreamManagedAuth}
-          <div class="notice">
-            Provider này dùng luồng xác thực do Crush quản lý. Gotack không mô phỏng OAuth hoặc báo “connected” giả; hãy cấu hình credential bằng Crush cho tới khi REST OAuth chính thức được nối vào desktop.
-          </div>
+        {#if catalog.status === 'ready'}
+          <select class="field" value={selectedProvider} onchange={(event) => chooseProvider(event.currentTarget.value)} aria-label="Provider">
+            <option value="" disabled>Chọn provider</option>
+            {#each catalog.providers as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
+          </select>
+          {#if selectedProvider}
+            <label class="field-label" for="endpoint">Custom endpoint (tùy chọn)</label>
+            <input id="endpoint" class="field font-mono" bind:value={currentCustomUrl} placeholder={providerInfo?.api_endpoint ?? 'https://…'} />
+            <p class="hint">Ghi vào <code>providers.{selectedProvider}.base_url</code> qua API config của Crush.</p>
+          {/if}
+        {:else if catalog.status === 'loading'}
+          <p class="hint">Đang tải danh sách provider từ Crush...</p>
+        {:else if catalog.status === 'error'}
+          <p class="hint">Không tải được provider catalog: {catalog.error}. Hãy mở một workspace rồi thử lại.</p>
         {/if}
+      </section>
 
-        {#if supportsAPIKey}
+      <section class="setting-section">
+        <div class="section-title">Model & Credential</div>
+        {#if selectedProvider}
           <label class="field-label" for="api-key">API key</label>
           <div class="flex gap-2">
             <input id="api-key" class="field flex-1 font-mono" type={showApiKey ? 'text' : 'password'} bind:value={currentApiKey} autocomplete="off" placeholder="Chỉ gửi vào Crush khi Save" />
             <button type="button" class="btn-notion px-3 text-xs" onclick={() => (showApiKey = !showApiKey)}>{showApiKey ? 'Ẩn' : 'Hiện'}</button>
           </div>
           <p class="hint">Gotack không lưu hoặc trả API key về webview. Crush sở hữu persistence credential.</p>
-        {/if}
 
-        {#if supportsEndpoint}
-          <label class="field-label" for="endpoint">Custom endpoint</label>
-          <input id="endpoint" class="field font-mono" bind:value={currentCustomUrl} placeholder={providerInfo?.apiEndpoint ?? 'https://…'} />
-          <p class="hint">Ghi vào <code>providers.{selectedProvider}.base_url</code> qua API config của Crush.</p>
+          <label class="field-label" for="model">Model</label>
+          {#if models.length}
+            <select id="model" class="field" bind:value={selectedModel} aria-label="Model">
+              {#each models as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
+            </select>
+            {#if selectedModel}
+              {@const info = models.find((item) => item.id === selectedModel)}
+              {#if info}
+                <p class="hint">{info.context_window ? `${Math.round(info.context_window / 1000)}K context · ` : ''}${info.cost_per_1m_in ?? 0}/${info.cost_per_1m_out ?? 0} per 1M tokens</p>
+              {/if}
+            {/if}
+          {:else}
+            <input id="model" class="field font-mono" bind:value={selectedModel} placeholder="Model ID" aria-label="Custom model ID" />
+            <p class="hint">Provider này không có catalog model; nhập model ID mà provider chấp nhận.</p>
+          {/if}
+
+          <label class="field-label" for="small-model">Model cho tác vụ nhỏ</label>
+          {#if models.length}
+            <select id="small-model" class="field" bind:value={selectedSmallModel} aria-label="Small task model">
+              <option value="">Mặc định của provider</option>
+              {#each models as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
+            </select>
+            <p class="hint">Dùng cho các tác vụ đơn giản, tiêu tốn ít token hơn model chính.</p>
+          {:else}
+            <input id="small-model" class="field font-mono" bind:value={selectedSmallModel} placeholder="Small model ID (tùy chọn)" aria-label="Small task model ID" />
+          {/if}
+
+          <label class="field-label" for="reasoning">Reasoning / Thinking</label>
+          <select id="reasoning" class="field" bind:value={selectedThinking}>
+            {#each REASONING_EFFORT_OPTIONS as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
+          </select>
+          <p class="hint">Crush nhận reasoning_effort low/medium/high; Max được quy về High, None để provider tự quyết định.</p>
+        {:else}
+          <p class="hint">Chọn một provider để cấu hình model và credential.</p>
         {/if}
       </section>
 
       <section class="setting-section">
-        <div class="section-title">Model</div>
-        {#if models.length}
-          <select class="field" bind:value={selectedModel} aria-label="Model">
-            {#each models as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
-          </select>
-          {#if selectedModelInfo?.description}<p class="hint">{selectedModelInfo.description}</p>{/if}
-        {:else}
-          <input class="field font-mono" bind:value={selectedModel} placeholder="Model ID" aria-label="Custom model ID" />
-          <p class="hint">Provider không có catalog local; nhập model ID mà Crush/provider chấp nhận.</p>
+        <div class="section-title">Zalo</div>
+        <label class="toggle-row">
+          <span><strong>Kết nối Zalo Bot</strong><small>Nhận yêu cầu và trả kết quả qua Zalo khi bạn vắng mặt.</small></span>
+          <input type="checkbox" bind:checked={zaloEnabled} />
+        </label>
+
+        <label class="field-label" for="zalo-token">Bot token {zaloHasToken ? '(đã lưu, bỏ trống để giữ)' : ''}</label>
+        <input id="zalo-token" class="field font-mono" type="password" bind:value={zaloToken} autocomplete="off" placeholder={zaloHasToken ? '••••••••' : 'Token từ Zalo Bot Platform'} />
+        <p class="hint">Tạo bot và lấy token tại <code>bot.zaloplatforms.com</code>. Token chỉ lưu trên máy bạn.</p>
+
+        <label class="field-label" for="zalo-chats">Chat ID được phép</label>
+        <input id="zalo-chats" class="field font-mono" bind:value={zaloChatsInput} placeholder="VD: 1234567890, 987654321" />
+        <p class="hint">Chỉ các chat trong danh sách được phục vụ. Nhắn tin cho bot trước, ID sẽ hiện ở trạng thái bên dưới để bạn sao chép.</p>
+
+        {#if zaloStatus}
+          <div class="notice">
+            {#if zaloStatus.bot_name}<div><strong>Bot:</strong> {zaloStatus.bot_name}{zaloStatus.running ? ' · đang chạy' : ''}</div>{/if}
+            {#if zaloStatus.last_chat_id}<div><strong>Tin nhắn gần nhất:</strong> {zaloStatus.last_sender} · <code>{zaloStatus.last_chat_id}</code> · “{zaloStatus.last_text}”</div>{/if}
+            {#if zaloStatus.last_error}<div class="text-red-500"><strong>Lỗi:</strong> {zaloStatus.last_error}</div>{/if}
+            {#if !zaloStatus.bot_name && !zaloStatus.last_error}<div>Chưa kết nối. Lưu token rồi bật kết nối.</div>{/if}
+          </div>
         {/if}
 
-        <label class="field-label" for="reasoning">Reasoning / Thinking</label>
-        <select id="reasoning" class="field" bind:value={selectedThinking}>
-          {#each REASONING_EFFORT_OPTIONS as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
-        </select>
-        <p class="hint">Crush hiện nhận reasoning_effort low/medium/high; Max/XHigh được backend quy về High, Auto/None để provider quyết định.</p>
+        <div class="flex justify-end">
+          <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={zaloSaving || (zaloEnabled && !zaloHasToken && !zaloToken.trim())} onclick={saveZalo}>
+            {zaloSaving ? 'Đang lưu...' : 'Lưu & kết nối Zalo'}
+          </button>
+        </div>
       </section>
     </div>
 
     <footer class="px-5 py-3 border-t border-mm-border flex items-center justify-between">
-      <span class="text-2xs text-mm-tertiary">Không có test-connection giả hoặc OAuth timer trong UI.</span>
+      <span class="text-2xs text-mm-tertiary">Cấu hình được áp dụng trực tiếp qua API của Crush.</span>
       <div class="flex gap-2">
         <button type="button" class="btn-notion px-3 py-1.5 text-xs" onclick={onClose}>Hủy</button>
         <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={!selectedProvider || !selectedModel} onclick={save}>Lưu & áp dụng</button>
       </div>
     </footer>
-  </section>
+  </div>
 </div>
 
 <style>
@@ -188,7 +278,7 @@
   .field { width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-text); font-size: 12px; outline: none; }
   .field:focus { border-color: var(--mm-accent); }
   .hint { margin: -3px 0 0; font-size: 11px; line-height: 1.5; color: var(--mm-tertiary); }
-  .notice { padding: 9px 10px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); font-size: 11px; line-height: 1.5; }
+  .notice { padding: 9px 10px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); font-size: 11px; line-height: 1.5; display: grid; gap: 4px; }
   .option-btn { padding: 8px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); font-size: 12px; }
   .option-btn.active { border-color: var(--mm-accent); color: var(--mm-text); box-shadow: 0 0 0 1px var(--mm-accent); }
   .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 0; font-size: 12px; color: var(--mm-text); }

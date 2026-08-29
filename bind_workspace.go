@@ -50,6 +50,7 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 			AutostartEngine: a.cfg.AutostartEngine,
 			Provider:        a.cfg.Provider,
 			Model:           a.cfg.Model,
+			SmallModel:      a.cfg.SmallModel,
 			Thinking:        a.cfg.Thinking,
 			CustomURL:       a.cfg.CustomURL,
 		}
@@ -59,6 +60,8 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 		cancel()
 	}
 	a.startStream(streamCtx, desc.WorkspaceID)
+	a.resetZaloSessions()
+	a.registerOfficeTools(desc.WorkspaceID)
 
 	// A saved API key is intentionally not available here: credentials live in
 	// Crush, not Gotack. Model and endpoint settings are safe to replay.

@@ -15,6 +15,7 @@ import (
 
 const (
 	configSetPath         = "/v1/workspaces/{id}/config/set"
+	configRemovePath      = "/v1/workspaces/{id}/config/remove"
 	configModelPath       = "/v1/workspaces/{id}/config/model"
 	configProviderKeyPath = "/v1/workspaces/{id}/config/provider-key"
 )
@@ -93,4 +94,20 @@ func (c *Client) SetConfigField(ctx context.Context, wsID string, scope int, key
 		return fmt.Errorf("crushapi: encode config field: %w", err)
 	}
 	return c.doJSON(ctx, "POST", expandPath(configSetPath, "id", wsID), bytes.NewReader(body), nil)
+}
+
+// RemoveConfigField deletes one Crush config field, for example a registered
+// MCP server entry. Deleting an absent key is not an error server-side.
+func (c *Client) RemoveConfigField(ctx context.Context, wsID string, scope int, key string) error {
+	if wsID == "" || strings.TrimSpace(key) == "" {
+		return errors.New("crushapi: workspace id and config key are required")
+	}
+	body, err := json.Marshal(struct {
+		Scope int    `json:"scope"`
+		Key   string `json:"key"`
+	}{Scope: scope, Key: key})
+	if err != nil {
+		return fmt.Errorf("crushapi: encode config removal: %w", err)
+	}
+	return c.doJSON(ctx, "POST", expandPath(configRemovePath, "id", wsID), bytes.NewReader(body), nil)
 }

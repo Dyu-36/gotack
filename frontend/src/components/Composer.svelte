@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    CRUSH_MODELS,
-    CRUSH_PROVIDERS,
-    REASONING_EFFORT_OPTIONS,
-  } from '../features/conversations/conversation-state.svelte'
+  import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
   import type { ModelType, ReasoningEffort } from '../features/conversations/types'
 
   type Props = {
@@ -23,10 +19,10 @@
 
   let {
     value,
-    modelLabel = 'Qwen 3.7 Plus',
+    modelLabel = 'Model mặc định',
     thinkingLabel = 'Think: High',
     isStreaming = false,
-    selectedModelId = 'qwen3.7-plus',
+    selectedModelId = '',
     selectedThinkingId = 'high',
     onInput,
     onSend,
@@ -45,11 +41,11 @@
   let canSend = $derived(value.trim().length > 0 && !isStreaming)
 
   let filteredModels = $derived(
-    CRUSH_MODELS.filter(
+    catalog.models.filter(
       (m) =>
         m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
         m.id.toLowerCase().includes(modelSearch.toLowerCase()) ||
-        (m.tag && m.tag.toLowerCase().includes(modelSearch.toLowerCase())),
+        (catalog.provider(m.providerId)?.name.toLowerCase().includes(modelSearch.toLowerCase()) ?? false),
     ),
   )
 
@@ -62,6 +58,17 @@
     }
     return map
   })
+
+  function modelMeta(id: string): string {
+    const model = catalog.models.find((m) => m.id === id)
+    if (!model) return ''
+    const parts: string[] = []
+    if (model.context_window && model.context_window >= 1000) parts.push(`${Math.round(model.context_window / 1000)}K context`)
+    if (model.cost_per_1m_in || model.cost_per_1m_out) {
+      parts.push(`$${model.cost_per_1m_in ?? 0}/$${model.cost_per_1m_out ?? 0} per 1M`)
+    }
+    return parts.join(' · ')
+  }
 
   function autoResize() {
     if (!textarea) return
@@ -104,15 +111,8 @@
       ></textarea>
     </div>
 
-    <div class="flex items-center justify-between px-3 pb-3">
+    <div class="flex items-center justify-end px-3 pb-3">
       <div class="flex items-center gap-1">
-        <button type="button" class="flex items-center justify-center w-8 h-8 rounded-lg text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-colors" title="Đính kèm tệp" aria-label="Đính kèm tệp">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-        </button>
-      </div>
-
-      <div class="flex items-center gap-1">
-        <!-- Reasoning / Thinking Selector Menu -->
         <div class="relative">
           <button
             type="button"
@@ -148,12 +148,11 @@
           {/if}
         </div>
 
-        <!-- Model Selector Menu (Crush Switch Model) -->
         <div class="relative">
           <button
             type="button"
             class="mm-model-select flex items-center gap-1.5 px-2 text-xs"
-            onclick={() => { modelMenuOpen = !modelMenuOpen; thinkingMenuOpen = false }}
+            onclick={() => { modelMenuOpen = !modelMenuOpen; thinkingMenuOpen = false; if (catalog.status === 'idle') catalog.refresh() }}
             aria-label="Chọn Model AI"
           >
             <span class="w-2 h-2 rounded-full bg-mm-accent"></span>
@@ -166,8 +165,7 @@
             <div class="menu-pop absolute bottom-full right-0 mb-2 w-80 p-2 z-30 animate-fade-in">
               <div class="flex items-center justify-between px-1 pb-1.5 border-b border-mm-border">
                 <span class="text-2xs uppercase tracking-wider text-mm-tertiary font-bold">Switch Model</span>
-                
-                <!-- Model Type Radio Toggle (Crush Native: Large Task vs Small Task) -->
+
                 <div class="flex items-center gap-1 bg-mm-panel p-0.5 rounded-md border border-mm-border/50 text-2xs">
                   <button
                     type="button"
@@ -204,48 +202,47 @@
               </div>
 
               <div class="max-h-64 overflow-y-auto scroll-stable space-y-2 pr-0.5">
-                {#each [...groupedModels.entries()] as [providerId, models]}
-                  {@const prov = CRUSH_PROVIDERS.find((p) => p.id === providerId)}
-                  <div class="space-y-0.5">
-                    <div class="flex items-center justify-between px-1.5 py-0.5 text-2xs font-semibold text-mm-tertiary uppercase tracking-wider bg-mm-panel/40 rounded">
-                      <span>{prov ? prov.name : providerId}</span>
-                      {#if prov?.badge}
-                        <span class="text-3xs px-1 py-0.2 rounded bg-mm-border/40 text-mm-secondary font-mono">{prov.badge}</span>
-                      {/if}
-                    </div>
+                {#if catalog.status === 'loading'}
+                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Đang tải danh sách model từ Crush...</div>
+                {:else if catalog.status === 'error'}
+                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{catalog.error}</div>
+                {:else}
+                  {#each [...groupedModels.entries()] as [providerId, models] (providerId)}
+                    <div class="space-y-0.5">
+                      <div class="flex items-center justify-between px-1.5 py-0.5 text-2xs font-semibold text-mm-tertiary uppercase tracking-wider bg-mm-panel/40 rounded">
+                        <span>{catalog.provider(providerId)?.name ?? providerId}</span>
+                      </div>
 
-                    {#each models as m (m.id)}
-                      <button
-                        type="button"
-                        class="menu-item flex items-center justify-between group"
-                        class:active={selectedModelId === m.id || modelLabel === m.name}
-                        onclick={() => pickModel(m.id, m.name, m.providerId)}
-                      >
-                        <div class="flex-1 min-w-0 pr-2">
-                          <div class="flex items-center gap-1.5">
-                            <span class="font-medium truncate">{m.name}</span>
-                            {#if m.canReason}
-                              <span class="text-3xs px-1 py-0.2 rounded bg-mm-accent/15 text-mm-accent font-medium">Reasoning</span>
-                            {/if}
-                            {#if m.tag}
-                              <span class="text-3xs px-1 py-0.2 rounded bg-mm-panel border border-mm-border/60 text-mm-tertiary font-mono">{m.tag}</span>
+                      {#each models as m (m.id)}
+                        <button
+                          type="button"
+                          class="menu-item flex items-center justify-between group"
+                          class:active={selectedModelId === m.id || modelLabel === m.name}
+                          onclick={() => pickModel(m.id, m.name, m.providerId)}
+                        >
+                          <div class="flex-1 min-w-0 pr-2">
+                            <div class="flex items-center gap-1.5">
+                              <span class="font-medium truncate">{m.name}</span>
+                              {#if m.can_reason}
+                                <span class="text-3xs px-1 py-0.2 rounded bg-mm-accent/15 text-mm-accent font-medium">Reasoning</span>
+                              {/if}
+                            </div>
+                            {#if modelMeta(m.id)}
+                              <div class="text-2xs text-mm-tertiary truncate mt-0.5">{modelMeta(m.id)}</div>
                             {/if}
                           </div>
-                          {#if m.description}
-                            <div class="text-2xs text-mm-tertiary truncate mt-0.5">{m.description}</div>
+
+                          {#if selectedModelId === m.id || modelLabel === m.name}
+                            <svg class="w-3.5 h-3.5 text-mm-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                           {/if}
-                        </div>
+                        </button>
+                      {/each}
+                    </div>
+                  {/each}
 
-                        {#if selectedModelId === m.id || modelLabel === m.name}
-                          <svg class="w-3.5 h-3.5 text-mm-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                        {/if}
-                      </button>
-                    {/each}
-                  </div>
-                {/each}
-
-                {#if filteredModels.length === 0}
-                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Không tìm thấy model phù hợp</div>
+                  {#if filteredModels.length === 0}
+                    <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Không tìm thấy model phù hợp</div>
+                  {/if}
                 {/if}
               </div>
 
@@ -299,4 +296,3 @@
   }
   .menu-item:hover, .menu-item.active { background: var(--mm-hover); }
 </style>
-

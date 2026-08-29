@@ -12,11 +12,11 @@ A lightweight desktop client for [Crush](https://github.com/charmbracelet/crush)
 
 ## Desktop-specific upgrades
 
-Beyond bringing Crush into a native desktop workflow, `gotack` extends the agent with a small set of capabilities designed specifically for day-to-day desktop use:
+Beyond bringing Crush into a native desktop workflow, `gotack` ships a small set of capabilities designed specifically for day-to-day desktop use:
 
-- **Timetable Skills** — dedicated timetable-generation skills for creating schedules from user constraints, with support for custom rules, preferences, formats, and institution-specific requirements.
-- **Office CLI integration** — built-in workflows for working with Word, Excel, and PowerPoint documents through CLI-based tools, allowing the agent to inspect, generate, and modify office files as part of a normal task.
-- **Zalo integration** — connect `gotack` to Zalo so the local agent can receive requests and return results remotely, making the desktop agent accessible even when the user is away from the computer.
+- **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. The bridge long-polls `getUpdates`, forwards messages from allow-listed chats to the agent (one reusable session per chat), and sends the finished answer back with `sendMessage`, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI.
+- **Office integration** — a bundled `office` MCP server (built from `cmd/office`) registered into the Crush workspace config as `mcp_servers.gotack-office` whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files: `office_info`, `office_read`, `office_create`, `office_edit`.
+- **Live model catalog** — the provider and model pickers are populated from the engine's `GET /v1/workspaces/{id}/providers` catalog (including per-model context windows and costs) instead of a bundled static list; selected large and small models are applied to Crush directly.
 
 ## Stack baseline
 
@@ -35,7 +35,7 @@ This table records intent, so it must be reconciled with `go.mod` and
 | Crush integration | **REST + SSE API** | installed |
 | CodeMirror umbrella package | **6.0.2** | planned, not installed |
 | `@codemirror/view` | **6.43.9** | planned, not installed |
-| `@xterm/xterm` | **6.0.0**, lazy-loaded | planned, not installed |
+| `@xterm/xterm` | **6.0.0**, lazy-loaded | installed |
 
 Notes:
 
@@ -43,7 +43,7 @@ Notes:
 - TypeScript is held at 5.9.x deliberately: TS 7 fails `pnpm check` against the current Svelte tooling (commit `1a67994`). Revisit when `svelte-check` supports it.
 - CodeMirror 6 is split across independently versioned packages. `codemirror@6.0.2` is the umbrella/basic-setup package, while core packages such as `@codemirror/view` have their own current versions.
 - xterm.js beta builds are intentionally excluded from the baseline.
-- The editor and terminal rows are targets for when those features land. Neither package is in `frontend/package.json` yet because both sit outside Milestone 1 (`docs/roadmap.md`).
+- The terminal panel lazy-loads `@xterm/xterm` only when opened; no editor package ships until the editor feature lands.
 - Open deviation: `frontend/package.json` still uses caret ranges for most dev dependencies, which contradicts the "pin exact versions" policy below. Pin them or relax the policy; leaving the two in conflict makes the policy unenforceable.
 
 Version policy:
@@ -136,7 +136,7 @@ Full IDE functionality, complex editor integrations, and heavyweight extensions 
 
 ## Project status
 
-Early development. Architecture and APIs may change while the initial desktop client is being built.
+Release candidate. The desktop client, Zalo connection, and Office integration are implemented and validated; report issues against the tagged releases.
 
 ## Upstream
 

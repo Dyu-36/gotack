@@ -73,10 +73,17 @@ type PermissionSink interface {
 	Pending(req crushapi.PermissionRequest)
 }
 
+// DoneSink receives completed agent runs. Like PermissionSink it is an
+// optional side channel: the UI event still goes out unchanged.
+type DoneSink interface {
+	RunDone(done SessionDonePayload)
+}
+
 type Forwarder struct {
 	log   *slog.Logger
 	emit  Emitter
 	perms PermissionSink
+	done  DoneSink
 	delay time.Duration
 
 	mu      sync.Mutex
@@ -86,11 +93,11 @@ type Forwarder struct {
 	stopped  bool
 }
 
-func NewForwarder(log *slog.Logger, emit Emitter, perms PermissionSink) *Forwarder {
+func NewForwarder(log *slog.Logger, emit Emitter, perms PermissionSink, done DoneSink) *Forwarder {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Forwarder{log: log, emit: emit, perms: perms, delay: coalesceDelay, pending: make(map[string]*pendingMessage)}
+	return &Forwarder{log: log, emit: emit, perms: perms, done: done, delay: coalesceDelay, pending: make(map[string]*pendingMessage)}
 }
 
 func (f *Forwarder) setDelay(d time.Duration) {
@@ -223,7 +230,11 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 	if rc.SessionID != "" {
 		f.emitDeltas(f.drain(rc.SessionID))
 	}
-	f.send(SessionDone, SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled})
+	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
+	if f.done != nil {
+		f.done.RunDone(done)
+	}
+	f.send(SessionDone, done)
 }
 
 func (f *Forwarder) handlePermission(payload json.RawMessage) {

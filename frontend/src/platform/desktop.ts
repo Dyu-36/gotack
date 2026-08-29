@@ -16,11 +16,47 @@ export type SessionInfo = { id: string; title: string; message_count: number; co
 export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; created_at: number }
 export type ChangedFileInfo = { path: string; size: number; updated_at: number }
 
+export type ModelCatalogEntry = {
+  id: string
+  name: string
+  context_window?: number
+  default_max_tokens?: number
+  can_reason: boolean
+  reasoning_levels?: string[]
+  default_reasoning_effort?: string
+  cost_per_1m_in?: number
+  cost_per_1m_out?: number
+}
+
+export type ProviderCatalogEntry = {
+  id: string
+  name: string
+  type?: string
+  api_endpoint?: string
+  default_large_model_id?: string
+  default_small_model_id?: string
+  models: ModelCatalogEntry[]
+}
+
+export type ZaloConfigInfo = { enabled: boolean; allowed_chats: string[]; has_token: boolean }
+export type ZaloConfigUpdate = { enabled: boolean; token?: string; allowed_chats: string[] }
+export type ZaloStatusInfo = {
+  running: boolean
+  bot_name?: string
+  last_error?: string
+  last_chat_id?: string
+  last_sender?: string
+  last_text?: string
+  last_seen_at?: number
+  last_reply_at?: number
+}
+
 export type SettingsInfo = {
   theme: string
   autostart_engine: boolean
   provider: string
   model: string
+  small_model: string
   thinking: string
   api_key: string
   custom_url: string
@@ -81,6 +117,10 @@ type BackendApp = {
   CloseTerminal: (id: string) => Promise<void>
   GetSettings: () => Promise<SettingsInfo>
   SaveSettings: (settings: SettingsInfo) => Promise<void>
+  ListProviders: () => Promise<ProviderCatalogEntry[]>
+  GetZaloConfig: () => Promise<ZaloConfigInfo>
+  SaveZaloConfig: (update: ZaloConfigUpdate) => Promise<ZaloStatusInfo>
+  ZaloStatus: () => Promise<ZaloStatusInfo>
 }
 
 declare global {
@@ -126,4 +166,6 @@ export const desktop = {
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
   openTerminal: (cwd: string) => call('OpenTerminal', cwd), writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data), resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows), closeTerminal: (id: string) => call('CloseTerminal', id),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
+  listProviders: () => call('ListProviders'),
+  getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), zaloStatus: () => call('ZaloStatus'),
 }

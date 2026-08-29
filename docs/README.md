@@ -2,39 +2,22 @@
 
 Start with the smallest authoritative surface.
 
-## Current Product
+## Current Documents
 
+- `../README.md`: product overview, architecture, integrations, stack
+  baseline, and repository layout.
 - `WORKFLOW.md`: request shape, planning, judgment, operation, validation, and
   completion.
-- `ARCHITECTURE.md`: current product, code, state, update, and ownership
-  boundaries.
-- `HARNESS.md`: product principles and installed-core model.
-- `product/`: current product behavior and installation contract.
+- `contracts/wails-bindings.md`: the UI/host boundary (bound methods and
+  events); update it in the same change as the binds.
+- `product/`: current product behavior.
 - `decisions/`: lasting choices future work must inherit.
-- `plans/`: one durable working-memory document for work that needs it.
+- `plans/`: durable working-memory documents; `active/` while in progress,
+  `completed/` after validation.
 - [`patterns/encoding-invariants.md`](patterns/encoding-invariants.md): turn
   accepted architecture, reliability, security, and quality rules into native
   mechanical validation.
-- `templates/`: optional decision, plan, runbook, and Harness-improvement
-  structures.
+- `templates/`: optional decision, plan, and runbook structures.
 
-## Consumer-Owned Truth
-
-The consumer's README, product documents, architecture, code, tests, CI,
-runtime signals, and application behavior remain authoritative. Harness does
-not overwrite those with upstream product assumptions.
-
-## Source Repository
-
-- Root `README.md`: product overview, installation, maintenance, EOL, and
-  development.
-- `crates/harness/`: safe core installer/updater.
-- `scripts/`: platform bootstrap, release, and validation entrypoints.
-- `tests/`: behavior ownership and repository contract.
-
-## History
-
-The former SQLite control plane, protocol v1, story packets, migration evidence,
-and compatibility documentation are preserved by Git history and immutable
-`harness-cli-v*` tags. They are intentionally absent from the current tree so
-search and agent retrieval return current product authority.
+Code, tests, CI, and runtime signals are the executable truth for product
+behavior; these documents describe intent and boundaries.

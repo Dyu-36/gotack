@@ -6,6 +6,6 @@ import "github.com/wailsapp/wails/v2/pkg/runtime"
 // project root. An empty string means the user cancelled the dialog.
 func (a *App) SelectWorkspace() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Chon thu muc workspace",
+		Title: "Chọn thư mục làm việc",
 	})
 }

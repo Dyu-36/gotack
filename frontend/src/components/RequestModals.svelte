@@ -61,7 +61,7 @@
 
 {#if permission}
   <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-sm flex items-center justify-center p-4">
-    <section class="w-full max-w-lg rounded-xl border border-mm-border bg-mm-bg shadow-xl" role="dialog" aria-modal="true" aria-label="Permission request">
+    <div class="w-full max-w-lg rounded-xl border border-mm-border bg-mm-bg shadow-xl" role="dialog" aria-modal="true" aria-label="Permission request">
       <header class="px-5 py-4 border-b border-mm-border">
         <div class="text-xs font-semibold uppercase tracking-wider text-amber-500">Crush permission</div>
         <h2 class="mt-1 text-base font-semibold text-mm-text">{permission.tool_name || 'Tool request'}</h2>
@@ -81,13 +81,13 @@
         <button type="button" class="btn-notion px-3 py-1.5 text-xs" onclick={() => onPermission('allow_session')}>Cho phép trong session</button>
         <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={() => onPermission('allow')}>Cho phép một lần</button>
       </footer>
-    </section>
+    </div>
   </div>
 {/if}
 
 {#if question}
   <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-sm flex items-center justify-center p-4">
-    <section class="w-full max-w-2xl max-h-[88vh] rounded-xl border border-mm-border bg-mm-bg shadow-xl flex flex-col" role="dialog" aria-modal="true" aria-label="Crush questions">
+    <div class="w-full max-w-2xl max-h-[88vh] rounded-xl border border-mm-border bg-mm-bg shadow-xl flex flex-col" role="dialog" aria-modal="true" aria-label="Crush questions">
       <header class="px-5 py-4 border-b border-mm-border shrink-0">
         <div class="text-xs font-semibold uppercase tracking-wider text-mm-accent">Crush question</div>
         <h2 class="mt-1 text-base font-semibold text-mm-text">{question.confirm_title || (question.questions.length > 1 ? 'Cần thêm thông tin' : question.questions[0]?.label || 'Câu hỏi')}</h2>
@@ -134,7 +134,7 @@
       <footer class="px-5 py-3 border-t border-mm-border flex justify-end shrink-0">
         <button type="button" disabled={!canSubmit} class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" onclick={submitQuestions}>Gửi câu trả lời</button>
       </footer>
-    </section>
+    </div>
   </div>
 {/if}
 

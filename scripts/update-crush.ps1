@@ -48,7 +48,7 @@ $requiredMarkers = @(
 
 foreach ($marker in $requiredMarkers) {
     if (-not $serverText.Contains($marker)) {
-        throw "Crush contract marker missing at $Commit: $marker"
+        throw "Crush contract marker missing at ${Commit}: $marker"
     }
 }
 

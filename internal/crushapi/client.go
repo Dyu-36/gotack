@@ -243,11 +243,6 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	// The Crush server's gzip middleware is opt-in per request; advertise
-	// gzip on every call so history/messages endpoints cross the wire at
-	// a fraction of their raw size. The stdlib transport transparently
-	// decompresses the response before our JSON decoder runs.
-	req.Header.Set("Accept-Encoding", "gzip")
 	return c.hc.Do(req)
 }
 
