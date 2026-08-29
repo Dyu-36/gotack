@@ -8,5 +8,12 @@
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "Dyu-36"
+  },
+  "Info": {
+    "companyName": "Dyu-36",
+    "productName": "Gotack",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2026 Dyu-36",
+    "comments": "Gotack desktop shell for Crush"
   }
 }

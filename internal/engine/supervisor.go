@@ -14,16 +14,7 @@ import (
 //
 // Process model: gotack (UI + host) -> crush server as a separate process.
 // Ownership is tracked so an adopted server is never terminated on UI exit.
-//
-// The lifecycle status is owned by App, not here. This file used to keep its
-// own status/lastErr pair behind three getters, but nothing outside the package
-// ever read them: App already holds a.status and a.lastError and is what emits
-// engine:status to the UI. A second copy of the same state machine could only
-// drift, so it is gone and the Status type below is purely shared vocabulary.
 
-// Status reports the engine lifecycle. The string values are part of the
-// public contract: the UI binds to them through internal/uievents
-// EngineStatus events.
 type Status string
 
 const (
@@ -33,9 +24,6 @@ const (
 	StatusError    Status = "error"
 )
 
-// Supervisor owns the optional crush child process started by this host. All
-// exported methods are safe for concurrent use; mu guards cmd, owned and the
-// endpoint the child was launched on or adopted at.
 type Supervisor struct {
 	log    *slog.Logger
 	binary string
@@ -46,40 +34,27 @@ type Supervisor struct {
 	endpoint crushapi.Endpoint
 }
 
-// NewSupervisor returns a Supervisor that will launch `binary` (or "crush"
-// when binary is empty, resolved against PATH) as `binary server`. The logger
-// is used for lifecycle events; passing nil is tolerated and discards output.
+// NewSupervisor returns a Supervisor. EngineBinary is an explicit override;
+// otherwise the release resolver prefers bundled resources/crush(.exe) and
+// falls back to an externally installed crush on PATH.
 func NewSupervisor(log *slog.Logger, binary string) *Supervisor {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
 	if binary == "" {
-		binary = "crush"
+		binary = defaultBinary()
 	}
-	return &Supervisor{
-		log:    log,
-		binary: binary,
-	}
+	return &Supervisor{log: log, binary: binary}
 }
 
-// Owned reports whether the supervisor has launched a child process itself.
-// Adopted servers (found via Locate) are not owned and must not be killed.
 func (s *Supervisor) Owned() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.owned
 }
 
-// Start launches `<binary> server` as a child process and returns the endpoint
-// it expects to listen on. The child is recorded as owned; Stop will terminate
-// the process tree. Already-started instances return an error together with
-// the endpoint already in use.
-//
-// Start takes no context on purpose. The child's lifetime belongs to Stop, not
-// to whichever attach attempt happened to launch it. Binding it to a
-// cancellable attach scope through exec.CommandContext would let a Reconnect
-// kill a healthy engine mid-run, which is exactly what the two-process model
-// exists to prevent.
+// Start launches `<binary> server` as a child process. The child lifetime is
+// owned by this supervisor and is not tied to an attach/reconnect context.
 func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	s.mu.Lock()
 	if s.cmd != nil && s.cmd.Process != nil {
@@ -93,7 +68,6 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	ep := appconfig.PipeEndpoint()
 	cmd := exec.Command(bin, "server")
 	configureProcAttr(cmd)
-	// Spec: capture nothing -- the child writes its own log file.
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
@@ -111,26 +85,23 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	return ep, nil
 }
 
-// Stop terminates the owned child process tree, if any. It is a no-op for
-// adopted servers and safe to call multiple times.
+// Stop terminates the owned child process tree, if any. Adopted servers never
+// populate cmd/owned and therefore cannot be killed by Gotack shutdown.
 func (s *Supervisor) Stop() error {
 	s.mu.Lock()
 	cmd := s.cmd
-	if cmd == nil || cmd.Process == nil {
+	if cmd == nil || cmd.Process == nil || !s.owned {
 		s.mu.Unlock()
 		return nil
 	}
-	// Detach the cmd under the same lock that read it, so a concurrent Stop or
-	// Start cannot act on the same process.
 	s.cmd = nil
+	s.owned = false
 	s.mu.Unlock()
 
 	if err := killTree(cmd); err != nil {
-		// Fall back to a plain kill: best-effort cleanup.
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("engine: stop: %w", err)
 	}
-	// Reap synchronously so the process does not linger as a zombie.
 	_, _ = cmd.Process.Wait()
 	return nil
 }

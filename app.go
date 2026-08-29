@@ -18,16 +18,7 @@ import (
 )
 
 // app.go -- role: Wails application object, lifecycle and service wiring.
-//
 // App is the only struct bound into the UI, reachable as window.go.main.App.*
-// It must stay in package main because frontend/src/platform/desktop.ts targets
-// the main binding namespace.
-//
-// App owns wiring only. Behaviour lives in internal/:
-//
-//	internal/engine    Crush server process lifecycle
-//	internal/crushapi  REST + SSE client to the Crush server
-//	internal/uievents  engine events forwarded to the UI
 type App struct {
 	ctx context.Context
 
@@ -51,9 +42,6 @@ type App struct {
 	cancelStream context.CancelFunc
 }
 
-// NewApp wires the parts that need nothing from the runtime. The permission
-// relay is one of them, so it belongs here rather than in startup: a.perms is
-// then non-nil for the whole life of the App and no caller needs a nil case.
 func NewApp() *App {
 	return &App{
 		status: engine.StatusStopped,
@@ -61,7 +49,6 @@ func NewApp() *App {
 	}
 }
 
-// startup runs once the Wails runtime is ready.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
@@ -79,6 +66,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
+	// Constructing the service performs no I/O; PTYs remain lazy until the UI
+	// explicitly opens the terminal panel.
 	a.term = terminal.New(a.log, a.emit)
 
 	a.setStatus(engine.StatusStopped)
@@ -87,16 +76,22 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-// shutdown tears down owned resources when the window closes.
+// shutdown tears down every resource owned by the desktop host. Adopted Crush
+// servers are deliberately left running; only a child launched by this
+// Supervisor can be terminated by Supervisor.Stop.
 func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
 	cancel := a.cancelStream
 	sup := a.sup
+	term := a.term
 	cfg := a.cfg
 	a.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
+	}
+	if term != nil {
+		term.CloseAll()
 	}
 	if sup != nil {
 		_ = sup.Stop() // adopted servers are never killed

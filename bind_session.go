@@ -5,7 +5,6 @@ import (
 )
 
 // bind_session.go -- role: Wails-bound API for sessions and prompts.
-//
 
 // SessionInfo is the JSON shape of a session row for the sidebar.
 type SessionInfo struct {
@@ -25,11 +24,8 @@ type MessageInfo struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-// ListSessions lists sessions of the active workspace.
-
-// setCurrentSessionBestEffort marks sessionID as this client's active
-// session in the engine. It needs an attached workspace stream; failures are
-// logged and ignored because presence is advisory, never load-bearing.
+// setCurrentSessionBestEffort marks sessionID as this client's active session
+// in the engine. Presence is advisory, never load-bearing.
 func (a *App) setCurrentSessionBestEffort(sessionID string) {
 	a.mu.RLock()
 	api := a.api
@@ -82,11 +78,37 @@ func (a *App) CreateSession(title string) (SessionInfo, error) {
 		return SessionInfo{}, err
 	}
 	a.setCurrentSessionBestEffort(s.ID)
+	return SessionInfo{ID: s.ID, Title: s.Title, UpdatedAt: s.UpdatedAt}, nil
+}
+
+// RenameSession persists a title change in Crush and returns the refreshed row.
+func (a *App) RenameSession(id, title string) (SessionInfo, error) {
+	svc, err := a.services()
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	s, err := svc.sess.Rename(a.ctx, id, title)
+	if err != nil {
+		return SessionInfo{}, err
+	}
 	return SessionInfo{
-		ID:        s.ID,
-		Title:     s.Title,
-		UpdatedAt: s.UpdatedAt,
+		ID:           s.ID,
+		Title:        s.Title,
+		MessageCount: s.MessageCount,
+		Cost:         s.Cost,
+		UpdatedAt:    s.UpdatedAt,
+		IsBusy:       s.IsBusy,
 	}, nil
+}
+
+// DeleteSession removes the session from Crush. If it was current, the UI
+// selects another session and calls SwitchSession afterwards.
+func (a *App) DeleteSession(id string) error {
+	svc, err := a.services()
+	if err != nil {
+		return err
+	}
+	return svc.sess.Delete(a.ctx, id)
 }
 
 // SwitchSession sets the active session in the engine.
@@ -96,7 +118,7 @@ func (a *App) SwitchSession(id string) error {
 }
 
 // SessionMessages replays history for the first render. Text parts are
-// concatenated; tool activity is delivered live via tool:activity instead.
+// concatenated; live tool activity arrives via tool:activity.
 func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -119,8 +141,7 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	return out, nil
 }
 
-// SendPrompt starts an agent turn and returns the run ID used to correlate
-// the terminal session:done event.
+// SendPrompt starts an agent turn and returns the run ID.
 func (a *App) SendPrompt(id, text string) (string, error) {
 	svc, err := a.services()
 	if err != nil {

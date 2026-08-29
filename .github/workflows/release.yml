@@ -1,13 +1,12 @@
-name: CI
+name: Release
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CRUSH_COMMIT: 6d14dd93a9e526505f7de54ae5999431bc32a793
@@ -15,76 +14,58 @@ env:
   PNPM_VERSION: 11.20.0
 
 jobs:
-  go:
-    name: Go test and vet
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Test
-        run: go test ./...
-      - name: Vet
-        run: go vet ./...
-
-  frontend:
-    name: Frontend check and build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Check frontend
-        run: pnpm --filter gotack-frontend check
-      - name: Build frontend
-        run: pnpm --filter gotack-frontend build
-
-  windows:
-    name: Windows Wails portable build
+  windows-portable:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Validate tag matches product version
+        shell: pwsh
+        run: |
+          $productVersion = (Get-Content wails.json -Raw | ConvertFrom-Json).Info.productVersion
+          $expected = "v$productVersion"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "Release tag $env:GITHUB_REF_NAME does not match wails.json productVersion $productVersion"
+          }
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - name: Install frontend dependencies
+
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Wails CLI
+
+      - name: Verify source
         shell: pwsh
+        run: |
+          go test ./...
+          go vet ./...
+          pnpm --filter gotack-frontend check
+          pnpm --filter gotack-frontend build
+
+      - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
       - name: Build Gotack
         shell: pwsh
-        run: wails build -platform windows/amd64 -clean
+        run: wails build -platform windows/amd64 -clean -webview2 download
+
       - name: Build pinned Crush
         shell: pwsh
         run: |
@@ -94,17 +75,20 @@ jobs:
           Push-Location "$env:RUNNER_TEMP\crush"
           go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\crush.exe" .
           Pop-Location
-      - name: Assemble portable directory
+
+      - name: Assemble portable ZIP
         shell: pwsh
         run: |
-          $out = 'artifacts\gotack-windows-amd64'
+          $name = "gotack-$env:GITHUB_REF_NAME-windows-amd64"
+          $out = "artifacts\$name"
           New-Item -ItemType Directory -Force "$out\resources" | Out-Null
           Copy-Item build\bin\gotack.exe "$out\gotack.exe"
           Copy-Item build\bin\resources\crush.exe "$out\resources\crush.exe"
           Copy-Item build\windows\README.md "$out\README.txt"
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gotack-windows-amd64
-          path: artifacts/gotack-windows-amd64
-          if-no-files-found: error
+          Compress-Archive -Path "$out\*" -DestinationPath "artifacts\$name.zip"
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" "artifacts\gotack-$env:GITHUB_REF_NAME-windows-amd64.zip" --verify-tag --generate-notes --title "Gotack $env:GITHUB_REF_NAME"
