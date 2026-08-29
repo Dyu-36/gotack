@@ -1,5 +1,5 @@
 import { desktop, type ModelCatalogEntry, type ProviderCatalogEntry } from '../../platform/desktop'
-import type { ReasoningEffort } from './types'
+import type { ReasoningEffort } from './types.svelte'
 
 // catalog.svelte.ts -- role: the live provider and model catalog fetched from
 // the Crush engine, plus the reasoning-effort vocabulary. Module-level state

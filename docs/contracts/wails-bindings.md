@@ -71,7 +71,7 @@ mirrored by the `events` map in `desktop.ts`.
 | --- | --- | --- |
 | `GetSettings()` | `SettingsInfo` | `api_key` is always empty (write-only). |
 | `SaveSettings(settings)` | `error` | Applies provider/model/thinking/credential through the Crush REST API. `small_model` selects the small-task model. |
-| `ListProviders()` | `Provider[]` | Live catwalk catalog for the open workspace; requires the engine and a workspace. |
+| `ListProviders()` | `Provider[]` | Live catwalk catalog for the open workspace. Without one, the host uses a private catalog workspace and does not change `CurrentWorkspace()`. Requires the engine. |
 
 ### Zalo connection
 
@@ -90,7 +90,7 @@ chat when the agent run it started completes.
 | Event | Payload |
 | --- | --- |
 | `engine:status` | `EngineInfo` |
-| `session:delta` | `{session_id, message_id, text, append}` |
+| `session:delta` | `{session_id, message_id, text, append, seq}` — `seq` starts at 1 per message; a gap forces a frontend resync from `text` |
 | `session:done` | `{session_id, text?, error?, cancelled}` |
 | `tool:activity` | `{session_id, name, input, finished, tool_call_id}` |
 | `permission:request` | `PermissionRequest` |

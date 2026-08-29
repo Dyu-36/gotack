@@ -1,13 +1,23 @@
 export type MessageRole = 'user' | 'assistant'
 
-export type Message = {
-  id?: string
-  role: MessageRole
-  content: string
-  kind?: 'message' | 'tool'
+export class ChatMessage {
+  readonly id: string
+  readonly role: MessageRole
+  content = $state('')
+  seq = 0
+  kind: 'message' | 'tool' = 'message'
   toolName?: string
   toolFinished?: boolean
+
+  constructor(id: string, role: MessageRole) {
+    this.id = id
+    this.role = role
+  }
 }
+
+// Backwards-compatible alias so callers using the plain `Message` type
+// continue to typecheck while the array now holds ChatMessage instances.
+export type Message = ChatMessage
 
 export type ConversationStatus = 'idle' | 'streaming'
 

@@ -94,6 +94,8 @@
     question={conversations.question}
     onPermission={(decision) => void conversations.answerPermission(decision)}
     onQuestion={(answers) => void conversations.answerQuestion(answers)}
+    secondsLeft={conversations.permissionSecondsLeft}
+    expired={conversations.permissionExpired}
   />
 
   {#if settingsOpen}

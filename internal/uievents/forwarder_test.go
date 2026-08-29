@@ -81,6 +81,14 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 	if len(deltas) > 3 {
 		t.Fatalf("coalescing failed: %d deltas for 4 updates", len(deltas))
 	}
+	// Every coalesced flush of the same message must carry a strictly
+	// increasing seq starting at 1, so the frontend can detect a gap.
+	for i, ev := range deltas {
+		p := ev.data.(SessionDeltaPayload)
+		if p.Seq != int64(i+1) {
+			t.Fatalf("deltas[%d].Seq = %d, want %d", i, p.Seq, i+1)
+		}
+	}
 	last := deltas[len(deltas)-1].data.(SessionDeltaPayload)
 	if last.Text != "Hello world" || last.MessageID != "m1" || last.SessionID != "s1" {
 		t.Fatalf("final delta = %+v", last)
@@ -90,6 +98,9 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 	// the field keep working; new clients can swap to append-only.
 	if last.Append != "Hello world" {
 		t.Fatalf("first-flush append = %q want %q", last.Append, "Hello world")
+	}
+	if last.Seq < 1 {
+		t.Fatalf("final delta seq = %d, want >= 1", last.Seq)
 	}
 }
 
@@ -118,7 +129,9 @@ func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	if got := deltas[0].data.(SessionDeltaPayload).Append; got != "final words" {
 		t.Fatalf("drain append = %q want %q", got, "final words")
 	}
-
+	if got := deltas[0].data.(SessionDeltaPayload).Seq; got != 1 {
+		t.Fatalf("drain seq = %d, want 1 (first delta for new message)", got)
+	}
 	dones := c.of(SessionDone)
 	if len(dones) != 1 {
 		t.Fatalf("expected exactly one done event, got %d", len(dones))
@@ -180,11 +193,27 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 	if first.Append != "Hello" {
 		t.Fatalf("first append = %q want %q", first.Append, "Hello")
 	}
+	if first.Seq != 1 {
+		t.Fatalf("first delta seq = %d, want 1", first.Seq)
+	}
+	// The seq must be strictly increasing across all flushes of the same
+	// message; that monotonicity is what applyDelta uses to decide
+	// between append and resync.
+	for i := 1; i < len(deltas); i++ {
+		prev := deltas[i-1].data.(SessionDeltaPayload)
+		cur := deltas[i].data.(SessionDeltaPayload)
+		if cur.Seq != prev.Seq+1 {
+			t.Fatalf("deltas[%d].Seq = %d, want %d", i, cur.Seq, prev.Seq+1)
+		}
+	}
 	last := deltas[len(deltas)-1].data.(SessionDeltaPayload)
 	if last.Append != " world" {
 		t.Fatalf("last append = %q want %q", last.Append, " world")
 	}
 	if last.Text != "Hello world" {
 		t.Fatalf("last full text = %q want %q", last.Text, "Hello world")
+	}
+	if last.Seq != int64(len(deltas)) {
+		t.Fatalf("last delta seq = %d, want %d", last.Seq, len(deltas))
 	}
 }

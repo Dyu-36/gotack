@@ -15,8 +15,6 @@ type WorkspaceInfo struct {
 
 // ListRecentWorkspaces returns remembered project roots, most recent first.
 func (a *App) ListRecentWorkspaces() []string {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
 	if a.cfg == nil {
 		return nil
 	}
@@ -38,11 +36,11 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 		return WorkspaceInfo{}, err
 	}
 
-	a.mu.Lock()
-	appconfig.AddRecentWorkspace(a.cfg, desc.Path)
-	cancel := a.cancelStream
-	streamCtx, cancelNew := context.WithCancel(a.ctx)
-	a.cancelStream = cancelNew
+	if a.cfg != nil {
+		appconfig.AddRecentWorkspace(a.cfg, desc.Path)
+	}
+	var cancel context.CancelFunc
+	var streamCtx context.Context
 	var saved SettingsInfo
 	if a.cfg != nil {
 		saved = SettingsInfo{
@@ -55,11 +53,19 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 			CustomURL:       a.cfg.CustomURL,
 		}
 	}
-	a.mu.Unlock()
+	if a.getConn() != nil {
+		a.swapConn(func(c *conn) *conn {
+			cancel = c.cancelStream
+			streamCtx, c.cancelStream = context.WithCancel(a.ctx)
+			return c
+		})
+	}
 	if cancel != nil {
 		cancel()
 	}
-	a.startStream(streamCtx, desc.WorkspaceID)
+	if streamCtx != nil {
+		a.startStream(streamCtx, desc.WorkspaceID)
+	}
 	a.resetZaloSessions()
 	a.registerOfficeTools(desc.WorkspaceID)
 
@@ -74,13 +80,11 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 
 // CurrentWorkspace returns the active workspace or null when none is attached.
 func (a *App) CurrentWorkspace() *WorkspaceInfo {
-	a.mu.RLock()
-	ws := a.ws
-	a.mu.RUnlock()
-	if ws == nil {
+	c := a.getConn()
+	if c == nil || c.ws == nil {
 		return nil
 	}
-	desc, ok := ws.Current()
+	desc, ok := c.ws.Current()
 	if !ok {
 		return nil
 	}

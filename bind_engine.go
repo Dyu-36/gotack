@@ -9,6 +9,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -31,13 +32,20 @@ type EngineInfo struct {
 	Error    string `json:"error,omitempty"`
 }
 
+// engineInfoLocked reports the current engine state from a *conn snapshot.
+// Callers must hold either a direct pointer returned by getConn() (read-only)
+// or be inside a swapConn mutate closure where they own the copy.
 func (a *App) engineInfoLocked() EngineInfo {
+	c := a.getConn()
 	info := EngineInfo{
-		Status:   string(a.status),
-		Running:  a.status == engine.StatusRunning,
-		Endpoint: a.ep.Address,
-		Version:  a.version,
-		Error:    a.lastError,
+		Status: string(engine.StatusStopped),
+	}
+	if c != nil {
+		info.Status = string(c.status)
+		info.Running = c.status == engine.StatusRunning
+		info.Endpoint = c.ep.Address
+		info.Version = c.version
+		info.Error = c.lastError
 	}
 	if a.sup != nil {
 		info.Owned = a.sup.Owned()
@@ -47,8 +55,6 @@ func (a *App) engineInfoLocked() EngineInfo {
 
 // EngineStatus returns the current engine state without side effects.
 func (a *App) EngineStatus() EngineInfo {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
 	return a.engineInfoLocked()
 }
 
@@ -81,24 +87,36 @@ func (a *App) ReconnectEngine() error {
 }
 
 func (a *App) tryConnect() bool {
-	a.mu.Lock()
-	if a.status == engine.StatusRunning || a.status == engine.StatusStarting {
-		a.mu.Unlock()
+	if a.getConn() == nil {
 		return false
 	}
-	prev := a.cancelStream
-	ctx, cancel := context.WithCancel(context.Background())
-	a.cancelStream = cancel
-	a.status = engine.StatusStarting
-	a.lastError = ""
-	info := a.engineInfoLocked()
-	a.mu.Unlock()
-
+	var prev context.CancelFunc
+	var attachCtx context.Context
+	var info EngineInfo
+	var started bool
+	a.swapConn(func(c *conn) *conn {
+		if c.status == engine.StatusRunning || c.status == engine.StatusStarting {
+			return c
+		}
+		prev = c.cancelStream
+		ctx, cancel := context.WithCancel(context.Background())
+		c.cancelStream = cancel
+		c.attachCtx = ctx
+		c.status = engine.StatusStarting
+		c.lastError = ""
+		info = a.engineInfoLocked()
+		attachCtx = ctx
+		started = true
+		return c
+	})
+	if !started {
+		return false
+	}
 	if prev != nil {
 		prev()
 	}
 	a.emit(uievents.EngineStatus, info)
-	go a.connect(ctx)
+	go a.connect(attachCtx)
 	return true
 }
 
@@ -132,40 +150,81 @@ func (a *App) connect(ctx context.Context) {
 		return
 	}
 
-	fwd := uievents.NewForwarder(a.log, a.emit, a.perms, a)
+	fwd := uievents.NewForwarder(a.log, a.emit, a.permsFromConn(), a)
 	ws := workspace.NewService(api)
 	sess := session.NewService(api, ws)
 	diffs := changes.NewService(api, ws)
 
-	a.mu.Lock()
-	if ctx.Err() != nil {
-		a.mu.Unlock()
+	if !a.commitAttach(ctx, api, fwd, ws, sess, diffs, ep, vi.Version) {
 		return
 	}
-	a.api = api
-	a.fwd = fwd
-	a.ws = ws
-	a.sess = sess
-	a.diffs = diffs
-	a.ep = ep
-	a.version = vi.Version
-	a.lastError = ""
-	a.mu.Unlock()
 
 	a.log.Info("engine connected", "endpoint", ep.Address, "version", vi.Version, "owned", a.sup.Owned())
 	a.setStatus(engine.StatusRunning)
 	a.startZaloBridge()
 }
 
+// commitAttach writes the freshly built services into the current conn, but
+// only if the attach scope is still current. The ctx.Err() guard mirrors the
+// original lock-window check: a stopTransport that ran while we were dialing
+// must not clobber the new state with services tied to a dead context.
+func (a *App) commitAttach(
+	ctx context.Context,
+	api *crushapi.Client,
+	fwd *uievents.Forwarder,
+	ws *workspace.Service,
+	sess *session.Service,
+	diffs *changes.Service,
+	ep crushapi.Endpoint,
+	version string,
+) bool {
+	if a.getConn() == nil {
+		return false
+	}
+	var stillCurrent bool
+	a.swapConn(func(c *conn) *conn {
+		if ctx.Err() != nil {
+			return c
+		}
+		c.api = api
+		c.fwd = fwd
+		c.ws = ws
+		c.sess = sess
+		c.diffs = diffs
+		c.ep = ep
+		c.version = version
+		c.lastError = ""
+		stillCurrent = true
+		return c
+	})
+	return stillCurrent
+}
+
+// permsFromConn returns the permission relay from the current conn. The
+// permission relay lives inside the conn pointer because the assignment moves
+// the dynamic fields off App; it is built in NewApp and never replaced, so a
+// nil conn here only happens before startup completed.
+func (a *App) permsFromConn() *permission.Relay {
+	if c := a.getConn(); c != nil {
+		return c.perms
+	}
+	return nil
+}
+
 func (a *App) failConnect(msg string) {
 	if a.log != nil {
 		a.log.Error("engine connect failed", "reason", msg)
 	}
-	a.mu.Lock()
-	a.lastError = msg
-	a.status = engine.StatusError
-	info := a.engineInfoLocked()
-	a.mu.Unlock()
+	if a.getConn() == nil {
+		return
+	}
+	var info EngineInfo
+	a.swapConn(func(c *conn) *conn {
+		c.lastError = msg
+		c.status = engine.StatusError
+		info = a.engineInfoLocked()
+		return c
+	})
 	a.emit(uievents.EngineStatus, info)
 }
 
@@ -176,15 +235,24 @@ func (a *App) transportLost(ctx context.Context, msg string) {
 	if ctx.Err() != nil {
 		return
 	}
-	a.mu.Lock()
-	if a.status != engine.StatusRunning {
-		a.mu.Unlock()
+	if a.getConn() == nil {
 		return
 	}
-	a.status = engine.StatusError
-	a.lastError = msg
-	info := a.engineInfoLocked()
-	a.mu.Unlock()
+	var info EngineInfo
+	var changed bool
+	a.swapConn(func(c *conn) *conn {
+		if c.status != engine.StatusRunning {
+			return c
+		}
+		c.status = engine.StatusError
+		c.lastError = msg
+		info = a.engineInfoLocked()
+		changed = true
+		return c
+	})
+	if !changed {
+		return
+	}
 	if a.log != nil {
 		a.log.Warn("engine transport lost", "reason", msg)
 	}
@@ -196,16 +264,17 @@ func (a *App) transportLost(ctx context.Context, msg string) {
 // to engine:error so the frontend backoff loop can reconnect instead of
 // silently freezing with the last token on screen.
 func (a *App) startStream(ctx context.Context, workspaceID string) {
-	a.mu.RLock()
-	api := a.api
-	fwd := a.fwd
-	a.mu.RUnlock()
-	if api == nil || fwd == nil {
+	c := a.getConn()
+	if c == nil || c.api == nil || c.fwd == nil {
 		a.transportLost(ctx, "event stream unavailable: transport not wired")
 		return
 	}
+	api := c.api
+	fwd := c.fwd
 
-	events, stop, err := api.Stream(ctx, workspaceID)
+	events, stop, err := api.Stream(ctx, workspaceID,
+		"message", "run_complete", "permission_request", "question_batch_request", "file",
+	)
 	if err != nil {
 		a.transportLost(ctx, fmt.Sprintf("event stream attach failed: %v", err))
 		return
@@ -226,16 +295,27 @@ func (a *App) startStream(ctx context.Context, workspaceID string) {
 // stopTransport drops the wired services, cancels the attach scope and then
 // reports the engine as stopped.
 func (a *App) stopTransport() {
-	a.mu.Lock()
-	cancel := a.cancelStream
-	a.cancelStream = nil
-	fwd := a.fwd
-	a.fwd = nil
-	a.api = nil
-	a.ws = nil
-	a.sess = nil
-	a.diffs = nil
-	a.mu.Unlock()
+	if a.getConn() == nil {
+		return
+	}
+	var cancel context.CancelFunc
+	var fwd *uievents.Forwarder
+	a.swapConn(func(c *conn) *conn {
+		cancel = c.cancelStream
+		c.cancelStream = nil
+		c.attachCtx = nil
+		fwd = c.fwd
+		c.api = nil
+		c.fwd = nil
+		c.ws = nil
+		c.sess = nil
+		c.diffs = nil
+		c.ep = crushapi.Endpoint{}
+		c.version = ""
+		c.status = engine.StatusStopped
+		c.lastError = ""
+		return c
+	})
 	if cancel != nil {
 		cancel()
 	}
@@ -254,10 +334,9 @@ type bridgeServices struct {
 }
 
 func (a *App) services() (*bridgeServices, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.api == nil || a.ws == nil || a.sess == nil || a.status != engine.StatusRunning {
+	c := a.getConn()
+	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || c.status != engine.StatusRunning {
 		return nil, errors.New("engine is not running")
 	}
-	return &bridgeServices{api: a.api, ws: a.ws, sess: a.sess, diffs: a.diffs}, nil
+	return &bridgeServices{api: c.api, ws: c.ws, sess: c.sess, diffs: c.diffs}, nil
 }

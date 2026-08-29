@@ -34,32 +34,27 @@ type ZaloConfigUpdate struct {
 
 // GetZaloConfig returns the current Zalo connection settings.
 func (a *App) GetZaloConfig() ZaloConfigInfo {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	cfg := a.cfg
-	if cfg == nil {
+	if a.cfg == nil {
 		return ZaloConfigInfo{AllowedChats: []string{}}
 	}
-	chats := cfg.Zalo.AllowedChats
+	chats := a.cfg.Zalo.AllowedChats
 	if chats == nil {
 		chats = []string{}
 	}
 	return ZaloConfigInfo{
-		Enabled:      cfg.Zalo.Enabled,
+		Enabled:      a.cfg.Zalo.Enabled,
 		AllowedChats: chats,
-		HasToken:     strings.TrimSpace(cfg.Zalo.Token) != "",
+		HasToken:     strings.TrimSpace(a.cfg.Zalo.Token) != "",
 	}
 }
 
 // SaveZaloConfig persists the connection, validates the bot token with getMe,
 // and restarts the bridge to match the new configuration.
 func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (zalo.Status, error) {
-	a.mu.RLock()
 	stored := ""
 	if a.cfg != nil {
 		stored = a.cfg.Zalo.Token
 	}
-	a.mu.RUnlock()
 
 	token := stored
 	if strings.TrimSpace(update.Token) != "" {
@@ -83,7 +78,6 @@ func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (zalo.Status, error) {
 		}
 	}
 
-	a.mu.Lock()
 	if a.cfg == nil {
 		a.cfg = appconfig.Defaults()
 	}
@@ -91,7 +85,6 @@ func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (zalo.Status, error) {
 	a.cfg.Zalo.Token = token
 	a.cfg.Zalo.AllowedChats = chats
 	cfgCopy := *a.cfg
-	a.mu.Unlock()
 
 	a.stopZaloBridge()
 	if update.Enabled && a.EngineStatus().Running {
@@ -106,11 +99,9 @@ func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (zalo.Status, error) {
 // ZaloStatus reports bridge health, the bot identity, and the most recent
 // inbound message so the user can copy a chat id into the allow list.
 func (a *App) ZaloStatus() zalo.Status {
-	a.mu.RLock()
-	bridge := a.zalo
-	a.mu.RUnlock()
-	if bridge == nil {
+	c := a.getConn()
+	if c == nil || c.zalo == nil {
 		return zalo.Status{}
 	}
-	return bridge.Status()
+	return c.zalo.Status()
 }

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,8 +31,6 @@ type SettingsInfo struct {
 // GetSettings returns non-secret Gotack preferences. Provider credentials are
 // owned by Crush and deliberately never returned to the webview.
 func (a *App) GetSettings() SettingsInfo {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
 	if a.cfg == nil {
 		return SettingsInfo{Theme: "system", AutostartEngine: true}
 	}
@@ -46,21 +46,33 @@ func (a *App) GetSettings() SettingsInfo {
 	}
 }
 
-// ListProviders returns the live provider and model catalog from Crush for
-// the open workspace. The deadline is generous because the engine may refresh
-// its catalog from the network on a cold cache.
+// ListProviders returns the live provider and model catalog from Crush. When
+// no user workspace is open, it uses a private workspace under Gotack's config
+// directory without changing the user's current workspace.
 func (a *App) ListProviders() ([]crushapi.Provider, error) {
 	svc, err := a.services()
 	if err != nil {
 		return nil, err
 	}
-	desc, ok := svc.ws.Current()
-	if !ok {
-		return nil, errors.New("no workspace is open")
-	}
 	ctx, cancel := context.WithTimeout(a.ctx, 90*time.Second)
 	defer cancel()
-	return svc.api.ListProviders(ctx, desc.WorkspaceID)
+
+	var workspaceID string
+	if desc, ok := svc.ws.Current(); ok {
+		workspaceID = desc.WorkspaceID
+	}
+	if workspaceID == "" {
+		catalogPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
+		if err := os.MkdirAll(catalogPath, 0o755); err != nil {
+			return nil, fmt.Errorf("create catalog workspace directory: %w", err)
+		}
+		workspace, err := svc.api.CreateWorkspace(ctx, catalogPath, false)
+		if err != nil {
+			return nil, fmt.Errorf("create catalog workspace: %w", err)
+		}
+		workspaceID = workspace.ID
+	}
+	return svc.api.ListProviders(ctx, workspaceID)
 }
 
 // SaveSettings persists non-secret UI preferences and applies agent-affecting
@@ -72,7 +84,6 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 		return err
 	}
 
-	a.mu.Lock()
 	if a.cfg == nil {
 		a.cfg = appconfig.Defaults()
 	}
@@ -87,7 +98,6 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 	a.cfg.APIKey = "" // scrub any credential persisted by older builds
 	a.cfg.CustomURL = strings.TrimSpace(s.CustomURL)
 	cfgCopy := *a.cfg
-	a.mu.Unlock()
 
 	return appconfig.Save(&cfgCopy)
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
-  import type { ModelType, ReasoningEffort } from '../features/conversations/types'
+  import type { ModelType, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
     value: string
@@ -32,13 +32,17 @@
     onOpenSettings = () => {},
   }: Props = $props()
 
-  let textarea = $state<HTMLTextAreaElement>()
+  let textarea: HTMLTextAreaElement | undefined = $state()
   let modelMenuOpen = $state(false)
   let thinkingMenuOpen = $state(false)
   let modelSearch = $state('')
   let activeModelType = $state<ModelType>('large')
 
   let canSend = $derived(value.trim().length > 0 && !isStreaming)
+
+  export function focus() {
+    textarea?.focus()
+  }
 
   let filteredModels = $derived(
     catalog.models.filter(
@@ -59,9 +63,7 @@
     return map
   })
 
-  function modelMeta(id: string): string {
-    const model = catalog.models.find((m) => m.id === id)
-    if (!model) return ''
+  function modelMeta(model: (typeof filteredModels)[number]): string {
     const parts: string[] = []
     if (model.context_window && model.context_window >= 1000) parts.push(`${Math.round(model.context_window / 1000)}K context`)
     if (model.cost_per_1m_in || model.cost_per_1m_out) {
@@ -214,6 +216,7 @@
                       </div>
 
                       {#each models as m (m.id)}
+                        {@const meta = modelMeta(m)}
                         <button
                           type="button"
                           class="menu-item flex items-center justify-between group"
@@ -227,8 +230,8 @@
                                 <span class="text-3xs px-1 py-0.2 rounded bg-mm-accent/15 text-mm-accent font-medium">Reasoning</span>
                               {/if}
                             </div>
-                            {#if modelMeta(m.id)}
-                              <div class="text-2xs text-mm-tertiary truncate mt-0.5">{modelMeta(m.id)}</div>
+                            {#if meta}
+                              <div class="text-2xs text-mm-tertiary truncate mt-0.5">{meta}</div>
                             {/if}
                           </div>
 

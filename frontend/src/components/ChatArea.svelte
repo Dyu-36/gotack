@@ -1,14 +1,6 @@
 <script lang="ts">
   import Composer from './Composer.svelte'
-  import type { ModelType, ReasoningEffort } from '../features/conversations/types'
-
-  type Message = {
-    role: 'user' | 'assistant'
-    content: string
-    kind?: 'message' | 'tool'
-    toolName?: string
-    toolFinished?: boolean
-  }
+  import type { Message, ModelType, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
     sessionTitle: string
@@ -58,6 +50,14 @@
 
   let isRenaming = $state(false)
   let renameValue = $state('')
+  let renameInput = $state<HTMLInputElement | null>(null)
+  let renameCancelled = false
+  let scroller = $state<HTMLElement | null>(null)
+  let pinned = $state(true)
+  let streamingText = $state('')
+  let composer = $state<Composer | null>(null)
+
+  const STICK_THRESHOLD = 48
 
   const promptCards = [
     { key: 'explain', icon: '⌘', title: 'Giải thích codebase', desc: 'Phân tích kiến trúc, luồng dữ liệu và điểm nóng', prompt: 'Hãy phân tích codebase hiện tại và giải thích kiến trúc, luồng dữ liệu chính và các điểm cần chú ý. ' },
@@ -67,21 +67,58 @@
   ]
 
   function startRename() {
+    renameCancelled = false
     renameValue = sessionTitle
     isRenaming = true
-    queueMicrotask(() => document.getElementById('chat-title-rename')?.focus())
   }
 
   function commitRename() {
+    if (renameCancelled) {
+      isRenaming = false
+      return
+    }
     const next = renameValue.trim()
-    if (next) onRenameSession(next)
+    if (next && next !== sessionTitle) onRenameSession(next)
+    isRenaming = false
+  }
+
+  function cancelRename() {
+    renameCancelled = true
     isRenaming = false
   }
 
   function handleRenameKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter') commitRename()
-    if (event.key === 'Escape') isRenaming = false
+    if (event.key === 'Escape') cancelRename()
   }
+
+  function handleScroll() {
+    if (!scroller) return
+    const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    pinned = distance <= STICK_THRESHOLD
+  }
+
+  function jumpToLatest() {
+    pinned = true
+    if (!scroller) return
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' })
+  }
+
+  $effect(() => {
+    if (isRenaming) renameInput?.select()
+  })
+
+  $effect(() => {
+    if (!pinned || !scroller) return
+    // Track the streaming message tail so we auto-stick while content grows.
+    const lastContent = messages.at(-1)?.content
+    void lastContent
+    void messages.length
+    scroller.scrollTop = scroller.scrollHeight
+  })
 </script>
 
 <div class="flex flex-col h-full min-h-0">
@@ -94,7 +131,7 @@
 
     <div class="flex-1 min-w-0 flex items-center gap-2">
       {#if isRenaming}
-        <input id="chat-title-rename" class="input-inline w-full max-w-xs font-medium" bind:value={renameValue} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
+        <input bind:this={renameInput} class="input-inline w-full max-w-xs font-medium" bind:value={renameValue} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
       {:else}
         <button type="button" class="flex items-center gap-1 text-sm font-medium text-mm-text hover:bg-mm-hover px-2 py-1 rounded-md truncate max-w-xs" onclick={startRename} title="Nhấn để đổi tên">
           <span class="truncate">{sessionTitle}</span>
@@ -125,7 +162,7 @@
         </div>
         <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           {#each promptCards as card (card.key)}
-            <button type="button" class="group relative flex items-start gap-3.5 p-4 rounded-xl bg-mm-panel hover:bg-mm-hover border border-mm-border/70 hover:border-mm-border-strong text-left transition-all duration-150 cursor-pointer shadow-sm hover:shadow-panel" onclick={() => onInput(card.prompt)}>
+            <button type="button" class="group relative flex items-start gap-3.5 p-4 rounded-xl bg-mm-panel hover:bg-mm-hover border border-mm-border/70 hover:border-mm-border-strong text-left transition-all duration-150 cursor-pointer shadow-sm hover:shadow-panel" onclick={() => { onInput(input.trim() ? `${input.trimEnd()}\n${card.prompt}` : card.prompt); composer?.focus() }}>
               <span class="text-xl p-2 rounded-lg bg-mm-bg border border-mm-border/50 shrink-0 leading-none" aria-hidden="true">{card.icon}</span>
               <div class="flex-1 min-w-0 pr-4"><div class="text-sm font-semibold text-mm-text group-hover:text-mm-accent transition-colors">{card.title}</div><div class="text-xs text-mm-secondary mt-1 leading-relaxed">{card.desc}</div></div>
             </button>
@@ -134,9 +171,9 @@
       </div>
     </div>
   {:else}
-    <div class="relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại">
+    <div bind:this={scroller} onscroll={handleScroll} class="messages relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại" aria-live="polite" aria-relevant="additions text" aria-busy={isStreaming}>
       <div class="max-w-3xl mx-auto px-4 pt-6 pb-6 space-y-4">
-        {#each messages as message}
+        {#each messages as message (message.id)}
           {#if message.kind === 'tool'}
             <div class="tool-row" aria-label={`Tool ${message.toolName ?? ''}`}>
               <span class:done={message.toolFinished} class="tool-dot"></span>
@@ -151,13 +188,16 @@
             </article>
           {/if}
         {/each}
-        {#if isStreaming}<div class="message-row"><div class="assistant-mark overflow-hidden p-0.5"><img src="/tack.png" alt="Tack" class="w-full h-full object-contain" /></div><div class="flex items-center gap-1.5 py-2" aria-label="Đang trả lời"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>{/if}
+        {#if isStreaming && !streamingText}<div class="message-row"><div class="assistant-mark overflow-hidden p-0.5"><img src="/tack.png" alt="Tack" class="w-full h-full object-contain" /></div><div class="flex items-center gap-1.5 py-2" aria-label="Đang trả lời"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>{/if}
       </div>
+      {#if !pinned}
+        <button type="button" class="jump-latest" onclick={jumpToLatest}>Xuống tin mới nhất</button>
+      {/if}
     </div>
   {/if}
 
   <div class="shrink-0 pt-2">
-    <Composer value={input} onInput={onInput} onSend={onSend} onStop={onStop} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
+    <Composer bind:this={composer} value={input} onInput={onInput} onSend={onSend} onStop={onStop} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
   </div>
 </div>
 
@@ -175,4 +215,15 @@
   .tool-dot { width: 7px; height: 7px; border-radius: 999px; background: #c89336; flex: 0 0 auto; }
   .tool-dot.done { background: var(--mm-success, #448361); }
   .input-inline { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--mm-accent); border-radius: 5px; background: var(--mm-bg); color: var(--mm-text); font: inherit; outline: none; }
+  .messages { overflow-anchor: none; }
+  .jump-latest { position: sticky; bottom: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--mm-panel); border: 1px solid var(--mm-border); color: var(--mm-text); font-size: 12px; font-weight: 500; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); cursor: pointer; transition: background-color 120ms ease, transform 120ms ease; }
+  .jump-latest:hover { background: var(--mm-hover); }
+  .jump-latest:focus-visible { outline: 2px solid var(--mm-accent); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .messages,
+    .scroll-stable { scroll-behavior: auto !important; }
+    .thinking-dot,
+    .jump-latest { animation-duration: 0ms !important; transition-duration: 0ms !important; }
+  }
 </style>
