@@ -72,8 +72,6 @@ func (a *App) StopEngine() EngineInfo {
 }
 
 // ReconnectEngine re-dials after transport loss without killing the agent.
-// Dropping the transport first is what lets it reuse tryConnect unchanged:
-// the engine reads as stopped by then, so reconnect needs no special case.
 func (a *App) ReconnectEngine() error {
 	a.stopTransport()
 	if !a.tryConnect() {
@@ -82,17 +80,6 @@ func (a *App) ReconnectEngine() error {
 	return nil
 }
 
-// tryConnect claims the attach slot and runs the attach in the background. The
-// claim and the StatusStarting publication happen under a single lock, so two
-// fast clicks can no longer launch two attach goroutines, and with them two
-// engines and two event streams.
-//
-// The context created here is the one cancellation scope for the whole attempt:
-// locate, dial, handshake and the event stream that follows. Storing it as
-// a.cancelStream is what makes stopTransport cancel the attach itself rather
-// than only the stream. Previously connect ran on context.Background(), so a
-// Stop during the handshake let the attach run to completion and then
-// overwrite the status back to running.
 func (a *App) tryConnect() bool {
 	a.mu.Lock()
 	if a.status == engine.StatusRunning || a.status == engine.StatusStarting {
@@ -103,6 +90,7 @@ func (a *App) tryConnect() bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelStream = cancel
 	a.status = engine.StatusStarting
+	a.lastError = ""
 	info := a.engineInfoLocked()
 	a.mu.Unlock()
 
@@ -120,8 +108,6 @@ func (a *App) connect(ctx context.Context) {
 	ep, found := a.sup.Locate(ctx)
 	if !found {
 		var err error
-		// Not ctx-bound: the child must outlive this attach attempt, so its
-		// lifetime is Supervisor.Stop's business.
 		ep, err = a.sup.Start()
 		if err != nil {
 			a.failConnect(fmt.Sprintf("launch engine: %v", err))
@@ -152,9 +138,6 @@ func (a *App) connect(ctx context.Context) {
 	diffs := changes.NewService(api, ws)
 
 	a.mu.Lock()
-	// The attach scope may have been cancelled while we were dialling. Publish
-	// nothing in that case: stopTransport has already reported the stop, and
-	// overwriting it with running is precisely the stale-status bug.
 	if ctx.Err() != nil {
 		a.mu.Unlock()
 		return
@@ -166,19 +149,17 @@ func (a *App) connect(ctx context.Context) {
 	a.diffs = diffs
 	a.ep = ep
 	a.version = vi.Version
+	a.lastError = ""
 	a.mu.Unlock()
-
-	// Re-attach the previous workspace so its sessions survive UI restarts.
-	if desc, ok := ws.Current(); ok {
-		a.startStream(ctx, desc.WorkspaceID)
-	}
 
 	a.log.Info("engine connected", "endpoint", ep.Address, "version", vi.Version, "owned", a.sup.Owned())
 	a.setStatus(engine.StatusRunning)
 }
 
 func (a *App) failConnect(msg string) {
-	a.log.Error("engine connect failed", "reason", msg)
+	if a.log != nil {
+		a.log.Error("engine connect failed", "reason", msg)
+	}
 	a.mu.Lock()
 	a.lastError = msg
 	a.status = engine.StatusError
@@ -187,15 +168,54 @@ func (a *App) failConnect(msg string) {
 	a.emit(uievents.EngineStatus, info)
 }
 
-// startStream subscribes to the workspace SSE channel and forwards it to the
-// UI. One stream per active workspace.
-func (a *App) startStream(ctx context.Context, workspaceID string) {
-	events, stop, err := a.api.Stream(ctx, workspaceID)
-	if err != nil {
-		a.log.Error("stream attach failed", "workspace", workspaceID, "err", err)
+// transportLost marks a live transport unhealthy only if the attach scope is
+// still current. Intentional Stop/Reconnect cancels ctx first and therefore
+// never gets misreported as an error.
+func (a *App) transportLost(ctx context.Context, msg string) {
+	if ctx.Err() != nil {
 		return
 	}
-	go a.fwd.Consume(events)
+	a.mu.Lock()
+	if a.status != engine.StatusRunning {
+		a.mu.Unlock()
+		return
+	}
+	a.status = engine.StatusError
+	a.lastError = msg
+	info := a.engineInfoLocked()
+	a.mu.Unlock()
+	if a.log != nil {
+		a.log.Warn("engine transport lost", "reason", msg)
+	}
+	a.emit(uievents.EngineStatus, info)
+}
+
+// startStream subscribes to the workspace SSE channel and forwards it to the
+// UI. One stream per active workspace. An unexpected stream close is promoted
+// to engine:error so the frontend backoff loop can reconnect instead of
+// silently freezing with the last token on screen.
+func (a *App) startStream(ctx context.Context, workspaceID string) {
+	a.mu.RLock()
+	api := a.api
+	fwd := a.fwd
+	a.mu.RUnlock()
+	if api == nil || fwd == nil {
+		a.transportLost(ctx, "event stream unavailable: transport not wired")
+		return
+	}
+
+	events, stop, err := api.Stream(ctx, workspaceID)
+	if err != nil {
+		a.transportLost(ctx, fmt.Sprintf("event stream attach failed: %v", err))
+		return
+	}
+
+	go func() {
+		fwd.Consume(events)
+		if ctx.Err() == nil {
+			a.transportLost(ctx, "engine event stream disconnected")
+		}
+	}()
 	go func() {
 		<-ctx.Done()
 		stop()
@@ -203,10 +223,7 @@ func (a *App) startStream(ctx context.Context, workspaceID string) {
 }
 
 // stopTransport drops the wired services, cancels the attach scope and then
-// reports the engine as stopped. Owning the status transition here is the
-// reason ReconnectEngine needs no special case, and it removes the old
-// StopEngine two-step where the status could be published separately from the
-// teardown that justified it.
+// reports the engine as stopped.
 func (a *App) stopTransport() {
 	a.mu.Lock()
 	cancel := a.cancelStream
@@ -227,8 +244,6 @@ func (a *App) stopTransport() {
 	a.setStatus(engine.StatusStopped)
 }
 
-// bridgeServices groups the wired services a bound call needs. Nil when the
-// engine is not attached; binds translate that into a user-facing error.
 type bridgeServices struct {
 	api   *crushapi.Client
 	ws    *workspace.Service
