@@ -1,6 +1,4 @@
 # Tooling/search ignore only. These paths remain tracked when applicable.
-# .harness-core/base is the harness merge baseline, not active project source.
-.harness-core/base/
 
 # Generated frontend output is already covered by .gitignore; exclude it from search too.
 frontend/dist/
