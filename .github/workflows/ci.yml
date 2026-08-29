@@ -49,11 +49,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm --dir frontend install --frozen-lockfile
       - name: Check frontend
-        run: pnpm --filter gotack-frontend check
+        run: pnpm --dir frontend check
       - name: Build frontend
-        run: pnpm --filter gotack-frontend build
+        run: pnpm --dir frontend build
 
   windows:
     name: Windows Wails portable build
@@ -78,7 +78,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm --dir frontend install --frozen-lockfile
       - name: Install Wails CLI
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}

@@ -1,5 +1,7 @@
 # Roadmap
 
+Roadmap chỉ giữ phạm vi/milestone cấp sản phẩm. Checklist triển khai chi tiết nằm tại `docs/plans/active/mvp.md`.
+
 ## Mốc 1 - MVP dùng được hằng ngày
 
 - [ ] Vòng đời engine: tìm, khởi chạy, giám sát, dừng đúng chủ sở hữu
