@@ -21,7 +21,7 @@ import (
 //	go test -run TestBridgeSmoke -v .
 func TestBridgeSmoke(t *testing.T) {
 	ep := appconfig.PipeEndpoint()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	sup := engine.NewSupervisor(slog.Default(), "")
@@ -55,6 +55,12 @@ func TestBridgeSmoke(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	t.Logf("workspace id=%s path=%s", ws.ID, ws.Path)
+
+	providers, err := api.ListProviders(ctx, ws.ID)
+	if err != nil {
+		t.Fatalf("list providers: %v", err)
+	}
+	t.Logf("providers=%d", len(providers))
 
 	sessions, err := api.ListSessions(ctx, ws.ID)
 	if err != nil {

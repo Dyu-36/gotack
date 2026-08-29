@@ -1,6 +1,6 @@
 import { toast } from 'svelte-sonner'
 import type { Conversation, Message, ModelType, ReasoningEffort, SessionSummary } from './types'
-import { CRUSH_MODELS, REASONING_EFFORT_OPTIONS } from './conversation-state.svelte'
+import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import {
   desktop,
   events,
@@ -18,7 +18,7 @@ const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const RECONNECT_MAX_MS = 30_000
 
 type QuestionAnswer = { request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }
-type SettingsPayload = { theme: string; autostart_engine: boolean; provider: string; model: string; thinking: string; api_key: string; custom_url: string }
+type SettingsPayload = { theme: string; autostart_engine: boolean; provider: string; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }
 
 export function createLiveConversationState() {
   let conversations = $state<Conversation[]>([])
@@ -31,14 +31,13 @@ export function createLiveConversationState() {
   let permission = $state<PermissionRequestEvent | null>(null)
   let question = $state<QuestionRequestEvent | null>(null)
 
-  let provider = $state('hyper')
-  let model = $state('qwen3.7-plus')
-  let modelLabel = $state('Qwen 3.7 Plus')
-  let smallModel = $state('deepseek-v4-flash-0731')
+  let provider = $state('')
+  let model = $state('')
+  let modelLabel = $state('Model mặc định')
+  let smallModel = $state('')
   let thinking = $state<ReasoningEffort>('high')
   let apiKey = $state('')
   let customUrl = $state('')
-  let customModelId = $state('')
   let autostartEngine = $state(true)
 
   let unsubscribers: Array<() => void> = []
@@ -93,19 +92,24 @@ export function createLiveConversationState() {
     await loadMessages(activeId)
   }
 
+  const attachWorkspace = async (path: string) => {
+    workspace = path
+    await loadSessions()
+    await catalog.refresh()
+    applyLoadedSelection()
+    clearError()
+  }
+
   const openWorkspacePath = async (path: string) => {
     if (!path) return
     const opened = await desktop.openWorkspace(path)
-    workspace = opened.path
-    await loadSessions()
-    clearError()
+    await attachWorkspace(opened.path)
   }
 
   const ensureWorkspace = async () => {
     const current = await desktop.currentWorkspace().catch(() => null)
     if (current?.path) {
-      workspace = current.path
-      await loadSessions()
+      await attachWorkspace(current.path)
       return
     }
     const recent = await desktop.listRecentWorkspaces().catch(() => [])
@@ -139,6 +143,7 @@ export function createLiveConversationState() {
       await ensureWorkspace().catch((cause) => reportError(cause, 'Restore workspace'))
       return
     }
+    catalog.reset()
     if (info.error) error = info.error
     if (info.status === 'error') scheduleReconnect()
   }
@@ -181,18 +186,24 @@ export function createLiveConversationState() {
     ]
   }
 
+  // applyLoadedSelection resolves the stored provider/model against the live
+  // catalog once it is available. Unknown stored ids keep their raw value so
+  // the truth stays visible instead of silently resetting.
+  const applyLoadedSelection = () => {
+    if (provider) modelLabel = catalog.modelName(model, provider) ?? model
+  }
+
   const loadSettings = async () => {
     const s = await desktop.getSettings().catch(() => null)
     if (!s) return
     if (s.provider) provider = s.provider
-    if (s.model) {
-      model = s.model
-      modelLabel = CRUSH_MODELS.find((m) => m.id === model && m.providerId === provider)?.name ?? model
-    }
+    if (s.model) model = s.model
+    if (s.small_model) smallModel = s.small_model
     if (s.thinking) thinking = s.thinking as ReasoningEffort
     autostartEngine = s.autostart_engine
     apiKey = ''
     customUrl = s.custom_url ?? ''
+    if (catalog.status === 'ready') applyLoadedSelection()
   }
 
   const init = async () => {
@@ -312,7 +323,8 @@ export function createLiveConversationState() {
       await desktop.saveSettings(s)
       provider = s.provider
       model = s.model
-      modelLabel = CRUSH_MODELS.find((m) => m.id === model && m.providerId === provider)?.name ?? model
+      smallModel = s.small_model
+      modelLabel = catalog.modelName(model, provider) ?? model
       thinking = s.thinking as ReasoningEffort
       autostartEngine = s.autostart_engine
       apiKey = ''
@@ -322,13 +334,24 @@ export function createLiveConversationState() {
     } catch (cause) { reportError(cause, 'Save settings') }
   }
 
-  const applySelection = () => saveSettings({ theme: '', autostart_engine: autostartEngine, provider, model, thinking, api_key: '', custom_url: customUrl })
+  const applySelection = () => {
+    if (!provider || !model) return
+    void saveSettings({ theme: '', autostart_engine: autostartEngine, provider, model, small_model: smallModel, thinking, api_key: '', custom_url: customUrl })
+  }
 
   const setModel = (next: string, label?: string, providerID?: string, type: ModelType = 'large') => {
-    if (type === 'small') { smallModel = next; return }
+    if (type === 'small') {
+      smallModel = next
+      void applySelection()
+      return
+    }
     model = next
-    modelLabel = label ?? CRUSH_MODELS.find((x) => x.id === next)?.name ?? next
+    modelLabel = label ?? catalog.modelName(next, providerID) ?? next
     if (providerID) provider = providerID
+    else {
+      const match = catalog.models.find((m) => m.id === next)
+      if (match) provider = match.providerId
+    }
     void applySelection()
   }
 
@@ -340,8 +363,8 @@ export function createLiveConversationState() {
   return {
     get sessions(): SessionSummary[] { return conversations.map(({ id, title, updatedAt, pinned, status }) => ({ id, title, updatedAt, pinned, streaming: status === 'streaming' })) },
     get activeId() { return activeId }, get active() { return activeConversation() }, get input() { return input }, get workspace() { return workspace }, get backendReady() { return backendReady }, get engine() { return engine }, get error() { return error }, get permission() { return permission }, get question() { return question },
-    get provider() { return provider }, get model() { return model }, get smallModel() { return smallModel }, get modelLabel() { return modelLabel }, get thinking() { return thinking }, get thinkingLabel() { const opt = REASONING_EFFORT_OPTIONS.find((o) => o.id === thinking); return opt ? `Think: ${opt.short}` : 'Think: Auto' }, get apiKey() { return apiKey }, get customUrl() { return customUrl }, get customModelId() { return customModelId }, get autostartEngine() { return autostartEngine },
-    setInput: (v: string) => (input = v), setModel, setThinking, setProvider: (v: string) => (provider = v), setApiKey: (v: string) => (apiKey = v), setCustomUrl: (v: string) => (customUrl = v), setCustomModelId: (v: string) => (customModelId = v),
+    get provider() { return provider }, get model() { return model }, get smallModel() { return smallModel }, get modelLabel() { return modelLabel }, get thinking() { return thinking }, get thinkingLabel() { const opt = REASONING_EFFORT_OPTIONS.find((o) => o.id === thinking); return opt ? `Think: ${opt.short}` : 'Think: Auto' }, get apiKey() { return apiKey }, get customUrl() { return customUrl }, get autostartEngine() { return autostartEngine },
+    setInput: (v: string) => (input = v), setModel, setThinking,
     init, destroy, pickWorkspace, create, select, send, cancel, rename, delete: remove, answerPermission, answerQuestion, loadSettings, saveSettings,
   }
 }

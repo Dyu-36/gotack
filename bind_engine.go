@@ -132,7 +132,7 @@ func (a *App) connect(ctx context.Context) {
 		return
 	}
 
-	fwd := uievents.NewForwarder(a.log, a.emit, a.perms)
+	fwd := uievents.NewForwarder(a.log, a.emit, a.perms, a)
 	ws := workspace.NewService(api)
 	sess := session.NewService(api, ws)
 	diffs := changes.NewService(api, ws)
@@ -154,6 +154,7 @@ func (a *App) connect(ctx context.Context) {
 
 	a.log.Info("engine connected", "endpoint", ep.Address, "version", vi.Version, "owned", a.sup.Owned())
 	a.setStatus(engine.StatusRunning)
+	a.startZaloBridge()
 }
 
 func (a *App) failConnect(msg string) {
@@ -241,6 +242,7 @@ func (a *App) stopTransport() {
 	if fwd != nil {
 		fwd.Stop()
 	}
+	a.stopZaloBridge()
 	a.setStatus(engine.StatusStopped)
 }
 

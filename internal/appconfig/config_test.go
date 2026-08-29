@@ -100,14 +100,11 @@ func TestDefaults(t *testing.T) {
 	if d.RecentWorkspaces != nil {
 		t.Errorf("RecentWorkspaces=%v want nil", d.RecentWorkspaces)
 	}
-	if d.Provider != "hyper" {
-		t.Errorf("Provider=%q want hyper", d.Provider)
+	if d.Provider != "" || d.Model != "" || d.Thinking != "" {
+		t.Errorf("agent settings must default empty so Crush catalog defaults apply, got provider=%q model=%q thinking=%q", d.Provider, d.Model, d.Thinking)
 	}
-	if d.Model != "qwen3.7-plus" {
-		t.Errorf("Model=%q want qwen3.7-plus", d.Model)
-	}
-	if d.Thinking != "high" {
-		t.Errorf("Thinking=%q want high", d.Thinking)
+	if d.Zalo.Enabled || d.Zalo.Token != "" {
+		t.Errorf("Zalo must default disabled with no token, got %+v", d.Zalo)
 	}
 }
 

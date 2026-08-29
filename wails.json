@@ -2,9 +2,9 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "gotack",
   "outputfilename": "gotack",
-  "frontend:install": "pnpm --dir frontend install --frozen-lockfile",
-  "frontend:build": "pnpm --dir frontend build",
-  "frontend:dev:watcher": "pnpm --dir frontend dev",
+  "frontend:install": "pnpm install --frozen-lockfile",
+  "frontend:build": "pnpm build",
+  "frontend:dev:watcher": "pnpm dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "Dyu-36"

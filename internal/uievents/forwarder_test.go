@@ -56,7 +56,7 @@ func (c *collector) of(name string) []namedEvent {
 
 func TestForwarderCoalescesDeltas(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil)
 	f.setDelay(30 * time.Millisecond)
 
 	ch := make(chan crushapi.StreamEvent, 8)
@@ -95,7 +95,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 
 func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil)
 	f.setDelay(time.Second) // only the run_complete flush path fires it
 
 	ch := make(chan crushapi.StreamEvent, 4)
@@ -127,7 +127,7 @@ func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 
 func TestForwarderToolActivityImmediate(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil)
 	f.setDelay(time.Hour)
 
 	parts := json.RawMessage(`[{"type":"tool_call","data":{"id":"t1","name":"bash","input":"ls","finished":true}}]`)
@@ -152,7 +152,7 @@ func TestForwarderToolActivityImmediate(t *testing.T) {
 // whole text on every tick.
 func TestForwarderAppendIsSuffix(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil)
 	f.setDelay(20 * time.Millisecond)
 
 	ch := make(chan crushapi.StreamEvent, 4)

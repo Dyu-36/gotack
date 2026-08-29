@@ -21,28 +21,35 @@ const (
 // Config is the on-disk user settings model. Empty fields fall back to
 // Defaults() at load time; EngineBinary empty means PATH lookup.
 type Config struct {
-	Theme            string   `json:"theme"`
-	EngineBinary     string   `json:"engine_binary"` // path to crush executable, empty = PATH lookup
-	AutostartEngine  bool     `json:"autostart_engine"`
-	RecentWorkspaces []string `json:"recent_workspaces"`
-	Debug            bool     `json:"debug"`
-	Provider         string   `json:"provider,omitempty"`
-	Model            string   `json:"model,omitempty"`
-	Thinking         string   `json:"thinking,omitempty"`
-	APIKey           string   `json:"api_key,omitempty"`
-	CustomURL        string   `json:"custom_url,omitempty"`
+	Theme            string       `json:"theme"`
+	EngineBinary     string       `json:"engine_binary"` // path to crush executable, empty = PATH lookup
+	AutostartEngine  bool         `json:"autostart_engine"`
+	RecentWorkspaces []string     `json:"recent_workspaces"`
+	Debug            bool         `json:"debug"`
+	Provider         string       `json:"provider,omitempty"`
+	Model            string       `json:"model,omitempty"`
+	SmallModel       string       `json:"small_model,omitempty"`
+	Thinking         string       `json:"thinking,omitempty"`
+	APIKey           string       `json:"api_key,omitempty"`
+	CustomURL        string       `json:"custom_url,omitempty"`
+	Zalo             ZaloSettings `json:"zalo,omitempty"`
 }
 
-// Defaults returns the factory config: system theme, autostart on, no pinned
-// engine binary, no recent workspaces. Used when the on-disk file is missing
-// or unreadable.
+// ZaloSettings holds the Zalo Bot API connection. The bot token is a secret
+// stored locally on the user's machine; it is never returned to the webview.
+type ZaloSettings struct {
+	Enabled      bool     `json:"enabled,omitempty"`
+	Token        string   `json:"token,omitempty"`
+	AllowedChats []string `json:"allowed_chats,omitempty"`
+}
+
+// Defaults returns the factory config: system theme, autostart on, and empty
+// agent settings so Crush's own catalog defaults apply until the user picks a
+// provider and model.
 func Defaults() *Config {
 	return &Config{
 		Theme:           "system",
 		AutostartEngine: true,
-		Provider:        "hyper",
-		Model:           "qwen3.7-plus",
-		Thinking:        "high",
 	}
 }
 

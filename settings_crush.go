@@ -12,45 +12,45 @@ import (
 var safeProviderID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // applyCrushSettings pushes agent-affecting settings into the currently open
-// Crush workspace. Crush hot-reloads all three endpoints used here, so these
-// changes do not require an engine restart on the pinned upstream contract.
-// apiKey is intentionally an argument rather than persisted Gotack state.
+// Crush workspace. Crush hot-reloads these endpoints, so no engine restart is
+// needed. apiKey is an argument on purpose: it is never persisted in Gotack.
 func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 	svc, err := a.services()
 	if err != nil {
-		if apiKey != "" {
-			return errors.New("cannot store API key until Crush is running and a workspace is open")
-		}
-		return nil
+		return needWorkspace(apiKey, "Crush is not running")
 	}
 	desc, ok := svc.ws.Current()
 	if !ok || desc.WorkspaceID == "" {
-		if apiKey != "" {
-			return errors.New("cannot store API key until a workspace is open")
-		}
-		return nil
+		return needWorkspace(apiKey, "no workspace is open")
 	}
 
 	provider := strings.TrimSpace(s.Provider)
-	modelID := strings.TrimSpace(s.Model)
-	if provider != "" && modelID != "" {
-		reasoning, think := crushReasoning(s.Thinking)
-		model := crushapi.SelectedModel{
-			Provider:        provider,
-			Model:           modelID,
-			ReasoningEffort: reasoning,
-			Think:           think,
+	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
+	if apiKey != "" && provider == "" {
+		return errors.New("provider is required before storing an API key")
+	}
+
+	setModel := func(modelType, modelID string, effort string, think bool) error {
+		model := crushapi.SelectedModel{Provider: provider, Model: modelID, ReasoningEffort: effort, Think: think}
+		if err := svc.api.SetPreferredModel(a.ctx, ws, scope, modelType, model); err != nil {
+			return fmt.Errorf("apply Crush %s model: %w", modelType, err)
 		}
-		if err := svc.api.SetPreferredModel(a.ctx, desc.WorkspaceID, crushapi.ConfigScopeGlobal, "large", model); err != nil {
-			return fmt.Errorf("apply Crush model: %w", err)
+		return nil
+	}
+	if modelID := strings.TrimSpace(s.Model); provider != "" && modelID != "" {
+		effort, think := crushReasoning(s.Thinking)
+		if err := setModel("large", modelID, effort, think); err != nil {
+			return err
+		}
+	}
+	if modelID := strings.TrimSpace(s.SmallModel); provider != "" && modelID != "" {
+		if err := setModel("small", modelID, "", false); err != nil {
+			return err
 		}
 	}
 
 	if apiKey != "" {
-		if provider == "" {
-			return errors.New("provider is required before storing an API key")
-		}
-		if err := svc.api.SetProviderAPIKey(a.ctx, desc.WorkspaceID, crushapi.ConfigScopeGlobal, provider, apiKey); err != nil {
+		if err := svc.api.SetProviderAPIKey(a.ctx, ws, scope, provider, apiKey); err != nil {
 			return fmt.Errorf("apply Crush provider credential: %w", err)
 		}
 	}
@@ -60,26 +60,31 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 			return fmt.Errorf("provider id %q cannot be used in a Crush config path", provider)
 		}
 		key := "providers." + provider + ".base_url"
-		if err := svc.api.SetConfigField(a.ctx, desc.WorkspaceID, crushapi.ConfigScopeGlobal, key, endpoint); err != nil {
+		if err := svc.api.SetConfigField(a.ctx, ws, scope, key, endpoint); err != nil {
 			return fmt.Errorf("apply Crush provider endpoint: %w", err)
 		}
 	}
 	return nil
 }
 
+// needWorkspace turns a missing workspace into a no-op unless the caller was
+// trying to store a credential, which must not be silently dropped.
+func needWorkspace(apiKey, reason string) error {
+	if apiKey == "" {
+		return nil
+	}
+	return fmt.Errorf("cannot store API key: %s", reason)
+}
+
 func crushReasoning(value string) (effort string, think bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	switch v := strings.ToLower(strings.TrimSpace(value)); v {
 	case "low", "medium", "high":
-		return strings.ToLower(strings.TrimSpace(value)), true
+		return v, true
 	case "max":
-		// Crush's SelectedModel currently accepts low/medium/high for the
-		// reasoning_effort field. Max therefore maps to the strongest level.
+		// Crush's reasoning_effort accepts low/medium/high, so max maps to high.
 		return "high", true
-	case "none", "off", "disabled":
-		return "", false
 	default:
-		// "auto" leaves reasoning_effort unset and lets the provider/model
-		// default decide. Think stays false for Anthropic-style providers.
+		// none/off/auto-style values leave the provider default in charge.
 		return "", false
 	}
 }
