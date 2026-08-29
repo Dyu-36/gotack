@@ -26,6 +26,7 @@ func defaultBinary() string {
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 				return candidate
 			}
+		}
 	}
 
 	if found, err := exec.LookPath("crush"); err == nil {
