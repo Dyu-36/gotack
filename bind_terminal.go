@@ -6,27 +6,25 @@ import (
 	"github.com/Dyu-36/gotack/internal/terminal"
 )
 
-var (
-	errTerminalUnavailable = errors.New("terminal service unavailable")
-	errInvalidSize         = errors.New("invalid terminal size")
-)
-
 // bind_terminal.go -- role: Wails-bound API for the optional terminal.
 //
 // Nothing here may run at startup: the terminal is lazy by design.
 // Output flows to the UI as terminal:data / terminal:exit events.
 
-// termService returns the lazily wired terminal service. a.term is assigned
-// once in startup and never reassigned, so all four bound calls below needed
-// the identical read-and-nil-check preamble. This is that preamble, once.
+var (
+	errTerminalUnavailable = errors.New("terminal service unavailable")
+	errInvalidSize         = errors.New("invalid terminal size")
+)
+
+// termService returns the lazily wired terminal service. The terminal pointer
+// is built once in startup and stored in conn; all four bound calls below
+// share the same nil check.
 func (a *App) termService() (*terminal.Service, error) {
-	a.mu.RLock()
-	term := a.term
-	a.mu.RUnlock()
-	if term == nil {
+	c := a.getConn()
+	if c == nil || c.term == nil {
 		return nil, errTerminalUnavailable
 	}
-	return term, nil
+	return c.term, nil
 }
 
 // OpenTerminal creates a PTY session rooted at cwd and returns its ID.

@@ -22,25 +22,22 @@ func (a *App) AnswerPermission(requestID string, decision string) (bool, error) 
 		return false, errors.New("invalid decision: " + decision)
 	}
 
-	// a.perms is built in NewApp and never replaced, so only the engine-attached
-	// services can be missing here.
-	a.mu.RLock()
-	api := a.api
-	ws := a.ws
-	a.mu.RUnlock()
-	if api == nil || ws == nil {
+	// The permission relay is built in NewApp and lives in conn for the
+	// lifetime of the host; only the engine-attached services can be missing.
+	c := a.getConn()
+	if c == nil || c.api == nil || c.ws == nil || c.perms == nil {
 		return false, errors.New("engine is not running")
 	}
 
-	req, ok := a.perms.Take(requestID)
+	req, ok := c.perms.Take(requestID)
 	if !ok {
 		return false, errors.New("unknown or expired permission request: " + requestID)
 	}
-	desc, ok := ws.Current()
+	desc, ok := c.ws.Current()
 	if !ok {
 		return false, errors.New("no workspace attached")
 	}
-	return api.GrantPermission(a.ctx, desc.WorkspaceID, req, action)
+	return c.api.GrantPermission(a.ctx, desc.WorkspaceID, req, action)
 }
 
 // QuestionAnswerInput mirrors one answer inside a question batch.
@@ -57,14 +54,11 @@ func (a *App) AnswerQuestion(requestID string, answers []QuestionAnswerInput) (b
 	if len(answers) == 0 {
 		return false, errors.New("empty question answers")
 	}
-	a.mu.RLock()
-	api := a.api
-	ws := a.ws
-	a.mu.RUnlock()
-	if api == nil || ws == nil {
+	c := a.getConn()
+	if c == nil || c.api == nil || c.ws == nil {
 		return false, errors.New("engine is not running")
 	}
-	desc, ok := ws.Current()
+	desc, ok := c.ws.Current()
 	if !ok {
 		return false, errors.New("no workspace attached")
 	}
@@ -78,7 +72,7 @@ func (a *App) AnswerQuestion(requestID string, answers []QuestionAnswerInput) (b
 			Yes:         ans.Yes,
 		}
 	}
-	return api.AnswerQuestion(a.ctx, desc.WorkspaceID, crushapi.QuestionAnswer{
+	return c.api.AnswerQuestion(a.ctx, desc.WorkspaceID, crushapi.QuestionAnswer{
 		BatchRequestID: requestID,
 		Responses:      responses,
 	})

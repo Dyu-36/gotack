@@ -20,6 +20,12 @@ type SessionDeltaPayload struct {
 	MessageID string `json:"message_id"`
 	Text      string `json:"text"`
 	Append    string `json:"append"`
+	// Seq is a monotonically increasing counter scoped to MessageID. It
+	// starts at 1 for the first delta of a new message and increments by
+	// one for every subsequent flush. The frontend uses Seq to detect
+	// out-of-order, dropped, or restarted streams and rebuild from the
+	// full Text snapshot when the chain breaks.
+	Seq int64 `json:"seq"`
 }
 
 type SessionDonePayload struct {
@@ -42,7 +48,21 @@ type ChangesUpdatedPayload struct {
 	Path      string `json:"path"`
 }
 
+// PermissionRequestPayload wraps a permission request with the wall-clock
+// deadline the UI should show as a countdown. ExpiresAt is unix milliseconds;
+// zero means no TTL is armed.
+type PermissionRequestPayload struct {
+	Request   crushapi.PermissionRequest `json:"request"`
+	ExpiresAt int64                      `json:"expires_at_ms"`
+}
+
 const coalesceDelay = 40 * time.Millisecond
+
+// defaultPermissionTTL is the deadline the forwarder hands to the UI for a
+// permission request. It mirrors the relay arming in internal/events so the
+// on-screen countdown matches the backend expiry. Kept duplicated to avoid a
+// uievents ↔ events import cycle; the values are expected to stay in sync.
+const defaultPermissionTTL = 5 * time.Minute
 
 type pendingMessage struct {
 	sessionID string
@@ -50,6 +70,11 @@ type pendingMessage struct {
 	sent      string
 	timer     *time.Timer
 	tools     map[string]bool
+	// nextSeq is the Seq assigned to the *next* flush of this message.
+	// Initialized to 1 by schedule() so the first delta the wire sees
+	// carries Seq=1; subsequent flushes consume-and-increment under the
+	// Forwarder mutex.
+	nextSeq int64
 }
 
 func (pm *pendingMessage) markToolStates(calls []crushapi.ToolCall) []crushapi.ToolCall {
@@ -104,6 +129,22 @@ func (f *Forwarder) setDelay(d time.Duration) {
 	f.mu.Lock()
 	f.delay = d
 	f.mu.Unlock()
+}
+
+// nextDelay picks a coalescing delay based on how many bytes have piled up
+// since the last flush. Heavy bursts (>4 KiB) get an 80ms tick to give the
+// UI a chance to catch up between large frames; medium streams (>512 B) use
+// the default 40ms; and slow drip feeds back off to 16ms so single-token
+// deltas feel snappy instead of waiting for a hard 40ms window.
+func (f *Forwarder) nextDelay(bytesSinceLastFlush int) time.Duration {
+	switch {
+	case bytesSinceLastFlush > 4096:
+		return 80 * time.Millisecond
+	case bytesSinceLastFlush > 512:
+		return 40 * time.Millisecond
+	default:
+		return 16 * time.Millisecond
+	}
 }
 
 func (f *Forwarder) Consume(events <-chan crushapi.StreamEvent) {
@@ -172,12 +213,11 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 	}
 	f.schedule(msg.SessionID, msg.ID, crushapi.ExtractParts(msg.Parts))
 }
-
 func (f *Forwarder) schedule(sessionID, messageID string, parts crushapi.Parts) {
 	f.mu.Lock()
 	pm, ok := f.pending[messageID]
 	if !ok {
-		pm = &pendingMessage{sessionID: sessionID}
+		pm = &pendingMessage{sessionID: sessionID, nextSeq: 1}
 		f.pending[messageID] = pm
 	}
 	pm.text = parts.Text
@@ -185,7 +225,8 @@ func (f *Forwarder) schedule(sessionID, messageID string, parts crushapi.Parts) 
 		if pm.timer != nil {
 			pm.timer.Stop()
 		}
-		pm.timer = time.AfterFunc(f.delay, func() { f.flush(messageID) })
+		delay := f.nextDelay(len(pm.text) - len(pm.sent))
+		pm.timer = time.AfterFunc(delay, func() { f.flush(messageID) })
 	}
 	fresh := pm.markToolStates(parts.ToolCalls)
 	f.mu.Unlock()
@@ -214,7 +255,9 @@ func (f *Forwarder) flush(messageID string) {
 	prev := pm.sent
 	pm.timer = nil
 	pm.sent = pm.text
-	payload := SessionDeltaPayload{SessionID: pm.sessionID, MessageID: messageID, Text: pm.text, Append: deltaSuffix(prev, pm.text)}
+	seq := pm.nextSeq
+	pm.nextSeq++
+	payload := SessionDeltaPayload{SessionID: pm.sessionID, MessageID: messageID, Text: pm.text, Append: deltaSuffix(prev, pm.text), Seq: seq}
 	f.mu.Unlock()
 	f.send(SessionDelta, payload)
 }
@@ -245,10 +288,11 @@ func (f *Forwarder) handlePermission(payload json.RawMessage) {
 		}
 		return
 	}
+	expiresAt := time.Now().Add(defaultPermissionTTL).UnixMilli()
 	if f.perms != nil {
 		f.perms.Pending(req)
 	}
-	f.send(PermissionRequest, req)
+	f.send(PermissionRequest, PermissionRequestPayload{Request: req, ExpiresAt: expiresAt})
 }
 
 func (f *Forwarder) handleQuestion(payload json.RawMessage) {
@@ -293,7 +337,9 @@ func (f *Forwarder) drain(sessionID string) []SessionDeltaPayload {
 			pm.timer.Stop()
 		}
 		if pm.text != pm.sent {
-			out = append(out, SessionDeltaPayload{SessionID: pm.sessionID, MessageID: id, Text: pm.text, Append: deltaSuffix(pm.sent, pm.text)})
+			seq := pm.nextSeq
+			pm.nextSeq++
+			out = append(out, SessionDeltaPayload{SessionID: pm.sessionID, MessageID: id, Text: pm.text, Append: deltaSuffix(pm.sent, pm.text), Seq: seq})
 		}
 		delete(f.pending, id)
 	}

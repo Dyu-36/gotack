@@ -31,9 +31,14 @@ func (a *App) emit(name string, data any) {
 }
 
 func (a *App) setStatus(s engine.Status) {
-	a.mu.Lock()
-	a.status = s
-	info := a.engineInfoLocked()
-	a.mu.Unlock()
+	if a.getConn() == nil {
+		return
+	}
+	var info EngineInfo
+	a.swapConn(func(c *conn) *conn {
+		c.status = s
+		info = a.engineInfoLocked()
+		return c
+	})
 	a.emit(uievents.EngineStatus, info)
 }

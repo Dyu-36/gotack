@@ -1,0 +1,87 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/Dyu-36/gotack/internal/appconfig"
+	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/session"
+	"github.com/Dyu-36/gotack/internal/workspace"
+)
+
+type catalogRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f catalogRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("AppData", configRoot)
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+
+	var createdPath string
+	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
+		var body string
+		switch {
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces":
+			var payload struct {
+				Path string `json:"path"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+				t.Errorf("decode workspace request: %v", err)
+			}
+			createdPath = payload.Path
+			body = `{"id":"catalog-ws","path":"` + filepath.ToSlash(payload.Path) + `"}`
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/catalog-ws/providers":
+			body = `[{"id":"anthropic","name":"Anthropic","models":[{"id":"claude","name":"Claude"}]}]`
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+		return jsonHTTPResponse(http.StatusOK, body), nil
+	})
+
+	api := crushapi.NewClient(&http.Client{Transport: transport})
+	ws := workspace.NewService(api)
+	app := NewApp()
+	app.ctx = context.Background()
+	app.swapConn(func(c *conn) *conn {
+		c.api = api
+		c.ws = ws
+		c.sess = session.NewService(api, ws)
+		c.status = engine.StatusRunning
+		return c
+	})
+
+	providers, err := app.ListProviders()
+	if err != nil {
+		t.Fatalf("ListProviders() error = %v", err)
+	}
+	if len(providers) != 1 || providers[0].ID != "anthropic" || len(providers[0].Models) != 1 {
+		t.Fatalf("ListProviders() = %#v", providers)
+	}
+	wantPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
+	if createdPath != wantPath {
+		t.Fatalf("catalog workspace path = %q, want %q", createdPath, wantPath)
+	}
+	if _, ok := ws.Current(); ok {
+		t.Fatal("ListProviders() changed the current workspace")
+	}
+}
+
+func jsonHTTPResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Status:     http.StatusText(status),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}

@@ -83,3 +83,6 @@ Desktop.ini
 
 # Harness core maintenance binary
 scripts/bin/
+
+# Repomix output
+repomix*

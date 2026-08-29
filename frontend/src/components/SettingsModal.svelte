@@ -2,7 +2,7 @@
   import { toast } from 'svelte-sonner'
   import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
   import { desktop, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
-  import type { ReasoningEffort } from '../features/conversations/types'
+  import type { ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Theme = 'system' | 'light' | 'dark'
   type SettingsPayload = {

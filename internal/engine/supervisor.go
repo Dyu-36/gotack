@@ -105,3 +105,7 @@ func (s *Supervisor) Stop() error {
 	_, _ = cmd.Process.Wait()
 	return nil
 }
+
+// Compile-time check that *Supervisor satisfies EngineAPI. If a method
+// signature changes, the build breaks here first.
+var _ EngineAPI = (*Supervisor)(nil)

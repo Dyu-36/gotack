@@ -73,6 +73,8 @@ export type PermissionRequestEvent = {
   path: string
 }
 
+export type PermissionRequestPayload = { request: PermissionRequestEvent; expires_at_ms: number }
+
 export type QuestionChoice = { id: string; label: string; description?: string }
 export type QuestionRequestEvent = {
   id: string
@@ -83,7 +85,7 @@ export type QuestionRequestEvent = {
   confirm_description?: string
 }
 
-export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string }
+export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
 export type TerminalDataEvent = { id: string; data: string }
@@ -126,7 +128,7 @@ type BackendApp = {
 declare global {
   interface Window {
     go?: { main?: { App?: Partial<BackendApp> } }
-    runtime?: { EventsOn: (name: string, cb: (...data: unknown[]) => void) => void; EventsOff: (name: string, ...additional: string[]) => void }
+    runtime?: { EventsOn: (name: string, cb: (...data: unknown[]) => void) => (() => void) | void; EventsOff: (name: string, ...additional: string[]) => void }
   }
 }
 
@@ -135,17 +137,15 @@ function app(): BackendApp | null {
   return (bound as BackendApp) ?? null
 }
 
-export const events = {
-  engineStatus: 'engine:status', sessionDelta: 'session:delta', sessionDone: 'session:done', toolActivity: 'tool:activity',
-  permissionRequest: 'permission:request', questionRequest: 'question:request', changesUpdated: 'changes:updated', terminalData: 'terminal:data', terminalExit: 'terminal:exit',
-} as const
-export type EventName = (typeof events)[keyof typeof events]
-
+import { events, type EventName } from './events.generated'
+export { events, type EventName }
 export function on<T>(event: EventName, handler: (payload: T) => void): () => void {
   const rt = window.runtime
   if (!rt) return () => {}
   const wrapped = (...data: unknown[]) => handler(data[0] as T)
-  rt.EventsOn(event, wrapped)
+  const cancel = rt.EventsOn(event, wrapped)
+  if (typeof cancel === 'function') return cancel
+  console.warn(`EventsOn for ${event} did not return a cancel function; falling back to EventsOff`)
   return () => rt.EventsOff(event)
 }
 

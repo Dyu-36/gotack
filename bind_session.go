@@ -27,18 +27,15 @@ type MessageInfo struct {
 // setCurrentSessionBestEffort marks sessionID as this client's active session
 // in the engine. Presence is advisory, never load-bearing.
 func (a *App) setCurrentSessionBestEffort(sessionID string) {
-	a.mu.RLock()
-	api := a.api
-	ws := a.ws
-	a.mu.RUnlock()
-	if api == nil || ws == nil {
+	c := a.getConn()
+	if c == nil || c.api == nil || c.ws == nil {
 		return
 	}
-	desc, ok := ws.Current()
+	desc, ok := c.ws.Current()
 	if !ok {
 		return
 	}
-	if err := api.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err != nil && a.log != nil {
+	if err := c.api.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err != nil && a.log != nil {
 		a.log.Debug("current-session update skipped", "session", sessionID, "err", err)
 	}
 }
@@ -53,17 +50,7 @@ func (a *App) ListSessions() ([]SessionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]SessionInfo, len(sessions))
-	for i, s := range sessions {
-		out[i] = SessionInfo{
-			ID:           s.ID,
-			Title:        s.Title,
-			MessageCount: s.MessageCount,
-			Cost:         s.Cost,
-			UpdatedAt:    s.UpdatedAt,
-			IsBusy:       s.IsBusy,
-		}
-	}
+	out := toSessionInfos(sessions)
 	return out, nil
 }
 
@@ -78,7 +65,7 @@ func (a *App) CreateSession(title string) (SessionInfo, error) {
 		return SessionInfo{}, err
 	}
 	a.setCurrentSessionBestEffort(s.ID)
-	return SessionInfo{ID: s.ID, Title: s.Title, UpdatedAt: s.UpdatedAt}, nil
+	return toSessionInfo(s), nil
 }
 
 // RenameSession persists a title change in Crush and returns the refreshed row.
@@ -91,14 +78,7 @@ func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	return SessionInfo{
-		ID:           s.ID,
-		Title:        s.Title,
-		MessageCount: s.MessageCount,
-		Cost:         s.Cost,
-		UpdatedAt:    s.UpdatedAt,
-		IsBusy:       s.IsBusy,
-	}, nil
+	return toSessionInfo(s), nil
 }
 
 // DeleteSession removes the session from Crush. If it was current, the UI
@@ -157,4 +137,25 @@ func (a *App) CancelPrompt(id string) error {
 		return err
 	}
 	return svc.sess.Cancel(a.ctx, id)
+}
+
+// toSessionInfo maps a Crush session row to the Wails-bound shape.
+func toSessionInfo(s crushapi.Session) SessionInfo {
+	return SessionInfo{
+		ID:           s.ID,
+		Title:        s.Title,
+		MessageCount: s.MessageCount,
+		Cost:         s.Cost,
+		UpdatedAt:    s.UpdatedAt,
+		IsBusy:       s.IsBusy,
+	}
+}
+
+// toSessionInfos maps a slice of Crush session rows to the Wails-bound shape.
+func toSessionInfos(in []crushapi.Session) []SessionInfo {
+	out := make([]SessionInfo, len(in))
+	for i, s := range in {
+		out[i] = toSessionInfo(s)
+	}
+	return out
 }
