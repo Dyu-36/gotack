@@ -49,15 +49,15 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm --dir frontend install --frozen-lockfile
 
       - name: Verify source
         shell: pwsh
         run: |
           go test ./...
           go vet ./...
-          pnpm --filter gotack-frontend check
-          pnpm --filter gotack-frontend build
+          pnpm --dir frontend check
+          pnpm --dir frontend build
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
