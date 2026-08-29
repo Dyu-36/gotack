@@ -1,28 +1,53 @@
-# Go / Wails
+# ==========================================
+# Go / Wails Build Artifacts
+# ==========================================
 build/bin/
 *.exe
+*.exe~
 *.app
 *.deb
 *.rpm
+*.dll
+*.so
+*.dylib
 
-# Frontend
+# Go Test & Debug
+*.test
+*.out
+*.prof
+__debug_bin*
+
+# Wails generated bindings (rebuilt by wails dev/build)
+frontend/wailsjs/
+
+# ==========================================
+# Frontend (Svelte / Vite / Node)
+# ==========================================
 node_modules/
+.pnpm-store/
 frontend/dist/*
 !frontend/dist/.gitkeep
 frontend/.vite/
 *.tsbuildinfo
 *.md5
 frontend/package.json.md5
+.eslintcache
 
-# Local files
-.DS_Store
-Thumbs.db
+# ==========================================
+# Environment & Secrets
+# ==========================================
 .env
 .env.*
+!.env.example
+!.env.template
 
-# Editor / IDE / Agent configs
+# ==========================================
+# IDEs / Editors / Agent Configs
+# ==========================================
 .vscode/
 .idea/
+.vs/
+.fleet/
 *.swp
 *.swo
 .omp/
@@ -30,20 +55,31 @@ mcp.json
 .codebase-memory/
 .cbmignore
 
-# Logs & temp
+# ==========================================
+# Logs & Temp
+# ==========================================
 *.log
 tmp/
 *.tmp
-
-# Test coverage
 coverage/
 
-# OS
+# ==========================================
+# OS Generated Files
+# ==========================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 Desktop.ini
 
-# Wails generated bindings (rebuilt by wails dev/build)
-frontend/wailsjs/
-
+# ==========================================
+# Project Specific
+# ==========================================
 # Vendored upstream source (own git history)
 /third_party/crush/
+
+# Harness core maintenance binary
+scripts/bin/
