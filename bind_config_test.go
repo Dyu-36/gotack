@@ -42,6 +42,8 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 			body = `{"id":"catalog-ws","path":"` + filepath.ToSlash(payload.Path) + `"}`
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/catalog-ws/providers":
 			body = `[{"id":"anthropic","name":"Anthropic","models":[{"id":"claude","name":"Claude"}]}]`
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/catalog-ws/config":
+			body = `{"providers":{"anthropic":{"id":"anthropic","name":"Anthropic","api_key":"secret"}}}`
 		default:
 			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
@@ -83,5 +85,35 @@ func jsonHTTPResponse(status int, body string) *http.Response {
 		Status:     http.StatusText(status),
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestResolvedProviderCredentialRejectsUnsetEnvTemplate(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "")
+	kind, value, ok := resolvedProviderCredential(crushapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
+	if ok || kind != "" || value != "" {
+		t.Fatalf("unset env template reported usable: kind=%q value=%q ok=%v", kind, value, ok)
+	}
+}
+
+func TestResolvedProviderCredentialResolvesEnvTemplate(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "minimax-secret")
+	kind, value, ok := resolvedProviderCredential(crushapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
+	if !ok || kind != "api_key" || value != "minimax-secret" {
+		t.Fatalf("resolved env credential = kind=%q value=%q ok=%v", kind, value, ok)
+	}
+}
+
+func TestResolvedProviderCredentialAcceptsLiteralKey(t *testing.T) {
+	kind, value, ok := resolvedProviderCredential(crushapi.ProviderConfig{APIKey: "literal-secret"})
+	if !ok || kind != "api_key" || value != "literal-secret" {
+		t.Fatalf("literal credential = kind=%q value=%q ok=%v", kind, value, ok)
+	}
+}
+
+func TestCrushReasoningPreservesMax(t *testing.T) {
+	effort, think := crushReasoning("max")
+	if effort != "max" || !think {
+		t.Fatalf("crushReasoning(max) = effort=%q think=%v", effort, think)
 	}
 }

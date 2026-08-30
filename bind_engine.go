@@ -159,9 +159,22 @@ func (a *App) connect(ctx context.Context) {
 		return
 	}
 
+	// Gotack always attaches a default workspace before reporting the engine as
+	// running. On Windows that workspace is C:\, while Crush persistence stays
+	// under Gotack's app-data directory. Users can chat immediately without
+	// selecting a folder, and all workspaces run with permission prompts off.
+	svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
+	if _, err := a.activateAssistantWorkspace(svc); err != nil {
+		a.failConnect(fmt.Sprintf("initialize assistant workspace: %v", err))
+		return
+	}
+
 	a.log.Info("engine connected", "endpoint", ep.Address, "version", vi.Version, "owned", a.sup.Owned())
 	a.setStatus(engine.StatusRunning)
-	a.startZaloBridge()
+	a.reapplySavedWorkspaceSettings()
+	if a.zalo != nil && a.zalo.Status().Configured {
+		a.zalo.Start()
+	}
 }
 
 // commitAttach writes the freshly built services into the current conn, but
@@ -263,11 +276,10 @@ func (a *App) transportLost(ctx context.Context, msg string) {
 // UI. One stream per active workspace. An unexpected stream close is promoted
 // to engine:error so the frontend backoff loop can reconnect instead of
 // silently freezing with the last token on screen.
-func (a *App) startStream(ctx context.Context, workspaceID string) {
+func (a *App) attachStream(ctx context.Context, workspaceID string) error {
 	c := a.getConn()
 	if c == nil || c.api == nil || c.fwd == nil {
-		a.transportLost(ctx, "event stream unavailable: transport not wired")
-		return
+		return errors.New("event stream unavailable: transport not wired")
 	}
 	api := c.api
 	fwd := c.fwd
@@ -276,8 +288,7 @@ func (a *App) startStream(ctx context.Context, workspaceID string) {
 		"message", "run_complete", "permission_request", "question_batch_request", "file",
 	)
 	if err != nil {
-		a.transportLost(ctx, fmt.Sprintf("event stream attach failed: %v", err))
-		return
+		return fmt.Errorf("event stream attach failed: %w", err)
 	}
 
 	go func() {
@@ -290,6 +301,44 @@ func (a *App) startStream(ctx context.Context, workspaceID string) {
 		<-ctx.Done()
 		stop()
 	}()
+	return nil
+}
+
+func (a *App) startStream(ctx context.Context, workspaceID string) {
+	if err := a.attachStream(ctx, workspaceID); err != nil {
+		a.transportLost(ctx, err.Error())
+	}
+}
+
+// replaceWorkspaceStream synchronously installs a fresh SSE subscription for
+// the active workspace. Crush considers a client attached only while this
+// stream is live; session-presence calls return 409 otherwise. Keeping the
+// attach synchronous guarantees callers can safely retry SetCurrentSession.
+func (a *App) replaceWorkspaceStream(workspaceID string) error {
+	if workspaceID == "" {
+		return errors.New("workspace id is required for event stream")
+	}
+	if a.getConn() == nil {
+		return errors.New("engine connection unavailable")
+	}
+
+	var previous context.CancelFunc
+	var streamCtx context.Context
+	a.swapConn(func(c *conn) *conn {
+		previous = c.cancelStream
+		streamCtx, c.cancelStream = context.WithCancel(a.ctx)
+		return c
+	})
+	if previous != nil {
+		previous()
+	}
+	if err := a.attachStream(streamCtx, workspaceID); err != nil {
+		if cancel := a.getConn().cancelStream; cancel != nil {
+			cancel()
+		}
+		return err
+	}
+	return nil
 }
 
 // stopTransport drops the wired services, cancels the attach scope and then
@@ -322,7 +371,9 @@ func (a *App) stopTransport() {
 	if fwd != nil {
 		fwd.Stop()
 	}
-	a.stopZaloBridge()
+	if a.zalo != nil {
+		a.zalo.Stop()
+	}
 	a.setStatus(engine.StatusStopped)
 }
 

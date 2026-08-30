@@ -1,0 +1,169 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import type { Message } from '../features/conversations/types.svelte'
+  import { renderMarkdown, chatLinks } from '../lib/markdown'
+
+  type Props = {
+    message: Message
+    isStreaming?: boolean
+  }
+
+  let { message, isStreaming = false }: Props = $props()
+
+  let rendered = $state('')
+  let copied = $state(false)
+  let renderTimer: ReturnType<typeof setTimeout> | null = null
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+  let renderedContentEl = $state<HTMLDivElement | null>(null)
+  let lastRenderedContent = ''
+
+  $effect(() => {
+    renderContentThrottled(message.content, isStreaming)
+  })
+
+  function renderContentThrottled(content: string, streaming: boolean) {
+    if (!content) {
+      rendered = ''
+      lastRenderedContent = ''
+      return
+    }
+
+    if (!streaming) {
+      if (renderTimer) {
+        clearTimeout(renderTimer)
+        renderTimer = null
+      }
+      doRender(content)
+      return
+    }
+
+    if (renderTimer) return
+    renderTimer = setTimeout(() => {
+      renderTimer = null
+      doRender(message.content)
+    }, 60)
+  }
+
+  function doRender(content: string) {
+    if (content === lastRenderedContent) return
+    lastRenderedContent = content
+    rendered = renderMarkdown(content)
+  }
+
+  onDestroy(() => {
+    if (renderTimer) clearTimeout(renderTimer)
+    if (copiedTimer) clearTimeout(copiedTimer)
+  })
+
+  async function copyContent() {
+    try {
+      const plainText = message.role === 'assistant' && renderedContentEl
+        ? renderedContentEl.innerText
+        : message.content
+
+      if (message.role === 'assistant' && renderedContentEl && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+        const clone = renderedContentEl.cloneNode(true) as HTMLDivElement
+        clone.querySelectorAll('[data-copy-ignore]').forEach((node) => node.remove())
+        const html = clone.innerHTML
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              'text/plain': new Blob([plainText], { type: 'text/plain' }),
+              'text/html': new Blob([html], { type: 'text/html' }),
+            }),
+          ])
+        } catch {
+          await navigator.clipboard.writeText(plainText)
+        }
+      } else {
+        await navigator.clipboard.writeText(plainText)
+      }
+
+      copied = true
+      if (copiedTimer) clearTimeout(copiedTimer)
+      copiedTimer = setTimeout(() => {
+        copied = false
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy message:', err)
+    }
+  }
+
+  function formatTime(ts?: number): string {
+    if (!ts) return ''
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+</script>
+
+{#if message.role === 'user'}
+  <div class="flex justify-end mb-4 group animate-fade-in">
+    <div class="max-w-[85%] flex flex-col items-end">
+      {#if message.content.trim()}
+        <div class="bg-mm-user-bubble text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed shadow-xs whitespace-pre-wrap break-words">
+          {message.content}
+        </div>
+      {/if}
+      <div class="flex items-center justify-end gap-2 mt-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        {#if message.createdAt}
+          <span class="text-xs text-mm-secondary">{formatTime(message.createdAt)}</span>
+        {/if}
+        <button
+          type="button"
+          class="text-xs text-mm-secondary hover:text-mm-text transition-colors cursor-pointer"
+          onclick={copyContent}
+          title="Sao chép nội dung"
+        >
+          {copied ? 'Đã sao chép' : 'Sao chép'}
+        </button>
+      </div>
+    </div>
+  </div>
+{:else if message.role === 'assistant'}
+  <div class="flex items-start gap-3 mb-5 group animate-fade-in">
+    <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
+      <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
+    </div>
+    <div class="flex-1 min-w-0 max-w-[92%]">
+      {#if rendered}
+        <div class="prose-notion" use:chatLinks bind:this={renderedContentEl}>
+          {@html rendered}
+          {#if isStreaming}
+            <span data-copy-ignore class="inline-block w-1.5 h-4 bg-mm-accent ml-1 align-text-bottom rounded-xs animate-pulse" aria-hidden="true"></span>
+          {/if}
+        </div>
+      {:else if isStreaming}
+        <div class="flex items-center gap-1.5 py-2">
+          <span class="thinking-dot"></span>
+          <span class="thinking-dot"></span>
+          <span class="thinking-dot"></span>
+        </div>
+      {/if}
+
+      {#if message.content}
+        <div class="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+          {#if message.createdAt}
+            <span class="text-xs text-mm-secondary">{formatTime(message.createdAt)}</span>
+          {/if}
+          <button
+            type="button"
+            class="text-xs text-mm-secondary hover:text-mm-text transition-colors flex items-center gap-1 cursor-pointer"
+            onclick={copyContent}
+            title="Sao chép câu trả lời"
+          >
+            {#if copied}
+              <svg class="w-3.5 h-3.5 text-mm-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              <span class="text-mm-success">Đã sao chép</span>
+            {:else}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span>Sao chép</span>
+            {/if}
+          </button>
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}

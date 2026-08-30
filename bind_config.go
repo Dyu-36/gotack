@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,12 +17,14 @@ import (
 // and model configuration.
 
 type SettingsInfo struct {
-	Theme           string `json:"theme"`
-	AutostartEngine bool   `json:"autostart_engine"`
-	Provider        string `json:"provider"`
-	Model           string `json:"model"`
-	SmallModel      string `json:"small_model"`
-	Thinking        string `json:"thinking"`
+	Theme              string `json:"theme"`
+	AutostartEngine    bool   `json:"autostart_engine"`
+	Provider           string `json:"provider"`
+	CredentialProvider string `json:"credential_provider,omitempty"`
+	ProviderOnly       bool   `json:"provider_only,omitempty"`
+	Model              string `json:"model"`
+	SmallModel         string `json:"small_model"`
+	Thinking           string `json:"thinking"`
 	// APIKey is write-only from the UI. GetSettings always returns an empty
 	// value so a credential is never round-tripped through Wails state.
 	APIKey    string `json:"api_key"`
@@ -36,7 +39,7 @@ func (a *App) GetSettings() SettingsInfo {
 	}
 	return SettingsInfo{
 		Theme:           a.cfg.Theme,
-		AutostartEngine: a.cfg.AutostartEngine,
+		AutostartEngine: true,
 		Provider:        a.cfg.Provider,
 		Model:           a.cfg.Model,
 		SmallModel:      a.cfg.SmallModel,
@@ -44,6 +47,42 @@ func (a *App) GetSettings() SettingsInfo {
 		APIKey:          "",
 		CustomURL:       a.cfg.CustomURL,
 	}
+}
+
+var simpleEnvCredentialRef = regexp.MustCompile(`^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$`)
+
+// resolvedProviderCredential turns Crush's stored credential representation
+// into a usable credential signal. Crush keeps known-provider defaults such as
+// "$MINIMAX_API_KEY" in config even when the environment variable is absent;
+// those templates must not make a provider look configured in Gotack.
+func resolvedProviderCredential(pc crushapi.ProviderConfig) (kind, value string, ok bool) {
+	oauth := strings.TrimSpace(string(pc.OAuth))
+	if oauth != "" && oauth != "null" && oauth != "{}" {
+		return "oauth", "", true
+	}
+
+	key := strings.TrimSpace(pc.APIKey)
+	if key == "" {
+		return "", "", false
+	}
+	if match := simpleEnvCredentialRef.FindStringSubmatch(key); match != nil {
+		name := match[1]
+		if name == "" {
+			name = match[2]
+		}
+		resolved, exists := os.LookupEnv(name)
+		if !exists || strings.TrimSpace(resolved) == "" {
+			return "", "", false
+		}
+		return "api_key", resolved, true
+	}
+	// Other leading-$ forms are shell templates supported by Crush. Gotack does
+	// not execute arbitrary command substitution merely to populate settings UI;
+	// treat them as unverified instead of exposing a false-positive provider.
+	if strings.HasPrefix(key, "$") {
+		return "", "", false
+	}
+	return "api_key", key, true
 }
 
 // ListProviders returns the live provider and model catalog from Crush. When
@@ -72,7 +111,115 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 		}
 		workspaceID = workspace.ID
 	}
-	return svc.api.ListProviders(ctx, workspaceID)
+	providers, err := svc.api.ListProviders(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("get resolved Crush config: %w", err)
+	}
+	for i := range providers {
+		pc, exists := cfg.Providers[providers[i].ID]
+		if !exists || pc.Disable {
+			continue
+		}
+		kind, _, usable := resolvedProviderCredential(pc)
+		if !usable {
+			continue
+		}
+		providers[i].Configured = true
+		providers[i].CredentialKind = kind
+	}
+	return providers, nil
+}
+
+// RevealProviderAPIKey returns a configured provider API key only after an
+// explicit UI request (the eye button). It is never included in GetSettings or
+// ListProviders, keeping secrets out of normal webview state.
+func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
+	svc, err := a.services()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+	defer cancel()
+
+	var workspaceID string
+	if desc, ok := svc.ws.Current(); ok {
+		workspaceID = desc.WorkspaceID
+	}
+	if workspaceID == "" {
+		catalogPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
+		if err := os.MkdirAll(catalogPath, 0o755); err != nil {
+			return "", fmt.Errorf("create catalog workspace directory: %w", err)
+		}
+		workspace, err := svc.api.CreateWorkspace(ctx, catalogPath, false)
+		if err != nil {
+			return "", fmt.Errorf("create catalog workspace: %w", err)
+		}
+		workspaceID = workspace.ID
+	}
+	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	pc, exists := cfg.Providers[strings.TrimSpace(providerID)]
+	if !exists || pc.Disable {
+		return "", fmt.Errorf("provider %q is not configured", providerID)
+	}
+	kind, key, usable := resolvedProviderCredential(pc)
+	if !usable || kind != "api_key" {
+		return "", fmt.Errorf("provider %q does not have a revealable API key", providerID)
+	}
+	return key, nil
+}
+
+// DeleteProvider removes stored credentials for a provider and disables it in
+// Crush's effective config. Disabling is necessary for providers whose
+// credential comes from an environment variable: deleting only api_key would
+// make Crush immediately pick the environment-backed default again.
+func (a *App) DeleteProvider(providerID string) error {
+	providerID = strings.TrimSpace(providerID)
+	if !safeProviderID.MatchString(providerID) {
+		return fmt.Errorf("invalid provider id %q", providerID)
+	}
+	svc, err := a.services()
+	if err != nil {
+		return err
+	}
+	desc, ok := svc.ws.Current()
+	if !ok || desc.WorkspaceID == "" {
+		return fmt.Errorf("no workspace is open")
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+	defer cancel()
+	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
+	base := "providers." + providerID
+	if err := svc.api.RemoveConfigField(ctx, ws, scope, base+".api_key"); err != nil {
+		return fmt.Errorf("remove provider API key: %w", err)
+	}
+	if err := svc.api.RemoveConfigField(ctx, ws, scope, base+".oauth"); err != nil {
+		return fmt.Errorf("remove provider OAuth credential: %w", err)
+	}
+	if err := svc.api.SetConfigField(ctx, ws, scope, base+".disable", true); err != nil {
+		return fmt.Errorf("disable provider: %w", err)
+	}
+
+	if a.cfg != nil && a.cfg.Provider == providerID {
+		_ = svc.api.RemoveConfigField(ctx, ws, scope, "models.large")
+		_ = svc.api.RemoveConfigField(ctx, ws, scope, "models.small")
+		a.cfg.Provider = ""
+		a.cfg.Model = ""
+		a.cfg.SmallModel = ""
+		a.cfg.CustomURL = ""
+		cfgCopy := *a.cfg
+		if err := appconfig.Save(&cfgCopy); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SaveSettings persists non-secret UI preferences and applies agent-affecting
@@ -90,13 +237,18 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 	if s.Theme != "" {
 		a.cfg.Theme = s.Theme
 	}
-	a.cfg.AutostartEngine = s.AutostartEngine
+	a.cfg.AutostartEngine = true
 	a.cfg.Provider = strings.TrimSpace(s.Provider)
 	a.cfg.Model = strings.TrimSpace(s.Model)
-	a.cfg.SmallModel = strings.TrimSpace(s.SmallModel)
+	// Gotack exposes one model selector; persist the same value for Crush's
+	// legacy small-model preference so old/new sessions stay consistent.
+	a.cfg.SmallModel = strings.TrimSpace(s.Model)
 	a.cfg.Thinking = strings.TrimSpace(s.Thinking)
 	a.cfg.APIKey = "" // scrub any credential persisted by older builds
-	a.cfg.CustomURL = strings.TrimSpace(s.CustomURL)
+	credentialProvider := strings.TrimSpace(s.CredentialProvider)
+	if credentialProvider == "" || credentialProvider == a.cfg.Provider {
+		a.cfg.CustomURL = strings.TrimSpace(s.CustomURL)
+	}
 	cfgCopy := *a.cfg
 
 	return appconfig.Save(&cfgCopy)

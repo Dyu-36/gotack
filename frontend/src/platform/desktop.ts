@@ -2,6 +2,8 @@
 // every host event subscription goes through this module. Method names mirror
 // docs/contracts/wails-bindings.md.
 
+import { EventsOn } from '../../wailsjs/runtime/runtime'
+
 export type EngineInfo = {
   status: 'stopped' | 'starting' | 'running' | 'error'
   running: boolean
@@ -11,9 +13,9 @@ export type EngineInfo = {
   error?: string
 }
 
-export type WorkspaceInfo = { path: string; workspace_id: string }
+export type WorkspaceInfo = { path: string; workspace_id: string; is_default: boolean }
 export type SessionInfo = { id: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
-export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; created_at: number }
+export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; model: string; provider: string; created_at: number }
 export type ChangedFileInfo = { path: string; size: number; updated_at: number }
 
 export type ModelCatalogEntry = {
@@ -36,25 +38,36 @@ export type ProviderCatalogEntry = {
   default_large_model_id?: string
   default_small_model_id?: string
   models: ModelCatalogEntry[]
+  configured: boolean
+  credential_kind?: 'api_key' | 'oauth'
 }
 
-export type ZaloConfigInfo = { enabled: boolean; allowed_chats: string[]; has_token: boolean }
-export type ZaloConfigUpdate = { enabled: boolean; token?: string; allowed_chats: string[] }
+export type ZaloConfigInfo = {
+  enabled: boolean
+  paired_chats: string[]
+  pairing_code: string
+  has_token: boolean
+  bot_name?: string
+  token_suffix?: string
+  running: boolean
+}
+export type ZaloConfigUpdate = { enabled: boolean; token?: string }
 export type ZaloStatusInfo = {
   running: boolean
+  configured: boolean
   bot_name?: string
+  pairing_code?: string
+  paired_chat_ids: string[]
+  token_suffix?: string
   last_error?: string
-  last_chat_id?: string
-  last_sender?: string
-  last_text?: string
-  last_seen_at?: number
-  last_reply_at?: number
 }
-
+export type ZaloFileRequest = { path: string; chat_id?: string }
 export type SettingsInfo = {
   theme: string
   autostart_engine: boolean
   provider: string
+  credential_provider?: string
+  provider_only?: boolean
   model: string
   small_model: string
   thinking: string
@@ -100,6 +113,7 @@ type BackendApp = {
   SelectWorkspace: () => Promise<string>
   ListRecentWorkspaces: () => Promise<string[]>
   OpenWorkspace: (path: string) => Promise<WorkspaceInfo>
+  EnsureAssistantWorkspace: () => Promise<WorkspaceInfo>
   CurrentWorkspace: () => Promise<WorkspaceInfo | null>
   ListSessions: () => Promise<SessionInfo[]>
   CreateSession: (title: string) => Promise<SessionInfo>
@@ -120,15 +134,21 @@ type BackendApp = {
   GetSettings: () => Promise<SettingsInfo>
   SaveSettings: (settings: SettingsInfo) => Promise<void>
   ListProviders: () => Promise<ProviderCatalogEntry[]>
+  RevealProviderAPIKey: (providerID: string) => Promise<string>
+  DeleteProvider: (providerID: string) => Promise<void>
   GetZaloConfig: () => Promise<ZaloConfigInfo>
   SaveZaloConfig: (update: ZaloConfigUpdate) => Promise<ZaloStatusInfo>
+  TestZaloConnection: () => Promise<ZaloStatusInfo>
+  RemoveZaloToken: () => Promise<ZaloStatusInfo>
+  RegenerateZaloPairingCode: () => Promise<ZaloStatusInfo>
+  UnpairZaloChat: (chatID: string) => Promise<ZaloStatusInfo>
   ZaloStatus: () => Promise<ZaloStatusInfo>
+  SendZaloFile: (req: ZaloFileRequest) => Promise<string>
 }
 
 declare global {
   interface Window {
     go?: { main?: { App?: Partial<BackendApp> } }
-    runtime?: { EventsOn: (name: string, cb: (...data: unknown[]) => void) => (() => void) | void; EventsOff: (name: string, ...additional: string[]) => void }
   }
 }
 
@@ -140,13 +160,8 @@ function app(): BackendApp | null {
 import { events, type EventName } from './events.generated'
 export { events, type EventName }
 export function on<T>(event: EventName, handler: (payload: T) => void): () => void {
-  const rt = window.runtime
-  if (!rt) return () => {}
   const wrapped = (...data: unknown[]) => handler(data[0] as T)
-  const cancel = rt.EventsOn(event, wrapped)
-  if (typeof cancel === 'function') return cancel
-  console.warn(`EventsOn for ${event} did not return a cancel function; falling back to EventsOff`)
-  return () => rt.EventsOff(event)
+  return EventsOn(event, wrapped)
 }
 
 function call<K extends keyof BackendApp>(method: K, ...args: Parameters<BackendApp[K]>): ReturnType<BackendApp[K]> {
@@ -159,13 +174,24 @@ export const desktop = {
   available: () => app() !== null,
   backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
   engineStatus: () => call('EngineStatus'), startEngine: () => call('StartEngine'), stopEngine: () => call('StopEngine'), reconnectEngine: () => call('ReconnectEngine'),
-  selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), currentWorkspace: () => call('CurrentWorkspace'),
+  selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), ensureAssistantWorkspace: () => call('EnsureAssistantWorkspace'), currentWorkspace: () => call('CurrentWorkspace'),
   listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string) => call('SendPrompt', id, text), cancelPrompt: (id: string) => call('CancelPrompt', id),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
   answerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => call('AnswerQuestion', requestID, answers),
-  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
-  openTerminal: (cwd: string) => call('OpenTerminal', cwd), writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data), resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows), closeTerminal: (id: string) => call('CloseTerminal', id),
+  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID),
+  fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
+  openTerminal: (cwd: string) => call('OpenTerminal', cwd),
+  writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data),
+  resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows),
+  closeTerminal: (id: string) => call('CloseTerminal', id),
+  getZaloConfig: () => call('GetZaloConfig'),
+  saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update),
+  testZaloConnection: () => call('TestZaloConnection'),
+  removeZaloToken: () => call('RemoveZaloToken'),
+  regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'),
+  unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID),
+  zaloStatus: () => call('ZaloStatus'),
+  sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
-  listProviders: () => call('ListProviders'),
-  getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), zaloStatus: () => call('ZaloStatus'),
+  listProviders: () => call('ListProviders'), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
 }

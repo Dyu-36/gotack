@@ -65,7 +65,7 @@
   <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="w-full max-w-lg rounded-xl border border-mm-border bg-mm-bg shadow-xl" role="dialog" aria-modal="true" aria-label="Permission request">
       <header class="px-5 py-4 border-b border-mm-border">
-        <div class="text-xs font-semibold uppercase tracking-wider text-amber-500">Crush permission</div>
+        <div class="text-xs font-semibold uppercase tracking-wider text-amber-500">Yêu cầu quyền</div>
         <h2 class="mt-1 text-base font-semibold text-mm-text">{permission.request.tool_name || 'Tool request'}{#if !expired && secondsLeft > 0 && secondsLeft <= 30} <span class="ml-2 text-xs text-mm-tertiary">{secondsLeft}s</span>{/if}</h2>
       </header>
       <div class="p-5 space-y-3">
@@ -95,9 +95,9 @@
 
 {#if question}
   <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="w-full max-w-2xl max-h-[88vh] rounded-xl border border-mm-border bg-mm-bg shadow-xl flex flex-col" role="dialog" aria-modal="true" aria-label="Crush questions">
+    <div class="w-full max-w-2xl max-h-[88vh] rounded-xl border border-mm-border bg-mm-bg shadow-xl flex flex-col" role="dialog" aria-modal="true" aria-label="Câu hỏi từ Tack">
       <header class="px-5 py-4 border-b border-mm-border shrink-0">
-        <div class="text-xs font-semibold uppercase tracking-wider text-mm-accent">Crush question</div>
+        <div class="text-xs font-semibold uppercase tracking-wider text-mm-accent">Câu hỏi</div>
         <h2 class="mt-1 text-base font-semibold text-mm-text">{question.confirm_title || (question.questions.length > 1 ? 'Cần thêm thông tin' : question.questions[0]?.label || 'Câu hỏi')}</h2>
         {#if question.confirm_description}<p class="mt-1 text-xs text-mm-secondary">{question.confirm_description}</p>{/if}
       </header>

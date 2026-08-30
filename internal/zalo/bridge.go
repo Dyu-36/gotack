@@ -2,228 +2,463 @@ package zalo
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
-// maxReplyChars is the Zalo Bot API text limit; replies are truncated to fit.
-const maxReplyChars = 2000
-
-// fallback replies are product copy sent to Zalo users when the agent cannot
-// serve the request. They are the only user-facing strings in this package.
 const (
-	replyBusy        = "Bot đang xử lý yêu cầu trước đó, vui lòng đợi chút rồi thử lại."
-	replyUnavailable = "Agent chưa sẵn sàng trên máy. Hãy mở Gotack, kết nối workspace rồi thử lại."
-	replyFailed      = "Không gửi được yêu cầu tới agent. Vui lòng thử lại."
-	replyTruncated   = "…(kết quả dài, xem tiếp trong Gotack)"
+	pollTimeout       = 25 * time.Second
+	minBackoff        = time.Second
+	maxBackoff        = 30 * time.Second
+	seenCapacity      = 200
+	defaultFilePrompt = "Tôi vừa gửi một tệp qua Zalo. Hãy mở tệp này và xử lý giúp tôi."
 )
 
-// Starter submits one inbound request to the agent and returns the session id
-// that will carry the answer. Implementations decide which session and
-// workspace serve the chat.
-type Starter func(ctx context.Context, chatID, senderName, text string) (sessionID string, err error)
+const helpText = "✅ Đã kết nối với Gotack trên máy của bạn.\n\nNhắn bình thường để nhờ Gotack làm việc. Các lệnh nhanh:\n/screenshot — chụp ảnh màn hình máy tính gửi qua Zalo\n/files — xem danh sách tệp của workspace\n/send <tên file> — gửi ảnh / xlsx / pdf / docx... qua Zalo\n/new — mở hội thoại mới\n/stop — dừng việc đang chạy\n/status — xem trạng thái\n/model — xem mô hình đang dùng\n/help — xem lại danh sách này"
 
-// Status is a snapshot of bridge health for the settings UI.
-type Status struct {
-	Running     bool   `json:"running"`
-	BotName     string `json:"bot_name,omitempty"`
-	LastError   string `json:"last_error,omitempty"`
-	LastChatID  string `json:"last_chat_id,omitempty"`
-	LastSender  string `json:"last_sender,omitempty"`
-	LastText    string `json:"last_text,omitempty"`
-	LastSeenAt  int64  `json:"last_seen_at,omitempty"`
-	LastReplyAt int64  `json:"last_reply_at,omitempty"`
-}
+func (m *Manager) run(ctx context.Context) {
+	defer func() {
+		m.mu.Lock()
+		m.running = false
+		m.cancel = nil
+		m.mu.Unlock()
+	}()
+	backoff := minBackoff
+	var client *Client
+	var clientToken string
 
-// Bridge polls the Zalo Bot API, forwards allowed chat messages to the agent
-// through Starter, and sends completed agent answers back to the chat.
-type Bridge struct {
-	client  *Client
-	allowed map[string]bool
-	start   Starter
-	log     *slog.Logger
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		state := m.snapshot()
+		if state.Token == "" {
+			return
+		}
+		if client == nil || clientToken != state.Token {
+			created, err := m.newClient(state.Token)
+			if err != nil {
+				m.setError(err)
+				return
+			}
+			client, clientToken = created, state.Token
+			_ = client.DeleteWebhook(ctx)
+		}
 
-	mu          sync.Mutex
-	sessions    map[string]string // session id -> chat id
-	busy        map[string]bool   // chat id -> agent turn in flight
-	seen        map[string]bool   // processed message ids
-	seenOrder   []string
-	status      Status
-}
+		updates, err := client.GetUpdates(ctx, state.UpdateOffset, pollTimeout)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			m.setError(err)
+			m.log.Warn("zalo poll failed", "err", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			client = nil
+			continue
+		}
+		backoff = minBackoff
+		m.setError(nil)
 
-// NewBridge wires a bridge for one bot token. allowed lists the chat ids the
-// bridge may serve; an empty list means every chat is ignored.
-func NewBridge(token string, allowed []string, start Starter, log *slog.Logger) *Bridge {
-	if log == nil {
-		log = slog.Default()
-	}
-	allow := make(map[string]bool, len(allowed))
-	for _, id := range allowed {
-		if id = strings.TrimSpace(id); id != "" {
-			allow[id] = true
+		for _, update := range updates {
+			if update.UpdateID != nil {
+				next := *update.UpdateID + 1
+				m.mu.Lock()
+				if m.state.UpdateOffset == nil || next > *m.state.UpdateOffset {
+					m.state.UpdateOffset = &next
+					if err := m.saveLocked(); err != nil {
+						m.lastError = err.Error()
+					}
+				}
+				m.mu.Unlock()
+			}
+			if !m.remember(update) {
+				continue
+			}
+			go m.dispatch(context.Background(), client, update)
 		}
 	}
-	return &Bridge{
-		client:   NewClient(token),
-		allowed:  allow,
-		start:    start,
-		log:      log,
-		sessions: make(map[string]string),
-		busy:     make(map[string]bool),
-		seen:     make(map[string]bool),
+}
+
+func (m *Manager) remember(update Update) bool {
+	key := update.MessageID
+	if key == "" && update.UpdateID != nil {
+		key = fmt.Sprintf("update:%d", *update.UpdateID)
+	}
+	if key == "" {
+		return true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.seen {
+		if existing == key {
+			return false
+		}
+	}
+	m.seen = append(m.seen, key)
+	if len(m.seen) > seenCapacity {
+		copy(m.seen, m.seen[len(m.seen)-seenCapacity:])
+		m.seen = m.seen[:seenCapacity]
+	}
+	return true
+}
+
+func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
+	text := strings.TrimSpace(update.Text)
+	command := strings.ToLower(strings.Fields(text)[0])
+	state := m.snapshot()
+	paired := contains(state.PairedChatIDs, update.ChatID)
+
+	if command == "/pair" || strings.HasPrefix(strings.ToLower(text), "/pair") {
+		m.handlePair(ctx, client, update.ChatID, text, paired, state.PairingCode)
+		return
+	}
+	if !paired {
+		m.log.Info("zalo ignored unpaired chat", "chat", update.ChatID)
+		return
+	}
+
+	switch command {
+	case "/help", "/start":
+		m.reply(ctx, client, update.ChatID, helpText)
+	case "/screenshot", "/cap", "/screen":
+		m.sendScreenshot(ctx, client, update.ChatID)
+	case "/send", "/file", "/files", "/guifile":
+		argument := ""
+		if _, tail, ok := strings.Cut(text, " "); ok {
+			argument = strings.TrimSpace(tail)
+		}
+		m.handleSendFile(ctx, client, update.ChatID, argument)
+	case "/new":
+		m.mu.Lock()
+		delete(m.state.ChatSessions, update.ChatID)
+		err := m.saveLocked()
+		m.mu.Unlock()
+		if err != nil {
+			m.reply(ctx, client, update.ChatID, "⚠️ "+err.Error())
+		} else {
+			m.reply(ctx, client, update.ChatID, "🆕 Đã mở hội thoại mới. Nhắn việc cần làm nhé.")
+		}
+	case "/stop":
+		m.stopTurn(ctx, client, update.ChatID)
+	case "/status":
+		m.sendRuntimeStatus(ctx, client, update.ChatID)
+	case "/model":
+		m.sendModel(ctx, client, update.ChatID)
+	default:
+		m.startTurn(ctx, client, update)
 	}
 }
 
-// Run validates the token, then polls until ctx is cancelled. It returns an
-// error only when the token itself is rejected; transient poll failures are
-// logged and retried with backoff.
-func (b *Bridge) Run(ctx context.Context) error {
-	info, err := b.client.GetMe(ctx)
+func (m *Manager) handlePair(ctx context.Context, client *Client, chatID, text string, paired bool, expected string) {
+	if paired {
+		m.reply(ctx, client, chatID, "✅ Tài khoản Zalo này đã ghép cặp với Gotack rồi.\n\n/help để xem các lệnh.")
+		return
+	}
+	fields := strings.Fields(text)
+	code := ""
+	if len(fields) > 1 {
+		code = fields[1]
+	}
+	if expected == "" {
+		m.reply(ctx, client, chatID, "⚠️ Chưa có mã ghép cặp. Hãy mở Gotack → Cài đặt → Zalo để lấy mã.")
+		return
+	}
+	if code != expected {
+		m.reply(ctx, client, chatID, "❌ Mã ghép cặp không đúng. Hãy xem mã 6 số trong Cài đặt → Zalo và nhắn lại /pair <mã>.")
+		return
+	}
+	m.mu.Lock()
+	if !contains(m.state.PairedChatIDs, chatID) {
+		m.state.PairedChatIDs = append(m.state.PairedChatIDs, chatID)
+	}
+	m.state.PairingCode = pairingCode()
+	err := m.saveLocked()
+	m.mu.Unlock()
+	if err != nil {
+		m.reply(ctx, client, chatID, "⚠️ "+err.Error())
+		return
+	}
+	m.log.Info("zalo chat paired", "chat", chatID)
+	m.reply(ctx, client, chatID, helpText)
+}
+
+func (m *Manager) startTurn(ctx context.Context, client *Client, update Update) {
+	if m.runtime.Start == nil {
+		m.reply(ctx, client, update.ChatID, "Gotack hiện chưa sẵn sàng xử lý yêu cầu.")
+		return
+	}
+	m.mu.Lock()
+	if _, busy := m.active[update.ChatID]; busy {
+		m.mu.Unlock()
+		m.reply(ctx, client, update.ChatID, "Bot đang xử lý yêu cầu trước đó, vui lòng đợi chút rồi thử lại.")
+		return
+	}
+	existingSession := m.state.ChatSessions[update.ChatID]
+	m.active[update.ChatID] = "starting"
+	m.mu.Unlock()
+
+	content := strings.TrimSpace(update.Text)
+	if update.AttachmentURL != "" {
+		client.SendChatAction(ctx, update.ChatID, "typing")
+		inbox := filepath.Join(os.TempDir(), "gotack-zalo-inbox")
+		path, err := client.DownloadAttachment(ctx, update.AttachmentURL, inbox)
+		if err != nil {
+			m.reply(ctx, client, update.ChatID, "⚠️ Không tải được tệp bạn gửi: "+err.Error())
+		} else {
+			m.reply(ctx, client, update.ChatID, "📥 Đã nhận "+filepath.Base(path)+", đang xử lý...")
+			if content == "" {
+				content = defaultFilePrompt
+			}
+			content += "\n\nTệp Zalo đã tải về máy tại: " + path
+		}
+	}
+	if content == "" {
+		m.mu.Lock()
+		delete(m.active, update.ChatID)
+		m.mu.Unlock()
+		return
+	}
+	startedAt := time.Now().Add(-5 * time.Second)
+	sessionID, err := m.runtime.Start(ctx, existingSession, update.ChatID, content)
+	if err != nil {
+		m.mu.Lock()
+		delete(m.active, update.ChatID)
+		m.mu.Unlock()
+		m.log.Warn("zalo request rejected", "chat", update.ChatID, "err", err)
+		m.reply(ctx, client, update.ChatID, "Gotack hiện chưa sẵn sàng xử lý yêu cầu.")
+		return
+	}
+	m.mu.Lock()
+	m.active[update.ChatID] = sessionID
+	m.state.ChatSessions[update.ChatID] = sessionID
+	if err := m.saveLocked(); err != nil {
+		m.lastError = err.Error()
+	}
+	m.mu.Unlock()
+	client.SendChatAction(ctx, update.ChatID, "typing")
+	m.log.Info("zalo turn started", "chat", update.ChatID, "session", sessionID, "started", startedAt)
+}
+
+// Done routes one completed agent answer to the chat that started its session.
+// Sessions not active through Zalo are ignored.
+func (m *Manager) Done(sessionID, text string) {
+	m.mu.Lock()
+	chatID := ""
+	for chat, activeSession := range m.active {
+		if activeSession == sessionID {
+			chatID = chat
+			delete(m.active, chat)
+			break
+		}
+	}
+	state := m.state
+	m.mu.Unlock()
+	if chatID == "" || state.Token == "" {
+		return
+	}
+	go func() {
+		client, err := m.newClient(state.Token)
+		if err != nil {
+			m.setError(err)
+			return
+		}
+		m.deliverAnswer(context.Background(), client, chatID, text)
+	}()
+}
+
+func (m *Manager) deliverAnswer(ctx context.Context, client *Client, chatID, text string) {
+	workspace := ""
+	if m.runtime.Workspace != nil {
+		workspace = m.runtime.Workspace()
+	}
+	paths := extractMediaPaths(text, workspace, time.Time{})
+	clean := sanitizeReply(text)
+	if clean == "" {
+		clean = "✅ Đã xong."
+	}
+	for _, part := range chunkText(clean, maxMessageChars) {
+		if err := client.SendMessage(ctx, chatID, part); err != nil {
+			m.setError(err)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	for _, path := range paths {
+		if err := m.sendPath(ctx, client, chatID, path); err != nil {
+			m.reply(ctx, client, chatID, "⚠️ Không gửi được "+filepath.Base(path)+": "+err.Error())
+		}
+	}
+}
+
+func (m *Manager) stopTurn(ctx context.Context, client *Client, chatID string) {
+	m.mu.Lock()
+	sessionID, active := m.active[chatID]
+	m.mu.Unlock()
+	if !active || sessionID == "starting" {
+		m.reply(ctx, client, chatID, "Hiện không có việc nào đang chạy.")
+		return
+	}
+	if m.runtime.Stop == nil {
+		m.reply(ctx, client, chatID, "⚠️ Không dừng được yêu cầu này.")
+		return
+	}
+	if err := m.runtime.Stop(ctx, sessionID); err != nil {
+		m.reply(ctx, client, chatID, "⚠️ Không dừng được: "+err.Error())
+		return
+	}
+	m.reply(ctx, client, chatID, "🛑 Đã dừng việc đang chạy.")
+}
+
+func (m *Manager) sendRuntimeStatus(ctx context.Context, client *Client, chatID string) {
+	m.mu.Lock()
+	sessionID := m.state.ChatSessions[chatID]
+	_, busy := m.active[chatID]
+	m.mu.Unlock()
+	title := "chưa có (nhắn một câu là tạo)"
+	if sessionID != "" && m.runtime.Session != nil {
+		if value, err := m.runtime.Session(ctx, sessionID); err == nil && value != "" {
+			title = value
+		}
+	}
+	activity := "rảnh"
+	if busy {
+		activity = "đang xử lý một việc"
+	}
+	m.reply(ctx, client, chatID, fmt.Sprintf("🖥️ Gotack đang chạy trên máy.\nHội thoại: %s\nTrạng thái: %s", title, activity))
+}
+
+func (m *Manager) sendModel(ctx context.Context, client *Client, chatID string) {
+	if m.runtime.Model == nil {
+		m.reply(ctx, client, chatID, "⚠️ Không đọc được mô hình đang dùng.")
+		return
+	}
+	model, err := m.runtime.Model(ctx)
+	if err != nil {
+		m.reply(ctx, client, chatID, "⚠️ Không đọc được cài đặt: "+err.Error())
+		return
+	}
+	m.reply(ctx, client, chatID, "🧩 Mô hình đang dùng: "+model+"\n(Đổi mô hình trong app Gotack.)")
+}
+
+func (m *Manager) sendScreenshot(ctx context.Context, client *Client, chatID string) {
+	client.SendChatAction(ctx, chatID, "upload_photo")
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("gotack-screen-%d.png", time.Now().UnixNano()))
+	if err := captureScreenshot(ctx, path); err != nil {
+		m.reply(ctx, client, chatID, "⚠️ Không chụp được màn hình: "+err.Error())
+		return
+	}
+	defer os.Remove(path)
+	if err := m.sendPath(ctx, client, chatID, path); err != nil {
+		m.reply(ctx, client, chatID, "⚠️ Không gửi được ảnh qua Zalo: "+err.Error())
+	}
+}
+
+func (m *Manager) handleSendFile(ctx context.Context, client *Client, chatID, argument string) {
+	workspace := ""
+	if m.runtime.Workspace != nil {
+		workspace = m.runtime.Workspace()
+	}
+	if strings.TrimSpace(argument) == "" {
+		files := listOutputFiles(workspace)
+		if len(files) == 0 {
+			m.reply(ctx, client, chatID, "📂 Workspace này chưa có tệp nào trong thư mục output.\nCách dùng: /send <tên file> hoặc /send <đường dẫn đầy đủ>.")
+			return
+		}
+		lines := make([]string, 0, len(files))
+		for _, path := range files {
+			lines = append(lines, "• "+filepath.Base(path))
+			if len(lines) == 20 {
+				break
+			}
+		}
+		m.reply(ctx, client, chatID, "📂 Các tệp có thể gửi:\n"+strings.Join(lines, "\n")+"\n\nGõ: /send <tên file>")
+		return
+	}
+	path := resolveOutboundFile(workspace, argument)
+	if path == "" {
+		m.reply(ctx, client, chatID, "⚠️ Không tìm thấy tệp \""+strings.TrimSpace(argument)+"\". Gõ /files để xem danh sách.")
+		return
+	}
+	if err := m.sendPath(ctx, client, chatID, path); err != nil {
+		m.reply(ctx, client, chatID, "⚠️ Không gửi được "+filepath.Base(path)+": "+err.Error())
+	}
+}
+
+// SendFile sends one local file to a paired chat, or every paired chat when
+// chatID is empty.
+func (m *Manager) SendFile(ctx context.Context, path, chatID string) (string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil || !isSendableFile(absolute) {
+		return "", fmt.Errorf("Không tìm thấy tệp gửi được: %s", path)
+	}
+	state := m.snapshot()
+	if state.Token == "" {
+		return "", fmt.Errorf("Chưa lưu Bot Token Zalo trong Cài đặt")
+	}
+	targets := state.PairedChatIDs
+	if strings.TrimSpace(chatID) != "" {
+		if !contains(targets, chatID) {
+			return "", fmt.Errorf("Chat Zalo %s chưa ghép cặp với Gotack", chatID)
+		}
+		targets = []string{chatID}
+	}
+	if len(targets) == 0 {
+		return "", fmt.Errorf("Chưa có tài khoản Zalo nào ghép cặp")
+	}
+	client, err := m.newClient(state.Token)
+	if err != nil {
+		return "", err
+	}
+	sent := 0
+	failures := make([]string, 0)
+	for _, target := range targets {
+		if err := m.sendPath(ctx, client, target, absolute); err != nil {
+			failures = append(failures, err.Error())
+		} else {
+			sent++
+		}
+	}
+	if sent == 0 {
+		return "", fmt.Errorf("Không gửi được %s qua Zalo: %s", filepath.Base(absolute), strings.Join(failures, "; "))
+	}
+	return fmt.Sprintf("Đã gửi %s qua Zalo (%d hội thoại)", filepath.Base(absolute), sent), nil
+}
+
+func (m *Manager) sendPath(ctx context.Context, client *Client, chatID, path string) error {
+	client.SendChatAction(ctx, chatID, map[bool]string{true: "upload_photo", false: "typing"}[isImageFile(path)])
+	url, err := uploadFile(ctx, path)
 	if err != nil {
 		return err
 	}
-	b.mu.Lock()
-	b.status.BotName = info.Name
-	b.status.Running = true
-	b.mu.Unlock()
-	b.log.Info("zalo bridge connected", "bot", info.Name)
+	if isImageFile(path) {
+		return client.SendPhotoURL(ctx, chatID, url, "🖼️ "+filepath.Base(path))
+	}
+	return client.SendMessage(ctx, chatID, "📎 "+filepath.Base(path)+"\n"+url)
+}
 
-	const pollTimeout = 25 * time.Second
-	backoff := time.Second
-	for ctx.Err() == nil {
-		update, err := b.client.GetUpdates(ctx, pollTimeout)
-		if err != nil {
-			if ctx.Err() != nil {
-				break
-			}
-			b.noteError(err.Error())
-			b.log.Warn("zalo poll failed", "err", err)
-			select {
-			case <-ctx.Done():
-			case <-time.After(backoff):
-			}
-			backoff = min(backoff*2, 30*time.Second)
-			continue
-		}
-		backoff = time.Second
-		if update != nil {
-			b.dispatch(ctx, update)
+func (m *Manager) reply(ctx context.Context, client *Client, chatID, text string) {
+	if err := client.SendMessage(ctx, chatID, text); err != nil {
+		m.setError(err)
+		m.log.Warn("zalo reply failed", "chat", chatID, "err", err)
+	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
 		}
 	}
-
-	b.mu.Lock()
-	b.status.Running = false
-	b.mu.Unlock()
-	return ctx.Err()
-}
-
-// Done sends the final agent answer for a session back to its chat.
-func (b *Bridge) Done(sessionID, text string) {
-	b.mu.Lock()
-	chatID, ok := b.sessions[sessionID]
-	inFlight := b.busy[chatID]
-	b.mu.Unlock()
-	if !ok || !inFlight {
-		return
-	}
-
-	answer := strings.TrimSpace(text)
-	if answer == "" {
-		answer = replyFailed
-	}
-	if len(answer) > maxReplyChars {
-		answer = answer[:maxReplyChars-1] + replyTruncated
-	}
-	if err := b.client.SendMessage(context.Background(), chatID, answer); err != nil {
-		b.noteError(err.Error())
-		b.log.Warn("zalo reply failed", "chat", chatID, "err", err)
-		return
-	}
-
-	b.mu.Lock()
-	delete(b.sessions, sessionID)
-	delete(b.busy, chatID)
-	b.status.LastReplyAt = time.Now().Unix()
-	b.mu.Unlock()
-}
-
-// Status returns the current bridge snapshot.
-func (b *Bridge) Status() Status {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.status
-}
-
-func (b *Bridge) dispatch(ctx context.Context, update *Update) {
-	msg := update.Message
-	text := strings.TrimSpace(msg.Text)
-	if msg.MessageID == "" || msg.Chat.ID == "" || text == "" {
-		return
-	}
-	b.rememberMessage(msg.MessageID)
-
-	chatID := msg.Chat.ID
-	b.mu.Lock()
-	b.status.LastChatID = chatID
-	b.status.LastSender = displayName(msg)
-	b.status.LastText = text
-	b.status.LastSeenAt = time.Now().Unix()
-	allowed := b.allowed[chatID]
-	busy := b.busy[chatID]
-	b.mu.Unlock()
-	if !allowed {
-		return
-	}
-	if busy {
-		_ = b.client.SendMessage(ctx, chatID, replyBusy)
-		return
-	}
-
-	sessionID, err := b.start(ctx, chatID, displayName(msg), text)
-	if err != nil {
-		b.noteError(err.Error())
-		b.log.Warn("zalo request rejected", "chat", chatID, "err", err)
-		_ = b.client.SendMessage(ctx, chatID, replyUnavailable)
-		return
-	}
-
-	b.mu.Lock()
-	b.sessions[sessionID] = chatID
-	b.busy[chatID] = true
-	b.mu.Unlock()
-}
-
-// rememberMessage keeps a bounded window of processed message ids so a repeat
-// delivery of the same update is answered once, regardless of server cursor
-// semantics.
-func (b *Bridge) rememberMessage(id string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.seen[id] {
-		return
-	}
-	b.seen[id] = true
-	b.seenOrder = append(b.seenOrder, id)
-	const window = 256
-	if len(b.seenOrder) > window {
-		delete(b.seen, b.seenOrder[0])
-		b.seenOrder = b.seenOrder[len(b.seenOrder)-window:]
-	}
-}
-
-func (b *Bridge) noteError(msg string) {
-	b.mu.Lock()
-	b.status.LastError = msg
-	b.mu.Unlock()
-}
-
-
-
-func displayName(msg Message) string {
-	if name := strings.TrimSpace(msg.From.Name); name != "" {
-		return name
-	}
-	return strings.TrimSpace(msg.From.DisplayName)
+	return false
 }

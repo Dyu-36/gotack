@@ -1,14 +1,13 @@
-import { toast } from 'svelte-sonner'
 import type { EngineInfo, PermissionRequestPayload as Envelope, QuestionRequestEvent } from '../../platform/desktop'
 import type { Conversation, ModelType, ReasoningEffort, SessionSummary } from './types.svelte'
-import { REASONING_EFFORT_OPTIONS } from './catalog.svelte'
+import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
 import { createMessageState } from './live-conversation-messages.svelte'
 import { createPermissionState } from './live-conversation-permissions.svelte'
 
 
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
-const DEFAULT_WORKSPACE_LABEL = 'Chọn thư mục...'
+const DEFAULT_WORKSPACE_LABEL = 'C:\\'
 
 export function createLiveConversationState() {
   // Top-level state owns the shared reactive surface. Sub-states get mutable
@@ -20,6 +19,7 @@ export function createLiveConversationState() {
   let backendReady = $state(false)
   let engine = $state<EngineInfo | null>(null)
   let error = $state('')
+  let errorTimer: number | undefined
   let permission = $state<Envelope | null>(null)
   let question = $state<QuestionRequestEvent | null>(null)
   let streamingText = $state('')
@@ -36,15 +36,23 @@ export function createLiveConversationState() {
   const errorText = (cause: unknown) => cause instanceof Error ? cause.message : String(cause)
   const reportError = (cause: unknown, prefix = '') => {
     const message = `${prefix}${prefix ? ': ' : ''}${errorText(cause)}`
+    if (errorTimer !== undefined) window.clearTimeout(errorTimer)
     error = message
-    toast.error(message)
+    errorTimer = window.setTimeout(() => {
+      if (error === message) error = ''
+      errorTimer = undefined
+    }, 5000)
   }
-  const clearError = () => { error = '' }
+  const clearError = () => {
+    if (errorTimer !== undefined) window.clearTimeout(errorTimer)
+    errorTimer = undefined
+    error = ''
+  }
   const updateConversation = (id: string, fn: (c: Conversation) => Conversation) => {
     conversations = conversations.map((c) => c.id === id ? fn(c) : c)
   }
   const rememberSession = (id: string) => {
-    if (workspace !== DEFAULT_WORKSPACE_LABEL && id) localStorage.setItem(`${SESSION_MEMORY_PREFIX}${workspace}`, id)
+    if (id) localStorage.setItem(`${SESSION_MEMORY_PREFIX}${workspace}`, id)
   }
 
   // Compose sub-states. Order matters: messages first because the engine
@@ -55,10 +63,11 @@ export function createLiveConversationState() {
 
     input: { get value() { return input }, set value(v) { input = v } },
     workspace: { get value() { return workspace }, set value(v) { workspace = v } },
-    backendReady: { get value() { return backendReady }, set value(v) { backendReady = v } },
     streamingText: { get value() { return streamingText }, set value(v) { streamingText = v } },
     reportError, clearError, updateConversation, rememberSession,
-    applyLoadedSelection: () => engineState.applyLoadedSelection(),
+    applyLoadedSelection: (providerID, modelID) => engineState.applyLoadedSelection(providerID, modelID),
+    waitForReady: () => engineState.waitForReady(),
+    waitForSelection: () => engineState.waitForSelection(),
   })
 
   const engineState = createEngineState({
@@ -107,6 +116,8 @@ export function createLiveConversationState() {
     get smallModel() { return smallModel },
     get thinking() { return thinking },
     get thinkingLabel() {
+      const selected = catalog.configuredModels.find((m) => m.id === model && (!provider || m.providerId === provider))
+      if (selected?.can_reason && !selected.reasoning_levels?.length) return thinking === 'none' ? 'Think: Off' : 'Think: On'
       const opt = REASONING_EFFORT_OPTIONS.find((o) => o.id === thinking)
       return opt ? `Think: ${opt.short}` : 'Think: Auto'
     },
@@ -120,7 +131,7 @@ export function createLiveConversationState() {
     setModel: (next: string, label?: string, providerID?: string, type: ModelType = 'large') => engineState.setModel(next, label, providerID, type),
     setThinking: (value: ReasoningEffort) => engineState.setThinking(value),
     init: () => engineState.init(),
-    destroy: () => engineState.destroy(),
+    destroy: () => { clearError(); engineState.destroy() },
     pickWorkspace: () => messages.pickWorkspace(),
     create: () => messages.create(),
     select: (id: string) => messages.select(id),
@@ -131,6 +142,6 @@ export function createLiveConversationState() {
     answerPermission: (decision: 'allow' | 'allow_session' | 'deny') => permissions.answerPermission(decision),
     answerQuestion: (answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => permissions.answerQuestion(answers),
     loadSettings: () => engineState.loadSettings(),
-    saveSettings: (s: { theme: string; autostart_engine: boolean; provider: string; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }) => engineState.saveSettings(s),
+    saveSettings: (s: { theme: string; autostart_engine: boolean; provider: string; credential_provider?: string; provider_only?: boolean; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }) => engineState.saveSettings(s),
   }
 }

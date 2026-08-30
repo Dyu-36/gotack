@@ -80,6 +80,24 @@ jobs:
         shell: pwsh
         run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\office.exe" ./cmd/office
 
+      - name: Bundle officecli binary and skills
+        shell: pwsh
+        run: |
+          $resourcesDir = "$env:GITHUB_WORKSPACE\build\windows\resources"
+          New-Item -ItemType Directory -Force $resourcesDir | Out-Null
+          $localOffice = "$env:LOCALAPPDATA\OfficeCLI\officecli.exe"
+          if (Test-Path $localOffice) {
+            Copy-Item $localOffice "$resourcesDir\officecli.exe" -Force
+          } else {
+            Write-Host "Downloading officecli (Windows x64)..."
+            Invoke-WebRequest -Uri "https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-windows-amd64.exe" -OutFile "$resourcesDir\officecli.exe"
+          }
+          & "$resourcesDir\officecli.exe" --version
+          if (Test-Path "$env:GITHUB_WORKSPACE\resources\skills") {
+            Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\resources\skills" "$resourcesDir\skills"
+          } else {
+            Write-Host "No vendored skills to bundle."
+          }
       - name: Assemble portable ZIP
         shell: pwsh
         run: |
@@ -89,9 +107,14 @@ jobs:
           Copy-Item build\bin\gotack.exe "$out\gotack.exe"
           Copy-Item build\bin\resources\crush.exe "$out\resources\crush.exe"
           Copy-Item build\bin\resources\office.exe "$out\resources\office.exe"
+          if (Test-Path build\windows\resources\officecli.exe) {
+            Copy-Item build\windows\resources\officecli.exe "$out\resources\officecli.exe"
+          }
+          if (Test-Path build\windows\resources\skills) {
+            Copy-Item -Recurse build\windows\resources\skills "$out\resources\skills"
+          }
           Copy-Item build\windows\README.md "$out\README.txt"
           Compress-Archive -Path "$out\*" -DestinationPath "artifacts\$name.zip"
-
       - name: Publish GitHub release
         shell: pwsh
         env:

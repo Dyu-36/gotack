@@ -1,18 +1,20 @@
 <script lang="ts">
   import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
-  import type { ModelType, ReasoningEffort } from '../features/conversations/types.svelte'
+  import type { ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
     value: string
     modelLabel?: string
     thinkingLabel?: string
     isStreaming?: boolean
+    ready?: boolean
     selectedModelId?: string
+    selectedProviderId?: string
     selectedThinkingId?: string
     onInput: (value: string) => void
     onSend: () => void
     onStop?: () => void
-    onSelectModel?: (id: string, label: string, providerId?: string, type?: ModelType) => void
+    onSelectModel?: (id: string, label: string, providerId?: string) => void
     onSelectThinking?: (id: ReasoningEffort) => void
     onOpenSettings?: () => void
   }
@@ -22,7 +24,9 @@
     modelLabel = 'Model mặc định',
     thinkingLabel = 'Think: High',
     isStreaming = false,
+    ready = false,
     selectedModelId = '',
+    selectedProviderId = '',
     selectedThinkingId = 'high',
     onInput,
     onSend,
@@ -36,16 +40,38 @@
   let modelMenuOpen = $state(false)
   let thinkingMenuOpen = $state(false)
   let modelSearch = $state('')
-  let activeModelType = $state<ModelType>('large')
 
   let canSend = $derived(value.trim().length > 0 && !isStreaming)
+
+  let selectedModel = $derived(
+    catalog.configuredModels.find((m) => m.id === selectedModelId && (!selectedProviderId || m.providerId === selectedProviderId)),
+  )
+
+  let thinkingOptions = $derived.by(() => {
+    if (!selectedModel) return REASONING_EFFORT_OPTIONS
+    if (!selectedModel.can_reason) return REASONING_EFFORT_OPTIONS.filter((opt) => opt.id === 'none')
+
+    if (selectedModel.reasoning_levels?.length) {
+      const available: typeof REASONING_EFFORT_OPTIONS = []
+      for (const level of selectedModel.reasoning_levels) {
+        const option = REASONING_EFFORT_OPTIONS.find((opt) => opt.id === level)
+        if (option) available.push(option)
+      }
+      if (available.length) return available
+    }
+
+    return [
+      { id: 'none' as ReasoningEffort, label: 'Off (Tắt suy luận)', short: 'Off' },
+      { id: 'high' as ReasoningEffort, label: 'On (Bật suy luận)', short: 'On' },
+    ]
+  })
 
   export function focus() {
     textarea?.focus()
   }
 
   let filteredModels = $derived(
-    catalog.models.filter(
+    catalog.configuredModels.filter(
       (m) =>
         m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
         m.id.toLowerCase().includes(modelSearch.toLowerCase()) ||
@@ -86,7 +112,7 @@
   }
 
   function pickModel(id: string, name: string, providerId: string) {
-    onSelectModel(id, name, providerId, activeModelType)
+    onSelectModel(id, name, providerId)
     modelMenuOpen = false
     modelSearch = ''
   }
@@ -108,6 +134,7 @@
         placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter để xuống dòng)"
         rows="1"
         disabled={isStreaming}
+        aria-busy={!ready}
         aria-label="Nội dung tin nhắn"
         class="w-full resize-none bg-transparent text-mm-text text-base leading-relaxed placeholder:text-mm-tertiary overflow-y-auto scroll-stable min-h-6 max-h-[var(--composer-max-h)] disabled:opacity-60 focus:outline-none focus-visible:outline-none focus:ring-0"
       ></textarea>
@@ -130,8 +157,8 @@
           {#if thinkingMenuOpen}
             <div class="fixed inset-0 z-20" onclick={() => (thinkingMenuOpen = false)} aria-hidden="true"></div>
             <div class="menu-pop absolute bottom-full right-0 mb-2 w-56 p-1.5 z-30 animate-fade-in">
-              <div class="px-2 py-1 text-2xs uppercase tracking-wider text-mm-tertiary font-semibold">Reasoning Effort (Crush)</div>
-              {#each REASONING_EFFORT_OPTIONS as opt (opt.id)}
+              <div class="px-2 py-1 text-2xs uppercase tracking-wider text-mm-tertiary font-semibold">Reasoning Effort</div>
+              {#each thinkingOptions as opt (opt.id)}
                 <button
                   type="button"
                   class="menu-item flex items-center justify-between"
@@ -167,36 +194,14 @@
             <div class="menu-pop absolute bottom-full right-0 mb-2 w-80 p-2 z-30 animate-fade-in">
               <div class="flex items-center justify-between px-1 pb-1.5 border-b border-mm-border">
                 <span class="text-2xs uppercase tracking-wider text-mm-tertiary font-bold">Switch Model</span>
-
-                <div class="flex items-center gap-1 bg-mm-panel p-0.5 rounded-md border border-mm-border/50 text-2xs">
-                  <button
-                    type="button"
-                    class="px-2 py-0.5 rounded font-medium transition-colors"
-                    class:bg-mm-accent={activeModelType === 'large'}
-                    class:text-white={activeModelType === 'large'}
-                    class:text-mm-secondary={activeModelType !== 'large'}
-                    onclick={(e) => { e.stopPropagation(); activeModelType = 'large' }}
-                  >
-                    Large Task
-                  </button>
-                  <button
-                    type="button"
-                    class="px-2 py-0.5 rounded font-medium transition-colors"
-                    class:bg-mm-accent={activeModelType === 'small'}
-                    class:text-white={activeModelType === 'small'}
-                    class:text-mm-secondary={activeModelType !== 'small'}
-                    onclick={(e) => { e.stopPropagation(); activeModelType = 'small' }}
-                  >
-                    Small Task
-                  </button>
-                </div>
+                <span class="text-3xs text-mm-tertiary">Large & small dùng chung</span>
               </div>
 
               <div class="my-1.5 px-0.5">
                 <input
                   type="text"
                   bind:value={modelSearch}
-                  placeholder={activeModelType === 'large' ? 'Choose model for large, complex tasks...' : 'Choose model for small, simple tasks...'}
+                  placeholder="Chọn model cho agent..."
                   aria-label="Tìm model"
                   class="w-full h-7 px-2 text-xs rounded bg-mm-panel border border-mm-border focus:border-mm-accent text-mm-text placeholder:text-mm-tertiary outline-none"
                   onclick={(e) => e.stopPropagation()}
@@ -205,7 +210,7 @@
 
               <div class="max-h-64 overflow-y-auto scroll-stable space-y-2 pr-0.5">
                 {#if catalog.status === 'loading'}
-                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Đang tải danh sách model từ Crush...</div>
+                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Đang tải danh sách model...</div>
                 {:else if catalog.status === 'error'}
                   <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{catalog.error}</div>
                 {:else}

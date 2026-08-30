@@ -43,7 +43,6 @@ func NewService(api *crushapi.Client) *Service {
 	return &Service{api: api}
 }
 
-
 // Current returns the last successful Open result. The bool is true when at
 // least one Open has been called and the workspace still resolves.
 func (s *Service) Current() (Descriptor, bool) {
@@ -57,12 +56,22 @@ func (s *Service) Current() (Descriptor, bool) {
 // existing directory. Recent-list bookkeeping is the caller's job; see
 // bind_workspace.go.
 func (s *Service) Open(ctx context.Context, path string) (Descriptor, error) {
+	return s.open(ctx, path, "")
+}
+
+// OpenWithDataDir is Open with an explicit Crush data directory. The working
+// directory and the persistence directory stay independent.
+func (s *Service) OpenWithDataDir(ctx context.Context, path, dataDir string) (Descriptor, error) {
+	return s.open(ctx, path, dataDir)
+}
+
+func (s *Service) open(ctx context.Context, path, dataDir string) (Descriptor, error) {
 	clean, err := s.preparePath(path)
 	if err != nil {
 		return Descriptor{}, err
 	}
 
-	ws, err := s.findOrCreate(ctx, clean)
+	ws, err := s.findOrCreate(ctx, clean, dataDir)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -101,7 +110,7 @@ func (s *Service) preparePath(path string) (string, error) {
 // findOrCreate first looks for an existing workspace with this path; if none
 // exists, it creates a new one. The match is on the cleaned absolute path so
 // trivial differences like trailing slashes do not produce duplicates.
-func (s *Service) findOrCreate(ctx context.Context, clean string) (crushapi.Workspace, error) {
+func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (crushapi.Workspace, error) {
 	if s.api == nil {
 		return crushapi.Workspace{}, errors.New("engine client not configured")
 	}
@@ -115,7 +124,9 @@ func (s *Service) findOrCreate(ctx context.Context, clean string) (crushapi.Work
 			}
 		}
 	}
-	ws, err := s.api.CreateWorkspace(ctx, clean, false)
+	// Gotack is a local assistant, not a project sandbox. Every workspace is
+	// created in YOLO mode so Crush never blocks file/tool access on approval.
+	ws, err := s.api.CreateWorkspaceWithDataDir(ctx, clean, dataDir, true)
 	if err != nil {
 		return crushapi.Workspace{}, fmt.Errorf("create workspace: %w", err)
 	}

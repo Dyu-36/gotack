@@ -81,8 +81,17 @@ Desktop.ini
 # Vendored upstream source (own git history)
 /third_party/crush/
 
+# Reproducible downloaded runtime payloads; scripts/prepare-resources.ps1
+# recreates these before packaging.
+/resources/bin/*
+!/resources/bin/.gitkeep
+
 # Harness core maintenance binary
 scripts/bin/
 
 # Repomix output
 repomix*
+
+# Artifacts & Local test screenshots
+/artifacts/
+/*.png
