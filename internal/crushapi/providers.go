@@ -13,13 +13,18 @@ import (
 // catalog; the desktop layer only needs identity, naming and capability
 // fields to render provider and model pickers.
 type Provider struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	Type                string `json:"type,omitempty"`
-	APIEndpoint         string `json:"api_endpoint,omitempty"`
-	DefaultLargeModelID string `json:"default_large_model_id,omitempty"`
-	DefaultSmallModelID string `json:"default_small_model_id,omitempty"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Type                string  `json:"type,omitempty"`
+	APIEndpoint         string  `json:"api_endpoint,omitempty"`
+	DefaultLargeModelID string  `json:"default_large_model_id,omitempty"`
+	DefaultSmallModelID string  `json:"default_small_model_id,omitempty"`
 	Models              []Model `json:"models,omitempty"`
+	// Configured is enriched by Gotack from Crush's resolved workspace config.
+	// A provider is true only when Crush actually loaded it into the effective
+	// config (credentials/endpoint requirements satisfied and not disabled).
+	Configured     bool   `json:"configured"`
+	CredentialKind string `json:"credential_kind,omitempty"`
 }
 
 // Model is one selectable model inside a provider.

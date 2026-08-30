@@ -14,7 +14,7 @@ import { ChatMessage, type Conversation, type ModelType, type ReasoningEffort } 
 import { catalog } from './catalog.svelte'
 
 const RECONNECT_MAX_MS = 30_000
-type SettingsPayload = { theme: string; autostart_engine: boolean; provider: string; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }
+type SettingsPayload = { theme: string; autostart_engine: boolean; provider: string; credential_provider?: string; provider_only?: boolean; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }
 
 
 export type EngineDeps = {
@@ -46,6 +46,21 @@ export function createEngineState(deps: EngineDeps) {
   let reconnectAttempt = 0
   let destroyed = false
   let attachedTo = ''
+  let hostReady = false
+  let selectionApply: Promise<boolean> = Promise.resolve(true)
+  let readyWaiters: Array<(ready: boolean) => void> = []
+
+  const settleReadyWaiters = (ready: boolean) => {
+    const waiters = readyWaiters
+    readyWaiters = []
+    waiters.forEach((resolve) => resolve(ready))
+  }
+
+  const waitForReady = () => {
+    if (deps.backendReady.value) return Promise.resolve(true)
+    if (destroyed) return Promise.resolve(false)
+    return new Promise<boolean>((resolve) => readyWaiters.push(resolve))
+  }
 
   const clearReconnect = () => {
     if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
@@ -53,7 +68,7 @@ export function createEngineState(deps: EngineDeps) {
   }
 
   const scheduleReconnect = () => {
-    if (destroyed || !deps.backendReady.value || reconnectTimer !== undefined) return
+    if (destroyed || !hostReady || reconnectTimer !== undefined) return
     const delay = Math.min(RECONNECT_MAX_MS, 750 * (2 ** reconnectAttempt))
     reconnectAttempt += 1
     reconnectTimer = window.setTimeout(() => {
@@ -73,21 +88,28 @@ export function createEngineState(deps: EngineDeps) {
       const fp = engineFingerprint(info)
       if (attachedTo === fp) return
       attachedTo = fp
+      deps.backendReady.value = false
       try {
         await deps.ensureWorkspace()
         if (catalog.status !== 'ready') {
           await catalog.refresh()
-          deps.applyLoadedSelection()
+          await applyLoadedSelection()
         }
+        if (attachedTo !== fp) return
+        deps.backendReady.value = true
+        settleReadyWaiters(true)
       } catch (cause) {
         attachedTo = ''
+        settleReadyWaiters(false)
         deps.reportError(cause, 'Restore workspace')
       }
       return
     }
     attachedTo = ''
+    deps.backendReady.value = false
     catalog.reset()
-    if (info.error) deps.error.value = info.error
+    if (info.status !== 'starting') settleReadyWaiters(false)
+    if (info.error) deps.reportError(info.error)
     if (info.status === 'error') scheduleReconnect()
   }
 
@@ -166,100 +188,157 @@ export function createEngineState(deps: EngineDeps) {
     )
   }
 
+  const reasoningEfforts = new Set<ReasoningEffort>(['none', 'low', 'medium', 'high', 'max'])
+
+  const normalizeThinkingForModel = (value: ReasoningEffort, providerID = deps.provider.value, modelID = deps.model.value): ReasoningEffort => {
+    const selected = catalog.models.find((m) => m.id === modelID && (!providerID || m.providerId === providerID))
+    if (!selected) return value
+    if (!selected.can_reason) return 'none'
+
+    const levels = (selected.reasoning_levels ?? []).filter((level): level is ReasoningEffort => reasoningEfforts.has(level as ReasoningEffort))
+    if (levels.length === 0) return value === 'none' ? 'none' : 'high'
+    if (levels.includes(value)) return value
+
+    const preferred = selected.default_reasoning_effort as ReasoningEffort | undefined
+    if (preferred && levels.includes(preferred)) return preferred
+    return levels[0]
+  }
+
   // applyLoadedSelection resolves the stored provider/model against the live
-  // catalog once it is available. Unknown stored ids keep their raw value so
-  // the truth stays visible instead of silently resetting.
-  const applyLoadedSelection = () => {
+  // catalog once it is available. It also repairs an incompatible stored
+  // thinking effort before the next provider request.
+  const applyLoadedSelection = async (providerID?: string, modelID?: string) => {
+    const restored = Boolean(providerID && modelID)
+    if (providerID && modelID) {
+      deps.provider.value = providerID
+      deps.model.value = modelID
+      deps.smallModel.value = modelID
+    }
     if (deps.provider.value) deps.modelLabel.value = catalog.modelName(deps.model.value, deps.provider.value) ?? deps.model.value
+    const normalized = normalizeThinkingForModel(deps.thinking.value)
+    const thinkingChanged = normalized !== deps.thinking.value
+    if (thinkingChanged) deps.thinking.value = normalized
+    if (restored || thinkingChanged) await queueSelection()
   }
 
   const loadSettings = async () => {
     const s = await desktop.getSettings().catch(() => null)
     if (!s) return
     if (s.provider) deps.provider.value = s.provider
-    if (s.model) deps.model.value = s.model
-    if (s.small_model) deps.smallModel.value = s.small_model
+    if (s.model) {
+      deps.model.value = s.model
+      deps.smallModel.value = s.model
+    }
     if (s.thinking) deps.thinking.value = s.thinking as ReasoningEffort
     deps.autostartEngine.value = s.autostart_engine
     deps.apiKey.value = ''
     deps.customUrl.value = s.custom_url ?? ''
-    if (catalog.status === 'ready') applyLoadedSelection()
+    if (catalog.status === 'ready') void applyLoadedSelection()
   }
 
   const init = async () => {
     destroyed = false
-    deps.backendReady.value = await desktop.backendReady().catch(() => false)
-    if (!deps.backendReady.value) {
+    deps.backendReady.value = false
+    hostReady = await desktop.backendReady().catch(() => false)
+    if (!hostReady) {
+      settleReadyWaiters(false)
       deps.reportError('Wails backend unavailable')
       return
     }
     subscribe()
     await loadSettings()
     try {
-      const status = await desktop.startEngine()
+      let status = await desktop.startEngine()
       await handleEngine(status)
+      // Startup may already be connecting before the webview subscribes to
+      // engine:status. Poll the authoritative bridge state until that first
+      // connection settles so a missed edge-trigger cannot strand chat in
+      // backendReady=false for the entire process lifetime.
+      for (let attempt = 0; !status.running && status.status !== 'error' && attempt < 24 && !destroyed; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250))
+        status = await desktop.engineStatus()
+        await handleEngine(status)
+      }
     } catch (cause) {
-      deps.reportError(cause, 'Start Crush')
+      settleReadyWaiters(false)
+      deps.reportError(cause, 'Start Tack')
       scheduleReconnect()
     }
   }
 
   const destroy = () => {
     destroyed = true
+    hostReady = false
+    deps.backendReady.value = false
+    settleReadyWaiters(false)
     clearReconnect()
     unsubscribers.forEach((off) => off())
     unsubscribers.length = 0
   }
 
-  const saveSettings = async (s: SettingsPayload) => {
+  const saveSettings = async (s: SettingsPayload, refreshCatalog = true) => {
     try {
       await desktop.saveSettings(s)
+      // Re-read the backend's resolved catalog after provider configuration changes.
+      // Model switches already use the loaded catalog and avoid a redundant
+      // round trip on the send path.
+      if (refreshCatalog) await catalog.refresh()
       deps.provider.value = s.provider
       deps.model.value = s.model
-      deps.smallModel.value = s.small_model
+      deps.smallModel.value = s.model
       deps.modelLabel.value = catalog.modelName(deps.model.value, deps.provider.value) ?? deps.model.value
       deps.thinking.value = s.thinking as ReasoningEffort
       deps.autostartEngine.value = s.autostart_engine
       deps.apiKey.value = ''
-      deps.customUrl.value = s.custom_url
+      if (!s.credential_provider || s.credential_provider === s.provider) deps.customUrl.value = s.custom_url
       deps.clearError()
-    } catch (cause) { deps.reportError(cause, 'Save settings') }
+      return true
+    } catch (cause) {
+      deps.reportError(cause, 'Save settings')
+      return false
+    }
   }
 
-  const applySelection = () => {
-    if (!deps.provider.value || !deps.model.value) return
+  const queueSelection = () => {
+    if (!deps.provider.value || !deps.model.value) return selectionApply
     const s: SettingsPayload = {
       theme: '',
       autostart_engine: deps.autostartEngine.value,
       provider: deps.provider.value,
       model: deps.model.value,
-      small_model: deps.smallModel.value,
+      small_model: deps.model.value,
       thinking: deps.thinking.value,
       api_key: '',
       custom_url: deps.customUrl.value,
     }
-    void saveSettings(s)
+    selectionApply = selectionApply.then(
+      () => saveSettings(s, false),
+      () => saveSettings(s, false),
+    )
+    return selectionApply
   }
 
   const setModel = (next: string, label?: string, providerID?: string, type: ModelType = 'large') => {
     if (type === 'small') {
       deps.smallModel.value = next
-      void applySelection()
+      void queueSelection()
       return
     }
     deps.model.value = next
+    deps.smallModel.value = next
     deps.modelLabel.value = label ?? catalog.modelName(next, providerID) ?? next
     if (providerID) deps.provider.value = providerID
     else {
       const match = catalog.models.find((m) => m.id === next)
       if (match) deps.provider.value = match.providerId
     }
-    void applySelection()
+    deps.thinking.value = normalizeThinkingForModel(deps.thinking.value, deps.provider.value, next)
+    void queueSelection()
   }
 
   const setThinking = (value: ReasoningEffort) => {
-    deps.thinking.value = value
-    void applySelection()
+    deps.thinking.value = normalizeThinkingForModel(value)
+    void queueSelection()
   }
 
   return {
@@ -270,6 +349,8 @@ export function createEngineState(deps: EngineDeps) {
     applyLoadedSelection,
     setModel,
     setThinking,
+    waitForReady,
+    waitForSelection: () => selectionApply,
     scheduleReconnect,
   }
 }

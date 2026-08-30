@@ -25,12 +25,19 @@ mirrored by the `events` map in `desktop.ts`.
 
 `EngineInfo`: `{status: stopped|starting|running|error, running, endpoint, version, owned, error?}`.
 
+The desktop host starts or adopts the engine during `OnStartup`, before the UI
+requests a workspace. Normal UI shutdown disconnects host-owned streams and
+terminals but leaves the engine process running, so the next Gotack launch
+adopts the warm engine. `StopEngine()` remains the explicit process-stop path
+while the current host owns the process.
+
 ### Workspace
 
 | Method | Result | Notes |
 | --- | --- | --- |
 | `ListRecentWorkspaces()` | `string[]` | Most recent first. |
 | `OpenWorkspace(path)` | `WorkspaceInfo` | Attaches in engine, switches event stream, reapplies saved settings, registers the office MCP server. |
+| `EnsureAssistantWorkspace()` | `WorkspaceInfo` | Attaches the always-available default workspace (`C:\` on Windows) so startup chat has a real session context. |
 | `CurrentWorkspace()` | `WorkspaceInfo?` | Null when nothing is attached. |
 | `SelectWorkspace()` | `string` | Native directory picker; empty on cancel. |
 
@@ -43,8 +50,8 @@ mirrored by the `events` map in `desktop.ts`.
 | `RenameSession(id, title)` | `SessionInfo` | Persisted via engine PUT. |
 | `DeleteSession(id)` | `error` | UI selects another session afterwards. |
 | `SwitchSession(id)` | `error` | Advisory current-session update. |
-| `SessionMessages(id)` | `MessageInfo[]` | History replay; live updates come from events. |
-| `SendPrompt(id, text)` | `runID`, `error` | Starts one agent turn. |
+| `SessionMessages(id)` | `MessageInfo[]` | History replay includes `model` and `provider` so selecting or restoring a conversation reapplies its latest model; live updates come from events. |
+| `SendPrompt(id, text)` | `runID`, `error` | Starts one agent turn after workspace/session/model readiness. |
 | `CancelPrompt(id)` | `error` | Interrupts the running turn. |
 
 ### Approvals
@@ -77,13 +84,34 @@ mirrored by the `events` map in `desktop.ts`.
 
 | Method | Result | Notes |
 | --- | --- | --- |
-| `GetZaloConfig()` | `ZaloConfigInfo` | `has_token` instead of the secret. |
+| `GetZaloConfig()` | `ZaloConfigInfo` | `has_token` instead of the secret; exposes `paired_chats` and the rotating `pairing_code`. |
 | `SaveZaloConfig(update)` | `ZaloStatus`, `error` | Empty `token` keeps the stored one; validates via `getMe` and restarts the bridge. |
-| `ZaloStatus()` | `ZaloStatus` | Bridge health plus the most recent inbound message. |
+| `TestZaloConnection()` | `ZaloStatus`, `error` | Re-checks `getMe` against the stored token. |
+| `RemoveZaloToken()` | `ZaloStatus`, `error` | Wipes channel state and stops the bridge. |
+| `RegenerateZaloPairingCode()` | `ZaloStatus`, `error` | Issues a fresh six-digit pairing code. |
+| `UnpairZaloChat(chatID)` | `ZaloStatus`, `error` | Revokes one chat and forgets its session. |
+| `ZaloStatus()` | `ZaloStatus` | Live bridge health, bot identity, paired chats, last error. |
+| `SendZaloFile(req)` | `string`, `error` | Pushes a local file to a paired chat (or every paired chat when `chat_id` is empty). |
 
 The Zalo bridge polls the official Zalo Bot API (`getMe`, long-poll
-`getUpdates`, `sendMessage`), serves only allow-listed chats, and replies to a
-chat when the agent run it started completes.
+`getUpdates`, `sendMessage`, `sendPhoto`, `sendChatAction`, `deleteWebhook`),
+serves only chats that paired via `/pair <6-digit code>`, and replies to a
+chat when the agent run it started completes. Sessions persist across desktop
+restarts under `<configDir>/zalo.json` and are re-bound to the matching chat
+when the bridge reconnects.
+
+### Bundled Office and timetable integration
+
+The packaged runtime under `build/bin/resources/` contains `officecli.exe`, a
+Python 3.12 runtime with `ortools` and `openpyxl`, the
+`officecli-xlsx|docx|pptx|...` skill tree, and the `timetable` skill copied
+from the Stack 2.2.0 implementation (schema, solver and exporter included).
+At startup the host copies the runtime and skills into `<configDir>/bin/` and
+`<configDir>/skills/`, prepends the bin directory to `PATH`, and registers the
+Office MCP server plus `options.skills_paths` through the Crush config
+endpoints. Crush can therefore invoke the Office MCP tools or execute the
+timetable solver/exporter with the bundled `python` command without separate
+user setup.
 
 ## Host -> UI events
 

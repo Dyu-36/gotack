@@ -12,96 +12,154 @@ import (
 
 // bind_zalo.go -- role: Wails-bound API for the Zalo connection.
 //
-// The bridge polls the official Zalo Bot API and relays allowed chats to the
-// agent; answers travel back over sendMessage when an agent run completes.
+// The desktop host persists the channel state in <configDir>/zalo.json; the
+// token is write-only across the Wails boundary. The runtime API surface
+// mirrors the Stack one: pair a chat via /pair, send a file, regenerate the
+// pairing code, and revoke a chat on demand.
 
-// ZaloConfigInfo is the stored Zalo connection. The token is write-only:
-// HasToken tells the UI whether one is stored without echoing the secret.
+// ZaloConfigInfo is the stored channel state returned to the UI; HasToken
+// hides the secret instead of echoing it.
 type ZaloConfigInfo struct {
 	Enabled      bool     `json:"enabled"`
-	AllowedChats []string `json:"allowed_chats"`
+	PairedChats  []string `json:"paired_chats"`
+	PairingCode  string   `json:"pairing_code"`
 	HasToken     bool     `json:"has_token"`
+	BotName      string   `json:"bot_name,omitempty"`
+	TokenSuffix  string   `json:"token_suffix,omitempty"`
+	Running      bool     `json:"running"`
 }
 
-// ZaloConfigUpdate is the editable payload for SaveZaloConfig. An empty
-// token keeps the stored one so the UI can change settings without
-// re-entering the secret.
+// ZaloConfigUpdate is the editable payload: an empty token keeps the stored
+// one so the user can change settings without re-entering the secret.
 type ZaloConfigUpdate struct {
-	Enabled      bool     `json:"enabled"`
-	Token        string   `json:"token,omitempty"`
-	AllowedChats []string `json:"allowed_chats"`
+	Enabled bool   `json:"enabled"`
+	Token   string `json:"token,omitempty"`
 }
 
-// GetZaloConfig returns the current Zalo connection settings.
-func (a *App) GetZaloConfig() ZaloConfigInfo {
-	if a.cfg == nil {
-		return ZaloConfigInfo{AllowedChats: []string{}}
+// ZaloFileRequest sends a local file to a paired chat (or every paired chat
+// when ChatID is empty).
+type ZaloFileRequest struct {
+	Path   string `json:"path"`
+	ChatID string `json:"chat_id,omitempty"`
+}
+
+// ZaloManagerStatus is the live bridge snapshot returned to the UI.
+type ZaloManagerStatus = zalo.Status
+
+func (a *App) snapshotZaloConfig() ZaloConfigInfo {
+	if a.zalo == nil {
+		return ZaloConfigInfo{PairedChats: []string{}}
 	}
-	chats := a.cfg.Zalo.AllowedChats
-	if chats == nil {
-		chats = []string{}
-	}
+	status := a.zalo.Status()
 	return ZaloConfigInfo{
-		Enabled:      a.cfg.Zalo.Enabled,
-		AllowedChats: chats,
-		HasToken:     strings.TrimSpace(a.cfg.Zalo.Token) != "",
+		Enabled:     a.cfg != nil && a.cfg.Zalo.Enabled,
+		PairedChats: status.PairedChatIDs,
+		PairingCode: status.PairingCode,
+		HasToken:    status.Configured,
+		BotName:     status.BotName,
+		TokenSuffix: status.TokenSuffix,
+		Running:     status.Running,
 	}
 }
 
-// SaveZaloConfig persists the connection, validates the bot token with getMe,
-// and restarts the bridge to match the new configuration.
-func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (zalo.Status, error) {
-	stored := ""
-	if a.cfg != nil {
-		stored = a.cfg.Zalo.Token
-	}
+// GetZaloConfig returns the current connection settings.
+func (a *App) GetZaloConfig() ZaloConfigInfo {
+	return a.snapshotZaloConfig()
+}
 
-	token := stored
+// SaveZaloConfig persists the channel: validates the token, swaps the running
+// bridge, and remembers the choice in the desktop config.
+func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (ZaloManagerStatus, error) {
+	if a.zalo == nil {
+		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
+	}
+	var status ZaloManagerStatus
+	var err error
 	if strings.TrimSpace(update.Token) != "" {
-		token = strings.TrimSpace(update.Token)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		bot, err := zalo.NewClient(token).GetMe(ctx)
+		status, err = a.zalo.SetToken(ctx, strings.TrimSpace(update.Token))
 		cancel()
 		if err != nil {
-			return zalo.Status{}, err
+			return status, err
 		}
-		a.log.Info("zalo token validated", "bot", bot.Name)
+	} else if update.Enabled && !a.zalo.Status().Configured {
+		return status, errors.New("bot token required to enable the Zalo connection")
+	} else {
+		status = a.zalo.Status()
 	}
-	if update.Enabled && strings.TrimSpace(token) == "" {
-		return zalo.Status{}, errors.New("bot token required to enable the Zalo connection")
-	}
-
-	chats := make([]string, 0, len(update.AllowedChats))
-	for _, id := range update.AllowedChats {
-		if id = strings.TrimSpace(id); id != "" {
-			chats = append(chats, id)
-		}
-	}
-
 	if a.cfg == nil {
 		a.cfg = appconfig.Defaults()
 	}
 	a.cfg.Zalo.Enabled = update.Enabled
-	a.cfg.Zalo.Token = token
-	a.cfg.Zalo.AllowedChats = chats
-	cfgCopy := *a.cfg
-
-	a.stopZaloBridge()
-	if update.Enabled && a.EngineStatus().Running {
-		a.startZaloBridge()
+	if err := appconfig.Save(a.cfg); err != nil {
+		return status, err
 	}
-	if err := appconfig.Save(&cfgCopy); err != nil {
-		return zalo.Status{}, err
+	if update.Enabled {
+		a.zalo.Start()
+	} else {
+		a.zalo.Stop()
 	}
-	return a.ZaloStatus(), nil
+	return a.zalo.Status(), nil
 }
 
-// ZaloStatus reports bridge health, the bot identity, and the most recent
-// inbound message so the user can copy a chat id into the allow list.
-func (a *App) ZaloStatus() zalo.Status {
-	c := a.getConn()
-	if c == nil || c.zalo == nil {
-		return zalo.Status{}
+// TestZaloConnection validates the stored token and refreshes the bot name.
+func (a *App) TestZaloConnection() (ZaloManagerStatus, error) {
+	if a.zalo == nil {
+		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
 	}
-	return c.zalo.Status()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return a.zalo.TestConnection(ctx)
+}
+
+// RemoveZaloToken disconnects the bot and deletes all channel state.
+func (a *App) RemoveZaloToken() (ZaloManagerStatus, error) {
+	if a.zalo == nil {
+		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
+	}
+	status, err := a.zalo.RemoveToken()
+	if err != nil {
+		return status, err
+	}
+	if a.cfg != nil {
+		a.cfg.Zalo.Enabled = false
+		a.cfg.Zalo.Token = ""
+		a.cfg.Zalo.AllowedChats = nil
+		_ = appconfig.Save(a.cfg)
+	}
+	return status, nil
+}
+
+// RegenerateZaloPairingCode rotates the displayed pairing code.
+func (a *App) RegenerateZaloPairingCode() (ZaloManagerStatus, error) {
+	if a.zalo == nil {
+		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
+	}
+	return a.zalo.RegeneratePairingCode()
+}
+
+// UnpairZaloChat revokes a single paired chat and forgets its session.
+func (a *App) UnpairZaloChat(chatID string) (ZaloManagerStatus, error) {
+	if a.zalo == nil {
+		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
+	}
+	return a.zalo.Unpair(chatID)
+}
+
+// ZaloStatus exposes the live bridge state for the UI.
+func (a *App) ZaloStatus() ZaloManagerStatus {
+	if a.zalo == nil {
+		return ZaloManagerStatus{}
+	}
+	return a.zalo.Status()
+}
+
+// SendZaloFile pushes one local file to a paired chat from the desktop shell.
+func (a *App) SendZaloFile(req ZaloFileRequest) (string, error) {
+	if a.zalo == nil {
+		return "", errors.New("zalo manager not initialised")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return a.zalo.SendFile(ctx, req.Path, strings.TrimSpace(req.ChatID))
 }

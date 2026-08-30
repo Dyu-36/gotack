@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"strings"
+	"path/filepath"
 	"sync/atomic"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -39,7 +40,6 @@ type conn struct {
 	perms *permission.Relay
 	diffs *changes.Service
 	term  *terminal.Service
-	zalo  *zalo.Bridge
 
 	ep        crushapi.Endpoint
 	version   string
@@ -48,8 +48,6 @@ type conn struct {
 
 	attachCtx context.Context
 
-	zaloChats    map[string]string // zalo chat id -> agent session id
-	zaloCancel   context.CancelFunc
 	cancelStream context.CancelFunc
 }
 
@@ -61,6 +59,9 @@ type App struct {
 	// sup is the concrete engine supervisor, typed as the narrow EngineAPI
 	// seam so app.go depends on the interface, not the implementation.
 	sup engine.EngineAPI
+
+	zalo          *zalo.Manager
+	officeSeeder  *officeSeeder
 
 	conn atomic.Pointer[conn]
 }
@@ -97,9 +98,8 @@ func (a *App) getConn() *conn {
 func NewApp() *App {
 	a := &App{}
 	a.conn.Store(&conn{
-		perms:     permission.NewRelay(permissionTTL),
-		zaloChats: make(map[string]string),
-		status:    engine.StatusStopped,
+		perms:  permission.NewRelay(permissionTTL),
+		status: engine.StatusStopped,
 	})
 	return a
 }
@@ -119,8 +119,18 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.log = slog.Default()
 	}
-
 	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
+
+	a.officeSeeder = newOfficeSeeder(a.log)
+	a.ensureOfficeSeed()
+
+	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
+		Workspace: a.workspacePath,
+	}, a.log)
+	if err := a.zalo.ImportLegacy(cfg.Zalo.Token, cfg.Zalo.AllowedChats); err != nil && a.log != nil {
+		a.log.Warn("zalo legacy import failed", "err", err)
+	}
+	a.wireZaloRuntime()
 
 	// The terminal service lives in the conn so a stop/start cycle can
 	// re-attach to a fresh engine; constructing it performs no I/O and the
@@ -130,14 +140,18 @@ func (a *App) startup(ctx context.Context) {
 		return c
 	})
 
-	if cfg.AutostartEngine {
-		a.tryConnect()
+	// The Crush engine is part of Gotack's runtime, not an optional project
+	// feature. Start/attach it whenever the desktop app opens so chat, provider
+	// config, Zalo, and local tools are available before a folder is selected.
+	a.tryConnect()
+	if a.zalo.Status().Configured {
+		a.zalo.Start()
 	}
 }
 
-// shutdown tears down every resource owned by the desktop host. Adopted Crush
-// servers are deliberately left running; only a child launched by this
-// Supervisor can be terminated by Supervisor.Stop.
+// shutdown tears down resources owned by the desktop host but deliberately
+// leaves the engine process running. A later Gotack launch adopts that process,
+// avoiding a cold engine, MCP, and LSP startup on every UI restart.
 func (a *App) shutdown(ctx context.Context) {
 	c := a.getConn()
 	if c == nil {
@@ -148,142 +162,122 @@ func (a *App) shutdown(ctx context.Context) {
 	if c.cancelStream != nil {
 		c.cancelStream()
 	}
-	a.stopZaloBridge()
+	if a.zalo != nil {
+		a.zalo.Stop()
+	}
 	if c.term != nil {
 		c.term.CloseAll()
-	}
-	if a.sup != nil {
-		_ = a.sup.Stop() // adopted servers are never killed
 	}
 	if a.cfg != nil {
 		_ = appconfig.Save(a.cfg)
 	}
 }
 
-// startZaloBridge launches the Zalo poll loop when the bridge is enabled and
-// the engine is attached. The bridge survives engine restarts on its own
-// context; Starter reports unavailability while the engine is down.
-func (a *App) startZaloBridge() {
-	c := a.getConn()
-	if c == nil {
+// wireZaloRuntime installs the agent and chat hooks on the Zalo manager. The
+// manager owns the polling loop, the pairing state and the chat-to-session
+// map; the host just translates into Crush engine calls.
+func (a *App) wireZaloRuntime() {
+	if a.zalo == nil {
 		return
 	}
-	if c.zaloCancel != nil {
-		return
-	}
-	if a.cfg == nil || !a.cfg.Zalo.Enabled || strings.TrimSpace(a.cfg.Zalo.Token) == "" {
-		return
-	}
-	if a.ctx == nil {
-		return
-	}
-
-	bridge := zalo.NewBridge(a.cfg.Zalo.Token, a.cfg.Zalo.AllowedChats, a.startZaloRequest, a.log)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	var won bool
-	a.swapConn(func(c *conn) *conn {
-		if c.zaloCancel != nil { // raced with a concurrent start
-			return c
-		}
-		c.zalo = bridge
-		c.zaloCancel = cancel
-		won = true
-		return c
+	a.zalo.SetRuntime(zalo.Runtime{
+		Start:     a.startZaloTurn,
+		Stop:      a.stopZaloTurn,
+		Session:   a.zaloSessionTitle,
+		Model:     a.zaloCurrentModel,
+		Workspace: a.workspacePath,
 	})
-	if !won {
-		// someone else won the race; drop our bridge and context.
-		cancel()
-		return
-	}
-
-	go func() {
-		if err := bridge.Run(ctx); err != nil && ctx.Err() == nil {
-			a.log.Warn("zalo bridge stopped", "err", err)
-		}
-	}()
 }
 
-// stopZaloBridge cancels the poll loop and drops the bridge reference.
-func (a *App) stopZaloBridge() {
-	if a.getConn() == nil {
-		return
-	}
-	var cancel context.CancelFunc
-	a.swapConn(func(c *conn) *conn {
-		cancel = c.zaloCancel
-		c.zalo = nil
-		c.zaloCancel = nil
-		return c
-	})
-	if cancel != nil {
-		cancel()
-	}
-}
-
-// startZaloRequest maps one inbound Zalo message onto the agent: the chat
-// reuses its session so remote conversations keep their context. A failed
-// send drops the stale mapping so the next message starts a fresh session.
-func (a *App) startZaloRequest(ctx context.Context, chatID, senderName, text string) (string, error) {
+// startZaloTurn submits one inbound chat message to Crush. The manager decides
+// whether to reuse a session; the host simply forwards the text.
+func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text string) (string, error) {
 	svc, err := a.services()
 	if err != nil {
 		return "", err
 	}
-
-	var sessionID string
-	var reused bool
-	a.swapConn(func(c *conn) *conn {
-		sessionID, reused = c.zaloChats[chatID]
-		return c
-	})
-
-	if !reused {
-		sess, err := svc.sess.Create(ctx, "Zalo: "+senderName)
+	sessionID := existingSession
+	if sessionID == "" {
+		sess, err := svc.sess.Create(ctx, "Zalo: "+chatID)
 		if err != nil {
 			return "", err
 		}
 		sessionID = sess.ID
-		a.swapConn(func(c *conn) *conn {
-			c.zaloChats[chatID] = sessionID
-			return c
-		})
 	}
 	if _, err := svc.sess.Send(ctx, sessionID, text); err != nil {
-		if reused {
-			a.swapConn(func(c *conn) *conn {
-				delete(c.zaloChats, chatID)
-				return c
-			})
-		}
 		return "", err
 	}
 	return sessionID, nil
 }
 
-// RunDone implements uievents.DoneSink: completed agent runs are forwarded to
-// the bridge, which ignores sessions it did not start.
-func (a *App) RunDone(done uievents.SessionDonePayload) {
-	if a.getConn() == nil {
-		return
+// stopZaloTurn asks Crush to abort the in-flight turn for the chat's session.
+func (a *App) stopZaloTurn(ctx context.Context, sessionID string) error {
+	svc, err := a.services()
+	if err != nil {
+		return err
 	}
-	var bridge *zalo.Bridge
-	a.swapConn(func(c *conn) *conn {
-		bridge = c.zalo
-		return c
-	})
-	if bridge != nil {
-		bridge.Done(done.SessionID, done.Text)
+	return svc.sess.Cancel(ctx, sessionID)
+}
+
+func (a *App) zaloSessionTitle(ctx context.Context, sessionID string) (string, error) {
+	svc, err := a.services()
+	if err != nil {
+		return "", err
+	}
+	sessions, err := svc.sess.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, candidate := range sessions {
+		if candidate.ID == sessionID {
+			return candidate.Title, nil
+		}
+	}
+	return "", nil
+}
+
+func (a *App) zaloCurrentModel(ctx context.Context) (string, error) {
+	if a.cfg == nil {
+		return "", fmt.Errorf("desktop config not loaded")
+	}
+	if a.cfg.Model == "" {
+		return "", fmt.Errorf("chưa chọn mô hình")
+	}
+	if a.cfg.Provider == "" {
+		return a.cfg.Model, nil
+	}
+	return a.cfg.Provider + "/" + a.cfg.Model, nil
+}
+
+// workspacePath returns the currently open workspace root, used by the Zalo
+// manager to scope /files and outbound file resolution.
+func (a *App) workspacePath() string {
+	c := a.getConn()
+	if c == nil || c.ws == nil {
+		return ""
+	}
+	desc, ok := c.ws.Current()
+	if !ok {
+		return ""
+	}
+	return desc.Path
+}
+
+// RunDone implements uievents.DoneSink: completed agent runs are routed to the
+// Zalo manager, which decides which chat (if any) receives the answer.
+func (a *App) RunDone(done uievents.SessionDonePayload) {
+	if a.zalo != nil {
+		a.zalo.Done(done.SessionID, done.Text)
 	}
 }
 
 // resetZaloSessions drops chat-to-session mappings; sessions belong to one
 // workspace, so they must not leak across workspace switches.
 func (a *App) resetZaloSessions() {
-	if a.getConn() == nil {
+	if a.zalo == nil {
 		return
 	}
-	a.swapConn(func(c *conn) *conn {
-		c.zaloChats = make(map[string]string)
-		return c
-	})
+	if err := a.zalo.ResetSessions(); err != nil && a.log != nil {
+		a.log.Warn("zalo session reset failed", "err", err)
+	}
 }

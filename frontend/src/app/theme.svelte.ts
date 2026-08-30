@@ -9,13 +9,20 @@ function isTheme(value: string | null): value is Theme {
 
 export function createThemeState() {
   let value = $state<Theme>('system')
+  let isDarkState = $state(false)
   let mediaQuery: MediaQueryList | undefined
 
+  const checkIsDark = () => {
+    return value === 'dark' || (value === 'system' && mediaQuery?.matches === true)
+  }
+
   const apply = () => {
-    const dark = value === 'dark' || (value === 'system' && mediaQuery?.matches === true)
+    const dark = checkIsDark()
+    isDarkState = dark
     document.documentElement.classList.toggle('dark', dark)
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+    document.documentElement.style.backgroundColor = dark ? '#191919' : '#ffffff'
   }
 
   const onSystemThemeChange = () => {
@@ -40,12 +47,21 @@ export function createThemeState() {
     apply()
   }
 
+  const toggle = () => {
+    const next = isDarkState ? 'light' : 'dark'
+    set(next)
+  }
+
   return {
     get value() {
       return value
     },
+    get isDark() {
+      return isDarkState
+    },
     initialize,
     destroy,
     set,
+    toggle,
   }
 }

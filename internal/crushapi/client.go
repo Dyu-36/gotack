@@ -25,8 +25,10 @@ const (
 	versionPath         = "/v1/version"
 	workspacesPath      = "/v1/workspaces"
 	permissionGrantPath = "/v1/workspaces/{id}/permissions/grant"
+	permissionSkipPath  = "/v1/workspaces/{id}/permissions/skip"
 	questionsAnswerPath = "/v1/workspaces/{id}/questions/answer"
 	agentPath           = "/v1/workspaces/{id}/agent"
+	agentInitPath       = "/v1/workspaces/{id}/agent/init"
 	cancelPath          = "/v1/workspaces/{id}/agent/sessions/{sid}/cancel"
 	currentSessionPath  = "/v1/workspaces/{id}/current-session"
 	sessionsPath        = "/v1/workspaces/{id}/sessions"
@@ -89,13 +91,23 @@ func (c *Client) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 	return ws, nil
 }
 
-// CreateWorkspace calls POST /v1/workspaces with a {path, yolo} body.
+// CreateWorkspace calls POST /v1/workspaces with the default Crush data
+// directory derived from the workspace path.
 func (c *Client) CreateWorkspace(ctx context.Context, path string, yolo bool) (Workspace, error) {
+	return c.CreateWorkspaceWithDataDir(ctx, path, "", yolo)
+}
+
+// CreateWorkspaceWithDataDir creates a workspace while allowing Gotack to keep
+// Crush's database/config state outside the selected working directory. This is
+// especially important for the default C:\ workspace, where writing C:\.crush
+// may require elevated Windows permissions.
+func (c *Client) CreateWorkspaceWithDataDir(ctx context.Context, path, dataDir string, yolo bool) (Workspace, error) {
 	body, _ := json.Marshal(struct {
 		Path     string `json:"path"`
+		DataDir  string `json:"data_dir,omitempty"`
 		YOLO     bool   `json:"yolo"`
 		ClientID string `json:"client_id"`
-	}{Path: path, YOLO: yolo, ClientID: c.clientID})
+	}{Path: path, DataDir: dataDir, YOLO: yolo, ClientID: c.clientID})
 	var ws Workspace
 	if err := c.doJSON(ctx, http.MethodPost, workspacesPath+"?client_id="+url.QueryEscape(c.clientID), bytes.NewReader(body), &ws); err != nil {
 		return Workspace{}, err
@@ -176,6 +188,34 @@ func (c *Client) SendPrompt(ctx context.Context, wsID, sessionID, text, runID st
 	return nil
 }
 
+// InitAgent initializes the workspace agent after model/provider configuration
+// has been applied. Gotack uses the interactive agent because the UI handles
+// permission and question requests emitted by Crush.
+func (c *Client) InitAgent(ctx context.Context, wsID string, interactive bool) error {
+	body, _ := json.Marshal(struct {
+		Interactive bool `json:"interactive"`
+	}{Interactive: interactive})
+	path := expandPath(agentInitPath, "id", wsID)
+	return c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
+}
+
+// EnsureAgent initializes the workspace agent only when Crush reports it is
+// not ready. Coordinators refresh model configuration before each run, so an
+// already-ready agent must not be rebuilt merely because settings changed.
+func (c *Client) EnsureAgent(ctx context.Context, wsID string, interactive bool) error {
+	var info struct {
+		IsReady bool `json:"is_ready"`
+	}
+	path := expandPath(agentPath, "id", wsID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &info); err != nil {
+		return err
+	}
+	if info.IsReady {
+		return nil
+	}
+	return c.InitAgent(ctx, wsID, interactive)
+}
+
 // CancelPrompt calls POST /v1/workspaces/{id}/agent/sessions/{sid}/cancel.
 func (c *Client) CancelPrompt(ctx context.Context, wsID, sessionID string) error {
 	path := expandPath(cancelPath, "id", wsID, "sid", sessionID)
@@ -195,6 +235,17 @@ func (c *Client) GrantPermission(ctx context.Context, wsID string, req Permissio
 		return false, err
 	}
 	return resp.Resolved, nil
+}
+
+// SetPermissionsSkip enables or disables permission prompts for a workspace.
+// Gotack enables this for every attached workspace so local file and tool
+// access never blocks on an approval dialog.
+func (c *Client) SetPermissionsSkip(ctx context.Context, wsID string, skip bool) error {
+	body, _ := json.Marshal(struct {
+		Skip bool `json:"skip"`
+	}{Skip: skip})
+	path := expandPath(permissionSkipPath, "id", wsID)
+	return c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
 }
 
 // AnswerQuestion posts a QuestionAnswer to /questions/answer and returns
@@ -269,6 +320,12 @@ func decodeError(resp *http.Response) error {
 		msg = http.StatusText(resp.StatusCode)
 	}
 	return fmt.Errorf("crushapi: %s %s: %d %s", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, msg)
+}
+
+// IsClientNotAttached reports Crush's presence error. The server requires a
+// live workspace SSE subscription before current-session presence can be set.
+func IsClientNotAttached(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "client not attached")
 }
 
 // expandPath substitutes Go-mux style placeholders ({name}) in template

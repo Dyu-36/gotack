@@ -49,6 +49,21 @@ ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
 7. Update the relevant `docs/contracts/` document in the same change when an external or UI/host contract changes.
 <!-- gotack-layout:end -->
 
+<!-- ui-verification:start -->
+# UI & End-to-End Verification (agent-browser)
+
+When testing frontend UI (`frontend/src/`) or end-to-end user workflows, use `agent-browser` (token-efficient Accessibility-Tree CLI/MCP):
+1. **Launch dev server or built app**:
+   - Dev mode: `pnpm --dir frontend dev` (serves at `http://localhost:5173`)
+   - Executable mode: `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"; Start-Process .\build\bin\gotack.exe`
+2. **Inspect UI with compact Accessibility Tree (`@e1`, `@e2`...)**:
+   - `npx agent-browser open http://localhost:5173 && npx agent-browser snapshot -i`
+3. **Simulate user interactions**:
+   - `npx agent-browser fill @eN "text to type" && npx agent-browser click @eM`
+4. **Capture visual proof & verify state**:
+   - `npx agent-browser screenshot test-result.png`
+<!-- ui-verification:end -->
+
 <!-- HARNESS:BEGIN -->
 ## Harness
 

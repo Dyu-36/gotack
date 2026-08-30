@@ -10,6 +10,8 @@
     sessions: Session[]
     activeSessionId: string
     workspace: string
+    isDark?: boolean
+    onToggleTheme?: () => void
     onNewSession: () => void
     onSelectSession: (id: string) => void
     onCollapse: () => void
@@ -23,6 +25,8 @@
     sessions,
     activeSessionId,
     workspace,
+    isDark = false,
+    onToggleTheme,
     onNewSession,
     onSelectSession,
     onCollapse,
@@ -94,7 +98,7 @@
     <button type="button" class="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md bg-mm-panel hover:bg-mm-hover border border-mm-border/60 text-left transition-colors group" title={workspace} onclick={onPickWorkspace}>
       <div class="flex items-center gap-2 min-w-0 flex-1">
         <svg class="w-3.5 h-3.5 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-        <div class="flex-1 min-w-0"><div class="text-3xs text-mm-tertiary uppercase tracking-wider font-semibold">Workspace</div><div class="text-xs text-mm-text truncate font-mono">{workspace}</div></div>
+        <div class="flex-1 min-w-0"><div class="text-3xs text-mm-tertiary uppercase tracking-wider font-semibold">Thư mục mặc định</div><div class="text-xs text-mm-text truncate font-mono">{workspace}</div></div>
       </div>
       <svg class="w-3 h-3 text-mm-tertiary group-hover:text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
     </button>
@@ -130,8 +134,8 @@
             <button type="button" class="p-1 hover:bg-mm-hover rounded" title="Đổi tên" onclick={(event) => { event.stopPropagation(); startRename(session) }}>
               <svg class="w-3 h-3 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
             </button>
-            <button type="button" class="p-1 hover:bg-red-500/10 rounded" title="Xóa" onclick={(event) => { event.stopPropagation(); onDelete(session.id) }}>
-              <svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M4 7h16" /></svg>
+            <button type="button" class="session-icon-btn delete-session-btn" aria-label={`Xóa hội thoại ${session.title}`} onclick={(event) => { event.stopPropagation(); onDelete(session.id) }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" /></svg>
             </button>
           </div>
         {/if}
@@ -139,16 +143,31 @@
     {/each}
   </div>
 
-  <div class="shrink-0 border-t border-mm-border p-2">
-    <button type="button" class="mm-nav-item w-full" onclick={onOpenSettings}>
-      <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0" /></svg>
+  <div class="shrink-0 border-t border-mm-border p-2 flex items-center gap-1">
+    <button type="button" class="mm-nav-item flex-1" onclick={onOpenSettings}>
+      <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6M9 8h6M17 16h6" />
+      </svg>
       <span>Cài đặt</span>
     </button>
+    {#if onToggleTheme}
+      <button type="button" class="p-2 rounded-md text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-colors" title={isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} aria-label="Đổi giao diện" onclick={onToggleTheme}>
+        {#if isDark}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+        {:else}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+        {/if}
+      </button>
+    {/if}
   </div>
 </aside>
 
 <style>
   .session-actions { display: none; }
   .session-row:hover .session-actions { display: flex; }
+  .session-icon-btn { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: var(--mm-secondary); }
+  .session-icon-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .delete-session-btn { color: #ef4444; }
+  .delete-session-btn:hover { background: rgb(239 68 68 / 10%); }
   .input-inline { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--mm-accent); border-radius: 5px; background: var(--mm-bg); color: var(--mm-text); font: inherit; outline: none; }
 </style>

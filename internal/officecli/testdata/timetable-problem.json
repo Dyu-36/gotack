@@ -1,0 +1,30 @@
+{
+  "frame": {
+    "days": [
+      {
+        "day": 2,
+        "sessions": [
+          { "name": "Sáng", "periods": 2 }
+        ]
+      }
+    ]
+  },
+  "assignments": [
+    {
+      "id": "math-6a",
+      "teacher": "Nguyễn Văn A",
+      "class": "6A",
+      "subject": "Toán",
+      "periods": 2
+    }
+  ],
+  "requirements": [],
+  "preferences": [],
+  "solver": {
+    "phase_a_seconds": 2,
+    "phase_b_seconds": 1,
+    "workers": 1,
+    "random_seed": 7
+  },
+  "compact": false
+}

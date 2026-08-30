@@ -3,7 +3,9 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -32,6 +34,7 @@ type Supervisor struct {
 	cmd      *exec.Cmd
 	owned    bool
 	endpoint crushapi.Endpoint
+	logFile  *os.File // engine stdout/stderr sink, closed by Stop
 }
 
 // NewSupervisor returns a Supervisor. EngineBinary is an explicit override;
@@ -68,10 +71,25 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	ep := appconfig.PipeEndpoint()
 	cmd := exec.Command(bin, "server")
 	configureProcAttr(cmd)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+
+	// The engine now runs on a hidden console, so anything it writes to
+	// stdout/stderr would be unreadable. Tee it into the log directory
+	// instead: this is the only place engine-side failures (MCP init, LSP,
+	// skill parsing) are visible once the console is gone.
+	logPath := filepath.Join(appconfig.LogDir(), "crush-engine.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		s.log.Warn("engine: cannot open engine log, discarding output", "path", logPath, "err", err)
+	} else {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
 	cmd.Stdin = nil
+
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		return crushapi.Endpoint{}, fmt.Errorf("engine: start %s: %w", bin, err)
 	}
 
@@ -79,6 +97,7 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	s.cmd = cmd
 	s.owned = true
 	s.endpoint = ep
+	s.logFile = logFile
 	s.mu.Unlock()
 
 	s.log.Info("engine: started", "binary", bin, "pid", cmd.Process.Pid, "endpoint", ep)
@@ -94,9 +113,15 @@ func (s *Supervisor) Stop() error {
 		s.mu.Unlock()
 		return nil
 	}
+	logFile := s.logFile
 	s.cmd = nil
 	s.owned = false
+	s.logFile = nil
 	s.mu.Unlock()
+
+	if logFile != nil {
+		defer logFile.Close()
+	}
 
 	if err := killTree(cmd); err != nil {
 		_ = cmd.Process.Kill()

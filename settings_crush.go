@@ -25,43 +25,67 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 	}
 
 	provider := strings.TrimSpace(s.Provider)
+	credentialProvider := strings.TrimSpace(s.CredentialProvider)
+	if credentialProvider == "" {
+		credentialProvider = provider // backwards compatibility with older UI payloads
+	}
 	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
-	if apiKey != "" && provider == "" {
+	if apiKey != "" && credentialProvider == "" {
 		return errors.New("provider is required before storing an API key")
 	}
+	if credentialProvider != "" && s.ProviderOnly {
+		if !safeProviderID.MatchString(credentialProvider) {
+			return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
+		}
+		if err := svc.api.SetConfigField(a.ctx, ws, scope, "providers."+credentialProvider+".disable", false); err != nil {
+			return fmt.Errorf("enable provider: %w", err)
+		}
+	}
 
-	setModel := func(modelType, modelID string, effort string, think bool) error {
-		model := crushapi.SelectedModel{Provider: provider, Model: modelID, ReasoningEffort: effort, Think: think}
-		if err := svc.api.SetPreferredModel(a.ctx, ws, scope, modelType, model); err != nil {
-			return fmt.Errorf("apply Crush %s model: %w", modelType, err)
+	if !s.ProviderOnly {
+		setModel := func(modelType, modelID string, effort string, think bool) error {
+			model := crushapi.SelectedModel{Provider: provider, Model: modelID, ReasoningEffort: effort, Think: think}
+			if err := svc.api.SetPreferredModel(a.ctx, ws, scope, modelType, model); err != nil {
+				return fmt.Errorf("apply Crush %s model: %w", modelType, err)
+			}
+			return nil
 		}
-		return nil
-	}
-	if modelID := strings.TrimSpace(s.Model); provider != "" && modelID != "" {
-		effort, think := crushReasoning(s.Thinking)
-		if err := setModel("large", modelID, effort, think); err != nil {
-			return err
-		}
-	}
-	if modelID := strings.TrimSpace(s.SmallModel); provider != "" && modelID != "" {
-		if err := setModel("small", modelID, "", false); err != nil {
-			return err
+		if modelID := strings.TrimSpace(s.Model); provider != "" && modelID != "" {
+			effort, think := crushReasoning(s.Thinking)
+			if err := setModel("large", modelID, effort, think); err != nil {
+				return err
+			}
+			// Gotack intentionally exposes one model selector. Crush still requires
+			// separate large/small preferences internally, so keep both pinned to
+			// the same provider/model selection.
+			if err := setModel("small", modelID, effort, think); err != nil {
+				return err
+			}
 		}
 	}
 
 	if apiKey != "" {
-		if err := svc.api.SetProviderAPIKey(a.ctx, ws, scope, provider, apiKey); err != nil {
+		if err := svc.api.SetProviderAPIKey(a.ctx, ws, scope, credentialProvider, apiKey); err != nil {
 			return fmt.Errorf("apply Crush provider credential: %w", err)
 		}
 	}
 
 	if endpoint := strings.TrimSpace(s.CustomURL); endpoint != "" {
-		if !safeProviderID.MatchString(provider) {
-			return fmt.Errorf("provider id %q cannot be used in a Crush config path", provider)
+		if !safeProviderID.MatchString(credentialProvider) {
+			return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
 		}
-		key := "providers." + provider + ".base_url"
+		key := "providers." + credentialProvider + ".base_url"
 		if err := svc.api.SetConfigField(a.ctx, ws, scope, key, endpoint); err != nil {
 			return fmt.Errorf("apply Crush provider endpoint: %w", err)
+		}
+	}
+
+	// Crush keeps a workspace agent uninitialized until /agent/init is called.
+	// Ensure it exists after the effective provider/model configuration is ready;
+	// already-ready coordinators are preserved and refresh models per run.
+	if provider != "" && strings.TrimSpace(s.Model) != "" {
+		if err := svc.api.EnsureAgent(a.ctx, ws, true); err != nil {
+			return fmt.Errorf("initialize Crush agent: %w", err)
 		}
 	}
 	return nil
@@ -78,13 +102,9 @@ func needWorkspace(apiKey, reason string) error {
 
 func crushReasoning(value string) (effort string, think bool) {
 	switch v := strings.ToLower(strings.TrimSpace(value)); v {
-	case "low", "medium", "high":
+	case "low", "medium", "high", "max":
 		return v, true
-	case "max":
-		// Crush's reasoning_effort accepts low/medium/high, so max maps to high.
-		return "high", true
 	default:
-		// none/off/auto-style values leave the provider default in charge.
 		return "", false
 	}
 }
