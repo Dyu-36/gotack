@@ -1,7 +1,7 @@
 <script lang="ts">
   import Composer from './Composer.svelte'
   import MessageBubble from './MessageBubble.svelte'
-  import type { ChatAttachment, Message, ModelType, ReasoningEffort } from '../features/conversations/types.svelte'
+  import type { ChatAttachment, Message, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
     sessionTitle: string
@@ -28,7 +28,7 @@
     onOpenSettings: () => void
     onRenameSession: (title: string) => void
     onPickWorkspace: () => void
-    onSelectModel?: (id: string, label: string, providerId?: string, type?: ModelType) => void
+    onSelectModel?: (id: string, label: string, providerId?: string) => void
     onSelectThinking?: (id: ReasoningEffort) => void
   }
 

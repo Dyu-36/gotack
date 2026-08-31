@@ -15,20 +15,22 @@ const (
 
 // config.go -- role: typed settings model plus load and save.
 //
-// UI preferences (theme), engine preferences (autostart, endpoint override) and
-// recent workspaces. Persisted as JSON inside the user config directory.
+// UI preferences (theme), engine preferences (endpoint override) and recent
+// workspaces. Persisted as JSON inside the user config directory.
+//
+// Dropping a key is backwards compatible: encoding/json ignores unknown object
+// members, so config.json files written by older builds (autostart_engine,
+// small_model) still load without error.
 
 // Config is the on-disk user settings model. Empty fields fall back to
 // Defaults() at load time; EngineBinary empty means PATH lookup.
 type Config struct {
 	Theme             string                             `json:"theme"`
 	EngineBinary      string                             `json:"engine_binary"` // path to crush executable, empty = PATH lookup
-	AutostartEngine   bool                               `json:"autostart_engine"`
 	RecentWorkspaces  []string                           `json:"recent_workspaces"`
 	Debug             bool                               `json:"debug"`
 	Provider          string                             `json:"provider,omitempty"`
 	Model             string                             `json:"model,omitempty"`
-	SmallModel        string                             `json:"small_model,omitempty"`
 	Thinking          string                             `json:"thinking,omitempty"`
 	APIKey            string                             `json:"api_key,omitempty"`
 	CustomURL         string                             `json:"custom_url,omitempty"`
@@ -50,13 +52,13 @@ type ZaloSettings struct {
 	AllowedChats []string `json:"allowed_chats,omitempty"`
 }
 
-// Defaults returns the factory config: system theme, autostart on, and empty
-// agent settings so Crush's own catalog defaults apply until the user picks a
-// provider and model.
+// Defaults returns the factory config: system theme and empty agent settings so
+// Crush's own catalog defaults apply until the user picks a provider and model.
+// There is no autostart preference because App.startup always adopts or starts
+// the engine unconditionally.
 func Defaults() *Config {
 	return &Config{
-		Theme:           "system",
-		AutostartEngine: true,
+		Theme: "system",
 	}
 }
 
