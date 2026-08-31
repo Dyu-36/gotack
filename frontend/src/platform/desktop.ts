@@ -65,14 +65,16 @@ export type ZaloStatusInfo = {
   last_error?: string
 }
 export type ZaloFileRequest = { path: string; chat_id?: string }
+// Mirrors Go SettingsInfo in bind_config.go. `autostart_engine` and
+// `small_model` were removed on both sides: the host always starts the engine
+// during OnStartup and always pins Crush's small-model slot to `model`, so
+// sending them was a silent no-op.
 export type SettingsInfo = {
   theme: string
-  autostart_engine: boolean
   provider: string
   credential_provider?: string
   provider_only?: boolean
   model: string
-  small_model: string
   thinking: string
   api_key: string
   custom_url: string

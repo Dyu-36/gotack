@@ -10,11 +10,11 @@ import {
   type ToolActivityEvent,
 } from '../../platform/desktop'
 import { applyDelta } from './merge-delta'
-import { ChatMessage, type Conversation, type ModelType, type ReasoningEffort } from './types.svelte'
+import { ChatMessage, type Conversation, type ReasoningEffort } from './types.svelte'
 import { catalog } from './catalog.svelte'
 
 const RECONNECT_MAX_MS = 30_000
-type SettingsPayload = { theme: string; autostart_engine: boolean; provider: string; credential_provider?: string; provider_only?: boolean; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }
+type SettingsPayload = { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }
 
 
 export type EngineDeps = {
@@ -28,11 +28,9 @@ export type EngineDeps = {
   provider: { value: string }
   model: { value: string }
   modelLabel: { value: string }
-  smallModel: { value: string }
   thinking: { value: ReasoningEffort }
   apiKey: { value: string }
   customUrl: { value: string }
-  autostartEngine: { value: boolean }
   reportError: (cause: unknown, prefix?: string) => void
   clearError: () => void
   updateConversation: (id: string, fn: (c: Conversation) => Conversation) => void
@@ -212,7 +210,6 @@ export function createEngineState(deps: EngineDeps) {
     if (providerID && modelID) {
       deps.provider.value = providerID
       deps.model.value = modelID
-      deps.smallModel.value = modelID
     }
     if (deps.provider.value) deps.modelLabel.value = catalog.modelName(deps.model.value, deps.provider.value) ?? deps.model.value
     const normalized = normalizeThinkingForModel(deps.thinking.value)
@@ -225,12 +222,8 @@ export function createEngineState(deps: EngineDeps) {
     const s = await desktop.getSettings().catch(() => null)
     if (!s) return
     if (s.provider) deps.provider.value = s.provider
-    if (s.model) {
-      deps.model.value = s.model
-      deps.smallModel.value = s.model
-    }
+    if (s.model) deps.model.value = s.model
     if (s.thinking) deps.thinking.value = s.thinking as ReasoningEffort
-    deps.autostartEngine.value = s.autostart_engine
     deps.apiKey.value = ''
     deps.customUrl.value = s.custom_url ?? ''
     if (catalog.status === 'ready') void applyLoadedSelection()
@@ -285,10 +278,8 @@ export function createEngineState(deps: EngineDeps) {
       if (refreshCatalog) await catalog.refresh()
       deps.provider.value = s.provider
       deps.model.value = s.model
-      deps.smallModel.value = s.model
       deps.modelLabel.value = catalog.modelName(deps.model.value, deps.provider.value) ?? deps.model.value
       deps.thinking.value = s.thinking as ReasoningEffort
-      deps.autostartEngine.value = s.autostart_engine
       deps.apiKey.value = ''
       if (!s.credential_provider || s.credential_provider === s.provider) deps.customUrl.value = s.custom_url
       deps.clearError()
@@ -303,10 +294,8 @@ export function createEngineState(deps: EngineDeps) {
     if (!deps.provider.value || !deps.model.value) return selectionApply
     const s: SettingsPayload = {
       theme: '',
-      autostart_engine: deps.autostartEngine.value,
       provider: deps.provider.value,
       model: deps.model.value,
-      small_model: deps.model.value,
       thinking: deps.thinking.value,
       api_key: '',
       custom_url: deps.customUrl.value,
@@ -318,14 +307,12 @@ export function createEngineState(deps: EngineDeps) {
     return selectionApply
   }
 
-  const setModel = (next: string, label?: string, providerID?: string, type: ModelType = 'large') => {
-    if (type === 'small') {
-      deps.smallModel.value = next
-      void queueSelection()
-      return
-    }
+  // The picker only ever selects one model. The former `type: ModelType`
+  // parameter and its `type === 'small'` branch were unreachable: Composer's
+  // pickModel is the only call site and passes three arguments, and the host
+  // pins Crush's small-model slot to the same id regardless.
+  const setModel = (next: string, label?: string, providerID?: string) => {
     deps.model.value = next
-    deps.smallModel.value = next
     deps.modelLabel.value = label ?? catalog.modelName(next, providerID) ?? next
     if (providerID) deps.provider.value = providerID
     else {

@@ -8,12 +8,10 @@
 
   type SettingsPayload = {
     theme: Theme
-    autostart_engine: boolean
     provider: string
     credential_provider?: string
     provider_only?: boolean
     model: string
-    small_model: string
     thinking: string
     api_key: string
     custom_url: string
@@ -136,12 +134,10 @@
   function save() {
     const payload: SettingsPayload = {
       theme: selectedTheme,
-      autostart_engine: true,
       provider,
       credential_provider: selectedProvider || undefined,
       provider_only: true,
       model,
-      small_model: model,
       thinking,
       api_key: currentApiKey.trim(),
       custom_url: selectedProvider ? currentCustomUrl.trim() : '',

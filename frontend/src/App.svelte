@@ -71,7 +71,7 @@
           onOpenSettings={() => (settingsOpen = true)}
           onRenameSession={(title) => void conversations.rename(conversations.activeId, title)}
           onPickWorkspace={pickWorkspace}
-          onSelectModel={(id, label, providerId, type) => conversations.setModel(id, label, providerId, type)}
+          onSelectModel={(id, label, providerId) => conversations.setModel(id, label, providerId)}
           onSelectThinking={(value) => conversations.setThinking(value)}
         />
       </div>

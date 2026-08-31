@@ -43,7 +43,6 @@ export type Conversation = {
 
 export type SessionSummary = Pick<Conversation, 'id' | 'title' | 'updatedAt' | 'pinned'> & { streaming: boolean }
 
-export type ModelType = 'large' | 'small'
 // ReasoningEffort is filtered against each model's backend catalog metadata;
 // models with explicit reasoning levels only expose those supported values.
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'max'

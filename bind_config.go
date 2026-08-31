@@ -16,14 +16,18 @@ import (
 // bind_config.go -- role: Wails-bound API for user settings, theme, provider
 // and model configuration.
 
+// SettingsInfo is the settings payload exchanged with the UI. Every field must
+// be genuinely readable AND writable: a field the host accepts and then
+// ignores is a contract lie (AGENTS.md rule 8). `autostart_engine` and
+// `small_model` were removed for exactly that reason -- the engine is always
+// started during OnStartup, and applyCrushSettings always pins Crush's
+// small-model slot to Model.
 type SettingsInfo struct {
 	Theme              string `json:"theme"`
-	AutostartEngine    bool   `json:"autostart_engine"`
 	Provider           string `json:"provider"`
 	CredentialProvider string `json:"credential_provider,omitempty"`
 	ProviderOnly       bool   `json:"provider_only,omitempty"`
 	Model              string `json:"model"`
-	SmallModel         string `json:"small_model"`
 	Thinking           string `json:"thinking"`
 	// APIKey is write-only from the UI. GetSettings always returns an empty
 	// value so a credential is never round-tripped through Wails state.
@@ -35,17 +39,15 @@ type SettingsInfo struct {
 // owned by Crush and deliberately never returned to the webview.
 func (a *App) GetSettings() SettingsInfo {
 	if a.cfg == nil {
-		return SettingsInfo{Theme: "system", AutostartEngine: true}
+		return SettingsInfo{Theme: "system"}
 	}
 	return SettingsInfo{
-		Theme:           a.cfg.Theme,
-		AutostartEngine: true,
-		Provider:        a.cfg.Provider,
-		Model:           a.cfg.Model,
-		SmallModel:      a.cfg.SmallModel,
-		Thinking:        a.cfg.Thinking,
-		APIKey:          "",
-		CustomURL:       a.cfg.CustomURL,
+		Theme:     a.cfg.Theme,
+		Provider:  a.cfg.Provider,
+		Model:     a.cfg.Model,
+		Thinking:  a.cfg.Thinking,
+		APIKey:    "",
+		CustomURL: a.cfg.CustomURL,
 	}
 }
 
@@ -85,6 +87,28 @@ func resolvedProviderCredential(pc crushapi.ProviderConfig) (kind, value string,
 	return "api_key", key, true
 }
 
+// configWorkspaceID returns a workspace ID usable for provider and config
+// reads. When the user has no workspace open it falls back to a private
+// catalog workspace under Gotack's config directory, without changing what the
+// user currently has open.
+//
+// ListProviders and RevealProviderAPIKey previously held byte-identical copies
+// of this block, differing only in the zero value of their error return.
+func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
+	if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
+		return desc.WorkspaceID, nil
+	}
+	catalogPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
+	if err := os.MkdirAll(catalogPath, 0o755); err != nil {
+		return "", fmt.Errorf("create catalog workspace directory: %w", err)
+	}
+	ws, err := svc.api.CreateWorkspace(ctx, catalogPath, false)
+	if err != nil {
+		return "", fmt.Errorf("create catalog workspace: %w", err)
+	}
+	return ws.ID, nil
+}
+
 // ListProviders returns the live provider and model catalog from Crush. When
 // no user workspace is open, it uses a private workspace under Gotack's config
 // directory without changing the user's current workspace.
@@ -96,20 +120,9 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 90*time.Second)
 	defer cancel()
 
-	var workspaceID string
-	if desc, ok := svc.ws.Current(); ok {
-		workspaceID = desc.WorkspaceID
-	}
-	if workspaceID == "" {
-		catalogPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
-		if err := os.MkdirAll(catalogPath, 0o755); err != nil {
-			return nil, fmt.Errorf("create catalog workspace directory: %w", err)
-		}
-		workspace, err := svc.api.CreateWorkspace(ctx, catalogPath, false)
-		if err != nil {
-			return nil, fmt.Errorf("create catalog workspace: %w", err)
-		}
-		workspaceID = workspace.ID
+	workspaceID, err := a.configWorkspaceID(ctx, svc)
+	if err != nil {
+		return nil, err
 	}
 	providers, err := svc.api.ListProviders(ctx, workspaceID)
 	if err != nil {
@@ -160,20 +173,9 @@ func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
 
-	var workspaceID string
-	if desc, ok := svc.ws.Current(); ok {
-		workspaceID = desc.WorkspaceID
-	}
-	if workspaceID == "" {
-		catalogPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
-		if err := os.MkdirAll(catalogPath, 0o755); err != nil {
-			return "", fmt.Errorf("create catalog workspace directory: %w", err)
-		}
-		workspace, err := svc.api.CreateWorkspace(ctx, catalogPath, false)
-		if err != nil {
-			return "", fmt.Errorf("create catalog workspace: %w", err)
-		}
-		workspaceID = workspace.ID
+	workspaceID, err := a.configWorkspaceID(ctx, svc)
+	if err != nil {
+		return "", err
 	}
 	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
@@ -227,7 +229,6 @@ func (a *App) DeleteProvider(providerID string) error {
 		_ = svc.api.RemoveConfigField(ctx, ws, scope, "models.small")
 		a.cfg.Provider = ""
 		a.cfg.Model = ""
-		a.cfg.SmallModel = ""
 		a.cfg.CustomURL = ""
 		cfgCopy := *a.cfg
 		if err := appconfig.Save(&cfgCopy); err != nil {
@@ -252,12 +253,10 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 	if s.Theme != "" {
 		a.cfg.Theme = s.Theme
 	}
-	a.cfg.AutostartEngine = true
 	a.cfg.Provider = strings.TrimSpace(s.Provider)
 	a.cfg.Model = strings.TrimSpace(s.Model)
-	// Gotack exposes one model selector; persist the same value for Crush's
-	// legacy small-model preference so old/new sessions stay consistent.
-	a.cfg.SmallModel = strings.TrimSpace(s.Model)
+	// Gotack exposes one model selector. applyCrushSettings pins both
+	// models.large and models.small to it, so there is nothing extra to persist.
 	a.cfg.Thinking = strings.TrimSpace(s.Thinking)
 	a.cfg.APIKey = "" // scrub any credential persisted by older builds
 	credentialProvider := strings.TrimSpace(s.CredentialProvider)
