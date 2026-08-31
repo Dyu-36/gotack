@@ -228,12 +228,15 @@ public class ScreenCap {
 func uploadFile(ctx context.Context, path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không đọc được tệp %s: %w", path, err)
 	}
 	if info.Size() == 0 {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Tệp rỗng: %s", path)
 	}
 	if info.Size() > maxUploadBytes {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Tệp %s nặng %.1f MB, vượt giới hạn 45 MB", path, float64(info.Size())/(1024*1024))
 	}
 	name := filepath.Base(path)

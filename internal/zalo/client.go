@@ -31,6 +31,7 @@ type Client struct {
 func NewClient(token string) (*Client, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return nil, errors.New("Chưa có Bot Token Zalo")
 	}
 	base := strings.TrimRight(strings.TrimSpace(os.Getenv("ZALO_BOT_API_BASE")), "/")
@@ -164,42 +165,51 @@ func (c *Client) DeleteWebhook(ctx context.Context) error {
 // 45 MiB bound used for outbound delivery.
 func (c *Client) DownloadAttachment(ctx context.Context, rawURL, dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không tạo được thư mục nhận tệp: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không tạo được yêu cầu tải tệp: %w", err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không tải được tệp: %s", c.redact(err.Error()))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không tải được tệp (HTTP %d)", resp.StatusCode)
 	}
 	name := attachmentFileName(rawURL, resp.Header.Get("Content-Type"))
 	path := filepath.Join(dir, name)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không lưu được tệp vừa tải: %w", err)
 	}
 	written, copyErr := io.Copy(file, io.LimitReader(resp.Body, maxUploadBytes+1))
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = os.Remove(path)
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không đọc được tệp vừa tải: %w", copyErr)
 	}
 	if closeErr != nil {
 		_ = os.Remove(path)
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", fmt.Errorf("Không đóng được tệp vừa tải: %w", closeErr)
 	}
 	if written == 0 {
 		_ = os.Remove(path)
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", errors.New("Tệp nhận được bị rỗng")
 	}
 	if written > maxUploadBytes {
 		_ = os.Remove(path)
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return "", errors.New("Tệp gửi vào quá lớn (giới hạn 45 MB)")
 	}
 	return path, nil

@@ -214,6 +214,7 @@ func (m *Manager) setError(err error) {
 func (m *Manager) SetToken(ctx context.Context, token string) (Status, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return Status{}, errors.New("Bot Token Zalo không được để trống")
 	}
 	client, err := m.newClient(token)
@@ -249,6 +250,7 @@ func (m *Manager) SetToken(ctx context.Context, token string) (Status, error) {
 func (m *Manager) TestConnection(ctx context.Context) (Status, error) {
 	state := m.snapshot()
 	if state.Token == "" {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return Status{}, errors.New("Chưa lưu Bot Token Zalo")
 	}
 	client, err := m.newClient(state.Token)
@@ -298,6 +300,7 @@ func (m *Manager) RegeneratePairingCode() (Status, error) {
 func (m *Manager) Unpair(chatID string) (Status, error) {
 	chatID = strings.TrimSpace(chatID)
 	if chatID == "" {
+		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
 		return Status{}, errors.New("Thiếu chat_id cần hủy ghép cặp")
 	}
 	m.mu.Lock()
