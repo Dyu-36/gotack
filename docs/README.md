@@ -9,10 +9,12 @@ Start with the smallest authoritative surface.
 - `WORKFLOW.md`: request shape, planning, judgment, operation, validation, and
   completion.
 - `contracts/wails-bindings.md`: the UI/host boundary (bound methods and
-  events); update it in the same change as the binds. This is the only
-  contract document today — the Crush REST/SSE and Zalo Bot API boundaries are
-  described in code (`internal/crushapi`, `internal/zalo`) and in
-  `../third_party/README.md`, not here.
+  events); update it in the same change as the binds.
+- `contracts/crush-rest-sse.md`: the host-to-engine boundary: every config
+  key the host writes, every REST endpoint and SSE event it consumes, and
+  the undo path for each; update it in the same change as `internal/crushapi`
+  or any `SetConfigField`/`RemoveConfigField` call. The Zalo Bot API
+  boundary is still described only in code (`internal/zalo`).
 - `product/`: current product behavior. Still the generic harness placeholder;
   Gotack's product behavior currently lives in `../README.md` and
   `contracts/wails-bindings.md`.
