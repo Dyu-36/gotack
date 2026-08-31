@@ -871,10 +871,29 @@ Phase 5 — scheduling:
 
 Phase 6 — learning loop:
 
-- [ ] Reflection triggered from `run_complete`, gated, with a recursion guard.
-- [ ] Proposals routed through the D3 approval path.
-- [ ] Skills frontmatter normalised; user and project skills directories added.
-- [ ] Skill generation deliberately deferred until memory proposals are trusted.
+- [x] Reflection triggered from `run_complete`, gated, with a recursion guard.
+      Evidence: `App.RunDone` feeds `internal/reflection.Tracker.SessionDone`
+      (turn-threshold gate, errored/cancelled runs never count) and
+      `DeleteSession` feeds the session-end gate; firings run create →
+      unattended mark → send over the REST seam
+      (`TestRunDoneThresholdTriggersReflection`,
+      `TestRecursionGuardIgnoresReflectionCompletions`). Contract:
+      `docs/contracts/gotack-reflection.md`.
+- [x] Proposals routed through the D3 approval path.
+      Evidence: the reflection prompt (`reflection.PromptFor`, pinned by
+      `TestPromptRoutesMemoryThroughD3`) confines every memory write to the
+      gotack-memory `memory` tool and forbids direct context-file writes; no
+      other write path exists (D3, `docs/decisions/0003`).
+- [x] Skills frontmatter normalised; user and project skills directories added.
+      Evidence: all twelve bundled skills already match the agentskills.io
+      shape Crush parses, now pinned by
+      `TestBundledSkillsFrontmatterMatchesEngineContract`; the merged
+      `options.skills_paths` gains `%AppData%\gotack\skills` and
+      `<workspace>/.agents/skills` (`TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs`),
+      keeping the WP2 no-overwrite merge pattern.
+- [x] Skill generation deliberately deferred until memory proposals are trusted.
+      Evidence: decision recorded below (2026-09-01, WP8); no skill-file
+      write path was added.
 
 Carry-over hygiene, inherited 2026-08-31 from the now-completed cleanup plan
 (`docs/plans/completed/cleanup-dead-code-and-doc-drift.md`). Re-audited the
@@ -966,6 +985,25 @@ same day; thirteen of its twenty items had landed, and only these are open:
   engine holds it. Reason: 3.1 forbids holding the data-dir lock, the
   engine holds it for its whole lifetime, and recall must stay usable while
   the engine runs; a read-only open against WAL is safe.
+- 2026-09-01 (WP8): Defer automatic skill generation (6.3) out of Phase 6.
+  Reason: 6.3 itself gates skill emission on memory proposals being
+  trustworthy in practice, and Phase 6 shipped the memory loop for the first
+  time; a wrong skill is more damaging than a wrong memory entry because its
+  description competes for tool selection on every turn. The seeded skills
+  directory from 6.4 is already where generated skills would land, so the
+  deferral costs no rework.
+- 2026-09-01 (WP8): Reflection runs use the configured model, not a smaller
+  one, and are confined by prompt plus posture rather than a per-session
+  toolset. Reason: the Crush REST surface exposes no per-session model
+  override and only global `disabled_tools`/`allowed_tools`, so scoping one
+  session would scope every session. The hourly budget (1/h), the single
+  in-flight guard and the unattended posture bound the exposure instead; a
+  true small-model/narrow-toolset run returns with the Phase 7 fork.
+- 2026-09-01 (WP8): The explicit `/learn` command (6.1) is deferred with the
+  rest of the Phase 6 UI surface. Reason: no UI seam exists for this phase
+  (WP7 precedent: host-internal, no bound methods), and the turn-threshold
+  and session-end gates already cover the plan's trigger intent; hard rule 8
+  forbids bound methods nothing consumes.
 
 ## Validation
 

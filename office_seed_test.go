@@ -17,35 +17,53 @@ import (
 
 func TestMergeSkillsPaths(t *testing.T) {
 	tests := []struct {
-		name     string
-		existing []string
-		bundled  string
-		want     []string
+		name      string
+		existing  []string
+		additions []string
+		want      []string
 	}{
 		{
-			name:     "user paths keep their order and bundled is appended",
-			existing: []string{"~/user/skills-a", "D:/user/skills-b"},
-			bundled:  "C:/gotack/skills",
-			want:     []string{"~/user/skills-a", "D:/user/skills-b", "C:/gotack/skills"},
+			name:      "user paths keep their order and bundled is appended",
+			existing:  []string{"~/user/skills-a", "D:/user/skills-b"},
+			additions: []string{"C:/gotack/skills"},
+			want:      []string{"~/user/skills-a", "D:/user/skills-b", "C:/gotack/skills"},
 		},
 		{
-			name:     "bundled already present is not duplicated",
-			existing: []string{"~/user/skills-a", "C:/gotack/skills"},
-			bundled:  "C:/gotack/skills",
-			want:     []string{"~/user/skills-a", "C:/gotack/skills"},
+			name:      "bundled already present is not duplicated",
+			existing:  []string{"~/user/skills-a", "C:/gotack/skills"},
+			additions: []string{"C:/gotack/skills"},
+			want:      []string{"~/user/skills-a", "C:/gotack/skills"},
 		},
 		{
-			name:     "empty config gets only the bundled path",
-			existing: nil,
-			bundled:  "C:/gotack/skills",
-			want:     []string{"C:/gotack/skills"},
+			name:      "empty config gets only the bundled path",
+			existing:  nil,
+			additions: []string{"C:/gotack/skills"},
+			want:      []string{"C:/gotack/skills"},
+		},
+		{
+			name:      "multiple additions append once each in order",
+			existing:  []string{"~/user/skills-a"},
+			additions: []string{"C:/gotack/skills", "U:/gotack/skills", "P:/ws/.agents/skills"},
+			want:      []string{"~/user/skills-a", "C:/gotack/skills", "U:/gotack/skills", "P:/ws/.agents/skills"},
+		},
+		{
+			name:      "duplicate additions are appended once",
+			existing:  nil,
+			additions: []string{"C:/gotack/skills", "C:/gotack/skills", "P:/ws/.agents/skills"},
+			want:      []string{"C:/gotack/skills", "P:/ws/.agents/skills"},
+		},
+		{
+			name:      "empty additions are skipped",
+			existing:  []string{"~/user/skills-a"},
+			additions: []string{"", "C:/gotack/skills"},
+			want:      []string{"~/user/skills-a", "C:/gotack/skills"},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := mergeSkillsPaths(test.existing, test.bundled)
+			got := mergeSkillsPaths(test.existing, test.additions...)
 			if !reflect.DeepEqual(got, test.want) {
-				t.Fatalf("mergeSkillsPaths(%#v, %q) = %#v, want %#v", test.existing, test.bundled, got, test.want)
+				t.Fatalf("mergeSkillsPaths(%#v, %#v) = %#v, want %#v", test.existing, test.additions, got, test.want)
 			}
 		})
 	}
@@ -64,6 +82,17 @@ type skillsPathsAPI struct {
 
 func (f *skillsPathsAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 	switch {
+	case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces":
+		return jsonHTTPResponse(http.StatusOK, `[]`), nil
+	case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces":
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			return jsonHTTPResponse(http.StatusBadRequest, `{"message":"bad request"}`), nil
+		}
+		out, _ := json.Marshal(map[string]string{"id": "ws-1", "path": body.Path})
+		return jsonHTTPResponse(http.StatusOK, string(out)), nil
 	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/config"):
 		body := "{}"
 		if len(f.existing) > 0 {
@@ -127,7 +156,11 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			dataDir := t.TempDir()
+			// Seed under the redirected config dir so the seeded skills dir
+			// equals userSkillsDir(): production dedupes the two into one
+			// entry, which is exactly the WP2 shape these tests pin.
+			appData := redirectAppData(t)
+			dataDir := filepath.Join(appData, "gotack")
 			bundled := filepath.Join(dataDir, "skills")
 			fake := &skillsPathsAPI{t: t, existing: test.existing(bundled)}
 
@@ -159,5 +192,45 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 				t.Fatalf("written options.skills_paths = %#v, want %#v", fake.writtenSkills, want)
 			}
 		})
+	}
+}
+
+// TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs proves plan 6.4
+// discovery: with a workspace open, the merged list gains the per-user
+// skills dir (deduped against the seeded one) and <workspace>/.agents/skills.
+func TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs(t *testing.T) {
+	appData := redirectAppData(t)
+	dataDir := filepath.Join(appData, "gotack")
+	bundled := filepath.Join(dataDir, "skills")
+	fake := &skillsPathsAPI{t: t, existing: []string{"~/user/skills-a"}}
+
+	api := crushapi.NewClient(&http.Client{Transport: fake})
+	app := NewApp()
+	app.ctx = context.Background()
+	app.officeSeeder = &officeSeeder{seeder: officecli.New(dataDir, nil)}
+	app.swapConn(func(c *conn) *conn {
+		c.api = api
+		c.ws = workspace.NewService(api)
+		c.sess = session.NewService(api, c.ws)
+		return c
+	})
+	scope, started := app.link.BeginConnect(context.Background())
+	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+		t.Fatal("link rejected the test connect scope")
+	}
+	app.link.MarkRunning()
+	wsDir := t.TempDir()
+	if _, err := app.getConn().ws.Open(context.Background(), wsDir); err != nil {
+		t.Fatalf("open workspace: %v", err)
+	}
+
+	app.registerOfficeTools("ws-1")
+
+	if !fake.wroteSkills {
+		t.Fatalf("registerOfficeTools never wrote options.skills_paths; keys written: %v", fake.writtenKeys)
+	}
+	want := []string{"~/user/skills-a", bundled, filepath.Join(wsDir, ".agents", "skills")}
+	if !reflect.DeepEqual(fake.writtenSkills, want) {
+		t.Fatalf("written options.skills_paths = %#v, want %#v", fake.writtenSkills, want)
 	}
 }
