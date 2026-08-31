@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
-	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
@@ -17,10 +16,15 @@ import (
 
 // bind_engine.go -- role: Wails-bound API for the Crush engine lifecycle.
 //
-// Start/stop/reconnect return an immediate snapshot and do the long work in
-// the background, reporting progress through the engine:status event.
+// The connection state machine (status transitions, attach scope, dial
+// sequence, event-stream scopes) lives in internal/enginelink; these bound
+// methods stay thin wrappers between it and the UI. Start/stop/reconnect
+// return an immediate snapshot and do the long work in the background,
+// reporting progress through the engine:status event.
 
-const handshakeTimeout = 15 * time.Second
+// The forwarder drains the SSE stream; keep the compile-time proof that it
+// still satisfies the enginelink consumer seam.
+var _ enginelink.EventConsumer = (*uievents.Forwarder)(nil)
 
 // EngineInfo is the JSON shape of every engine status report.
 type EngineInfo struct {
@@ -32,20 +36,19 @@ type EngineInfo struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// engineInfoLocked reports the current engine state from a *conn snapshot.
-// Callers must hold either a direct pointer returned by getConn() (read-only)
-// or be inside a swapConn mutate closure where they own the copy.
-func (a *App) engineInfoLocked() EngineInfo {
-	c := a.getConn()
+// engineInfo reports the current engine state from the link and the
+// supervisor. Read-only: every caller reads a post-transition snapshot.
+func (a *App) engineInfo() EngineInfo {
 	info := EngineInfo{
-		Status: string(engine.StatusStopped),
+		Status: string(enginelink.StatusStopped),
 	}
-	if c != nil {
-		info.Status = string(c.status)
-		info.Running = c.status == engine.StatusRunning
-		info.Endpoint = c.ep.Address
-		info.Version = c.version
-		info.Error = c.lastError
+	if a.link != nil {
+		status := a.link.Status()
+		info.Status = string(status)
+		info.Running = status == enginelink.StatusRunning
+		info.Endpoint = a.link.Endpoint().Address
+		info.Version = a.link.Version()
+		info.Error = a.link.LastError()
 	}
 	if a.sup != nil {
 		info.Owned = a.sup.Owned()
@@ -55,7 +58,7 @@ func (a *App) engineInfoLocked() EngineInfo {
 
 // EngineStatus returns the current engine state without side effects.
 func (a *App) EngineStatus() EngineInfo {
-	return a.engineInfoLocked()
+	return a.engineInfo()
 }
 
 // StartEngine attaches to a running server or launches one, then reports the
@@ -67,8 +70,8 @@ func (a *App) StartEngine() EngineInfo {
 }
 
 // StopEngine stops the transport and kills the child process only when this
-// host launched it. stopTransport owns the status transition, so there is no
-// second setStatus here that could disagree with it.
+// host launched it. Disconnect owns the status transition, so there is no
+// second status write here that could disagree with it.
 func (a *App) StopEngine() EngineInfo {
 	a.stopTransport()
 	if a.sup != nil {
@@ -87,92 +90,54 @@ func (a *App) ReconnectEngine() error {
 }
 
 func (a *App) tryConnect() bool {
-	if a.getConn() == nil {
-		return false
-	}
-	var prev context.CancelFunc
-	var attachCtx context.Context
-	var info EngineInfo
-	var started bool
-	a.swapConn(func(c *conn) *conn {
-		if c.status == engine.StatusRunning || c.status == engine.StatusStarting {
-			return c
-		}
-		prev = c.cancelStream
-		ctx, cancel := context.WithCancel(context.Background())
-		c.cancelStream = cancel
-		c.status = engine.StatusStarting
-		c.lastError = ""
-		info = a.engineInfoLocked()
-		attachCtx = ctx
-		started = true
-		return c
-	})
+	scope, started := a.link.BeginConnect(context.Background())
 	if !started {
 		return false
 	}
-	if prev != nil {
-		prev()
-	}
-	a.emit(uievents.EngineStatus, info)
-	go a.connect(attachCtx)
+	a.emit(uievents.EngineStatus, a.engineInfo())
+	go a.connect(scope)
 	return true
 }
 
-// connect performs the full attach sequence for one attach scope:
-// locate or launch -> dial -> handshake -> build services -> stream events.
-func (a *App) connect(ctx context.Context) {
-	ep, found := a.sup.Locate(ctx)
-	if !found {
-		var err error
-		ep, err = a.sup.Start()
-		if err != nil {
-			a.failConnect(fmt.Sprintf("launch engine: %v", err))
-			return
+// connect performs the full attach sequence for one attach scope. Dial and
+// handshake live in enginelink; the ready hook commits the services,
+// activates the default workspace, and only then promotes the link to
+// running.
+func (a *App) connect(scope context.Context) {
+	err := a.link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
+		fwd := uievents.NewForwarder(a.log, a.emit, a.permsFromConn(), a)
+		ws := workspace.NewService(api)
+		sess := session.NewService(api, ws)
+		diffs := changes.NewService(api, ws)
+
+		if !a.commitAttach(ctx, api, fwd, ws, sess, diffs, ep, version) {
+			return enginelink.ErrAttachSuperseded
 		}
-	}
 
-	hc, err := crushapi.Dial(ctx, ep)
-	if err != nil {
-		a.failConnect(fmt.Sprintf("dial %s %s: %v", ep.Network, ep.Address, err))
-		return
-	}
+		// Gotack always attaches a default workspace before reporting the engine as
+		// running. On Windows that workspace is C:\, while Crush persistence stays
+		// under Gotack's app-data directory. Users can chat immediately without
+		// selecting a folder, and all workspaces run with permission prompts off.
+		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
+		if _, err := a.activateAssistantWorkspace(svc); err != nil {
+			return fmt.Errorf("initialize assistant workspace: %w", err)
+		}
 
-	api := crushapi.NewClient(hc)
-	if err := engine.WaitForHealthy(ctx, api, handshakeTimeout); err != nil {
-		a.failConnect(fmt.Sprintf("handshake: %v", err))
-		return
-	}
-	vi, err := api.Version(ctx)
-	if err != nil {
-		a.failConnect(fmt.Sprintf("version: %v", err))
-		return
-	}
-
-	fwd := uievents.NewForwarder(a.log, a.emit, a.permsFromConn(), a)
-	ws := workspace.NewService(api)
-	sess := session.NewService(api, ws)
-	diffs := changes.NewService(api, ws)
-
-	if !a.commitAttach(ctx, api, fwd, ws, sess, diffs, ep, vi.Version) {
-		return
-	}
-
-	// Gotack always attaches a default workspace before reporting the engine as
-	// running. On Windows that workspace is C:\, while Crush persistence stays
-	// under Gotack's app-data directory. Users can chat immediately without
-	// selecting a folder, and all workspaces run with permission prompts off.
-	svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
-	if _, err := a.activateAssistantWorkspace(svc); err != nil {
-		a.failConnect(fmt.Sprintf("initialize assistant workspace: %v", err))
-		return
-	}
-
-	a.log.Info("engine connected", "endpoint", ep.Address, "version", vi.Version, "owned", a.sup.Owned())
-	a.setStatus(engine.StatusRunning)
-	a.reapplySavedWorkspaceSettings()
-	if a.zalo != nil && a.zalo.Status().Configured {
-		a.zalo.Start()
+		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
+		a.link.MarkRunning()
+		a.emit(uievents.EngineStatus, a.engineInfo())
+		a.reapplySavedWorkspaceSettings()
+		if a.zalo != nil && a.zalo.Status().Configured {
+			a.zalo.Start()
+		}
+		return nil
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, enginelink.ErrAttachSuperseded):
+		// A newer attach scope owns the state machine now; it reports.
+	default:
+		a.failConnect(err.Error())
 	}
 }
 
@@ -203,13 +168,13 @@ func (a *App) commitAttach(
 		c.ws = ws
 		c.sess = sess
 		c.diffs = diffs
-		c.ep = ep
-		c.version = version
-		c.lastError = ""
 		stillCurrent = true
 		return c
 	})
-	return stillCurrent
+	if !stillCurrent {
+		return false
+	}
+	return a.link.CommitAttach(ctx, ep, version)
 }
 
 // permsFromConn returns the permission relay from the current conn. The
@@ -223,89 +188,42 @@ func (a *App) permsFromConn() *permission.Relay {
 	return nil
 }
 
-func (a *App) failConnect(msg string) {
+func (a *App) failConnect(reason string) {
 	if a.log != nil {
-		a.log.Error("engine connect failed", "reason", msg)
+		a.log.Error("engine connect failed", "reason", reason)
 	}
-	if a.getConn() == nil {
-		return
-	}
-	var info EngineInfo
-	a.swapConn(func(c *conn) *conn {
-		c.lastError = msg
-		c.status = engine.StatusError
-		info = a.engineInfoLocked()
-		return c
-	})
-	a.emit(uievents.EngineStatus, info)
+	a.link.Fail(reason)
+	a.emit(uievents.EngineStatus, a.engineInfo())
 }
 
 // transportLost marks a live transport unhealthy only if the attach scope is
-// still current. Intentional Stop/Reconnect cancels ctx first and therefore
-// never gets misreported as an error.
-func (a *App) transportLost(ctx context.Context, msg string) {
-	if ctx.Err() != nil {
-		return
-	}
-	if a.getConn() == nil {
-		return
-	}
-	var info EngineInfo
-	var changed bool
-	a.swapConn(func(c *conn) *conn {
-		if c.status != engine.StatusRunning {
-			return c
-		}
-		c.status = engine.StatusError
-		c.lastError = msg
-		info = a.engineInfoLocked()
-		changed = true
-		return c
-	})
-	if !changed {
+// still current. Intentional Stop/Reconnect cancels the scope first and
+// therefore never gets misreported as an error.
+func (a *App) transportLost(scope context.Context, reason string) {
+	if !a.link.TransportLost(scope, reason) {
 		return
 	}
 	if a.log != nil {
-		a.log.Warn("engine transport lost", "reason", msg)
+		a.log.Warn("engine transport lost", "reason", reason)
 	}
-	a.emit(uievents.EngineStatus, info)
+	a.emit(uievents.EngineStatus, a.engineInfo())
 }
 
-// startStream subscribes to the workspace SSE channel and forwards it to the
-// UI. One stream per active workspace. An unexpected stream close is promoted
-// to engine:error so the frontend backoff loop can reconnect instead of
-// silently freezing with the last token on screen.
-func (a *App) attachStream(ctx context.Context, workspaceID string) error {
+// attachStream subscribes to the workspace SSE channel and forwards it to
+// the UI. One stream per active workspace. An unexpected stream close is
+// promoted to engine:error so the frontend backoff loop can reconnect
+// instead of silently freezing with the last token on screen.
+func (a *App) attachStream(scope context.Context, workspaceID string) error {
 	c := a.getConn()
 	if c == nil || c.api == nil || c.fwd == nil {
-		return errors.New("event stream unavailable: transport not wired")
+		return enginelink.ErrTransportNotWired
 	}
-	api := c.api
-	fwd := c.fwd
-
-	events, stop, err := api.Stream(ctx, workspaceID,
-		"message", "run_complete", "permission_request", "question_batch_request", "file",
-	)
-	if err != nil {
-		return fmt.Errorf("event stream attach failed: %w", err)
-	}
-
-	go func() {
-		fwd.Consume(events)
-		if ctx.Err() == nil {
-			a.transportLost(ctx, "engine event stream disconnected")
-		}
-	}()
-	go func() {
-		<-ctx.Done()
-		stop()
-	}()
-	return nil
+	return enginelink.AttachStream(scope, c.api, c.fwd, workspaceID, a.transportLost)
 }
 
-func (a *App) startStream(ctx context.Context, workspaceID string) {
-	if err := a.attachStream(ctx, workspaceID); err != nil {
-		a.transportLost(ctx, err.Error())
+func (a *App) startStream(scope context.Context, workspaceID string) {
+	if err := a.attachStream(scope, workspaceID); err != nil {
+		a.transportLost(scope, err.Error())
 	}
 }
 
@@ -313,28 +231,19 @@ func (a *App) startStream(ctx context.Context, workspaceID string) {
 // the active workspace. Crush considers a client attached only while this
 // stream is live; session-presence calls return 409 otherwise. Keeping the
 // attach synchronous guarantees callers can safely retry SetCurrentSession.
+// Unlike the activation paths (see rebindWorkspaceRuntime), an attach
+// failure is returned to the caller and the fresh scope is rolled back.
 func (a *App) replaceWorkspaceStream(workspaceID string) error {
 	if workspaceID == "" {
-		return errors.New("workspace id is required for event stream")
+		return enginelink.ErrWorkspaceIDRequired
 	}
 	if a.getConn() == nil {
-		return errors.New("engine connection unavailable")
+		return enginelink.ErrNoConnection
 	}
 
-	var previous context.CancelFunc
-	var streamCtx context.Context
-	a.swapConn(func(c *conn) *conn {
-		previous = c.cancelStream
-		streamCtx, c.cancelStream = context.WithCancel(a.ctx)
-		return c
-	})
-	if previous != nil {
-		previous()
-	}
-	if err := a.attachStream(streamCtx, workspaceID); err != nil {
-		if cancel := a.getConn().cancelStream; cancel != nil {
-			cancel()
-		}
+	scope := a.link.ReplaceStreamScope(a.ctx)
+	if err := a.attachStream(scope, workspaceID); err != nil {
+		a.link.CancelScope()
 		return err
 	}
 	return nil
@@ -346,33 +255,24 @@ func (a *App) stopTransport() {
 	if a.getConn() == nil {
 		return
 	}
-	var cancel context.CancelFunc
 	var fwd *uievents.Forwarder
 	a.swapConn(func(c *conn) *conn {
-		cancel = c.cancelStream
-		c.cancelStream = nil
 		fwd = c.fwd
 		c.api = nil
 		c.fwd = nil
 		c.ws = nil
 		c.sess = nil
 		c.diffs = nil
-		c.ep = crushapi.Endpoint{}
-		c.version = ""
-		c.status = engine.StatusStopped
-		c.lastError = ""
 		return c
 	})
-	if cancel != nil {
-		cancel()
-	}
+	a.link.Disconnect()
 	if fwd != nil {
 		fwd.Stop()
 	}
 	if a.zalo != nil {
 		a.zalo.Stop()
 	}
-	a.setStatus(engine.StatusStopped)
+	a.emit(uievents.EngineStatus, a.engineInfo())
 }
 
 type bridgeServices struct {
@@ -384,7 +284,7 @@ type bridgeServices struct {
 
 func (a *App) services() (*bridgeServices, error) {
 	c := a.getConn()
-	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || c.status != engine.StatusRunning {
+	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || a.link.Status() != enginelink.StatusRunning {
 		return nil, errors.New("engine is not running")
 	}
 	return &bridgeServices{api: c.api, ws: c.ws, sess: c.sess, diffs: c.diffs}, nil

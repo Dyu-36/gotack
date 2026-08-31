@@ -785,11 +785,18 @@ same day; thirteen of its twenty items had landed, and only these are open:
       `internal/appconfig` with a removal target. `app.go:133` and
       `internal/zalo/manager.go:152` still call `ImportLegacy` with no stated
       expiry.
-- [ ] B2: collapse `activateWorkspace` (`bind_workspace.go:77`) and
+- [x] B2: collapse `activateWorkspace` (`bind_workspace.go:77`) and
       `activateAssistantWorkspace` (`:117`) onto `replaceWorkspaceStream`
       (`bind_engine.go:316`). Do this together with C2, never separately (R8).
-- [ ] C2: extract the supervisor into `internal/enginelink`. The package still
+      Done together with C2: both now route through one shared
+      `activateCurrent` path in `bind_workspace.go`, and
+      `replaceWorkspaceStream` rebinds via `rebindWorkspaceRuntime` with the
+      documented transportLost-versus-cancel policy difference preserved.
+- [x] C2: extract the supervisor into `internal/enginelink`. The package still
       does not exist, which is what keeps A8, B2 and Phase 5 entangled.
+      Done: connection state machine (status, connect scope, stream attach,
+      loss reporting) lives in `internal/enginelink` with race-safe lifecycle
+      tests; package main keeps only thin bound-method wrappers.
 - [ ] C4: decide typed errors versus one string table before adding more
       user-facing Vietnamese strings; seven non-test files carry them today.
 - [ ] C5: write the frontend placement rule into `docs/README.md`.

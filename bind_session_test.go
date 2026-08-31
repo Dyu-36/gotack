@@ -193,9 +193,7 @@ func TestSetCurrentSessionReattachesMissingEventStream(t *testing.T) {
 		t.Fatalf("setCurrentSession() error = %v", err)
 	}
 	t.Cleanup(func() {
-		if c := a.getConn(); c != nil && c.cancelStream != nil {
-			c.cancelStream()
-		}
+		a.link.CancelScope()
 	})
 
 	if got := currentSessionCalls.Load(); got != 2 {
