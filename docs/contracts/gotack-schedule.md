@@ -4,7 +4,7 @@ Gotack runs scheduled autonomous agent jobs from the desktop host
 (`internal/schedule`, wired in `schedule_host.go`). This is a host-internal
 capability with one external boundary: the persisted job file
 `schedule.json`, which users hand-edit while the app is closed. The phased
-authority is Phase 5 of `docs/plans/active/hermes-parity-harness.md`; the
+authority is Phase 5 of `docs/plans/completed/hermes-parity-harness.md`; the
 unattended posture it depends on is `docs/contracts/gotack-approvals.md`.
 
 The desktop never executes agent logic itself (ADR 0001): a firing is one

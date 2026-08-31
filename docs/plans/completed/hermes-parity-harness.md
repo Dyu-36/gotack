@@ -4,12 +4,13 @@ Date: 2026-08-31
 
 ## Status
 
-Active — Phase 0 closed. D1, D2, and D3 are recorded in
-`docs/decisions/0001`–`0003`, all three technical questions from the first
-pass are resolved (step 1.6, step 4.3, risk R3), and the `.crush-pin`
-consolidation is landed. The only condition on writing code is that the
-`AGENTS.md` amendment from decision 0001 lands in the same change as the
-first Phase 2 work.
+Completed 2026-09-01 — all seven phases and the carry-over hygiene items are
+landed on `main`. Phase 1 landed on `feat/phase1-persona-context`, the
+skills_paths fix on `fix/skills-paths-merge`, the enginelink refactor on
+`refactor/enginelink-activation`, memory on `feat/phase2-memory`, recall on
+`feat/phase3-recall`, approvals on `feat/phase4-approvals`, scheduling on
+`feat/phase5-schedule`, the learning loop on `feat/phase6-learning`, and the
+hygiene items A8/C4/C5/F on `chore/hygiene-close-plan`.
 
 ## Outcome
 
@@ -899,10 +900,16 @@ Carry-over hygiene, inherited 2026-08-31 from the now-completed cleanup plan
 (`docs/plans/completed/cleanup-dead-code-and-doc-drift.md`). Re-audited the
 same day; thirteen of its twenty items had landed, and only these are open:
 
-- [ ] A8: mark `cfg.Zalo.Token` and `cfg.Zalo.AllowedChats` deprecated in
+- [x] A8: mark `cfg.Zalo.Token` and `cfg.Zalo.AllowedChats` deprecated in
       `internal/appconfig` with a removal target. `app.go:133` and
       `internal/zalo/manager.go:152` still call `ImportLegacy` with no stated
       expiry.
+      Done 2026-09-01 on `chore/hygiene-close-plan` (WP9): both fields carry
+      `// Deprecated:` notices with removal target Gotack v1.0
+      (`internal/appconfig/config.go`, pinned by
+      `TestZaloLegacyFieldsCarryDeprecationNotice`); the expiry is stated on
+      `ImportLegacy` itself (`internal/zalo/manager.go`) and at the remaining
+      consumers (`app.go`, `bind_zalo.go`).
 - [x] B2: collapse `activateWorkspace` (`bind_workspace.go:77`) and
       `activateAssistantWorkspace` (`:117`) onto `replaceWorkspaceStream`
       (`bind_engine.go:316`). Do this together with C2, never separately (R8).
@@ -915,22 +922,38 @@ same day; thirteen of its twenty items had landed, and only these are open:
       Done: connection state machine (status, connect scope, stream attach,
       loss reporting) lives in `internal/enginelink` with race-safe lifecycle
       tests; package main keeps only thin bound-method wrappers.
-- [ ] C4: decide typed errors versus one string table before adding more
+- [x] C4: decide typed errors versus one string table before adding more
       user-facing Vietnamese strings; seven non-test files carry them today.
-- [ ] C5: write the frontend placement rule into `docs/README.md`.
+      Done 2026-09-01 on `chore/hygiene-close-plan` (WP9): one centralized
+      table, `internal/userstrings`, chosen over typed errors because the
+      scope mixes errors, dialog titles and a charset label. All seven files
+      (`app.go`, `bind_files.go`, `bind_host.go`, `bind_session.go`,
+      `internal/attachments/{charset,legacy_office,pdf}.go`) now reference
+      the table; user-facing text is byte-identical. See Decisions
+      (2026-09-01, WP9).
+- [x] C5: write the frontend placement rule into `docs/README.md`.
       `features/conversations` is imported by five components, so the
       directory is used, not dead; only the rule is missing.
+      Done 2026-09-01 on `chore/hygiene-close-plan` (WP9): the placement rule
+      covers `app/`, `components/`, `features/*`, `lib/`, `platform/` and
+      records that `features/conversations` is imported by `App.svelte` plus
+      four components (`ChatArea`, `Composer`, `MessageBubble`,
+      `SettingsModal`).
 - [x] C6: `release.yml` packages neither `resources/bin/` nor
       `resources/context/`. Phase 1.5 must fix both in one release-job change.
       Done 2026-08-31 on `feat/phase1-persona-context`: the release job runs
       `scripts/prepare-resources.ps1` and copies both directories into the
       portable ZIP; copy logic proven by a temp-dir dry run of the same
       commands.
-- [ ] F: `docs/contracts/crush-rest-sse.md` and `contracts/zalo-bot.md` are
+- [x] F: `docs/contracts/crush-rest-sse.md` and `contracts/zalo-bot.md` are
       still absent while hard rule 7 requires a contract per external
       boundary. Phase 1.6 already owes the first file. Partial: `crush-rest-sse.md`
       landed 2026-08-31 on `feat/phase1-persona-context`; `zalo-bot.md`
       remains open.
+      Closed 2026-09-01 on `chore/hygiene-close-plan` (WP9):
+      `docs/contracts/zalo-bot.md` now documents the Bot API boundary, the
+      `Zalo.*` config keys including the deprecated ones, session mapping,
+      media handling and the legacy import path.
 
 ## Decisions
 
@@ -1004,6 +1027,11 @@ same day; thirteen of its twenty items had landed, and only these are open:
   (WP7 precedent: host-internal, no bound methods), and the turn-threshold
   and session-end gates already cover the plan's trigger intent; hard rule 8
   forbids bound methods nothing consumes.
+- 2026-09-01 (WP9): C4 resolves to one centralized string table
+  (`internal/userstrings`), not typed errors. Reason: the seven in-scope
+  files mix errors, dialog titles and a charset label; a single table keeps
+  every user-facing Vietnamese sentence editable in one place while keeping
+  the text byte-identical.
 
 ## Validation
 
@@ -1037,8 +1065,9 @@ same day; thirteen of its twenty items had landed, and only these are open:
 
 ## Result
 
-Not started as code. The second pass (2026-08-31) closed every item that was
-blocking the plan:
+Completed 2026-09-01. Every phase checkbox and every carry-over hygiene item
+above is ticked with file-level evidence. The second pass (2026-08-31) closed
+every item that was blocking the plan:
 
 - D1, D2, D3 are recorded in `docs/decisions/0001`–`0003` under delegated
   authority.
@@ -1053,12 +1082,46 @@ blocking the plan:
 - The `.crush-pin` consolidation (cleanup item B3) is landed and the
   invariant checker passes with the new owning format.
 
-Remaining before code:
+Delivered 2026-09-01 (see the checkbox evidence above and the per-phase
+contract docs in `docs/contracts/`):
 
-- Apply the `AGENTS.md` amendment from decision 0001 together with the first
-  Phase 2 change.
-- Step 1.1 must now extract `resources/context/TACK.md` from the off-repo
-  backup named in the third pass below. The vendored copy no longer exists.
+- Phase 1: `resources/context/TACK.md` seeded from the backup persona via
+  `internal/contextseed`, registered through
+  `options.global_context_paths`, and packaged into the release ZIP with
+  `resources/bin/`. Contract: `docs/contracts/crush-rest-sse.md`.
+- WP2: `registerOfficeTools` merges `options.skills_paths` instead of
+  overwriting it.
+- WP3 (C2 + B2): the engine state machine lives in `internal/enginelink`;
+  one shared activation path serves both workspace entry points.
+- Phase 2: persistent self-editing memory through `cmd/memory` / the
+  `gotack-memory` MCP server, constrained by construction per D3. Contract:
+  `docs/contracts/gotack-memory-mcp.md`.
+- Phase 3: cross-session recall through `cmd/recall`, read-only against
+  `crush.db` with a private FTS5 index. Contract:
+  `docs/contracts/gotack-recall-mcp.md`.
+- Phase 4: graduated approvals via one `hooks.PreToolUse` guard with an
+  unattended-deny posture. Contract: `docs/contracts/gotack-approvals.md`.
+- Phase 5: `internal/schedule` with hourly budgets, duplicate-run guards and
+  unattended marking before send. Contract:
+  `docs/contracts/gotack-schedule.md`.
+- Phase 6: reflection driven from the `run_complete` SSE event with gates, an
+  hourly budget and a recursion guard; proposals route through D3. Skills
+  frontmatter pinned to the agentskills.io shape; user and project skill
+  directories discovered. Contract: `docs/contracts/gotack-reflection.md`.
+  Skill generation remains deliberately deferred (Decisions, 2026-09-01 WP8).
+- Hygiene A8/C4/C5/F: Zalo legacy fields deprecated with a removal target,
+  user-facing Vietnamese strings centralized in `internal/userstrings`, the
+  frontend placement rule written into `docs/README.md`, and
+  `docs/contracts/zalo-bot.md` landed.
+
+Known deviations, each recorded where it belongs: `go test -race` was not
+run on the execution machine (no gcc/cgo); the one authorized dependency
+exception is `modernc.org/sqlite v1.56.0` (WP5); reflection runs use the
+configured model and prompt/posture confinement rather than a per-session
+small model/toolset (Crush REST seam limitation, to be revisited with the
+Phase 7 fork).
+
+The earlier interim text below is preserved as history.
 
 ## Third pass, 2026-08-31
 

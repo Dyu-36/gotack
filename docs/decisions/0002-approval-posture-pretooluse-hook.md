@@ -71,5 +71,5 @@ Tradeoffs:
 
 ## Follow-Up
 
-- `docs/plans/active/hermes-parity-harness.md` Phase 4 implements this.
+- `docs/plans/completed/hermes-parity-harness.md` Phase 4 implements this.
 - Revisit the sub-agent hole if the Phase 7 fork happens.

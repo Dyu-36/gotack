@@ -1,6 +1,6 @@
 # Contract: gotack-recall MCP server (`cmd/recall`)
 
-Status: implemented by WP5 (Phase 3 of `docs/plans/active/hermes-parity-harness.md`).
+Status: implemented by WP5 (Phase 3 of `docs/plans/completed/hermes-parity-harness.md`).
 
 `cmd/recall` is a stdio MCP server (protocol `2024-11-05`, built on
 `internal/mcp`, same pattern as `cmd/office`) that gives the assistant

@@ -30,13 +30,16 @@ decision into `docs/decisions/`; keep task-local choices in the plan.
 
 ## Active Plans
 
-- [`hermes-parity-harness.md`](active/hermes-parity-harness.md)
-  — bring Hermes-class memory, cross-session recall, graduated approvals,
-  scheduling and a learning loop onto the Crush core, and relocate the
-  Tack/Sage persona out of the vendored checkout into a tracked, released seam.
+None.
 
 ## Recently Completed
 
+- [`hermes-parity-harness.md`](completed/hermes-parity-harness.md)
+  — bring Hermes-class memory, cross-session recall, graduated approvals,
+  scheduling and a learning loop onto the Crush core, and relocate the
+  Tack/Sage persona out of the vendored checkout into a tracked, released
+  seam. Completed 2026-09-01 with all seven phases and the carried-over
+  hygiene items landed on `main`.
 - [`cleanup-dead-code-and-doc-drift.md`](completed/cleanup-dead-code-and-doc-drift.md)
   — dead state, duplicated blocks and documentation drift in `package main`.
   Closed 2026-08-31 after a third-pass re-audit; the seven items that were

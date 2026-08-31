@@ -56,4 +56,4 @@ Tradeoffs:
 ## Follow-Up
 
 - Apply the `AGENTS.md` amendment together with the first Phase 2 change.
-- `docs/plans/active/hermes-parity-harness.md` Phase 0 consumes this record.
+- `docs/plans/completed/hermes-parity-harness.md` Phase 0 consumes this record.

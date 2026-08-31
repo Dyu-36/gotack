@@ -2,7 +2,7 @@
 
 Gotack runs bounded reflection agent jobs from the desktop host
 (`internal/reflection`, wired in `reflection_host.go`). Reflection is the
-Phase 6 learning loop of `docs/plans/active/hermes-parity-harness.md`: the
+Phase 6 learning loop of `docs/plans/completed/hermes-parity-harness.md`: the
 host watches completed runs, and when a gate opens it launches one short
 engine run whose only job is to distil durable lessons into the persistent
 memory files through the gotack-memory MCP server (D3,
