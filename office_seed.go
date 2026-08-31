@@ -158,7 +158,19 @@ func (a *App) registerOfficeTools(workspaceID string) {
 	}
 
 	skillsPath := a.officeSeeder.SkillsPath()
-	if skillsPath == "" {
+	// Phase 6 skills discovery (plan 6.4): the merged list gains the bundled
+	// skills (when seeded), the per-user skills dir and the current
+	// workspace's project skills dir. mergeSkillsPaths keeps every existing
+	// entry in order and appends each addition once.
+	additions := make([]string, 0, 3)
+	if skillsPath != "" {
+		additions = append(additions, skillsPath)
+	}
+	additions = append(additions, userSkillsDir())
+	if desc, ok := svc.ws.Current(); ok && desc.Path != "" {
+		additions = append(additions, projectSkillsDir(desc.Path))
+	}
+	if len(additions) == 0 {
 		return
 	}
 	// Read the effective list first: writing only the bundled path would
@@ -172,21 +184,47 @@ func (a *App) registerOfficeTools(workspaceID string) {
 		}
 		return
 	}
-	merged := mergeSkillsPaths(current.SkillsPaths(), skillsPath)
+	merged := mergeSkillsPaths(current.SkillsPaths(), additions...)
 	if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "options.skills_paths", merged); err != nil && a.log != nil {
 		a.log.Warn("office skills path registration failed", "err", err)
 	}
 }
 
-// mergeSkillsPaths returns existing with bundled appended only when absent.
-// The user's entries keep their original order: Crush resolves skills from
-// every listed directory, and reordering or rewriting user entries here
-// would change which skills they see.
-func mergeSkillsPaths(existing []string, bundled string) []string {
-	for _, path := range existing {
-		if path == bundled {
-			return existing
+// userSkillsDir is the per-user skills directory (plan 6.4): skills dropped
+// here are visible in every workspace. It matches the officecli seeder's
+// skills destination, so the merge dedupes it against the bundled path when
+// both resolve to the same directory.
+func userSkillsDir() string {
+	return filepath.Join(appconfig.Dir(), "skills")
+}
+
+// projectSkillsDir is the per-project skills directory (plan 6.4):
+// <workspace>/.agents/skills travels with the working tree.
+func projectSkillsDir(workspacePath string) string {
+	return filepath.Join(workspacePath, ".agents", "skills")
+}
+
+// mergeSkillsPaths returns existing with each addition appended once, in
+// argument order, skipping empties and paths already present. The user's
+// entries keep their original order: Crush resolves skills from every
+// listed directory, and reordering or rewriting user entries here would
+// change which skills they see.
+func mergeSkillsPaths(existing []string, additions ...string) []string {
+	merged := existing
+	for _, add := range additions {
+		if add == "" {
+			continue
+		}
+		present := false
+		for _, path := range merged {
+			if path == add {
+				present = true
+				break
+			}
+		}
+		if !present {
+			merged = append(merged, add)
 		}
 	}
-	return append(existing, bundled)
+	return merged
 }
