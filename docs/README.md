@@ -9,9 +9,15 @@ Start with the smallest authoritative surface.
 - `WORKFLOW.md`: request shape, planning, judgment, operation, validation, and
   completion.
 - `contracts/wails-bindings.md`: the UI/host boundary (bound methods and
-  events); update it in the same change as the binds.
-- `product/`: current product behavior.
-- `decisions/`: lasting choices future work must inherit.
+  events); update it in the same change as the binds. This is the only
+  contract document today — the Crush REST/SSE and Zalo Bot API boundaries are
+  described in code (`internal/crushapi`, `internal/zalo`) and in
+  `../third_party/README.md`, not here.
+- `product/`: current product behavior. Still the generic harness placeholder;
+  Gotack's product behavior currently lives in `../README.md` and
+  `contracts/wails-bindings.md`.
+- `decisions/`: lasting choices future work must inherit. Currently empty — no
+  local decision record has been accepted yet.
 - `plans/`: durable working-memory documents; `active/` while in progress,
   `completed/` after validation.
 - [`patterns/encoding-invariants.md`](patterns/encoding-invariants.md): turn

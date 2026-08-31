@@ -15,13 +15,13 @@ A lightweight general-purpose desktop AI assistant powered by [Crush](https://gi
 Beyond bringing Crush into a native desktop workflow, `gotack` ships a small set of capabilities designed specifically for day-to-day desktop use:
 
 - **Tack-style local assistant** — the primary Crush prompt is aligned with Stack's Tack agent for general filesystem, Office, automation, system, research and software tasks. Its read-only sub-agent follows Stack's Sage research role, while Crush still injects Gotack's live skills and local context.
-- **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. The bridge long-polls `getUpdates`, forwards messages and image/document attachments from allow-listed chats to the agent (one reusable session per chat), and sends the finished answer and referenced output files back, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI.
-- **Office integration** — the Stack-compatible `officecli` executable, Office skill set, timetable solver/exporter and a bundled `office` MCP server (built from `cmd/office`) are installed into Crush's runtime whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files without a separate Office CLI setup.
-- **Live model catalog** — the provider and model pickers are populated from the engine's `GET /v1/workspaces/{id}/providers` catalog (including per-model context windows and costs) instead of a bundled static list; selected large and small models are applied to Crush directly.
+- **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. Access is granted per chat by pairing: Settings shows a rotating six-digit code, and a chat joins by sending `/pair <code>`. Codes can be reissued (`RegenerateZaloPairingCode`) and individual chats revoked (`UnpairZaloChat`). The bridge long-polls `getUpdates`, forwards messages and image/document attachments from paired chats to the agent (one reusable session per chat), and sends the finished answer and referenced output files back, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI. Paired chats and their sessions persist in `<configDir>/zalo.json`. The older `zalo.allowed_chats` config key is imported once at startup for backwards compatibility and is never written again.
+- **Office integration** — the Stack-compatible `officecli` executable, Office skill set, timetable solver/exporter and a bundled `office` MCP server (built from `cmd/office`) are installed into Crush's runtime whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files without a separate Office CLI setup. Resource seeding looks for `officecli.exe`, so today the bundle is only discovered on Windows; on other platforms Gotack starts without it and the Office MCP server is still registered.
+- **Live model catalog** — the provider and model pickers are populated from the engine's `GET /v1/workspaces/{id}/providers` catalog (including per-model context windows and costs) instead of a bundled static list. Settings deliberately exposes a single model selector, and the host writes that one model ID into both `models.large` and `models.small` in the Crush config; there is no separate small-task model today.
 
 ## Stack baseline
 
-Baseline as of **2026-08-26**. Rows marked *installed* are what the repo builds
+Baseline as of **2026-08-31**. Rows marked *installed* are what the repo builds
 against today; the rest are target versions for features that have not landed.
 This table records intent, so it must be reconciled with `go.mod` and
 `frontend/package.json` whenever either changes.
@@ -29,23 +29,44 @@ This table records intent, so it must be reconciled with `go.mod` and
 | Layer | Version / choice | Status |
 | --- | --- | --- |
 | Go | **1.27.0** | installed, pinned in `go.mod` |
-| Wails | **v2.15.0** | installed |
+| Wails | **v2.15.0** | installed, also pinned in both workflows |
+| Node.js | **24** | installed, set in `.github/workflows` |
+| pnpm | **11.20.0** | installed, pinned via `packageManager` |
 | Svelte | **5.56.10** | installed |
 | TypeScript | **~5.9.3** | installed |
+| Vite | **8.2.2** | installed |
+| `@sveltejs/vite-plugin-svelte` | **7.3.0** | installed |
+| Tailwind CSS | **4.3.3** (`tailwindcss` + `@tailwindcss/vite`) | installed |
 | Desktop web runtime | **System WebView** | installed |
 | Crush integration | **REST + SSE API** | installed |
+| Crush pin | **`6d14dd93a9e526505f7de54ae5999431bc32a793`** | installed, duplicated in `third_party/README.md` and both workflows |
+| Markdown rendering | **`marked` ^18.0.11** + **`dompurify` ^3.4.14** | installed |
+| Toasts | **`svelte-sonner` 1.2.1** | installed |
+| UI font | **`@fontsource-variable/inter` 5.3.0** | installed |
+| `@xterm/xterm` | **6.0.0**, lazy-loaded | installed |
+| `@xterm/addon-fit` | **0.11.0** | installed |
 | CodeMirror umbrella package | **6.0.2** | planned, not installed |
 | `@codemirror/view` | **6.43.9** | planned, not installed |
-| `@xterm/xterm` | **6.0.0**, lazy-loaded | installed |
+
+Go direct dependencies (`go.mod`), all installed:
+
+| Module | Version | Used for |
+| --- | --- | --- |
+| `github.com/wailsapp/wails/v2` | v2.15.0 | desktop shell and bindings |
+| `github.com/xuri/excelize/v2` | v2.11.0 | `.xlsx` read/write in `internal/office` |
+| `github.com/UserExistsError/conpty` | v0.1.4 | Windows PTY for `internal/terminal` |
+| `github.com/creack/pty` | v1.1.24 | POSIX PTY for `internal/terminal` |
+| `github.com/Microsoft/go-winio` | v0.6.2 | named-pipe transport to Crush |
+| `github.com/google/uuid` | v1.6.0 | request and session identifiers |
 
 Notes:
 
 - Wails v3 is still pre-release, so `gotack` stays on the latest stable Wails v2 release.
-- TypeScript is held at 5.9.x deliberately: TS 7 fails `pnpm check` against the current Svelte tooling (commit `1a67994`). Revisit when `svelte-check` supports it.
+- TypeScript is held at 5.9.x deliberately: TS 7 fails `pnpm check` against the current Svelte tooling. Revisit when `svelte-check` supports it.
 - CodeMirror 6 is split across independently versioned packages. `codemirror@6.0.2` is the umbrella/basic-setup package, while core packages such as `@codemirror/view` have their own current versions.
 - xterm.js beta builds are intentionally excluded from the baseline.
 - The terminal panel lazy-loads `@xterm/xterm` only when opened; no editor package ships until the editor feature lands.
-- Open deviation: `frontend/package.json` still uses caret ranges for most dev dependencies, which contradicts the "pin exact versions" policy below. Pin them or relax the policy; leaving the two in conflict makes the policy unenforceable.
+- Open deviation: five direct dependencies are still declared as ranges rather than exact pins — `marked ^18.0.11` and `dompurify ^3.4.14` (runtime), `@types/dompurify ^3.2.0` and `svelte-check ^4.7.6` (dev), and `typescript ~5.9.3`. The remaining ten entries in `frontend/package.json` are pinned exactly. Pin these five or relax the policy; leaving the two in conflict makes the policy unenforceable.
 
 Version policy:
 
@@ -119,6 +140,14 @@ Features that can consume significant memory should be loaded only when required
 - keep long-running state in Crush rather than duplicating it in the UI;
 - avoid background polling where SSE events are available.
 
+### Single-user trust model
+
+Gotack attaches every workspace with Crush permission prompts skipped, and the
+default assistant workspace is the drive root (`C:\` on Windows) so that
+startup chat always has a real session context. This is a deliberate
+single-user desktop trade-off, not an oversight; treat it as a
+security-relevant default when changing workspace handling.
+
 ## Initial scope
 
 The first usable version focuses on a fast local-assistant workflow rather than becoming a full IDE:
@@ -137,7 +166,27 @@ Full IDE functionality, complex editor integrations, and heavyweight extensions 
 
 ## Project status
 
-Release candidate. The desktop client, Zalo connection, and Office integration are implemented and validated; report issues against the tagged releases.
+Release candidate. The desktop client, Zalo connection, and Office integration
+are implemented and covered by the Go unit and smoke suites.
+
+What automated validation proves today (`.github/workflows/ci.yml`):
+`go test ./...`, `go vet ./...`, `pnpm --dir frontend check`,
+`pnpm --dir frontend build`, and a Windows `wails build`. `release.yml` re-runs
+those checks, builds the pinned Crush commit and `cmd/office`, bundles
+`officecli.exe` plus `resources/skills`, and publishes the portable ZIP.
+
+What is **not** covered by automated validation, and is therefore manually
+verified only:
+
+- the Zalo bridge against the live Bot API;
+- the bundled timetable Python runtime — no workflow runs
+  `scripts/prepare-resources.ps1`, and `release.yml` does not copy
+  `resources/bin/` into the artifact;
+- `gofmt` formatting, which no job enforces;
+- regeneration of `frontend/src/platform/events.generated.ts`;
+- any UI end-to-end run.
+
+Report issues against the tagged releases.
 
 ## Upstream
 
@@ -149,14 +198,21 @@ Crush is developed by Charmbracelet:
 
 ```text
 main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindings)
+office_seed.go  settings_crush.go      package main helpers, not bound methods
 internal/                              host implementation, one package per role
-  appconfig  logging  engine  crushapi
-  workspace  session  permission  changes  terminal  uievents
+  appconfig  attachments  changes  crushapi  engine  logging  mcp  office
+  officecli  permission  session  terminal  uievents  workspace  zalo
+cmd/office/                            bundled Office MCP server (stdio), ships as office.exe
 frontend/                              Svelte 5 UI (folder name required by Wails v2)
-third_party/crush/                     vendored Crush engine (own git history)
-docs/                                  architecture, contracts, decisions, guides
-build/                                 Wails packaging assets
-scripts/                               developer entry points
+third_party/crush/                     vendored Crush engine (own git history, ignored here;
+                                       only third_party/README.md is tracked)
+resources/skills/                      skill tree bundled into release artifacts
+docs/                                  contracts, decisions, patterns, plans, product, templates
+build/                                 Wails packaging assets per platform
+scripts/                               developer entry points (PowerShell, Windows only)
+.agents/skills/  .harness-core/        vendored repository-harness protocol and skills;
+                                       .harness-core/manifest.json pins upstream file hashes
+.github/workflows/                     ci.yml and release.yml
 ```
 
 Folder-by-folder roles and the rules that keep the layers apart: `docs/README.md`.
