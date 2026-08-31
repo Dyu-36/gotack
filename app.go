@@ -17,6 +17,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
+	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/terminal"
 	"github.com/Dyu-36/gotack/internal/uievents"
@@ -65,6 +66,10 @@ type App struct {
 	zalo          *zalo.Manager
 	officeSeeder  *officeSeeder
 	contextSeeder *contextseed.Seeder
+	// scheduler runs the Phase 5 scheduled autonomous runs. It is host
+	// internal (no UI surface this phase) and outlives engine reconnects:
+	// readiness is pushed to it from the connection flow.
+	scheduler *schedule.Scheduler
 
 	conn atomic.Pointer[conn]
 }
@@ -139,6 +144,10 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.wireZaloRuntime()
 
+	// The scheduler is independent from any single engine connection; it
+	// waits for readiness pushed by the connection flow before firing.
+	a.startScheduler()
+
 	// The terminal service lives in the conn so a stop/start cycle can
 	// re-attach to a fresh engine; constructing it performs no I/O and the
 	// PTYs stay lazy until the UI explicitly opens the panel.
@@ -177,6 +186,7 @@ func (a *App) shutdown(ctx context.Context) {
 	// The link owns the live attach/stream scope; cancelling it disconnects
 	// the UI event stream while the engine process itself keeps running.
 	a.link.CancelScope()
+	a.stopScheduler()
 	if a.zalo != nil {
 		a.zalo.Stop()
 	}
@@ -288,11 +298,16 @@ func (a *App) workspacePath() string {
 	return desc.Path
 }
 
-// RunDone implements uievents.DoneSink: completed agent runs are routed to the
-// Zalo manager, which decides which chat (if any) receives the answer.
+// RunDone implements uievents.DoneSink: completed agent runs are routed to
+// the Zalo manager, which decides which chat (if any) receives the answer,
+// and to the scheduler, which books the outcome of scheduled runs from the
+// run_complete SSE event (never by polling).
 func (a *App) RunDone(done uievents.SessionDonePayload) {
 	if a.zalo != nil {
 		a.zalo.Done(done.SessionID, done.Text)
+	}
+	if a.scheduler != nil {
+		a.scheduler.RecordOutcome(done.SessionID, done.Error, done.Cancelled)
 	}
 }
 

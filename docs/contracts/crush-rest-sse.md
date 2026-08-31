@@ -102,7 +102,7 @@ these envelope kinds (`bind_engine.go` attach path, decoded in
 | Kind | Lifecycle | Use |
 | --- | --- | --- |
 | `message` | `updated` | token deltas, tool-call activity for the transcript |
-| `run_complete` | flat payload | turn finished: final text, cancelled flag; drives session-done routing (UI and Zalo) |
+| `run_complete` | flat payload | turn finished: final text, cancelled flag; drives session-done routing (UI, Zalo, and scheduled-run outcome bookkeeping via `internal/schedule`) |
 | `permission_request` | flat payload | pairs with the permission relay in `internal/permission` |
 | `question_batch_request` | flat payload | agent question batches surfaced in the UI |
 | `file` | flat payload | file-change notifications feeding the changes panel |

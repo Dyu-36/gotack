@@ -126,6 +126,9 @@ func (a *App) connect(scope context.Context) {
 		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
 		a.link.MarkRunning()
 		a.emit(uievents.EngineStatus, a.engineInfo())
+		// Readiness is pushed, never polled: overdue scheduled runs
+		// re-evaluate immediately after a (re)connect.
+		a.setSchedulerReady(true)
 		a.reapplySavedWorkspaceSettings()
 		if a.zalo != nil && a.zalo.Status().Configured {
 			a.zalo.Start()
@@ -203,6 +206,7 @@ func (a *App) transportLost(scope context.Context, reason string) {
 	if !a.link.TransportLost(scope, reason) {
 		return
 	}
+	a.setSchedulerReady(false)
 	if a.log != nil {
 		a.log.Warn("engine transport lost", "reason", reason)
 	}
@@ -266,6 +270,7 @@ func (a *App) stopTransport() {
 		return c
 	})
 	a.link.Disconnect()
+	a.setSchedulerReady(false)
 	if fwd != nil {
 		fwd.Stop()
 	}
