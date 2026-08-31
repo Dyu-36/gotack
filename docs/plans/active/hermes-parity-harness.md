@@ -752,9 +752,15 @@ Phase 4 — approvals:
 
 - [x] Hooks config key and matcher syntax confirmed from `docs/hooks` and
       `schema.json` (`hooks.PreToolUse`, regex matcher on tool name).
-- [ ] `cmd/guard/` denies the unrecoverable blocklist with a named reason.
+- [x] `cmd/guard/` denies the unrecoverable blocklist with a named reason.
+      Evidence: `internal/guard/blocklist.go` implements six named rules;
+      `internal/guard/blocklist_test.go` pins the deny matrix and asserts the
+      reason names the rule (`TestDenyReasonNamesTheRule`).
 - [ ] Write-safe root enforced, including denying writes to the context dir.
-- [ ] Blocklist shipped before the approval-mode change (R6).
+- [x] Blocklist shipped before the approval-mode change (R6).
+      Evidence: the deny-only hook lands in its own commit with no
+      permissions-skip change; every non-blocklisted call still passes through
+      untouched (`TestPassThroughEmitsNothing`, `TestNonCommandToolsPassThrough`).
 - [ ] Approval modes implemented per D2; remote sessions default stricter.
 - [ ] Positive and negative proofs both recorded.
 

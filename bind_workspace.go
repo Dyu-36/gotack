@@ -70,6 +70,7 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	}
 	a.resetZaloSessions()
 	a.registerOfficeTools(workspaceID)
+	a.registerGuardHook(workspaceID)
 }
 
 // activateWorkspace makes a Crush workspace current, forces permission prompts
