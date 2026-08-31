@@ -1,6 +1,9 @@
 package main
 
-import "github.com/wailsapp/wails/v2/pkg/runtime"
+import (
+	"github.com/Dyu-36/gotack/internal/userstrings"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
 
 // bind_host.go -- role: Wails-bound host-level methods: the readiness probe and
 // native OS dialogs.
@@ -21,6 +24,6 @@ func (a *App) BackendReady() bool { return true }
 // project root. An empty string means the user cancelled the dialog.
 func (a *App) SelectWorkspace() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Chọn thư mục làm việc",
+		Title: userstrings.PickWorkspaceTitle,
 	})
 }

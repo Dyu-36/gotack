@@ -8,6 +8,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/uievents"
+	"github.com/Dyu-36/gotack/internal/userstrings"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -47,7 +48,7 @@ func (a *App) AttachmentLimits() AttachmentLimitsInfo {
 // files as paths. An empty slice means the user cancelled.
 func (a *App) PickPromptFiles() ([]PromptFilePick, error) {
 	paths, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Chọn tệp để gửi cho agent",
+		Title: userstrings.PickFilesTitle,
 	})
 	if err != nil {
 		return nil, err
