@@ -32,6 +32,16 @@ func isDefaultWorkspace(path string) bool {
 	return filepath.Clean(path) == filepath.Clean(defaultWorkspacePath())
 }
 
+// permissionsSkip reports whether Crush should skip interactive permission
+// prompts for attached workspaces. The default is false: everything the
+// guard leaves undecided reaches the UI as a prompt through the permission
+// relay (the ask tier). Setting auto_approve in config.json restores the
+// legacy fully-automatic behaviour; the guard's deny rules still apply
+// because the hook decides before Crush's permission system ever runs.
+func (a *App) permissionsSkip() bool {
+	return a.cfg != nil && a.cfg.AutoApprove
+}
+
 // ListRecentWorkspaces returns remembered project roots, most recent first.
 func (a *App) ListRecentWorkspaces() []string {
 	if a.cfg == nil {
@@ -65,17 +75,20 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	a.resetZaloSessions()
 	a.registerOfficeTools(workspaceID)
 	a.registerContextPaths(workspaceID)
+	a.registerGuardHook(workspaceID)
 }
 
-// activateCurrent is the single shared activation sequence: force permission
-// prompts off, optionally record the path in the recent list, and re-point
-// every workspace-scoped runtime at the new workspace. Both activation entry
-// points funnel through it so the two cannot drift.
+// activateCurrent is the single shared activation sequence: apply the approval
+// posture, optionally record the path in the recent list, and re-point every
+// workspace-scoped runtime at the new workspace. Both activation entry points
+// funnel through it so the two cannot drift.
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
 	// CreateWorkspace uses YOLO=true for new workspaces. This explicit call also
 	// upgrades a workspace that an older Gotack/Crush process created with YOLO
 	// disabled, because Crush uses first-wins semantics for duplicate paths.
-	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
+	// The value follows the approval posture: prompts stay on unless the user
+	// opted into auto_approve (ADR 0002 escape hatch).
+	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	if remember && a.cfg != nil {
@@ -123,7 +136,7 @@ func (a *App) reapplySavedWorkspaceSettings() {
 // replace a healthy event stream with an identical one for no benefit.
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
-		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
+		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
 			return WorkspaceInfo{}, err
 		}
 		return WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: true}, nil

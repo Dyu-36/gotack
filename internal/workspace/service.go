@@ -124,8 +124,11 @@ func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (crus
 			}
 		}
 	}
-	// Gotack is a local assistant, not a project sandbox. Every workspace is
-	// created in YOLO mode so Crush never blocks file/tool access on approval.
+	// Gotack is a local assistant, not a project sandbox. New workspaces are
+	// created in YOLO mode as the permissive baseline; the activation path
+	// then calls SetPermissionsSkip with the real approval posture (guard
+	// tiers plus the interactive ask relay), so this create-time value never
+	// decides whether prompts appear.
 	ws, err := s.api.CreateWorkspaceWithDataDir(ctx, clean, dataDir, true)
 	if err != nil {
 		return crushapi.Workspace{}, fmt.Errorf("create workspace: %w", err)

@@ -12,6 +12,10 @@ import (
 type WorkspaceConfig struct {
 	Providers map[string]ProviderConfig `json:"providers,omitempty"`
 	Options   *WorkspaceOptions         `json:"options,omitempty"`
+	// Hooks mirrors the `hooks` map (event name -> hook list). Gotack reads it
+	// before registering its own PreToolUse hook so it can merge instead of
+	// clobbering user-defined hooks on the same event.
+	Hooks map[string][]HookEntry `json:"hooks,omitempty"`
 }
 
 // WorkspaceOptions carries the options fields Gotack must read back before
@@ -28,6 +32,16 @@ func (c WorkspaceConfig) SkillsPaths() []string {
 		return nil
 	}
 	return c.Options.SkillsPaths
+}
+
+// HookEntry is the wire shape of one entry in Crush's `hooks.<event>` list
+// (config.HookConfig). Command is the only required field; an empty Matcher
+// matches every tool.
+type HookEntry struct {
+	Name    string `json:"name,omitempty"`
+	Matcher string `json:"matcher,omitempty"`
+	Command string `json:"command"`
+	Timeout int    `json:"timeout,omitempty"`
 }
 
 // ProviderConfig mirrors the provider fields needed by Gotack to decide which
