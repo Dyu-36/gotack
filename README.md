@@ -176,15 +176,14 @@ repository invariants, `pnpm --dir frontend check`, `pnpm --dir frontend test`,
 `pnpm --dir frontend build`, and a Windows `wails build`. `release.yml` re-runs
 the source checks, including repository invariants and frontend tests, then
 builds the pinned Crush commit and `cmd/office`, bundles `officecli.exe` plus
-`resources/skills`, and publishes the portable ZIP.
+`resources/skills`, runs `scripts/prepare-resources.ps1` for the bundled
+Python runtime payloads (`resources/bin/`), copies the tracked
+`resources/context/` persona files, and publishes the portable ZIP.
 
 What is **not** covered by automated validation, and is therefore manually
 verified only:
 
 - the Zalo bridge against the live Bot API;
-- the bundled timetable Python runtime — no workflow runs
-  `scripts/prepare-resources.ps1`, and `release.yml` does not copy
-  `resources/bin/` into the artifact;
 - any UI end-to-end run.
 
 Report issues against the tagged releases.
@@ -199,15 +198,17 @@ Crush is developed by Charmbracelet:
 
 ```text
 main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindings)
-office_seed.go  settings_crush.go      package main helpers, not bound methods
+office_seed.go  context_seed.go  settings_crush.go   package main helpers, not bound methods
 internal/                              host implementation, one package per role
-  appconfig  attachments  changes  crushapi  engine  logging  mcp  office
-  officecli  permission  session  terminal  uievents  workspace  zalo
+  appconfig  attachments  changes  contextseed  crushapi  engine  logging  mcp
+  office  officecli  permission  session  terminal  uievents  workspace  zalo
 cmd/office/                            bundled Office MCP server (stdio), ships as office.exe
 frontend/                              Svelte 5 UI (folder name required by Wails v2)
 third_party/crush/                     vendored Crush engine (own git history, ignored here;
                                        only third_party/README.md is tracked)
 resources/skills/                      skill tree bundled into release artifacts
+resources/context/                     tracked persona context files seeded into the data dir
+resources/bin/                         ignored runtime payloads, recreated by scripts/prepare-resources.ps1
 docs/                                  contracts, decisions, patterns, plans, product, templates
 build/                                 Wails packaging assets per platform
 scripts/                               developer entry points (PowerShell, Windows only)

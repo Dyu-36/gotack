@@ -103,6 +103,13 @@ jobs:
           } else {
             Write-Host "No vendored skills to bundle."
           }
+      - name: Prepare bundled runtime payloads
+        shell: pwsh
+        run: |
+          # resources/bin is git-ignored by design; the prepare script
+          # downloads the Python 3.12 runtime, uv, officecli and the
+          # timetable libraries so the ZIP ships a self-contained stack.
+          ./scripts/prepare-resources.ps1
       - name: Assemble portable ZIP
         shell: pwsh
         run: |
@@ -117,6 +124,18 @@ jobs:
           }
           if (Test-Path build\windows\resources\skills) {
             Copy-Item -Recurse build\windows\resources\skills "$out\resources\skills"
+          }
+          if (Test-Path "$env:GITHUB_WORKSPACE\resources\bin") {
+            Get-ChildItem "$env:GITHUB_WORKSPACE\resources\bin" -Force |
+              Where-Object { $_.Name -ne '.gitkeep' } |
+              Copy-Item -Destination "$out\resources" -Recurse -Force
+          } else {
+            Write-Host "No prepared runtime payloads to bundle."
+          }
+          if (Test-Path "$env:GITHUB_WORKSPACE\resources\context") {
+            Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\resources\context" "$out\resources\context"
+          } else {
+            Write-Host "No tracked context to bundle."
           }
           Copy-Item build\windows\README.md "$out\README.txt"
           Compress-Archive -Path "$out\*" -DestinationPath "artifacts\$name.zip"
