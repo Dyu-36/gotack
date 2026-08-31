@@ -16,6 +16,9 @@
     onInput: (value: string) => void
     onSend: () => void
     onAttachFiles?: (files: File[]) => void | Promise<void>
+    // When present, the paperclip asks the host for a native dialog so a picked
+    // file travels as a path instead of base64 through the webview.
+    onPickFiles?: () => void | Promise<void>
     onRemoveAttachment?: (id: string) => void
     onStop?: () => void
     onSelectModel?: (id: string, label: string, providerId?: string) => void
@@ -36,6 +39,7 @@
     onInput,
     onSend,
     onAttachFiles = () => {},
+    onPickFiles,
     onRemoveAttachment = () => {},
     onStop = () => {},
     onSelectModel = () => {},
@@ -165,7 +169,7 @@
       <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label="Tệp đính kèm">
         {#each attachments as attachment (attachment.id)}
           <div class="attachment-preview group/attachment" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
-            {#if isPreviewableImage(attachment.mimeType)}
+            {#if attachment.content && isPreviewableImage(attachment.mimeType)}
               <img src={attachmentDataURL(attachment)} alt={attachment.fileName} />
             {:else}
               <svg class="w-5 h-5 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h6" /></svg>
@@ -212,7 +216,7 @@
           class="p-1.5 rounded text-mm-tertiary hover:text-mm-text hover:bg-mm-hover transition-colors"
           title="Đính kèm tệp hoặc ảnh"
           aria-label="Đính kèm tệp"
-          onclick={() => fileInput?.click()}
+          onclick={() => (onPickFiles ? void onPickFiles() : fileInput?.click())}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
         </button>

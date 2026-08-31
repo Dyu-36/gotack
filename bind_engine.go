@@ -101,7 +101,6 @@ func (a *App) tryConnect() bool {
 		prev = c.cancelStream
 		ctx, cancel := context.WithCancel(context.Background())
 		c.cancelStream = cancel
-		c.attachCtx = ctx
 		c.status = engine.StatusStarting
 		c.lastError = ""
 		info = a.engineInfoLocked()
@@ -352,7 +351,6 @@ func (a *App) stopTransport() {
 	a.swapConn(func(c *conn) *conn {
 		cancel = c.cancelStream
 		c.cancelStream = nil
-		c.attachCtx = nil
 		fwd = c.fwd
 		c.api = nil
 		c.fwd = nil

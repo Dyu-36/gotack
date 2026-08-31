@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -41,50 +42,67 @@ func TestToMessageInfoIncludesConversationModel(t *testing.T) {
 	}
 }
 
-func TestDecodePromptAttachmentsSniffsAndLimitsContent(t *testing.T) {
+func TestDecodePromptAttachmentsRoutesBytesAndDerivedText(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\n")
-	got, err := decodePromptAttachments([]PromptAttachment{{
+	got := decodePromptAttachments([]PromptAttachment{{
 		FileName: `C:\tmp\photo.png`,
 		Content:  base64.StdEncoding.EncodeToString(png),
 	}}, true)
-	if err != nil {
-		t.Fatalf("decodePromptAttachments() error = %v", err)
+	if len(got) != 1 || got[0].DisplayName != "photo.png" || !strings.HasSuffix(got[0].Path, "photo.png") {
+		t.Fatalf("prepared attachment = %#v", got)
 	}
-	if len(got) != 1 || got[0].FileName != "photo.png" || !strings.HasSuffix(got[0].FilePath, "photo.png") {
-		t.Fatalf("decoded attachment = %#v", got)
+	if got[0].MimeType != "image/png" || got[0].Attachment == nil {
+		t.Fatalf("a vision model must receive the raw image, got %#v", got[0])
 	}
-	if got[0].MimeType != "image/png" || string(got[0].Content) != string(png) {
-		t.Fatalf("decoded content = %#v", got[0])
+	if string(got[0].Attachment.Content) != string(png) {
+		t.Fatalf("attachment bytes = %q, want the uploaded bytes", got[0].Attachment.Content)
 	}
 
-	// Text-only mode converts image to text attachment with metadata/OCR
-	gotNonVision, err := decodePromptAttachments([]PromptAttachment{{
+	// A text-only model gets derived text in the prompt instead of image bytes.
+	gotNonVision := decodePromptAttachments([]PromptAttachment{{
 		FileName: `C:\tmp\photo.png`,
 		Content:  base64.StdEncoding.EncodeToString(png),
 	}}, false)
-	if err != nil {
-		t.Fatalf("decodePromptAttachments(non-vision) error = %v", err)
+	if len(gotNonVision) != 1 || gotNonVision[0].Attachment != nil {
+		t.Fatalf("a text-only model must not receive image bytes, got %#v", gotNonVision)
 	}
-	if len(gotNonVision) != 1 || gotNonVision[0].MimeType != "text/plain; charset=utf-8" {
-		t.Fatalf("expected text fallback for non-vision attachment, got %#v", gotNonVision)
+	if gotNonVision[0].PromptBlock == "" {
+		t.Fatalf("expected a derived prompt block for the image fallback")
 	}
 
+	// Text files travel inside the prompt, never as a Crush binary attachment.
 	jsonCode := []byte(`{"version": "1.0.0"}`)
-	gotText, err := decodePromptAttachments([]PromptAttachment{{
+	gotText := decodePromptAttachments([]PromptAttachment{{
 		FileName: "config.json",
 		MimeType: "application/json",
 		Content:  base64.StdEncoding.EncodeToString(jsonCode),
 	}}, true)
-	if err != nil {
-		t.Fatalf("decodePromptAttachments(json) error = %v", err)
+	if len(gotText) != 1 || gotText[0].Attachment != nil {
+		t.Fatalf("text attachment = %#v", gotText)
 	}
-	if len(gotText) != 1 || gotText[0].MimeType != "text/plain; charset=utf-8" || !strings.Contains(string(gotText[0].Content), `{"version": "1.0.0"}`) {
-		t.Fatalf("decoded text attachment = %#v", gotText)
+	if !strings.Contains(gotText[0].PromptBlock, `{"version": "1.0.0"}`) {
+		t.Fatalf("prompt block = %q, want the file contents", gotText[0].PromptBlock)
 	}
+}
 
-	tooLarge := strings.Repeat("A", base64.StdEncoding.EncodedLen(maxPromptAttachmentSize)+1)
-	if _, err := decodePromptAttachments([]PromptAttachment{{FileName: "large.bin", Content: tooLarge}}, true); err == nil || !strings.Contains(err.Error(), "5 MB") {
-		t.Fatalf("oversized attachment error = %v, want 5 MB limit", err)
+func TestDecodePromptAttachmentsFailsSoftPerFile(t *testing.T) {
+	tooLarge := strings.Repeat("A", base64.StdEncoding.EncodedLen(attachments.MaxAttachmentSize)+1)
+	got := decodePromptAttachments([]PromptAttachment{
+		{FileName: "large.bin", Content: tooLarge},
+		{FileName: "broken.txt", Content: "not-base64!!"},
+		{FileName: "notes.txt", Content: base64.StdEncoding.EncodeToString([]byte("readable"))},
+	}, true)
+	if len(got) != 3 {
+		t.Fatalf("decodePromptAttachments() returned %d items, want 3", len(got))
+	}
+	if !strings.Contains(got[0].Warning, "5 MB") {
+		t.Fatalf("oversize warning = %q, want the 5 MB limit", got[0].Warning)
+	}
+	if got[1].Warning == "" {
+		t.Fatalf("invalid base64 must degrade into a warning, got %#v", got[1])
+	}
+	if got[2].Warning != "" || !strings.Contains(got[2].PromptBlock, "readable") {
+		t.Fatalf("one bad file must not drop the readable one, got %#v", got[2])
 	}
 }
 

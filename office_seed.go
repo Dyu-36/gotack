@@ -20,14 +20,21 @@ import (
 
 const officeMCPName = "gotack-office"
 
+// officeBinaryName is the platform-correct officecli executable name. Both the
+// MCP command resolver and the resource seeder must agree on it: hardcoding
+// "officecli.exe" in only one of them silently disabled seeding off Windows.
+func officeBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "officecli.exe"
+	}
+	return "officecli"
+}
+
 // resolveOfficeCommand prefers the bundled officecli binary, falling back to
 // any system PATH install. An empty result tells the host to skip MCP
 // registration so the user is not misled by a half-configured workspace.
 func resolveOfficeCommand() string {
-	name := "officecli"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
+	name := officeBinaryName()
 	if executable, err := os.Executable(); err == nil {
 		root := filepath.Dir(executable)
 		for _, candidate := range []string{
@@ -46,11 +53,12 @@ func resolveOfficeCommand() string {
 }
 
 // officeSeeder wraps the officecli seeder and locates the bundled resources
-// shipped next to the desktop executable.
+// shipped next to the desktop executable. The resolved source directory is
+// deliberately not retained: officecli.Seeder copies out of it during Seed and
+// every later call (CrushEnv, SkillsPathArg) works off the seeded destination.
 type officeSeeder struct {
-	seeder    *officecli.Seeder
-	sourceDir string
-	log       *slog.Logger
+	seeder *officecli.Seeder
+	log    *slog.Logger
 }
 
 func newOfficeSeeder(log *slog.Logger) *officeSeeder {
@@ -74,7 +82,7 @@ func (s *officeSeeder) resolveOfficeSourceDir() string {
 			filepath.Join(root, "..", "resources"),
 			root,
 		} {
-			if info, err := os.Stat(filepath.Join(candidate, "officecli.exe")); err == nil && !info.IsDir() {
+			if info, err := os.Stat(filepath.Join(candidate, officeBinaryName())); err == nil && !info.IsDir() {
 				return candidate
 			}
 		}
@@ -90,8 +98,6 @@ func (s *officeSeeder) startup() {
 		s.log.Debug("office: bundled resources not found, falling back to system install")
 	} else if err := s.seeder.Seed(source); err != nil {
 		s.log.Warn("office: failed to seed bundled resources", "err", err)
-	} else {
-		s.sourceDir = source
 	}
 	s.seeder.InstallPath()
 }

@@ -1,5 +1,5 @@
-import type { EngineInfo, PermissionRequestPayload as Envelope, QuestionRequestEvent } from '../../platform/desktop'
-import type { ChatAttachment, Conversation, ModelType, ReasoningEffort, SessionSummary } from './types.svelte'
+import { desktop, type EngineInfo, type PermissionRequestPayload as Envelope, type QuestionRequestEvent } from '../../platform/desktop'
+import type { ChatAttachment, Conversation, ReasoningEffort, SessionSummary } from './types.svelte'
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
 import { createMessageState } from './live-conversation-messages.svelte'
@@ -27,11 +27,9 @@ export function createLiveConversationState() {
   let provider = $state('')
   let model = $state('')
   let modelLabel = $state('Model mặc định')
-  let smallModel = $state('')
   let thinking = $state<ReasoningEffort>('high')
   let apiKey = $state('')
   let customUrl = $state('')
-  let autostartEngine = $state(true)
 
   // Shared helpers consumed by the sub-state factories.
   const errorText = (cause: unknown) => cause instanceof Error ? cause.message : String(cause)
@@ -83,13 +81,16 @@ export function createLiveConversationState() {
     provider: { get value() { return provider }, set value(v) { provider = v } },
     model: { get value() { return model }, set value(v) { model = v } },
     modelLabel: { get value() { return modelLabel }, set value(v) { modelLabel = v } },
-    smallModel: { get value() { return smallModel }, set value(v) { smallModel = v } },
     thinking: { get value() { return thinking }, set value(v) { thinking = v } },
     apiKey: { get value() { return apiKey }, set value(v) { apiKey = v } },
     customUrl: { get value() { return customUrl }, set value(v) { customUrl = v } },
-    autostartEngine: { get value() { return autostartEngine }, set value(v) { autostartEngine = v } },
+    activeId: { get value() { return activeId } },
     reportError, clearError, updateConversation,
     ensureWorkspace: () => messages.ensureWorkspace(),
+    reloadMessages: (id: string) => messages.loadMessages(id),
+    // prompt:files arrives when the OS drops files on the window; the host has
+    // already resolved their paths, so the composer only needs the chips.
+    attachPaths: (picks) => messages.attachPaths(picks),
   })
 
   const permissions = createPermissionState({
@@ -116,7 +117,6 @@ export function createLiveConversationState() {
     get provider() { return provider },
     get model() { return model },
     get modelLabel() { return modelLabel },
-    get smallModel() { return smallModel },
     get thinking() { return thinking },
     get thinkingLabel() {
       const selected = catalog.configuredModels.find((m) => m.id === model && (!provider || m.providerId === provider))
@@ -126,14 +126,17 @@ export function createLiveConversationState() {
     },
     get apiKey() { return apiKey },
     get customUrl() { return customUrl },
-    get autostartEngine() { return autostartEngine },
     get permissionSecondsLeft() { return permissions.permissionSecondsLeft.value },
     get permissionExpired() { return permissions.permissionExpired.value },
 
     setInput: (v: string) => { input = v },
     attachFiles: (files: File[]) => messages.attachFiles(files),
+    // Only the desktop host can resolve real paths, so the browser preview keeps
+    // the plain <input type="file"> fallback.
+    get hasFilePicker() { return desktop.available() },
+    pickFiles: () => messages.pickFiles(),
     removeAttachment: (id: string) => messages.removeAttachment(id),
-    setModel: (next: string, label?: string, providerID?: string, type: ModelType = 'large') => engineState.setModel(next, label, providerID, type),
+    setModel: (next: string, label?: string, providerID?: string) => engineState.setModel(next, label, providerID),
     setThinking: (value: ReasoningEffort) => engineState.setThinking(value),
     init: () => engineState.init(),
     destroy: () => { clearError(); engineState.destroy() },
@@ -147,6 +150,6 @@ export function createLiveConversationState() {
     answerPermission: (decision: 'allow' | 'allow_session' | 'deny') => permissions.answerPermission(decision),
     answerQuestion: (answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => permissions.answerQuestion(answers),
     loadSettings: () => engineState.loadSettings(),
-    saveSettings: (s: { theme: string; autostart_engine: boolean; provider: string; credential_provider?: string; provider_only?: boolean; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }) => engineState.saveSettings(s),
+    saveSettings: (s: { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }) => engineState.saveSettings(s),
   }
 }

@@ -22,7 +22,7 @@ func xlsxInfo(path string) (string, error) {
 
 	sheets := file.GetSheetList()
 	if len(sheets) == 0 {
-		return fmt.Sprintf("Excel workbook: no sheets"), nil
+		return "Excel workbook: no sheets", nil
 	}
 	var summary strings.Builder
 	summary.WriteString(fmt.Sprintf("Excel workbook: %d sheets", len(sheets)))

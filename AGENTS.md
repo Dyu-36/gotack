@@ -31,7 +31,7 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | --- | --- |
 | main.go | Wails entry point: window options, embeds frontend/dist |
 | app.go | App object bound to the UI, lifecycle and service wiring |
-| bind_*.go | Wails-bound API groups: bridge, dialog, engine, workspace, session, permission, changes, terminal, config, zalo |
+| bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
 | events.go | Host to UI event emission, single place |
 | office_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
 | internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, crushapi, engine, logging, mcp, office, officecli, permission, session, terminal, uievents, workspace, zalo |
@@ -44,6 +44,7 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | scripts/ | Developer entry points, PowerShell and Windows only |
 | .agents/skills/, .harness-core/ | Vendored repository-harness protocol and skills; .harness-core/manifest.json pins the upstream file hashes |
 | .github/workflows/ | ci.yml and release.yml |
+| .gitattributes | Normative end-of-line policy: the whole tree is stored and checked out as LF (see docs/patterns/encoding-invariants.md) |
 
 This table and the `Repository layout` block in `README.md` describe the same
 tree. Update both in the same change, or the two will drift.

@@ -30,6 +30,21 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      # CI ran only test and vet, so two real kinds of drift could merge without
+      # anything failing: a gofmt regression, and a stale events.generated.ts
+      # after internal/uievents/names.go changes. Both are gates now.
+      - name: Check gofmt
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Check generated event names are in sync
+        run: |
+          go run ./internal/uievents/gen
+          git diff --exit-code -- frontend/src/platform/events.generated.ts
 
   frontend:
     name: Frontend check and build

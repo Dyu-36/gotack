@@ -91,9 +91,6 @@ func TestDefaults(t *testing.T) {
 	if d.Theme != "system" {
 		t.Errorf("Theme=%q want system", d.Theme)
 	}
-	if !d.AutostartEngine {
-		t.Errorf("AutostartEngine=false want true")
-	}
 	if d.EngineBinary != "" {
 		t.Errorf("EngineBinary=%q want empty", d.EngineBinary)
 	}

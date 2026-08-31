@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	maxUploadBytes = int64(45 * 1024 * 1024)
+	maxUploadBytes  = int64(45 * 1024 * 1024)
 	maxFilesPerTurn = 5
 	maxMessageChars = 1800
 )
@@ -114,9 +114,7 @@ func extractMediaPaths(text, workspace string, since time.Time) []string {
 	out := make([]string, 0, maxFilesPerTurn)
 	for _, candidate := range candidates {
 		candidate = strings.Trim(strings.TrimSpace(candidate), `"'`)
-		if strings.HasPrefix(candidate, "file://") {
-			candidate = strings.TrimPrefix(candidate, "file://")
-		}
+		candidate = strings.TrimPrefix(candidate, "file://")
 		if !filepath.IsAbs(candidate) && workspace != "" {
 			candidate = filepath.Join(workspace, candidate)
 		}
@@ -242,8 +240,8 @@ func uploadFile(ctx context.Context, path string) (string, error) {
 	client := &http.Client{Timeout: 120 * time.Second}
 	type provider struct {
 		name, endpoint, field string
-		values map[string]string
-		parse func([]byte) (string, error)
+		values                map[string]string
+		parse                 func([]byte) (string, error)
 	}
 	plainURL := func(data []byte) (string, error) {
 		value := strings.TrimSpace(string(data))
@@ -255,7 +253,11 @@ func uploadFile(ctx context.Context, path string) (string, error) {
 	providers := []provider{
 		{name: "Litterbox", endpoint: "https://litterbox.catbox.moe/resources/internals/api.php", field: "fileToUpload", values: map[string]string{"reqtype": "fileupload", "time": "72h"}, parse: plainURL},
 		{name: "Tmpfiles", endpoint: "https://tmpfiles.org/api/v1/upload", field: "file", parse: func(data []byte) (string, error) {
-			var payload struct { Data struct { URL string `json:"url"` } `json:"data"` }
+			var payload struct {
+				Data struct {
+					URL string `json:"url"`
+				} `json:"data"`
+			}
 			if json.Unmarshal(data, &payload) != nil || payload.Data.URL == "" {
 				return "", errors.New("không tìm thấy URL trong phản hồi")
 			}
@@ -264,7 +266,9 @@ func uploadFile(ctx context.Context, path string) (string, error) {
 		}},
 		{name: "0x0.st", endpoint: "https://0x0.st", field: "file", parse: plainURL},
 		{name: "File.io", endpoint: "https://file.io", field: "file", parse: func(data []byte) (string, error) {
-			var payload struct { Link string `json:"link"` }
+			var payload struct {
+				Link string `json:"link"`
+			}
 			if json.Unmarshal(data, &payload) != nil || payload.Link == "" {
 				return "", errors.New("không có trường link trong phản hồi")
 			}
