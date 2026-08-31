@@ -4,7 +4,7 @@ import "github.com/Dyu-36/gotack/internal/changes"
 
 // bind_changes.go -- role: Wails-bound API for changed files and diffs.
 //
-// Full editor features stay out of scope, see docs/roadmap.md.
+// Full editor features stay out of scope; tracked work lives in docs/plans/.
 //
 // There is deliberately no bind-layer DTO here. changes.FileStatus is already
 // exactly the wire shape the UI declares in frontend/src/platform/desktop.ts
