@@ -6,7 +6,7 @@ Gotack enforces its approval posture through Crush's single hook event,
 before every tool call, and the two processes communicate over a pinned JSON
 wire contract. The authority is decision 0002 (approval posture) and decision
 0003 (memory write protection); the phased rollout is Phase 4 of
-`docs/plans/active/hermes-parity-harness.md`.
+`docs/plans/completed/hermes-parity-harness.md`.
 
 The posture ships in two stages. Stage 1 was the deny-only destructive-command
 blocklist with no new prompts (committed first, per risk R6). Stage 2 (this

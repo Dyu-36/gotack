@@ -11,7 +11,7 @@ import (
 // regardless of posture or approval mode. A match produces a deny whose reason
 // names the rule, because outcome 4 of the hermes-parity plan requires the
 // refusal to be legible. The rules are the concrete list derived from Phase 4
-// of docs/plans/active/hermes-parity-harness.md and decision 0002: recursive
+// of docs/plans/completed/hermes-parity-harness.md and decision 0002: recursive
 // force delete, disk format/wipe, mass permission changes, shutdown, history
 // and credential-store destruction, and credential exfiltration to network
 // sinks.

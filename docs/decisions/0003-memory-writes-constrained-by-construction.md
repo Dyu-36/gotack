@@ -60,5 +60,5 @@ Tradeoffs:
 
 ## Follow-Up
 
-- `docs/plans/active/hermes-parity-harness.md` Phases 2 and 4 implement this.
+- `docs/plans/completed/hermes-parity-harness.md` Phases 2 and 4 implement this.
 - Risk R2 in that plan carries the mitigation list.
