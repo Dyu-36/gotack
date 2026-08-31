@@ -756,13 +756,27 @@ Phase 4 — approvals:
       Evidence: `internal/guard/blocklist.go` implements six named rules;
       `internal/guard/blocklist_test.go` pins the deny matrix and asserts the
       reason names the rule (`TestDenyReasonNamesTheRule`).
-- [ ] Write-safe root enforced, including denying writes to the context dir.
+- [x] Write-safe root enforced, including denying writes to the context dir.
+      Evidence: `internal/guard/policy.go` denies `memory-context-write` and
+      `write-outside-safe-root`; `TestEvaluateTierMatrix` pins both denials,
+      including the context dir nested inside a drive-root workspace.
 - [x] Blocklist shipped before the approval-mode change (R6).
-      Evidence: the deny-only hook lands in its own commit with no
-      permissions-skip change; every non-blocklisted call still passes through
-      untouched (`TestPassThroughEmitsNothing`, `TestNonCommandToolsPassThrough`).
-- [ ] Approval modes implemented per D2; remote sessions default stricter.
-- [ ] Positive and negative proofs both recorded.
+      Evidence: the deny-only hook landed in its own commit (6c5d734) with no
+      permissions-skip change; every non-blocklisted call still passed through
+      untouched at that point (stage-1 `TestPassThroughEmitsNothing`).
+- [x] Approval modes implemented per D2; remote sessions default stricter.
+      Evidence: graduated allow/ask/deny tiers in `internal/guard` (auto for
+      reads and in-root writes, ask via the existing permission relay, deny
+      floor); `activateWorkspace` now honours `auto_approve` instead of
+      forcing skip; Zalo sessions are marked in the unattended roster and
+      ask-tier calls are denied there (`ruleUnattendedApproval`), never
+      hanging on a prompt.
+- [x] Positive and negative proofs both recorded.
+      Evidence: positive — in-root writes and reads are pre-approved
+      (`TestEvaluateTierMatrix` allow cases, `TestAllowRoundTrip`);
+      negative — blocklisted commands, out-of-root writes, context-dir writes
+      and unattended ask-tier calls are refused naming the rule
+      (`TestMatchBlocklistDenies`, `TestDenyRoundTrip`, the deny cases).
 
 Phase 5 — scheduling:
 

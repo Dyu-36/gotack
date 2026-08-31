@@ -16,8 +16,9 @@ import (
 // hook expressed no opinion and Crush falls through to its own permission
 // system (the "ask" path when prompts are enabled).
 const (
-	DecisionDeny = "deny"
-	DecisionNone = ""
+	DecisionAllow = "allow"
+	DecisionDeny  = "deny"
+	DecisionNone  = ""
 )
 
 // outputVersion is the envelope version this guard emits. Crush treats an
@@ -96,6 +97,14 @@ func None() Output { return Output{} }
 // stops the whole turn and is reserved for the genuinely unrecoverable rules.
 func Deny(reason string, halt bool) Output {
 	return Output{Version: outputVersion, Decision: DecisionDeny, Halt: halt, Reason: reason}
+}
+
+// Allow builds an explicit allow decision. Crush treats a hook allow as a
+// pre-approval that skips the interactive permission prompt; the graduated
+// posture uses it for the auto tier (reads anywhere, edits inside the
+// write-safe root).
+func Allow() Output {
+	return Output{Version: outputVersion, Decision: DecisionAllow}
 }
 
 // MarshalOutput serialises the decision for stdout. A pass-through decision

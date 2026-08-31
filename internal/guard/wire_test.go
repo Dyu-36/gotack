@@ -41,7 +41,7 @@ func TestParseInputMalformedFailsOpen(t *testing.T) {
 // envelope Crush's parseStdout understands, and that it survives re-decoding.
 func TestDenyRoundTrip(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":"format C:"}}`)
-	out := Evaluate(ParseInput(payload))
+	out := Evaluate(ParseInput(payload), Options{})
 	if out.Decision != DecisionDeny {
 		t.Fatalf("decision = %q, want deny", out.Decision)
 	}
@@ -70,11 +70,37 @@ func TestDenyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPassThroughEmitsNothing checks that a benign tool call produces no bytes,
-// which is how a hook expresses "no opinion" and lets Crush fall through.
+// TestAllowRoundTrip checks that an auto-tier call yields the exact allow
+// envelope Crush treats as a pre-approval, surviving re-decoding.
+func TestAllowRoundTrip(t *testing.T) {
+	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"view","tool_input":{"file_path":"README.md"}}`)
+	out := Evaluate(ParseInput(payload), Options{})
+	if out.Decision != DecisionAllow {
+		t.Fatalf("decision = %q, want allow for a read-only tool", out.Decision)
+	}
+	raw, err := MarshalOutput(out)
+	if err != nil {
+		t.Fatalf("MarshalOutput: %v", err)
+	}
+	var decoded struct {
+		Version  int    `json:"version"`
+		Decision string `json:"decision"`
+		Halt     bool   `json:"halt"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("re-decode envelope: %v", err)
+	}
+	if decoded.Version != outputVersion || decoded.Decision != "allow" || decoded.Halt {
+		t.Fatalf("decoded envelope = %+v, want version=%d decision=allow halt=false", decoded, outputVersion)
+	}
+}
+
+// TestPassThroughEmitsNothing checks that an ask-tier call in an interactive
+// session produces no bytes, which is how a hook expresses "no opinion" and
+// lets Crush fall through to its permission relay.
 func TestPassThroughEmitsNothing(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":"go build ./..."}}`)
-	out := Evaluate(ParseInput(payload))
+	out := Evaluate(ParseInput(payload), Options{})
 	if !out.IsNone() {
 		t.Fatalf("benign command should pass through, got %+v", out)
 	}
@@ -87,13 +113,12 @@ func TestPassThroughEmitsNothing(t *testing.T) {
 	}
 }
 
-// TestNonCommandToolsPassThrough pins stage-1 behaviour for tools that carry no
-// command field (file reads, edits): the blocklist does not apply and the call
-// is left untouched.
-func TestNonCommandToolsPassThrough(t *testing.T) {
-	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"write","tool_input":{"file_path":"/etc/hosts","content":"x"}}`)
-	out := Evaluate(ParseInput(payload))
+// TestUnknownToolPassThrough pins that a tool the guard does not recognise is
+// never auto-approved: interactive sessions fall through to the ask tier.
+func TestUnknownToolPassThrough(t *testing.T) {
+	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"future_tool","tool_input":{}}`)
+	out := Evaluate(ParseInput(payload), Options{})
 	if !out.IsNone() {
-		t.Fatalf("stage-1 guard must pass non-command tools through, got %+v", out)
+		t.Fatalf("unknown tools must pass through interactively, got %+v", out)
 	}
 }
