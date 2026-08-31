@@ -97,16 +97,15 @@ composer adds the image to the same pending attachment list.
 | `DeleteProvider(providerID)` | `error` | Removes the provider's stored credential and configuration from the Crush config. |
 
 `SettingsInfo`:
-`{theme, autostart_engine, provider, credential_provider?, provider_only?, model, small_model, thinking, api_key, custom_url}`.
+`{theme, provider, credential_provider?, provider_only?, model, thinking, api_key, custom_url}`.
 
-Two fields are on the wire but have no effect today. They are kept for
-compatibility with the current UI type; do not build behavior on them without
-implementing them first.
-
-| Field | Actual behavior |
-| --- | --- |
-| `small_model` | Accepted and discarded. `SaveSettings` stores `model` into the small slot, and the Crush config write sets `models.large` and `models.small` to the same model ID. Settings intentionally shows one model selector. |
-| `autostart_engine` | Forced to `true` on both read and write. The host always adopts or starts the engine during `OnStartup`, so the toggle cannot be turned off. |
+`small_model` and `autostart_engine` were previously on the wire with no effect
+and have been removed from the Go struct, `desktop.ts` and this contract under
+hard rule 8. There is nothing to migrate: Settings shows one model selector and
+`applyCrushSettings` sets `models.large` and `models.small` to the same model ID,
+and `OnStartup` always adopts or starts the engine, so neither field ever had a
+value worth persisting. `encoding/json` ignores unknown members, so an existing
+`config.json` still loads.
 
 ### Zalo connection
 

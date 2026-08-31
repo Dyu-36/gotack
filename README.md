@@ -213,6 +213,7 @@ scripts/                               developer entry points (PowerShell, Windo
 .agents/skills/  .harness-core/        vendored repository-harness protocol and skills;
                                        .harness-core/manifest.json pins upstream file hashes
 .github/workflows/                     ci.yml and release.yml
+.gitattributes                         normative LF end-of-line policy for the whole tree
 ```
 
 Folder-by-folder roles and the rules that keep the layers apart: `docs/README.md`.
