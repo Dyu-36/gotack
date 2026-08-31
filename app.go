@@ -10,6 +10,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/changes"
+	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/logging"
@@ -63,8 +64,9 @@ type App struct {
 	// seam so app.go depends on the interface, not the implementation.
 	sup engine.EngineAPI
 
-	zalo         *zalo.Manager
-	officeSeeder *officeSeeder
+	zalo          *zalo.Manager
+	officeSeeder  *officeSeeder
+	contextSeeder *contextseed.Seeder
 
 	conn atomic.Pointer[conn]
 }
@@ -126,6 +128,9 @@ func (a *App) startup(ctx context.Context) {
 
 	a.officeSeeder = newOfficeSeeder(a.log)
 	a.ensureOfficeSeed()
+
+	a.contextSeeder = contextseed.New(appconfig.Dir(), a.log)
+	a.ensureContextSeed()
 
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
