@@ -1,6 +1,9 @@
 package appconfig
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -113,5 +116,40 @@ func TestAddRecentWorkspaceIgnoresCleanVariants(t *testing.T) {
 	}
 	if filepath.Clean(cfg.RecentWorkspaces[0]) != filepath.Clean("/tmp/proj") {
 		t.Fatalf("front entry not normalized: %q", cfg.RecentWorkspaces[0])
+	}
+}
+
+// TestZaloLegacyFieldsCarryDeprecationNotice guards the A8 contract: the
+// legacy Zalo keys stay doc-deprecated until the Gotack v1.0 removal target,
+// because zalo.Manager.ImportLegacy still consumes them at startup.
+func TestZaloLegacyFieldsCarryDeprecationNotice(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "config.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse config.go: %v", err)
+	}
+	notices := map[string]bool{}
+	ast.Inspect(file, func(node ast.Node) bool {
+		spec, ok := node.(*ast.TypeSpec)
+		if !ok || spec.Name.Name != "ZaloSettings" {
+			return true
+		}
+		layout, ok := spec.Type.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		for _, field := range layout.Fields.List {
+			if field.Doc == nil || len(field.Names) == 0 {
+				continue
+			}
+			if strings.Contains(field.Doc.Text(), "Deprecated:") {
+				notices[field.Names[0].Name] = true
+			}
+		}
+		return true
+	})
+	for _, name := range []string{"Token", "AllowedChats"} {
+		if !notices[name] {
+			t.Errorf("ZaloSettings.%s lost its // Deprecated: notice; ImportLegacy still migrates it", name)
+		}
 	}
 }

@@ -141,6 +141,7 @@ func (a *App) startup(ctx context.Context) {
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
 	}, a.log)
+	//lint:ignore SA1019 one-shot migration of the deprecated ZaloSettings.Token/AllowedChats legacy fields (removal target Gotack v1.0).
 	if err := a.zalo.ImportLegacy(cfg.Zalo.Token, cfg.Zalo.AllowedChats); err != nil && a.log != nil {
 		a.log.Warn("zalo legacy import failed", "err", err)
 	}

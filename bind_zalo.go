@@ -123,7 +123,9 @@ func (a *App) RemoveZaloToken() (ZaloManagerStatus, error) {
 	}
 	if a.cfg != nil {
 		a.cfg.Zalo.Enabled = false
+		//lint:ignore SA1019 clearing the deprecated legacy token field on disconnect.
 		a.cfg.Zalo.Token = ""
+		//lint:ignore SA1019 clearing the deprecated legacy allow-list field on disconnect.
 		a.cfg.Zalo.AllowedChats = nil
 		_ = appconfig.Save(a.cfg)
 	}
