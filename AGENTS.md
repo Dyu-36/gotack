@@ -33,8 +33,8 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | app.go | App object bound to the UI, lifecycle and service wiring |
 | bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
 | events.go | Host to UI event emission, single place |
-| office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, schedule_host.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
-| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, permission, recall, schedule, session, terminal, uievents, workspace, zalo |
+| office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, schedule_host.go, reflection_host.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, permission, recall, reflection, schedule, session, terminal, uievents, workspace, zalo |
 | cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | cmd/guard/ | PreToolUse approval hook (destructive-command blocklist, graduated tiers); ships as guard.exe |
 | cmd/memory/ | Persistent self-editing memory MCP server over stdio; curates MEMORY.md / USER.md in the seeded context dir; ships as memory.exe |
