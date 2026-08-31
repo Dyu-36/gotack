@@ -21,18 +21,25 @@ const (
 // Config is the on-disk user settings model. Empty fields fall back to
 // Defaults() at load time; EngineBinary empty means PATH lookup.
 type Config struct {
-	Theme            string       `json:"theme"`
-	EngineBinary     string       `json:"engine_binary"` // path to crush executable, empty = PATH lookup
-	AutostartEngine  bool         `json:"autostart_engine"`
-	RecentWorkspaces []string     `json:"recent_workspaces"`
-	Debug            bool         `json:"debug"`
-	Provider         string       `json:"provider,omitempty"`
-	Model            string       `json:"model,omitempty"`
-	SmallModel       string       `json:"small_model,omitempty"`
-	Thinking         string       `json:"thinking,omitempty"`
-	APIKey           string       `json:"api_key,omitempty"`
-	CustomURL        string       `json:"custom_url,omitempty"`
-	Zalo             ZaloSettings `json:"zalo,omitempty"`
+	Theme             string                             `json:"theme"`
+	EngineBinary      string                             `json:"engine_binary"` // path to crush executable, empty = PATH lookup
+	AutostartEngine   bool                               `json:"autostart_engine"`
+	RecentWorkspaces  []string                           `json:"recent_workspaces"`
+	Debug             bool                               `json:"debug"`
+	Provider          string                             `json:"provider,omitempty"`
+	Model             string                             `json:"model,omitempty"`
+	SmallModel        string                             `json:"small_model,omitempty"`
+	Thinking          string                             `json:"thinking,omitempty"`
+	APIKey            string                             `json:"api_key,omitempty"`
+	CustomURL         string                             `json:"custom_url,omitempty"`
+	ModelCapabilities map[string]ModelCapabilityOverride `json:"model_capabilities,omitempty"`
+	Zalo              ZaloSettings                       `json:"zalo,omitempty"`
+}
+
+// ModelCapabilityOverride allows user-defined or runtime overrides for a model's capabilities.
+type ModelCapabilityOverride struct {
+	SupportsVision *bool `json:"supports_vision,omitempty"`
+	CanReason      *bool `json:"can_reason,omitempty"`
 }
 
 // ZaloSettings holds the Zalo Bot API connection. The bot token is a secret

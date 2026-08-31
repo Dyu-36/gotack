@@ -75,7 +75,9 @@
       zaloEnabled = config.enabled
       zaloHasToken = config.has_token
       zaloPairingCode = config.pairing_code
-      zaloPairedChats = config.paired_chats
+      // Older hosts may serialize an empty Go slice as null. Keep the tab
+      // renderable while the desktop boundary is upgraded to always return [].
+      zaloPairedChats = config.paired_chats ?? []
       zaloStatus = await desktop.zaloStatus()
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))

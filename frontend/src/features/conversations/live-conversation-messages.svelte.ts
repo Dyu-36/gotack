@@ -1,6 +1,7 @@
 import { desktop, type MessageInfo, type WorkspaceInfo } from '../../platform/desktop'
 import { catalog } from './catalog.svelte'
-import { ChatMessage, type Conversation, type Message } from './types.svelte'
+import { fileToAttachment } from './attachments'
+import { ChatMessage, type ChatAttachment, type Conversation, type Message } from './types.svelte'
 
 const NEW_CONVERSATION_TITLE = 'Hội thoại mới'
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
@@ -14,6 +15,7 @@ export type MessageDeps = {
   conversations: { value: Conversation[] }
   activeId: { value: string }
   input: { value: string }
+  attachments: { value: ChatAttachment[] }
   workspace: { value: string }
   streamingText: { value: string }
   reportError: (cause: unknown, prefix?: string) => void
@@ -80,6 +82,13 @@ export function createMessageState(deps: MessageDeps) {
       .map((m) => {
         const inst = new ChatMessage(m.id, m.role as 'user' | 'assistant', m.created_at)
         inst.content = m.text
+        inst.attachments = (m.attachments ?? []).map((attachment, index) => ({
+          id: `${m.id}:attachment:${index}`,
+          fileName: attachment.file_name,
+          mimeType: attachment.mime_type,
+          size: attachment.size,
+          content: attachment.content ?? '',
+        }))
         return inst
       })
     deps.updateConversation(id, (c) => ({ ...c, messages }))
@@ -163,6 +172,7 @@ export function createMessageState(deps: MessageDeps) {
       }
       deps.conversations.value = [c, ...deps.conversations.value]
       deps.activeId.value = c.id
+      deps.attachments.value = []
       deps.rememberSession(c.id)
       await desktop.switchSession(c.id)
     } catch (cause) { deps.reportError(cause, 'Create session') }
@@ -173,6 +183,7 @@ export function createMessageState(deps: MessageDeps) {
       deps.activeId.value = id
       deps.rememberSession(id)
       deps.input.value = ''
+      deps.attachments.value = []
       await desktop.switchSession(id)
       const selection = await loadMessages(id)
       await deps.applyLoadedSelection(selection?.providerID, selection?.modelID)
@@ -182,7 +193,8 @@ export function createMessageState(deps: MessageDeps) {
 
   const send = async () => {
     const text = deps.input.value.trim()
-    if (!text) return
+    const attachments = deps.attachments.value
+    if (!text && attachments.length === 0) return
     if (!await deps.waitForReady()) return
     if (!await deps.waitForSelection()) return
     let current = activeConversation()
@@ -203,18 +215,46 @@ export function createMessageState(deps: MessageDeps) {
       if (!current || current.status === 'streaming') return
     }
     deps.input.value = ''
+    deps.attachments.value = []
     deps.streamingText.value = ''
     const userMessage = new ChatMessage(localId('user'), 'user')
     userMessage.content = text
+    userMessage.attachments = attachments
     deps.updateConversation(current.id, (c) => ({ ...c, status: 'streaming', messages: [...c.messages, userMessage] }))
     try {
-      await desktop.sendPrompt(current.id, text)
+      await desktop.sendPrompt(current.id, text, attachments.map((attachment) => ({
+        file_name: attachment.fileName,
+        mime_type: attachment.mimeType,
+        content: attachment.content,
+      })))
       watchRunCompletion(current.id)
     } catch (cause) {
       stopRunWatcher(current.id)
       deps.reportError(cause, 'Send prompt')
-      deps.updateConversation(current.id, (c) => ({ ...c, status: 'idle' }))
+      if (!deps.input.value) deps.input.value = text
+      if (!deps.attachments.value.length) deps.attachments.value = attachments
+      deps.updateConversation(current.id, (c) => ({
+        ...c,
+        status: 'idle',
+        messages: c.messages.filter((message) => message.id !== userMessage.id),
+      }))
     }
+  }
+
+  const attachFiles = async (files: File[]) => {
+    for (const file of files) {
+      try {
+        const attachment = await fileToAttachment(file)
+        deps.attachments.value = [...deps.attachments.value, attachment]
+        deps.clearError()
+      } catch (cause) {
+        deps.reportError(cause, 'Đính kèm tệp')
+      }
+    }
+  }
+
+  const removeAttachment = (id: string) => {
+    deps.attachments.value = deps.attachments.value.filter((attachment) => attachment.id !== id)
   }
 
   const cancel = async () => {
@@ -254,6 +294,8 @@ export function createMessageState(deps: MessageDeps) {
     create,
     select,
     send,
+    attachFiles,
+    removeAttachment,
     cancel,
     rename,
     remove,

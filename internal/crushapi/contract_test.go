@@ -96,6 +96,24 @@ func TestExtractText(t *testing.T) {
 	}
 }
 
+func TestExtractAttachments(t *testing.T) {
+	parts := json.RawMessage(`[
+		{"type":"text","data":{"text":"review this"}},
+		{"type":"binary","data":{"Path":"photo.png","MIMEType":"image/png","Data":"iVBORw=="}}
+	]`)
+
+	got := ExtractAttachments(parts)
+	if len(got) != 1 {
+		t.Fatalf("ExtractAttachments() len = %d, want 1", len(got))
+	}
+	if got[0].FileName != "photo.png" || got[0].MimeType != "image/png" {
+		t.Fatalf("ExtractAttachments() metadata = %#v", got[0])
+	}
+	if string(got[0].Content) != "\x89PNG" {
+		t.Fatalf("ExtractAttachments() content = %q, want PNG header", got[0].Content)
+	}
+}
+
 func TestExtractToolCalls(t *testing.T) {
 	tests := []struct {
 		name  string

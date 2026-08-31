@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import type { Message } from '../features/conversations/types.svelte'
   import { renderMarkdown, chatLinks } from '../lib/markdown'
+  import { attachmentDataURL, formatAttachmentSize, isPreviewableImage } from '../features/conversations/attachments'
 
   type Props = {
     message: Message
@@ -98,6 +99,22 @@
 {#if message.role === 'user'}
   <div class="flex justify-end mb-4 group animate-fade-in">
     <div class="max-w-[85%] flex flex-col items-end">
+      {#if message.attachments.length}
+        <div class="flex flex-wrap justify-end gap-2 mb-2" aria-label="Tệp đã gửi">
+          {#each message.attachments as attachment (attachment.id)}
+            {#if attachment.content && isPreviewableImage(attachment.mimeType)}
+              <div class="sent-image" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
+                <img src={attachmentDataURL(attachment)} alt={attachment.fileName} />
+              </div>
+            {:else}
+              <div class="sent-file" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h6" /></svg>
+                <span class="min-w-0"><span class="block max-w-48 truncate font-medium">{attachment.fileName}</span><span class="block text-2xs opacity-70">{formatAttachmentSize(attachment.size)}</span></span>
+              </div>
+            {/if}
+          {/each}
+        </div>
+      {/if}
       {#if message.content.trim()}
         <div class="bg-mm-user-bubble text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed shadow-xs whitespace-pre-wrap break-words">
           {message.content}
@@ -167,3 +184,29 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .sent-image {
+    width: min(220px, 56vw);
+    max-height: 220px;
+    overflow: hidden;
+    border: 1px solid var(--mm-border);
+    border-radius: 12px;
+    background: var(--mm-panel);
+    box-shadow: var(--shadow-xs, 0 1px 2px rgb(0 0 0 / 0.08));
+  }
+  .sent-image img { display: block; width: 100%; max-height: 220px; object-fit: contain; }
+  .sent-file {
+    display: flex;
+    max-width: min(280px, 70vw);
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--mm-border);
+    border-radius: 10px;
+    background: var(--mm-panel);
+    color: var(--mm-text);
+    font-size: 12px;
+    text-align: left;
+  }
+</style>

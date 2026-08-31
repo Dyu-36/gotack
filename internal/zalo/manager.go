@@ -183,7 +183,7 @@ func (m *Manager) Status() Status {
 		BotName:       m.state.BotName,
 		TokenSuffix:   suffix,
 		PairingCode:   m.state.PairingCode,
-		PairedChatIDs: append([]string(nil), m.state.PairedChatIDs...),
+		PairedChatIDs: append([]string{}, m.state.PairedChatIDs...),
 		LastError:     m.lastError,
 	}
 }
