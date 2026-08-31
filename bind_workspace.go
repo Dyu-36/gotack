@@ -45,7 +45,8 @@ func (a *App) ListRecentWorkspaces() []string {
 // rebindWorkspaceRuntime re-points every workspace-scoped runtime at
 // workspaceID: it swaps the SSE attach scope (cancelling the previous one),
 // drops the Zalo chat-to-session mappings that belonged to the old workspace,
-// and re-registers the bundled Office MCP server.
+// re-registers the bundled Office MCP server, and re-points the seeded
+// global context directory.
 //
 // Every activation path runs exactly this sequence through activateCurrent,
 // which is how it stays aligned with replaceWorkspaceStream in
@@ -63,6 +64,7 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	}
 	a.resetZaloSessions()
 	a.registerOfficeTools(workspaceID)
+	a.registerContextPaths(workspaceID)
 }
 
 // activateCurrent is the single shared activation sequence: force permission
