@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/uievents"
@@ -103,6 +104,34 @@ func TestDecodePromptAttachmentsFailsSoftPerFile(t *testing.T) {
 	}
 	if got[2].Warning != "" || !strings.Contains(got[2].PromptBlock, "readable") {
 		t.Fatalf("one bad file must not drop the readable one, got %#v", got[2])
+	}
+}
+
+func TestCurrentModelVisionUsesCrushCatalog(t *testing.T) {
+	workspacePath := t.TempDir()
+	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces":
+			body := `[{"id":"ws-1","path":` + strconvQuote(workspacePath) + `}]`
+			return jsonHTTPResponse(http.StatusOK, body), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws-1/providers":
+			return jsonHTTPResponse(http.StatusOK, `[{"id":"opencode-go","models":[{"id":"minimax-m3","supports_attachments":false}]}]`), nil
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	api := crushapi.NewClient(&http.Client{Transport: transport})
+	ws := workspace.NewService(api)
+	if _, err := ws.Open(context.Background(), workspacePath); err != nil {
+		t.Fatalf("open workspace: %v", err)
+	}
+	a := NewApp()
+	a.ctx = context.Background()
+	a.cfg = &appconfig.Config{Provider: "opencode-go", Model: "minimax-m3"}
+	if a.isCurrentModelVision(&bridgeServices{api: api, ws: ws}) {
+		t.Fatal("opencode-go/minimax-m3 was treated as vision despite Crush catalog false")
 	}
 }
 

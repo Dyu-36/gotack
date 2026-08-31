@@ -149,8 +149,10 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 			for j := range providers[i].Models {
 				m := &providers[i].Models[j]
 				if override, ok := a.cfg.ModelCapabilities[m.ID]; ok {
-					if override.SupportsVision != nil {
-						m.SupportsVision = *override.SupportsVision
+					if override.SupportsVision != nil && !*override.SupportsVision {
+						// A desktop-only override may safely disable attachments,
+						// but cannot enable a capability Crush will reject or strip.
+						m.SupportsVision = false
 					}
 					if override.CanReason != nil {
 						m.CanReason = *override.CanReason

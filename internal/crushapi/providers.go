@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 // Provider and Model mirror the UI-relevant subset of the catwalk catalog
@@ -43,48 +42,30 @@ type Model struct {
 	CostPer1MOut           float64  `json:"cost_per_1m_out,omitempty"`
 }
 
-// InferModelVision returns true if the model is recognized as vision/multimodal capable.
-func InferModelVision(providerID, modelID string) bool {
-	m := strings.ToLower(strings.TrimSpace(modelID))
-	p := strings.ToLower(strings.TrimSpace(providerID))
-
-	// Generic suffixes / prefixes
-	if strings.Contains(m, "vision") || strings.Contains(m, "-vl") || strings.Contains(m, "vl-") || strings.HasSuffix(m, "-vl") {
-		return true
+// UnmarshalJSON accepts both Gotack's UI-facing supports_vision field and
+// Catwalk/Crush's native supports_attachments field. Gotack keeps serializing
+// supports_vision across Wails, but capability decisions must preserve the
+// authoritative value returned by Crush instead of guessing from model names.
+func (m *Model) UnmarshalJSON(data []byte) error {
+	type modelWire Model
+	var decoded modelWire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
 	}
-	// OpenAI models with vision
-	if strings.HasPrefix(m, "gpt-4o") || strings.HasPrefix(m, "gpt-4-turbo") || strings.HasPrefix(m, "gpt-4.5") || strings.Contains(m, "gpt-5") || strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "o3") {
-		return true
+	var capabilities struct {
+		SupportsVision      *bool `json:"supports_vision"`
+		SupportsAttachments *bool `json:"supports_attachments"`
 	}
-	// Anthropic Claude 3 / 3.5 / 3.7 / 4
-	if strings.HasPrefix(m, "claude-3") || strings.HasPrefix(m, "claude-4") {
-		return true
+	if err := json.Unmarshal(data, &capabilities); err != nil {
+		return err
 	}
-	// Google Gemini
-	if strings.Contains(m, "gemini") {
-		return true
+	*m = Model(decoded)
+	if capabilities.SupportsVision != nil {
+		m.SupportsVision = *capabilities.SupportsVision
+	} else if capabilities.SupportsAttachments != nil {
+		m.SupportsVision = *capabilities.SupportsAttachments
 	}
-	// MiniMax multimodal (MiniMax-M3, MiniMax-VL-01, abab6.5g, abab7)
-	if strings.Contains(m, "minimax-m3") || strings.Contains(m, "minimax-vl") || strings.Contains(m, "abab6.5g") || strings.Contains(m, "abab7") || (p == "minimax" && strings.Contains(m, "m3")) {
-		return true
-	}
-	// Qwen VL
-	if strings.Contains(m, "qwen") && strings.Contains(m, "vl") {
-		return true
-	}
-	// Mistral / Pixtral
-	if strings.Contains(m, "pixtral") {
-		return true
-	}
-	// Zhipu / GLM-4V
-	if strings.Contains(m, "glm-4v") {
-		return true
-	}
-	// Llama 3.2 Vision
-	if strings.Contains(m, "llama-3.2") && (strings.Contains(m, "11b") || strings.Contains(m, "90b") || strings.Contains(m, "vision")) {
-		return true
-	}
-	return false
+	return nil
 }
 
 // ListProviders returns the provider catalog for a workspace. The engine may
@@ -106,12 +87,6 @@ func (c *Client) ListProviders(ctx context.Context, wsID string) ([]Provider, er
 	var providers []Provider
 	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
 		return nil, fmt.Errorf("crushapi: decode providers: %w", err)
-	}
-	for i := range providers {
-		for j := range providers[i].Models {
-			m := &providers[i].Models[j]
-			m.SupportsVision = m.SupportsVision || InferModelVision(providers[i].ID, m.ID)
-		}
 	}
 	return providers, nil
 }
