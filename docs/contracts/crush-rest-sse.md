@@ -25,6 +25,7 @@ guarantee: nothing the host attaches requires a migration to undo.
 | Key | Scope | Written by | Value | Undo |
 | --- | --- | --- | --- | --- |
 | `mcp_servers.gotack-office` | workspace | `office_seed.go` `registerOfficeTools` | `{command, type: "stdio", timeout: 30}` | `RemoveConfigField` on the same key; the host already does this when the officecli binary is absent |
+| `mcp_servers.gotack-memory` | workspace | `memory_seed.go` `registerMemoryTools` on every workspace activation | `{command, type: "stdio", timeout: 30}` | `RemoveConfigField` on the same key; the host already does this when the memory binary is absent. Tool shape in `gotack-memory-mcp.md` |
 | `env` | workspace | `office_seed.go` `registerOfficeTools` | `{PATH: …}` so agent shells resolve the seeded `officecli` and Python runtime | `RemoveConfigField` on `env`. Caveat: the host owns the whole map and overwrites it per workspace; user-defined env vars in the same workspace config are replaced, not merged |
 | `options.skills_paths` | workspace | `office_seed.go` `registerOfficeTools` | `[<appconfig.Dir()>\skills]` | `RemoveConfigField`; Crush falls back to its built-in skill discovery |
 | `options.global_context_paths` | workspace | `context_seed.go` `registerContextPaths` on every workspace activation | `[<appconfig.Dir()>\context]`, the directory seeded by `internal/contextseed` | `RemoveConfigField`; Crush falls back to its schema defaults (`~/.config/crush/CRUSH.md`, `~/.config/AGENTS.md`). The host also removes the key itself when the seeded directory is absent |
@@ -141,6 +142,7 @@ To detach everything the host attached to a workspace:
 
 ```text
 RemoveConfigField mcp_servers.gotack-office        (workspace scope)
+RemoveConfigField mcp_servers.gotack-memory        (workspace scope)
 RemoveConfigField env                              (workspace scope)
 RemoveConfigField options.skills_paths             (workspace scope)
 RemoveConfigField options.global_context_paths     (workspace scope)

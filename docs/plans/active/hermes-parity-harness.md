@@ -753,14 +753,38 @@ Phase 1 — relocate the persona:
 
 Phase 2 — memory:
 
-- [ ] `AGENTS.md` hard rule 4 amended per decision 0001, in the same change
+- [x] `AGENTS.md` hard rule 4 amended per decision 0001, in the same change
       as the first memory code.
-- [ ] `cmd/memory/` with the `memory` tool over `internal/mcp`.
-- [ ] Caps, atomic writes, provenance per decision 0003 (no interactive
+      Evidence: `AGENTS.md` rule 4 now prohibits exactly the turn loop, tool
+      dispatch, message persistence and permission adjudication, and permits
+      scheduling, seeded-context curation, read-only history indexing and
+      reflection; it lands in the same commit as the first WP4 code.
+- [x] `cmd/memory/` with the `memory` tool over `internal/mcp`.
+      Evidence: `cmd/memory/main.go` serves one `memory` tool
+      (`internal/memory/tool.go`) over the stdio JSON-RPC loop; a full
+      initialize/list/call round trip is proven by `TestToolOverMCPServer`
+      and the validation matrix by `TestToolValidationMatrix`.
+- [x] Caps, atomic writes, provenance per decision 0003 (no interactive
       approval).
-- [ ] Registered as `mcp_servers.gotack-memory`; absent binary removes the key.
-- [ ] `memory.exe` built and shipped in `release.yml`.
-- [ ] Cross-session recall of a stated fact demonstrated.
+      Evidence: `internal/memory/store.go` enforces 2200/1375-byte caps with
+      oldest-first eviction (`TestCapEnforcementEvictsOldest`,
+      `TestEvictionOrdersByTimestamp`), persists via temp-file-plus-rename
+      (`TestAtomicWriteSemantics`) and stamps every entry with session and
+      RFC3339 time (`TestAddAndViewRoundTrip`); no approval prompt anywhere.
+- [x] Registered as `mcp_servers.gotack-memory`; absent binary removes the key.
+      Evidence: `memory_seed.go` `registerMemoryTools` runs from
+      `rebindWorkspaceRuntime`; `memory_seed_test.go` pins both the stdio
+      entry shape and the `RemoveConfigField` fallback, and
+      `docs/contracts/crush-rest-sse.md` inventories the key.
+- [x] `memory.exe` built and shipped in `release.yml`.
+      Evidence: `release.yml` gained a `Build memory MCP server` step and the
+      ZIP assembly copies `memory.exe` alongside `office.exe` and
+      `recall.exe`; `ci.yml` builds it too so every gate run exercises it.
+- [x] Cross-session recall of a stated fact demonstrated.
+      Evidence: `TestCrossSessionPersistence` — a fact written by a store
+      bound to session A is viewed by a fresh store bound to session B over
+      the same directory, with both writers' provenance preserved (the live
+      two-session provider demonstration remains the plan's exit criterion).
 
 Phase 3 — recall:
 
