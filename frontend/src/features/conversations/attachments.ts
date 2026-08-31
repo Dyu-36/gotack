@@ -1,6 +1,18 @@
 import type { ChatAttachment } from './types.svelte'
+import type { PromptFilePick } from '../../platform/desktop'
 
-export const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
+// The host owns the real limit (internal/appconfig, served by
+// App.AttachmentLimits()); the constant below is only the pre-answer fallback.
+const FALLBACK_MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
+let maxAttachmentSize = FALLBACK_MAX_ATTACHMENT_SIZE
+
+export function setAttachmentLimit(bytes: number): void {
+  if (Number.isFinite(bytes) && bytes > 0) maxAttachmentSize = Math.floor(bytes)
+}
+
+export function attachmentLimit(): number {
+  return maxAttachmentSize
+}
 
 let attachmentSeq = 0
 
@@ -20,18 +32,63 @@ export function formatAttachmentSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Windows drag & drop and clipboard paste frequently deliver an empty
+// `File.type` for office documents, which used to reach the host as
+// application/octet-stream and lose the text extraction path.
+const extensionMimeTypes: Record<string, string> = {
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  json: 'application/json',
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+}
+
+export function mimeFromName(fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  if (dot < 0) return 'application/octet-stream'
+  return extensionMimeTypes[fileName.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream'
+}
+
 export async function fileToAttachment(file: File): Promise<ChatAttachment> {
-  if (file.size > MAX_ATTACHMENT_SIZE) {
-    throw new Error(`Tệp “${file.name}” vượt quá giới hạn 5 MB`)
+  if (file.size > maxAttachmentSize) {
+    throw new Error(`Tệp “${file.name}” vượt quá hạn mức ${formatAttachmentSize(maxAttachmentSize)}`)
   }
 
   const content = await readFileAsBase64(file)
+  const fileName = file.name || `clipboard-${Date.now()}.png`
   return {
     id: `attachment:${Date.now().toString(36)}:${++attachmentSeq}`,
-    fileName: file.name || `clipboard-${Date.now()}.png`,
-    mimeType: file.type || 'application/octet-stream',
+    fileName,
+    mimeType: file.type || mimeFromName(fileName),
     size: file.size,
     content,
+  }
+}
+
+// pathToAttachment builds a chip for a file the host picked or received through
+// an OS drop. There is no base64 body: the host reads the bytes at send time, so
+// a large spreadsheet never enters the webview.
+export function pathToAttachment(pick: PromptFilePick): ChatAttachment {
+  const fileName = pick.file_name || pick.path
+  return {
+    id: `attachment:${Date.now().toString(36)}:${++attachmentSeq}`,
+    fileName,
+    mimeType: pick.mime_type || mimeFromName(fileName),
+    size: pick.size,
+    content: '',
+    path: pick.path,
   }
 }
 

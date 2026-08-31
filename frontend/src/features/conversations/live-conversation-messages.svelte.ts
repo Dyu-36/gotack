@@ -1,12 +1,11 @@
-import { desktop, type MessageInfo, type WorkspaceInfo } from '../../platform/desktop'
+import { desktop, type MessageInfo, type PromptFilePick, type WorkspaceInfo } from '../../platform/desktop'
 import { catalog } from './catalog.svelte'
-import { fileToAttachment } from './attachments'
+import { fileToAttachment, pathToAttachment } from './attachments'
 import { ChatMessage, type ChatAttachment, type Conversation, type Message } from './types.svelte'
 
 const NEW_CONVERSATION_TITLE = 'Hội thoại mới'
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const DEFAULT_WORKSPACE_LABEL = 'C:\\'
-const RUN_STATE_POLL_MS = 1000
 
 let localSeq = 0
 export const localId = (prefix: string) => `${prefix}:${Date.now().toString(36)}:${++localSeq}`
@@ -40,58 +39,57 @@ const latestSelection = (rows: readonly MessageInfo[]): LoadedSelection | undefi
 
 export function createMessageState(deps: MessageDeps) {
   const activeConversation = () => deps.conversations.value.find((item) => item.id === deps.activeId.value)
-  const runWatchers = new Map<string, number>()
-
-  const stopRunWatcher = (id: string) => {
-    const timer = runWatchers.get(id)
-    if (timer !== undefined) window.clearTimeout(timer)
-    runWatchers.delete(id)
-  }
-
-  const clearRunWatchers = () => {
-    for (const id of runWatchers.keys()) stopRunWatcher(id)
-  }
-
-  const watchRunCompletion = (id: string) => {
-    stopRunWatcher(id)
-    const poll = async () => {
-      const local = deps.conversations.value.find((item) => item.id === id)
-      if (!local || local.status !== 'streaming') {
-        runWatchers.delete(id)
-        return
-      }
-      const rows = await desktop.listSessions().catch(() => null)
-      const remote = rows?.find((row) => row.id === id)
-      if (remote && !remote.is_busy) {
-        deps.updateConversation(id, (c) => ({ ...c, status: 'idle' }))
-        deps.streamingText.value = ''
-        runWatchers.delete(id)
-        return
-      }
-      runWatchers.set(id, window.setTimeout(() => void poll(), RUN_STATE_POLL_MS))
-    }
-    runWatchers.set(id, window.setTimeout(() => void poll(), RUN_STATE_POLL_MS))
-  }
+  // Guards against a slow history snapshot overwriting a newer selection.
+  let loadGeneration = 0
 
   const memoryKey = () => `${SESSION_MEMORY_PREFIX}${deps.workspace.value}`
 
-  const loadMessages = async (id: string): Promise<LoadedSelection | undefined> => {
-    const rows = await desktop.sessionMessages(id)
-    const messages: Message[] = rows
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => {
-        const inst = new ChatMessage(m.id, m.role as 'user' | 'assistant', m.created_at)
-        inst.content = m.text
-        inst.attachments = (m.attachments ?? []).map((attachment, index) => ({
-          id: `${m.id}:attachment:${index}`,
+  // buildMessages mirrors what the live event stream renders. Crush stores one
+  // assistant row per agent step, so steps that only ran tools carry no text;
+  // replaying those rows verbatim is what produced the empty assistant bubbles.
+  const buildMessages = (rows: readonly MessageInfo[]): Message[] => {
+    const out: Message[] = []
+    for (const row of rows) {
+      if (row.role === 'user') {
+        const inst = new ChatMessage(row.id, 'user', row.created_at)
+        inst.content = row.text
+        inst.attachments = (row.attachments ?? []).map((attachment, index) => ({
+          id: `${row.id}:attachment:${index}`,
           fileName: attachment.file_name,
           mimeType: attachment.mime_type,
           size: attachment.size,
           content: attachment.content ?? '',
         }))
-        return inst
-      })
-    deps.updateConversation(id, (c) => ({ ...c, messages }))
+        out.push(inst)
+        continue
+      }
+      if (row.role !== 'assistant') continue
+      if (row.text.trim()) {
+        const inst = new ChatMessage(row.id, 'assistant', row.created_at)
+        inst.content = row.text
+        out.push(inst)
+      }
+      for (const call of row.tool_calls ?? []) {
+        // Same id scheme as tool:activity so replay and live rows merge.
+        const inst = new ChatMessage(`tool:${call.id}`, 'assistant', row.created_at)
+        inst.kind = 'tool'
+        inst.toolName = call.name
+        inst.toolFinished = call.finished
+        inst.content = call.input ?? ''
+        out.push(inst)
+      }
+    }
+    return out
+  }
+
+  const loadMessages = async (id: string): Promise<LoadedSelection | undefined> => {
+    // Snapshots are async, so a newer selection must win. Otherwise the reply
+    // for the previous conversation lands after the switch and overwrites the
+    // history the user is now looking at.
+    const generation = ++loadGeneration
+    const rows = await desktop.sessionMessages(id)
+    if (generation !== loadGeneration) return undefined
+    deps.updateConversation(id, (c) => ({ ...c, messages: buildMessages(rows) }))
     return latestSelection(rows)
   }
 
@@ -126,7 +124,6 @@ export function createMessageState(deps: MessageDeps) {
 
 
   const attachWorkspace = async (workspace: WorkspaceInfo) => {
-    clearRunWatchers()
     deps.workspace.value = workspace.is_default ? DEFAULT_WORKSPACE_LABEL : workspace.path
     const selection = await loadSessions()
     await catalog.refresh()
@@ -184,8 +181,11 @@ export function createMessageState(deps: MessageDeps) {
       deps.rememberSession(id)
       deps.input.value = ''
       deps.attachments.value = []
+      // Streaming text belongs to the conversation we just left.
+      deps.streamingText.value = ''
       await desktop.switchSession(id)
       const selection = await loadMessages(id)
+      if (deps.activeId.value !== id) return
       await deps.applyLoadedSelection(selection?.providerID, selection?.modelID)
       deps.clearError()
     } catch (cause) { deps.reportError(cause, 'Switch session') }
@@ -225,11 +225,10 @@ export function createMessageState(deps: MessageDeps) {
       await desktop.sendPrompt(current.id, text, attachments.map((attachment) => ({
         file_name: attachment.fileName,
         mime_type: attachment.mimeType,
-        content: attachment.content,
+        // A path send carries no body: the host reads the file at send time.
+        ...(attachment.path ? { path: attachment.path } : { content: attachment.content }),
       })))
-      watchRunCompletion(current.id)
     } catch (cause) {
-      stopRunWatcher(current.id)
       deps.reportError(cause, 'Send prompt')
       if (!deps.input.value) deps.input.value = text
       if (!deps.attachments.value.length) deps.attachments.value = attachments
@@ -238,6 +237,23 @@ export function createMessageState(deps: MessageDeps) {
         status: 'idle',
         messages: c.messages.filter((message) => message.id !== userMessage.id),
       }))
+    }
+  }
+
+  // attachPaths turns host-resolved paths (native picker or OS drop) into chips.
+  // Nothing is read here, so a multi-megabyte spreadsheet costs no base64 pass
+  // through the webview.
+  const attachPaths = (picks: readonly PromptFilePick[]) => {
+    if (!picks.length) return
+    deps.attachments.value = [...deps.attachments.value, ...picks.map((pick) => pathToAttachment(pick))]
+    deps.clearError()
+  }
+
+  const pickFiles = async () => {
+    try {
+      attachPaths(await desktop.pickPromptFiles())
+    } catch (cause) {
+      deps.reportError(cause, 'Đính kèm tệp')
     }
   }
 
@@ -274,7 +290,6 @@ export function createMessageState(deps: MessageDeps) {
 
   const remove = async (id: string) => {
     try {
-      stopRunWatcher(id)
       await desktop.deleteSession(id)
       deps.conversations.value = deps.conversations.value.filter((c) => c.id !== id)
       if (deps.activeId.value !== id) return
@@ -295,6 +310,8 @@ export function createMessageState(deps: MessageDeps) {
     select,
     send,
     attachFiles,
+    attachPaths,
+    pickFiles,
     removeAttachment,
     cancel,
     rename,

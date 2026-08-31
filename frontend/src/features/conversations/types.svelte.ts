@@ -1,11 +1,15 @@
 export type MessageRole = 'user' | 'assistant'
 
+// content holds base64 bytes for a browser upload. path is set instead when the
+// host picked the file, received it through an OS drop, or expanded an @[path]
+// tag; the host then reads the bytes at send time. Exactly one is populated.
 export type ChatAttachment = {
   id: string
   fileName: string
   mimeType: string
   size: number
   content: string
+  path?: string
 }
 
 export class ChatMessage {

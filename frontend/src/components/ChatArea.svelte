@@ -22,6 +22,8 @@
     onInput: (value: string) => void
     onSend: () => void
     onAttachFiles?: (files: File[]) => void | Promise<void>
+    // Present in the desktop host: routes the paperclip to the native dialog.
+    onPickFiles?: () => void | Promise<void>
     onRemoveAttachment?: (id: string) => void
     onStop: () => void
     onOpenSidebar: () => void
@@ -51,6 +53,7 @@
     onInput,
     onSend,
     onAttachFiles = () => {},
+    onPickFiles,
     onRemoveAttachment = () => {},
     onStop,
     onOpenSidebar,
@@ -71,6 +74,12 @@
   let composer = $state<Composer | null>(null)
 
   const STICK_THRESHOLD = 48
+
+  // Tool rows can trail the assistant text, so the streaming cursor has to
+  // follow the last real text bubble instead of the last array entry.
+  const streamingBubbleId = $derived(
+    messages.filter((m) => m.role === 'assistant' && m.kind !== 'tool').at(-1)?.id ?? '',
+  )
 
   const promptCards = [
     {
@@ -272,7 +281,7 @@
           {:else}
             <MessageBubble
               {message}
-              isStreaming={isStreaming && idx === messages.length - 1 && message.role === 'assistant'}
+              isStreaming={isStreaming && message.role === 'assistant' && message.id === streamingBubbleId}
             />
           {/if}
         {/each}
@@ -296,7 +305,7 @@
   {/if}
 
   <div class="shrink-0 pt-2">
-    <Composer bind:this={composer} value={input} {attachments} onInput={onInput} onSend={onSend} {onAttachFiles} {onRemoveAttachment} onStop={onStop} ready={backendReady} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedProviderId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
+    <Composer bind:this={composer} value={input} {attachments} onInput={onInput} onSend={onSend} {onAttachFiles} {onPickFiles} {onRemoveAttachment} onStop={onStop} ready={backendReady} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedProviderId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
   </div>
 </div>
 

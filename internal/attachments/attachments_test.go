@@ -4,8 +4,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
 func TestClassify(t *testing.T) {
@@ -26,11 +24,19 @@ func TestClassify(t *testing.T) {
 			wantMime:     "text/plain; charset=utf-8",
 		},
 		{
-			name:         "Word document",
-			fileName:     "document.docx",
-			declaredMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			content:      []byte("PK\x03\x04..."),
-			wantKind:     KindOffice,
+			name:         "Legacy Excel spreadsheet",
+			fileName:     "phan cong.xls",
+			declaredMime: "application/vnd.ms-excel",
+			content:      []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"),
+			wantKind:     KindLegacyOffice,
+			wantMime:     "text/plain; charset=utf-8",
+		},
+		{
+			name:         "Legacy Word document",
+			fileName:     "bien ban.doc",
+			declaredMime: "application/msword",
+			content:      []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"),
+			wantKind:     KindLegacyOffice,
 			wantMime:     "text/plain; charset=utf-8",
 		},
 		{
@@ -38,14 +44,6 @@ func TestClassify(t *testing.T) {
 			fileName:     "package.json",
 			declaredMime: "application/json",
 			content:      []byte(`{"name": "test"}`),
-			wantKind:     KindText,
-			wantMime:     "text/plain; charset=utf-8",
-		},
-		{
-			name:         "Python script",
-			fileName:     "main.py",
-			declaredMime: "text/x-python",
-			content:      []byte("print('hello')\n"),
 			wantKind:     KindText,
 			wantMime:     "text/plain; charset=utf-8",
 		},
@@ -90,8 +88,7 @@ func TestClampText(t *testing.T) {
 	for i := range longLines {
 		longLines[i] = "content"
 	}
-	long := strings.Join(longLines, "\n")
-	clamped, truncated := ClampText(long)
+	clamped, truncated := ClampText(strings.Join(longLines, "\n"))
 	if !truncated {
 		t.Errorf("ClampText(long) expected truncated=true")
 	}
@@ -100,58 +97,123 @@ func TestClampText(t *testing.T) {
 	}
 }
 
-func TestProcess(t *testing.T) {
-	att, err := Process("test.json", "application/json", []byte(`{"a": 1}`))
+func TestPrepare(t *testing.T) {
+	payload := []byte(`{"a": 1}`)
+	prepared, err := Prepare("test.json", "application/json", payload, true)
 	if err != nil {
-		t.Fatalf("Process(test.json) error = %v", err)
+		t.Fatalf("Prepare(test.json) error = %v", err)
 	}
-	if att.MimeType != "text/plain; charset=utf-8" {
-		t.Errorf("Process() MimeType = %q, want text/plain; charset=utf-8", att.MimeType)
+	if prepared.MimeType != "text/plain; charset=utf-8" {
+		t.Errorf("Prepare() MimeType = %q, want text/plain; charset=utf-8", prepared.MimeType)
 	}
-	if !strings.Contains(string(att.Content), `{"a": 1}`) {
-		t.Errorf("Process() Content = %q, want to contain json payload", string(att.Content))
+	// Derived text must ride in the prompt: Crush turns every attachment into a
+	// binary part, so text placed there would never reach the model.
+	if prepared.Attachment != nil {
+		t.Errorf("Prepare() Attachment = %+v, want nil for derived text", prepared.Attachment)
 	}
-	if !strings.Contains(string(att.Content), "Đường dẫn tệp trên máy") {
-		t.Errorf("Process() Content missing file path metadata: %s", string(att.Content))
+	if !strings.Contains(prepared.PromptBlock, `{"a": 1}`) {
+		t.Errorf("Prepare() PromptBlock = %q, want the json payload", prepared.PromptBlock)
 	}
-
-	// Verify file was saved to disk cache
-	if _, err := os.Stat(att.FilePath); err != nil {
-		t.Errorf("Saved attachment file does not exist at %q: %v", att.FilePath, err)
+	if prepared.Size != len(payload) {
+		t.Errorf("Prepare() Size = %d, want %d", prepared.Size, len(payload))
+	}
+	if _, err := os.Stat(prepared.Path); err != nil {
+		t.Errorf("saved attachment missing at %q: %v", prepared.Path, err)
 	}
 
 	tooLarge := make([]byte, MaxAttachmentSize+1)
-	if _, err := Process("large.txt", "text/plain", tooLarge); err == nil {
-		t.Errorf("Process(tooLarge) expected error for exceeding limit")
+	if _, err := Prepare("large.txt", "text/plain", tooLarge, true); err == nil {
+		t.Errorf("Prepare(tooLarge) expected an error for exceeding the limit")
 	}
 }
 
-func TestComposePrompt(t *testing.T) {
-	att := crushapi.Attachment{
-		FilePath: `C:\Users\Admin\AppData\Roaming\gotack\attachments\12345678-file.xlsx`,
-		FileName: "file.xlsx",
+func TestComposePromptRoundTrip(t *testing.T) {
+	item := Prepared{
+		DisplayName: "phan cong.xls",
+		Path:        `C:\Users\Admin\AppData\Roaming\gotack\attachments\1a2b3c4d\phan_cong.xls`,
+		MimeType:    "text/plain; charset=utf-8",
+		Size:        506,
+		PromptBlock: "> Tổng 1 dòng.\n\n<NỘI_DUNG_TỆP>\n     1| a\n</NỘI_DUNG_TỆP>",
 	}
 
-	gotCustom := ComposePrompt("Hãy tính tổng doanh thu", []crushapi.Attachment{att})
-	if !strings.HasPrefix(gotCustom, "Hãy tính tổng doanh thu") || !strings.Contains(gotCustom, `@[C:\Users\Admin\AppData\Roaming\gotack\attachments\12345678-file.xlsx]`) {
-		t.Errorf("ComposePrompt with text = %q", gotCustom)
+	prompt := ComposePrompt("Hãy tính tổng doanh thu", []Prepared{item})
+	if !strings.HasPrefix(prompt, "Hãy tính tổng doanh thu") {
+		t.Fatalf("ComposePrompt() = %q, want the user text first", prompt)
+	}
+	if !strings.Contains(prompt, item.PromptBlock) {
+		t.Errorf("ComposePrompt() dropped the derived content: %q", prompt)
 	}
 
-	gotSingle := ComposePrompt("", []crushapi.Attachment{att})
-	if !strings.Contains(gotSingle, "Hãy xem và xử lý tệp đính kèm sau:") || !strings.Contains(gotSingle, `@[C:\Users\Admin\AppData\Roaming\gotack\attachments\12345678-file.xlsx]`) {
-		t.Errorf("ComposePrompt single = %q", gotSingle)
+	text, refs := ParseAttachmentBlocks(prompt)
+	if text != "Hãy tính tổng doanh thu" {
+		t.Errorf("ParseAttachmentBlocks() text = %q, want the original prompt text", text)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("ParseAttachmentBlocks() refs = %d, want 1", len(refs))
+	}
+	if refs[0].FileName != item.DisplayName || refs[0].Path != item.Path || refs[0].Size != item.Size {
+		t.Errorf("ParseAttachmentBlocks() ref = %+v, want %q/%q/%d", refs[0], item.DisplayName, item.Path, item.Size)
 	}
 
-	att2 := crushapi.Attachment{
-		FilePath: `C:\Users\Admin\AppData\Roaming\gotack\attachments\87654321-photo.png`,
-		FileName: "photo.png",
+	if single := ComposePrompt("", []Prepared{item}); !strings.Contains(single, "tệp đính kèm sau:") {
+		t.Errorf("ComposePrompt(no text) = %q, want a generated instruction", single)
 	}
-	gotMulti := ComposePrompt("   ", []crushapi.Attachment{att, att2})
-	if !strings.Contains(gotMulti, "Hãy xem và xử lý các tệp đính kèm sau:") || !strings.Contains(gotMulti, `@[C:\Users\Admin\AppData\Roaming\gotack\attachments\87654321-photo.png]`) {
-		t.Errorf("ComposePrompt multi = %q", gotMulti)
+	if multi := ComposePrompt("   ", []Prepared{item, item}); !strings.Contains(multi, "các tệp đính kèm sau:") {
+		t.Errorf("ComposePrompt(multi) = %q, want the plural instruction", multi)
+	}
+	if got := ComposePrompt("", nil); got != "" {
+		t.Errorf("ComposePrompt(empty) = %q, want an empty string", got)
+	}
+}
+
+func TestComposePromptFailSoft(t *testing.T) {
+	prompt := ComposePrompt("Đọc giúp tôi", []Prepared{Failed("scan.pdf", "chưa hỗ trợ")})
+	if !strings.HasPrefix(prompt, "Đọc giúp tôi") {
+		t.Errorf("ComposePrompt() dropped the user text: %q", prompt)
+	}
+	if !strings.Contains(prompt, "scan.pdf") || !strings.Contains(prompt, "chưa hỗ trợ") {
+		t.Errorf("ComposePrompt() lost the warning: %q", prompt)
+	}
+	if strings.Contains(prompt, "<"+attachmentTag) {
+		t.Errorf("ComposePrompt() should not wrap a failed file: %q", prompt)
+	}
+}
+
+func TestDecodeText(t *testing.T) {
+	tests := []struct {
+		name    string
+		content []byte
+		want    string
+	}{
+		{"UTF-8 with BOM", append([]byte{0xEF, 0xBB, 0xBF}, []byte("Xin chào")...), "Xin chào"},
+		{"UTF-16LE with BOM", []byte{0xFF, 0xFE, 0x58, 0x00, 0x69, 0x00, 0x6E, 0x00}, "Xin"},
+		{"UTF-16BE with BOM", []byte{0xFE, 0xFF, 0x00, 0x58, 0x00, 0x69, 0x00, 0x6E}, "Xin"},
+		{"UTF-16LE without BOM", []byte{0x58, 0x00, 0x69, 0x00, 0x6E, 0x00, 0x0A, 0x00}, "Xin\n"},
+		{"Windows-1252", []byte{0x93, 'H', 'i', 0x94}, "“Hi”"},
 	}
 
-	if gotEmpty := ComposePrompt("", nil); gotEmpty != "" {
-		t.Errorf("ComposePrompt empty = %q, want empty", gotEmpty)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, encoding := DecodeText(tt.content)
+			if got != tt.want {
+				t.Errorf("DecodeText() = %q (encoding %s), want %q", got, encoding, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeFileName(t *testing.T) {
+	got := SanitizeFileName("phan cong CM HK 2. 25-26 ( Lần 2).XLS")
+	if strings.ContainsAny(got, " ()") {
+		t.Errorf("SanitizeFileName() = %q, want a shell-safe name", got)
+	}
+	if !strings.HasSuffix(got, ".xls") {
+		t.Errorf("SanitizeFileName() = %q, want the .xls extension preserved", got)
+	}
+	if !strings.Contains(got, "Lần") {
+		t.Errorf("SanitizeFileName() = %q, want Vietnamese letters preserved", got)
+	}
+	if blank := SanitizeFileName("   "); blank != "attachment.bin" {
+		t.Errorf("SanitizeFileName(blank) = %q, want attachment.bin", blank)
 	}
 }

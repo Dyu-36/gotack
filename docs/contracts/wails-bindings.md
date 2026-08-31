@@ -57,16 +57,53 @@ workspace attachment must keep this documented here and in `README.md`.
 | `RenameSession(id, title)` | `SessionInfo` | Persisted via engine PUT. |
 | `DeleteSession(id)` | `error` | UI selects another session afterwards. |
 | `SwitchSession(id)` | `error` | Advisory current-session update. |
-| `SessionMessages(id)` | `MessageInfo[]` | History replay includes `model`, `provider`, attachment metadata, and image content so selecting or restoring a conversation reapplies its latest model and restores file/image chips; live updates come from events. |
-| `SendPrompt(id, text, attachments)` | `runID`, `error` | Starts one agent turn after workspace/session/model readiness. `attachments` is `PromptAttachment[]`; each file is limited to 5 MiB and forwarded to Crush's native attachment contract. |
+| `SessionMessages(id)` | `MessageInfo[]` | History replay includes `model`, `provider`, attachment metadata, image content, and `tool_calls`, so selecting or restoring a conversation reapplies its latest model, restores file/image chips, and rebuilds tool rows; live updates come from events. |
+| `SendPrompt(id, text, attachments)` | `runID`, `error` | Starts one agent turn after workspace/session/model readiness. `attachments` is `PromptAttachment[]`; each file is limited to 5 MiB. Text extracted from a file travels inside the prompt text; only bytes the model consumes natively (vision images) are forwarded as Crush attachments. |
 | `CancelPrompt(id)` | `error` | Interrupts the running turn. |
+| `PickPromptFiles()` | `PromptFilePick[]`, `error` | Native multi-file picker. Returns `{file_name, mime_type, size, path}` per file; empty on cancel. The webview never reads the bytes. |
+| `AttachmentLimits()` | `AttachmentLimitsInfo` | `{max_bytes, max_derived_lines, max_derived_bytes}` from `internal/appconfig`, so the composer enforces the same cap as the host. |
 
-`PromptAttachment`: `{file_name, mime_type?, content}` where `content` is standard base64.
+`PromptAttachment`: `{file_name, mime_type?, content?, path?}`. `content` is
+standard base64 (upload or pasted image); `path` is an absolute host path for a
+file chosen with `PickPromptFiles()`, dropped on the window, or written in the
+prompt as an `@[C:\dir\file.xlsx]` tag. Exactly one of the two is required and
+`path` wins when both are sent, so a multi-megabyte spreadsheet never crosses the
+webview as base64. `SendPrompt` removes `@[...]` and `@"..."` tags from the
+visible text and turns each one into an attachment.
 When `text` is empty but attachments are provided, the backend automatically composes
 a Vietnamese review prompt ("Hãy xem và xử lý tệp/các tệp đính kèm sau:").
 `MessageInfo.attachments[]`: `{file_name, mime_type, size, content?}`. The UI
 file picker accepts multiple files; pasting clipboard image data into the
 composer adds the image to the same pending attachment list.
+`MessageInfo.tool_calls[]`: `{id, name, input?, finished}`. Replay reuses the
+same `tool:<id>` row identity as the `tool:activity` event so reloaded history
+and a live stream converge instead of duplicating rows. Assistant rows with
+empty `text` are tool-only agent steps and must not be rendered as bubbles.
+
+Attachment handling is fail-soft: a file that cannot be decoded, converted, or
+extracted becomes a warning line inside the prompt and never aborts the turn.
+Each accepted file is saved under `%APPDATA%/gotack/attachments/<hash>/<name>`
+and wrapped in the prompt as
+`<gotack-attachment name mime size path>...</gotack-attachment>`; `SessionMessages`
+parses those markers back out, so replayed prompts show clean text plus chips.
+Legacy binary formats (`.xls`, `.doc`, `.ppt`, OpenDocument) are converted to
+OOXML through LibreOffice `soffice` or, if absent, Microsoft Office COM before
+extraction; when neither is available the file still reaches the model as a
+path with instructions to use the `office_read` tool.
+
+PDF text is extracted with `pdftotext`, then LibreOffice, then Word COM; when
+none of them is installed the file still reaches the model as a path plus a
+warning line. The attachment cache is trimmed once per launch (`OnStartup` calls
+`attachments.PruneCache`): entries older than 14 days go first, then the oldest
+remaining entries until the cache fits its size budget. There is no background
+sweeper, and the UI no longer polls run state -- conversation status comes from
+`session:done` plus one reconcile before the next send.
+
+### Files dropped on the window
+
+`main.go` enables Wails file drop and the host emits `prompt:files` with
+`PromptFilePick[]` when files land on the window. The webview renders chips from
+that metadata only; the bytes stay on disk until `SendPrompt` reads them.
 
 ### Approvals
 

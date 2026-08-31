@@ -4,11 +4,13 @@ import {
   on,
   type EngineInfo,
   type PermissionRequestPayload as Envelope,
+  type PromptFilePick,
   type QuestionRequestEvent,
   type SessionDeltaEvent,
   type SessionDoneEvent,
   type ToolActivityEvent,
 } from '../../platform/desktop'
+import { setAttachmentLimit } from './attachments'
 import { applyDelta } from './merge-delta'
 import { ChatMessage, type Conversation, type ReasoningEffort } from './types.svelte'
 import { catalog } from './catalog.svelte'
@@ -31,10 +33,16 @@ export type EngineDeps = {
   thinking: { value: ReasoningEffort }
   apiKey: { value: string }
   customUrl: { value: string }
+  // activeId scopes streaming state to the conversation on screen.
+  activeId: { value: string }
   reportError: (cause: unknown, prefix?: string) => void
   clearError: () => void
   updateConversation: (id: string, fn: (c: Conversation) => Conversation) => void
   ensureWorkspace: () => Promise<void>
+  // Replaces streamed text with the authoritative snapshot when a run ends.
+  reloadMessages: (id: string) => Promise<unknown>
+  // Receives prompt:files, emitted when the OS drops files on the window.
+  attachPaths: (picks: PromptFilePick[]) => void
 }
 
 export function createEngineState(deps: EngineDeps) {
@@ -149,7 +157,9 @@ export function createEngineState(deps: EngineDeps) {
           c.updatedAt = Date.now()
           return c
         })
-        deps.streamingText.value = event.text
+        // Only the conversation on screen may drive the streaming indicator;
+        // background sessions used to leak their text into the open one.
+        if (event.session_id === deps.activeId.value) deps.streamingText.value = event.text
       }),
       on<ToolActivityEvent>(events.toolActivity, (event) => {
         deps.updateConversation(event.session_id, (c) => {
@@ -178,11 +188,19 @@ export function createEngineState(deps: EngineDeps) {
       }),
       on<SessionDoneEvent>(events.sessionDone, (event) => {
         deps.updateConversation(event.session_id, (c) => ({ ...c, status: 'idle', updatedAt: Date.now() }))
-        deps.streamingText.value = ''
+        if (event.session_id === deps.activeId.value) {
+          deps.streamingText.value = ''
+          // Re-read history so tool rows settle into their finished state and
+          // text-less agent steps disappear instead of lingering as bubbles.
+          void deps.reloadMessages(event.session_id)
+        }
         if (event.error) deps.reportError(event.error, 'Agent run')
       }),
       on<Envelope>(events.permissionRequest, (event) => (deps.permission.value = event)),
       on<QuestionRequestEvent>(events.questionRequest, (event) => (deps.question.value = event)),
+      // Files dropped on the window: the host already resolved their paths, so
+      // the composer shows chips without reading a byte in the webview.
+      on<PromptFilePick[]>(events.promptFiles, (picks) => deps.attachPaths(picks ?? [])),
     )
   }
 
@@ -239,6 +257,10 @@ export function createEngineState(deps: EngineDeps) {
       return
     }
     subscribe()
+    // The size cap lives in Go (internal/appconfig). Mirror it so the composer
+    // rejects an oversize upload with the exact number the host enforces.
+    const limits = await desktop.attachmentLimits().catch(() => null)
+    if (limits?.max_bytes) setAttachmentLimit(limits.max_bytes)
     await loadSettings()
     try {
       let status = await desktop.startEngine()

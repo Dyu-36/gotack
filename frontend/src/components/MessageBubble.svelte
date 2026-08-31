@@ -135,7 +135,9 @@
       </div>
     </div>
   </div>
-{:else if message.role === 'assistant'}
+<!-- An assistant row with no text is a tool-only agent step: render nothing
+     instead of an avatar bubble with an empty body. -->
+{:else if message.role === 'assistant' && (message.content.trim() || isStreaming)}
   <div class="flex items-start gap-3 mb-5 group animate-fade-in">
     <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
       <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
