@@ -17,6 +17,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
+	"github.com/Dyu-36/gotack/internal/reflection"
 	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/terminal"
@@ -70,6 +71,10 @@ type App struct {
 	// internal (no UI surface this phase) and outlives engine reconnects:
 	// readiness is pushed to it from the connection flow.
 	scheduler *schedule.Scheduler
+	// reflection is the Phase 6 learning-loop gate (internal/reflection). It
+	// is host internal (no UI surface this phase): gates open on run_complete
+	// and session deletion, and the tracker fires one bounded engine run.
+	reflection *reflection.Tracker
 
 	conn atomic.Pointer[conn]
 }
@@ -147,6 +152,10 @@ func (a *App) startup(ctx context.Context) {
 	// The scheduler is independent from any single engine connection; it
 	// waits for readiness pushed by the connection flow before firing.
 	a.startScheduler()
+
+	// The reflection loop consumes run completions through RunDone and needs
+	// no loop of its own; constructing the tracker performs no I/O.
+	a.startReflection()
 
 	// The terminal service lives in the conn so a stop/start cycle can
 	// re-attach to a fresh engine; constructing it performs no I/O and the
@@ -300,14 +309,18 @@ func (a *App) workspacePath() string {
 
 // RunDone implements uievents.DoneSink: completed agent runs are routed to
 // the Zalo manager, which decides which chat (if any) receives the answer,
-// and to the scheduler, which books the outcome of scheduled runs from the
-// run_complete SSE event (never by polling).
+// to the scheduler, which books the outcome of scheduled runs from the
+// run_complete SSE event (never by polling), and to the reflection tracker,
+// which applies the Phase 6 turn gate and recursion guard to the same event.
 func (a *App) RunDone(done uievents.SessionDonePayload) {
 	if a.zalo != nil {
 		a.zalo.Done(done.SessionID, done.Text)
 	}
 	if a.scheduler != nil {
 		a.scheduler.RecordOutcome(done.SessionID, done.Error, done.Cancelled)
+	}
+	if a.reflection != nil && a.reflection.SessionDone(done.SessionID, done.Error, done.Cancelled) {
+		a.triggerReflection(done.SessionID)
 	}
 }
 

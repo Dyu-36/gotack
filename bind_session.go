@@ -153,12 +153,16 @@ func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 }
 
 // DeleteSession removes the session from Crush. If it was current, the UI
-// selects another session and calls SwitchSession afterwards.
+// selects another session and calls SwitchSession afterwards. Session
+// deletion is also the Phase 6 session-end reflection trigger; the gate
+// runs BEFORE the delete so the reflection run can still read the source
+// conversation, and a refused gate never blocks the delete.
 func (a *App) DeleteSession(id string) error {
 	svc, err := a.services()
 	if err != nil {
 		return err
 	}
+	a.sessionEnded(id)
 	return svc.sess.Delete(a.ctx, id)
 }
 
