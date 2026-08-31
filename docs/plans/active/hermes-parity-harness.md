@@ -838,11 +838,36 @@ Phase 4 — approvals:
 
 Phase 5 — scheduling:
 
-- [ ] `internal/schedule/` with `<configDir>/schedule.json` persistence.
-- [ ] Runs created through `internal/crushapi`; outcomes read from SSE.
-- [ ] Failure-nudge threshold and preflight guard.
-- [ ] `bind_schedule.go`, `desktop.ts`, and `wails-bindings.md` in one change.
-- [ ] Unattended approval policy defined (5.4).
+- [x] `internal/schedule/` with `<configDir>/schedule.json` persistence.
+      Evidence: `internal/schedule/{job,budget,scheduler}.go` wired in
+      `schedule_host.go`; atomic temp+rename writes matching the zalo.json
+      precedent, proven by `TestFileRoundTrip`, `TestSaveFileIsAtomicAndClean`
+      and `TestIntervalGuardSurvivesRestart` (WP7 gate `wp7-test.txt`).
+- [x] Runs created through `internal/crushapi`; outcomes read from SSE.
+      Evidence: a firing is create session → mark unattended → send prompt
+      over the same `internal/session` path the UI uses
+      (`TestFireMarksUnattendedBeforeSend`); outcomes arrive from
+      `run_complete` via `App.RunDone` → `Scheduler.RecordOutcome`
+      (`TestRunOutcomesFromSSE`) — no polling anywhere in the package.
+- [x] Failure-nudge threshold and preflight guard.
+      Evidence: 3 consecutive failures (launch failures or run errors)
+      disable the job with a legible reason
+      (`TestConsecutiveLaunchFailuresDisableJob`,
+      `TestRunErrorsDisableAfterThreshold`); firings skip instead of burning
+      a failed run when no model is configured
+      (`TestPreflightSkipsWithoutCountingFailure`); a per-job hourly budget
+      caps launches (`TestBudgetCapsFiringsPerHour`).
+- [x] ~~`bind_schedule.go`, `desktop.ts`, and `wails-bindings.md` in one
+      change.~~ Superseded by the WP7 work order: Phase 5 has no UI surface,
+      so the scheduler stays host-internal with no bound methods (hard rule 8
+      forbids bound methods nothing consumes). `schedule_host.go` wires the
+      lifecycle; the deviation is recorded in the WP7 report.
+- [x] Unattended approval policy defined (5.4).
+      Evidence: every scheduled session is recorded in the unattended roster
+      BEFORE the prompt runs and a failed mark aborts the firing
+      (`TestFailedMarkAbortsSend`); the guard then denies ask-tier calls
+      with rule `unattended-approval` instead of hanging. Contract:
+      `docs/contracts/gotack-schedule.md`.
 
 Phase 6 — learning loop:
 
