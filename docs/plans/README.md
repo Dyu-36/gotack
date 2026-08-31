@@ -30,4 +30,6 @@ decision into `docs/decisions/`; keep task-local choices in the plan.
 
 ## Active Plans
 
-No active execution plans are currently indexed.
+- [`cleanup-dead-code-and-doc-drift.md`](active/cleanup-dead-code-and-doc-drift.md)
+  — remove dead state and duplicated blocks in `package main`, and finish
+  closing the gap between the docs and the code.
