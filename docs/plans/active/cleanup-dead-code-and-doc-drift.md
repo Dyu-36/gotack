@@ -1,33 +1,48 @@
 # Cleanup: dead state, duplicated blocks, documentation drift
 
-Status: active. Opened 2026-08-31 against `552225ee`.
+Status: applied. Opened 2026-08-31 against `552225ee`; the code half was
+executed the same day on branch `chore/cleanup-and-refactor-2026-08-31`.
 
 ## Goal
 
 Remove state the host accepts and then discards, collapse blocks that are
 duplicated verbatim, and keep the documentation reconcilable with the code.
-The documentation half is already applied; the code half is scoped here so it
-can be done in reviewable steps rather than one sweeping refactor.
 
-## Verification method, and its limits
+## Verification method
 
-This audit was a read-only pass over the files listed as evidence below, at ref
-`552225ee`. It did **not** run `go build`, `go vet`, `staticcheck`, `gofmt -l`
-or `go test`, and GitHub code search had no index for this repository, so no
-repo-wide symbol search was possible.
+The first pass was read-only over the files listed as evidence below. It did
+**not** run `go build`, `go vet`, `staticcheck`, `gofmt -l` or `go test`, and
+GitHub code search had no index for this repository, so every "never read" or
+"unused" claim in that pass was a static reading rather than a tool result.
 
-Every "never read" or "unused" claim below is therefore a static reading of the
-named files, not a tool-verified result. Before deleting anything, confirm with:
+The code half was then executed on a local checkout with the toolchain
+available, so the removals below are now tool-verified:
 
 ```sh
-gofmt -l .
-go vet ./...
-go build ./...
-grep -rn "<symbol>" --include="*.go" .
+gofmt -l $(git ls-files '*.go')   # empty
+go build ./...                    # ok
+go vet ./...                      # ok
+go test ./...                     # every package ok
+staticcheck ./...                 # only the intentional ST1005 findings remain
+deadcode -test ./...              # empty
+pnpm --dir frontend check         # 0 errors, 0 warnings
+pnpm --dir frontend build         # ok
+actionlint                        # clean
 ```
 
-Items marked **verified by reading** are safe to trust for review purposes
-because the write site and the absence of a read site are in the same file.
+Two corrections to the first pass, recorded so the earlier numbers are not
+quoted again:
+
+- The `gofmt -l .` count of 22 files was an artifact of a CRLF working tree, not
+  formatting debt. Re-checked against an LF export, the real set was 9 files.
+  `.gitattributes` now pins the tree to LF so the number cannot drift again.
+- `bind_zalo.go` was reported as having misaligned struct tags. Its actual
+  defect was mixed line endings; the only genuine alignment hunk was in
+  `app.go` (`zalo` / `officeSeeder` fields).
+
+Also corrected: `go build` caught one reference to the removed `conn.attachCtx`
+field in `bind_engine.go` that the read-only pass had missed, which is exactly
+why the gates above are run rather than trusted by inspection.
 
 ## A. Dead state and dead configuration
 
