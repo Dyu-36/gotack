@@ -65,13 +65,14 @@
           onInput={conversations.setInput}
           onSend={() => void conversations.send()}
           onAttachFiles={(files) => conversations.attachFiles(files)}
+          onPickFiles={conversations.hasFilePicker ? () => conversations.pickFiles() : undefined}
           onRemoveAttachment={(id) => conversations.removeAttachment(id)}
           onStop={() => void conversations.cancel()}
           onOpenSidebar={() => (sidebarOpen = true)}
           onOpenSettings={() => (settingsOpen = true)}
           onRenameSession={(title) => void conversations.rename(conversations.activeId, title)}
           onPickWorkspace={pickWorkspace}
-          onSelectModel={(id, label, providerId, type) => conversations.setModel(id, label, providerId, type)}
+          onSelectModel={(id, label, providerId) => conversations.setModel(id, label, providerId)}
           onSelectThinking={(value) => conversations.setThinking(value)}
         />
       </div>

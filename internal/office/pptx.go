@@ -1,10 +1,10 @@
 package office
 
 import (
-	"strconv"
 	"encoding/xml"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -13,11 +13,6 @@ import (
 // shape per content block) so generated decks open without a template file.
 
 var drawingTextPattern = regexp.MustCompile(`(<a:t(?:\s[^>]*)?>)(.*?)(</a:t>)`)
-
-type pptxPart struct {
-	Name    string
-	Content string
-}
 
 // pptxSlideTexts returns the concatenated shape text of each slide, slides in
 // presentation order.
@@ -294,5 +289,3 @@ func pptxSkeleton(slideCount int) map[string]string {
 			`<a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`,
 	}
 }
-
-

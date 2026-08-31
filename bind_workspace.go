@@ -41,6 +41,37 @@ func (a *App) ListRecentWorkspaces() []string {
 	return out
 }
 
+// rebindWorkspaceRuntime re-points every workspace-scoped runtime at
+// workspaceID: it swaps the SSE attach scope (cancelling the previous one),
+// drops the Zalo chat-to-session mappings that belonged to the old workspace,
+// and re-registers the bundled Office MCP server.
+//
+// Both activation paths below need exactly this sequence. They previously
+// inlined two byte-identical copies, which is how they drifted away from
+// replaceWorkspaceStream in bind_engine.go without anything failing loudly.
+// Note it is NOT the same as replaceWorkspaceStream: that helper returns an
+// error and cancels on attach failure, while these paths route failure through
+// transportLost. Collapsing them would change reconnect behaviour.
+func (a *App) rebindWorkspaceRuntime(workspaceID string) {
+	var cancel context.CancelFunc
+	var streamCtx context.Context
+	if a.getConn() != nil {
+		a.swapConn(func(c *conn) *conn {
+			cancel = c.cancelStream
+			streamCtx, c.cancelStream = context.WithCancel(a.ctx)
+			return c
+		})
+	}
+	if cancel != nil {
+		cancel()
+	}
+	if streamCtx != nil {
+		a.startStream(streamCtx, workspaceID)
+	}
+	a.resetZaloSessions()
+	a.registerOfficeTools(workspaceID)
+}
+
 // activateWorkspace makes a Crush workspace current, forces permission prompts
 // off, switches the event stream, and wires workspace-scoped integrations.
 func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool) (WorkspaceInfo, error) {
@@ -57,24 +88,7 @@ func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool)
 	if remember && a.cfg != nil {
 		appconfig.AddRecentWorkspace(a.cfg, desc.Path)
 	}
-
-	var cancel context.CancelFunc
-	var streamCtx context.Context
-	if a.getConn() != nil {
-		a.swapConn(func(c *conn) *conn {
-			cancel = c.cancelStream
-			streamCtx, c.cancelStream = context.WithCancel(a.ctx)
-			return c
-		})
-	}
-	if cancel != nil {
-		cancel()
-	}
-	if streamCtx != nil {
-		a.startStream(streamCtx, desc.WorkspaceID)
-	}
-	a.resetZaloSessions()
-	a.registerOfficeTools(desc.WorkspaceID)
+	a.rebindWorkspaceRuntime(desc.WorkspaceID)
 
 	return WorkspaceInfo{
 		Path:        desc.Path,
@@ -88,13 +102,11 @@ func (a *App) reapplySavedWorkspaceSettings() {
 		return
 	}
 	saved := SettingsInfo{
-		Theme:           a.cfg.Theme,
-		AutostartEngine: a.cfg.AutostartEngine,
-		Provider:        a.cfg.Provider,
-		Model:           a.cfg.Model,
-		SmallModel:      a.cfg.SmallModel,
-		Thinking:        a.cfg.Thinking,
-		CustomURL:       a.cfg.CustomURL,
+		Theme:     a.cfg.Theme,
+		Provider:  a.cfg.Provider,
+		Model:     a.cfg.Model,
+		Thinking:  a.cfg.Thinking,
+		CustomURL: a.cfg.CustomURL,
 	}
 	// Credentials are owned by Crush and are intentionally not replayed here.
 	if err := a.applyCrushSettings(saved, ""); err != nil && a.log != nil {
@@ -116,24 +128,7 @@ func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, er
 	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
 		return WorkspaceInfo{}, err
 	}
-
-	var cancel context.CancelFunc
-	var streamCtx context.Context
-	if a.getConn() != nil {
-		a.swapConn(func(c *conn) *conn {
-			cancel = c.cancelStream
-			streamCtx, c.cancelStream = context.WithCancel(a.ctx)
-			return c
-		})
-	}
-	if cancel != nil {
-		cancel()
-	}
-	if streamCtx != nil {
-		a.startStream(streamCtx, desc.WorkspaceID)
-	}
-	a.resetZaloSessions()
-	a.registerOfficeTools(desc.WorkspaceID)
+	a.rebindWorkspaceRuntime(desc.WorkspaceID)
 
 	return WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: true}, nil
 }

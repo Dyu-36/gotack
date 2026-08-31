@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -32,14 +33,30 @@ type MessageInfo struct {
 	Provider    string           `json:"provider"`
 	CreatedAt   int64            `json:"created_at"`
 	Attachments []AttachmentInfo `json:"attachments,omitempty"`
+	ToolCalls   []ToolCallInfo   `json:"tool_calls,omitempty"`
 }
 
-// PromptAttachment is the JSON shape accepted from the composer. Content is
-// base64 so Wails does not need to coerce browser ArrayBuffers into Go bytes.
+// ToolCallInfo is a replayed tool call. Crush stores one assistant row per
+// agent step, so replay needs these to rebuild the tool rows the UI shows live
+// through tool:activity instead of leaving empty assistant bubbles behind.
+type ToolCallInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Input    string `json:"input,omitempty"`
+	Finished bool   `json:"finished"`
+}
+
+// PromptAttachment is the JSON shape accepted from the composer. An upload
+// arrives as base64 Content so Wails need not coerce browser ArrayBuffers into
+// Go bytes. A file chosen through the native picker, dropped on the window or
+// written as an @[path] tag arrives as Path instead and the host reads the bytes
+// itself, which keeps multi-megabyte files out of the webview. Exactly one of
+// the two fields is required; Path wins when both are present.
 type PromptAttachment struct {
 	FileName string `json:"file_name"`
 	MimeType string `json:"mime_type,omitempty"`
-	Content  string `json:"content"`
+	Content  string `json:"content,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
 // AttachmentInfo is attachment metadata returned with replayed messages.
@@ -50,8 +67,6 @@ type AttachmentInfo struct {
 	Size     int    `json:"size"`
 	Content  string `json:"content,omitempty"`
 }
-
-const maxPromptAttachmentSize = 5 * 1024 * 1024
 
 // setCurrentSession marks sessionID as this client's active session. Crush
 // requires a live workspace SSE subscription for presence; if that stream was
@@ -199,11 +214,22 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 		return "", fmt.Errorf("prepare prompt event stream: %w", err)
 	}
 	supportsVision := a.isCurrentModelVision()
-	attachments, err := decodePromptAttachments(input, supportsVision)
-	if err != nil {
-		return "", err
+	// An @[C:\path\file.xlsx] tag used to reach the model as literal text, so the
+	// agent answered about a path it could not read. Expand the tags into real
+	// attachments and remove them from the visible prompt.
+	prompt, tagged := attachments.FileTags(text)
+	// Fail-soft: an unreadable file becomes a warning inside the prompt rather
+	// than aborting the whole turn.
+	prepared := decodePromptAttachments(input, supportsVision)
+	for _, path := range tagged {
+		item, prepErr := attachments.PrepareFile(path, supportsVision)
+		if prepErr != nil {
+			prepared = append(prepared, attachments.Failed(filepath.Base(path), prepErr.Error()))
+			continue
+		}
+		prepared = append(prepared, item)
 	}
-	return svc.sess.SendWithAttachments(a.ctx, id, text, attachments)
+	return svc.sess.SendWithAttachments(a.ctx, id, prompt, prepared)
 }
 
 // CancelPrompt interrupts the running turn.
@@ -215,54 +241,106 @@ func (a *App) CancelPrompt(id string) error {
 	return svc.sess.Cancel(a.ctx, id)
 }
 
+// maxToolInputPreview bounds replayed tool arguments; the UI renders them as a
+// single truncated line.
+const maxToolInputPreview = 240
+
 func toMessageInfo(m crushapi.Message) MessageInfo {
+	// File payloads travel as <gotack-attachment> markers inside the prompt, so
+	// strip them back out for display and rebuild the chips from their metadata.
+	text, refs := attachments.ParseAttachmentBlocks(crushapi.ExtractText(m.Parts))
 	info := MessageInfo{
 		ID:        m.ID,
 		Role:      string(m.Role),
-		Text:      crushapi.ExtractText(m.Parts),
+		Text:      text,
 		Model:     m.Model,
 		Provider:  m.Provider,
 		CreatedAt: m.CreatedAt,
+	}
+	for _, ref := range refs {
+		info.Attachments = append(info.Attachments, AttachmentInfo{
+			FileName: ref.FileName,
+			MimeType: ref.MimeType,
+			Size:     ref.Size,
+		})
 	}
 	for _, attachment := range crushapi.ExtractAttachments(m.Parts) {
 		content := ""
 		if strings.HasPrefix(attachment.MimeType, "image/") {
 			content = base64.StdEncoding.EncodeToString(attachment.Content)
 		}
+		// Older messages stored derived text as the attachment body, so prefer
+		// the real size on disk over the length of that note.
+		size := len(attachment.Content)
+		if stat, err := os.Stat(attachment.FilePath); err == nil {
+			size = int(stat.Size())
+		}
 		info.Attachments = append(info.Attachments, AttachmentInfo{
 			FileName: filepath.Base(attachment.FileName),
 			MimeType: attachment.MimeType,
-			Size:     len(attachment.Content),
+			Size:     size,
 			Content:  content,
+		})
+	}
+	for _, call := range crushapi.ExtractToolCalls(m.Parts) {
+		// ToolCall.Input is raw JSON; the UI renders it as a text preview.
+		input := string(call.Input)
+		if runes := []rune(input); len(runes) > maxToolInputPreview {
+			input = string(runes[:maxToolInputPreview]) + "…"
+		}
+		info.ToolCalls = append(info.ToolCalls, ToolCallInfo{
+			ID:       call.ID,
+			Name:     call.Name,
+			Input:    input,
+			Finished: call.Finished,
 		})
 	}
 	return info
 }
 
-func decodePromptAttachments(input []PromptAttachment, supportsVision bool) ([]crushapi.Attachment, error) {
-	out := make([]crushapi.Attachment, 0, len(input))
+// decodePromptAttachments turns composer uploads into prepared attachments.
+// A file that cannot be decoded or extracted degrades into a warning carried
+// inside the prompt, so one unreadable file never drops the rest of the turn.
+func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
+	const sizeLimit = "vượt quá giới hạn 5 MB"
+	out := make([]attachments.Prepared, 0, len(input))
 	for i, item := range input {
 		name := filepath.Base(strings.TrimSpace(item.FileName))
 		if name == "" || name == "." {
-			return nil, fmt.Errorf("attachment %d: file name is required", i+1)
+			name = fmt.Sprintf("attachment-%d.bin", i+1)
 		}
-		if len(item.Content) > base64.StdEncoding.EncodedLen(maxPromptAttachmentSize) {
-			return nil, fmt.Errorf("attachment %q exceeds the 5 MB limit", name)
+		// A path send carries no body: the host reads the file itself, which is
+		// how a picked, dropped or @[tagged] file avoids base64 entirely.
+		if item.Path != "" {
+			prepared, err := attachments.PrepareFile(item.Path, supportsVision)
+			if err != nil {
+				out = append(out, attachments.Failed(name, err.Error()))
+				continue
+			}
+			out = append(out, prepared)
+			continue
+		}
+		if len(item.Content) > base64.StdEncoding.EncodedLen(attachments.MaxAttachmentSize) {
+			out = append(out, attachments.Failed(name, sizeLimit))
+			continue
 		}
 		content, err := base64.StdEncoding.DecodeString(item.Content)
 		if err != nil {
-			return nil, fmt.Errorf("attachment %q has invalid content: %w", name, err)
+			out = append(out, attachments.Failed(name, "nội dung tải lên không hợp lệ"))
+			continue
 		}
-		if len(content) > maxPromptAttachmentSize {
-			return nil, fmt.Errorf("attachment %q exceeds the 5 MB limit", name)
+		if len(content) > attachments.MaxAttachmentSize {
+			out = append(out, attachments.Failed(name, sizeLimit))
+			continue
 		}
-		att, err := attachments.ProcessWithModel(name, item.MimeType, content, supportsVision)
+		prepared, err := attachments.Prepare(name, item.MimeType, content, supportsVision)
 		if err != nil {
-			return nil, fmt.Errorf("attachment %q: %w", name, err)
+			out = append(out, attachments.Failed(name, err.Error()))
+			continue
 		}
-		out = append(out, att)
+		out = append(out, prepared)
 	}
-	return out, nil
+	return out
 }
 
 // toSessionInfo maps a Crush session row to the Wails-bound shape.

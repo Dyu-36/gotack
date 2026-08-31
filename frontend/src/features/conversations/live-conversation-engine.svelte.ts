@@ -4,17 +4,19 @@ import {
   on,
   type EngineInfo,
   type PermissionRequestPayload as Envelope,
+  type PromptFilePick,
   type QuestionRequestEvent,
   type SessionDeltaEvent,
   type SessionDoneEvent,
   type ToolActivityEvent,
 } from '../../platform/desktop'
+import { setAttachmentLimit } from './attachments'
 import { applyDelta } from './merge-delta'
-import { ChatMessage, type Conversation, type ModelType, type ReasoningEffort } from './types.svelte'
+import { ChatMessage, type Conversation, type ReasoningEffort } from './types.svelte'
 import { catalog } from './catalog.svelte'
 
 const RECONNECT_MAX_MS = 30_000
-type SettingsPayload = { theme: string; autostart_engine: boolean; provider: string; credential_provider?: string; provider_only?: boolean; model: string; small_model: string; thinking: string; api_key: string; custom_url: string }
+type SettingsPayload = { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }
 
 
 export type EngineDeps = {
@@ -28,15 +30,19 @@ export type EngineDeps = {
   provider: { value: string }
   model: { value: string }
   modelLabel: { value: string }
-  smallModel: { value: string }
   thinking: { value: ReasoningEffort }
   apiKey: { value: string }
   customUrl: { value: string }
-  autostartEngine: { value: boolean }
+  // activeId scopes streaming state to the conversation on screen.
+  activeId: { value: string }
   reportError: (cause: unknown, prefix?: string) => void
   clearError: () => void
   updateConversation: (id: string, fn: (c: Conversation) => Conversation) => void
   ensureWorkspace: () => Promise<void>
+  // Replaces streamed text with the authoritative snapshot when a run ends.
+  reloadMessages: (id: string) => Promise<unknown>
+  // Receives prompt:files, emitted when the OS drops files on the window.
+  attachPaths: (picks: PromptFilePick[]) => void
 }
 
 export function createEngineState(deps: EngineDeps) {
@@ -151,7 +157,9 @@ export function createEngineState(deps: EngineDeps) {
           c.updatedAt = Date.now()
           return c
         })
-        deps.streamingText.value = event.text
+        // Only the conversation on screen may drive the streaming indicator;
+        // background sessions used to leak their text into the open one.
+        if (event.session_id === deps.activeId.value) deps.streamingText.value = event.text
       }),
       on<ToolActivityEvent>(events.toolActivity, (event) => {
         deps.updateConversation(event.session_id, (c) => {
@@ -180,11 +188,19 @@ export function createEngineState(deps: EngineDeps) {
       }),
       on<SessionDoneEvent>(events.sessionDone, (event) => {
         deps.updateConversation(event.session_id, (c) => ({ ...c, status: 'idle', updatedAt: Date.now() }))
-        deps.streamingText.value = ''
+        if (event.session_id === deps.activeId.value) {
+          deps.streamingText.value = ''
+          // Re-read history so tool rows settle into their finished state and
+          // text-less agent steps disappear instead of lingering as bubbles.
+          void deps.reloadMessages(event.session_id)
+        }
         if (event.error) deps.reportError(event.error, 'Agent run')
       }),
       on<Envelope>(events.permissionRequest, (event) => (deps.permission.value = event)),
       on<QuestionRequestEvent>(events.questionRequest, (event) => (deps.question.value = event)),
+      // Files dropped on the window: the host already resolved their paths, so
+      // the composer shows chips without reading a byte in the webview.
+      on<PromptFilePick[]>(events.promptFiles, (picks) => deps.attachPaths(picks ?? [])),
     )
   }
 
@@ -212,7 +228,6 @@ export function createEngineState(deps: EngineDeps) {
     if (providerID && modelID) {
       deps.provider.value = providerID
       deps.model.value = modelID
-      deps.smallModel.value = modelID
     }
     if (deps.provider.value) deps.modelLabel.value = catalog.modelName(deps.model.value, deps.provider.value) ?? deps.model.value
     const normalized = normalizeThinkingForModel(deps.thinking.value)
@@ -225,12 +240,8 @@ export function createEngineState(deps: EngineDeps) {
     const s = await desktop.getSettings().catch(() => null)
     if (!s) return
     if (s.provider) deps.provider.value = s.provider
-    if (s.model) {
-      deps.model.value = s.model
-      deps.smallModel.value = s.model
-    }
+    if (s.model) deps.model.value = s.model
     if (s.thinking) deps.thinking.value = s.thinking as ReasoningEffort
-    deps.autostartEngine.value = s.autostart_engine
     deps.apiKey.value = ''
     deps.customUrl.value = s.custom_url ?? ''
     if (catalog.status === 'ready') void applyLoadedSelection()
@@ -246,6 +257,10 @@ export function createEngineState(deps: EngineDeps) {
       return
     }
     subscribe()
+    // The size cap lives in Go (internal/appconfig). Mirror it so the composer
+    // rejects an oversize upload with the exact number the host enforces.
+    const limits = await desktop.attachmentLimits().catch(() => null)
+    if (limits?.max_bytes) setAttachmentLimit(limits.max_bytes)
     await loadSettings()
     try {
       let status = await desktop.startEngine()
@@ -285,10 +300,8 @@ export function createEngineState(deps: EngineDeps) {
       if (refreshCatalog) await catalog.refresh()
       deps.provider.value = s.provider
       deps.model.value = s.model
-      deps.smallModel.value = s.model
       deps.modelLabel.value = catalog.modelName(deps.model.value, deps.provider.value) ?? deps.model.value
       deps.thinking.value = s.thinking as ReasoningEffort
-      deps.autostartEngine.value = s.autostart_engine
       deps.apiKey.value = ''
       if (!s.credential_provider || s.credential_provider === s.provider) deps.customUrl.value = s.custom_url
       deps.clearError()
@@ -303,10 +316,8 @@ export function createEngineState(deps: EngineDeps) {
     if (!deps.provider.value || !deps.model.value) return selectionApply
     const s: SettingsPayload = {
       theme: '',
-      autostart_engine: deps.autostartEngine.value,
       provider: deps.provider.value,
       model: deps.model.value,
-      small_model: deps.model.value,
       thinking: deps.thinking.value,
       api_key: '',
       custom_url: deps.customUrl.value,
@@ -318,14 +329,12 @@ export function createEngineState(deps: EngineDeps) {
     return selectionApply
   }
 
-  const setModel = (next: string, label?: string, providerID?: string, type: ModelType = 'large') => {
-    if (type === 'small') {
-      deps.smallModel.value = next
-      void queueSelection()
-      return
-    }
+  // The picker only ever selects one model. The former `type: ModelType`
+  // parameter and its `type === 'small'` branch were unreachable: Composer's
+  // pickModel is the only call site and passes three arguments, and the host
+  // pins Crush's small-model slot to the same id regardless.
+  const setModel = (next: string, label?: string, providerID?: string) => {
     deps.model.value = next
-    deps.smallModel.value = next
     deps.modelLabel.value = label ?? catalog.modelName(next, providerID) ?? next
     if (providerID) deps.provider.value = providerID
     else {

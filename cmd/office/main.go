@@ -28,7 +28,7 @@ func main() {
 	server := &mcp.Server{
 		Name:    serverName,
 		Version: serverVersion,
-		Tools: []mcp.Tool{toolInfo(), toolRead(), toolCreate(), toolEdit()},
+		Tools:   []mcp.Tool{toolInfo(), toolRead(), toolCreate(), toolEdit()},
 	}
 	if err := server.Serve(ctx, os.Stdin, os.Stdout); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "office: %v\n", err)

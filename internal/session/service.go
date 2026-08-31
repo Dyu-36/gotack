@@ -145,7 +145,11 @@ func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
 }
 
 // SendWithAttachments submits a prompt and its inline files to the engine.
-func (s *Service) SendWithAttachments(ctx context.Context, id, text string, atts []crushapi.Attachment) (string, error) {
+//
+// Derived file text rides inside the prompt: Crush converts every attachment
+// into a binary content part, so text placed there never reaches the model.
+// Only items carrying bytes the model can consume become native attachments.
+func (s *Service) SendWithAttachments(ctx context.Context, id, text string, items []attachments.Prepared) (string, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
 		return "", err
@@ -156,9 +160,15 @@ func (s *Service) SendWithAttachments(ctx context.Context, id, text string, atts
 	if id == "" {
 		return "", errors.New("session id is required")
 	}
-	promptText := attachments.ComposePrompt(text, atts)
+	promptText := attachments.ComposePrompt(text, items)
 	if promptText == "" {
 		return "", errors.New("prompt text is required")
+	}
+	atts := make([]crushapi.Attachment, 0, len(items))
+	for _, item := range items {
+		if item.Attachment != nil {
+			atts = append(atts, *item.Attachment)
+		}
 	}
 	runID := uuid.NewString()
 	if err := s.api.SendPromptWithAttachments(ctx, wsID, id, promptText, runID, atts); err != nil {
