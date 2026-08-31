@@ -1,7 +1,11 @@
 # Cleanup: dead state, duplicated blocks, documentation drift
 
-Status: applied. Opened 2026-08-31 against `552225ee`; the code half was
-executed the same day on branch `chore/cleanup-and-refactor-2026-08-31`.
+Status: closed 2026-08-31 as history. Opened 2026-08-31 against `552225ee`;
+the code half was executed the same day on branch
+`chore/cleanup-and-refactor-2026-08-31`. A third-pass re-audit against
+`c4b8cbb` found thirteen of twenty items landed and seven still open, so the
+open items were handed to `../active/hermes-parity-harness.md`. Read the status
+ledger at the end of this file before quoting anything above it.
 
 ## Goal
 
@@ -340,3 +344,63 @@ Each step: `gofmt -l .` empty, `go vet ./...` clean, `go test ./...` green,
 modal still round-trips provider, model, thinking and credential. For C2/B2
 additionally exercise engine restart, workspace switch and transport loss, since
 `bridge_smoke_test.go` is the only automated cover for that path.
+
+## Status ledger, third pass 2026-08-31
+
+Re-audited against `c4b8cbb` with a repo-wide grep over the 114 Go files in the
+gotack module, excluding `third_party/`, `node_modules/` and `/artifacts/`. The
+original `applied` header was too strong: thirteen of twenty items landed and
+seven did not.
+
+Landed, and re-verified this pass:
+
+- A1 - no `attachCtx` field remains. The three surviving hits in
+  `bind_engine.go` are the local attach scope this plan asked for, not the
+  field.
+- A2 - `office_seed.go` no longer stores `sourceDir`; the source directory is
+  resolved at the point of use.
+- A3, A4 - `SmallModel` and `AutostartEngine` are gone from the boundary
+  (`d2320c0`). The only remaining matches are the comments in `bind_config.go`
+  and `internal/appconfig/config.go` that explain the removal, plus upstream's
+  own `DefaultSmallModelID` in the provider catalogue.
+- A5 - the `conn` comment in `app.go` now matches the struct and cites
+  `docs/plans/completed/d1-conn-pointer.md`.
+- A6 - zero references to `docs/roadmap.md` remain in Go.
+- A7 - `office_seed.go` resolves the binary name through one
+  `runtime.GOOS == "windows"` switch (`feace0b`).
+- B1 - the catalog-workspace bootstrap now exists once, at `bind_config.go:101`.
+- B3 - the Crush pin lives in `.crush-pin` and the invariant checker guards it.
+- C1, C3, D, E - bind files merged, the two non-bind root files named in the
+  layout table (their relocation still waits on C2), the `gofmt -l` gate added
+  to `ci.yml` (`85eea7e`), and the documentation corrections shipped.
+
+Still open, handed to `../active/hermes-parity-harness.md` under "Carry-over
+hygiene":
+
+- A8 - `ImportLegacy` still runs from `app.go:133` and
+  `internal/zalo/manager.go:152`, and neither field carries a deprecation
+  marker or a removal target.
+- B2 - `activateWorkspace` and `activateAssistantWorkspace` still duplicate the
+  swap, cancel, start, reset, register sequence.
+- C2 - `internal/enginelink` does not exist; `bind_engine.go` still owns the
+  state machine.
+- C4 - user-facing Vietnamese strings still sit in seven non-test files,
+  including `app.go`, `bind_files.go`, `bind_host.go`, `bind_session.go` and
+  three files under `internal/office/`.
+- C5 - `features/` still holds one feature and the placement rule is unwritten.
+  New evidence this pass: `features/conversations` is imported by five
+  components, so the directory is used, not dead.
+- C6 - `release.yml` packages neither `resources/bin/` nor the
+  `resources/context/` that Phase 1 will need.
+- F - both missing contract documents are still missing.
+
+## Result
+
+Thirteen of twenty items landed between `feace0b` and `c4b8cbb`, each behind
+the gate run recorded under "Verification method". The seven open items are not
+abandoned: they moved into the single active plan because they collide with its
+Phases 1, 2 and 5 (risk R8), and one ordering authority is better than two
+competing ones.
+
+Closed as history on 2026-08-31. Do not resume this file in place; take the
+open items from the active plan.

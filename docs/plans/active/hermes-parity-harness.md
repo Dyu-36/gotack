@@ -719,8 +719,10 @@ Phase 1 — relocate the persona:
 - [ ] `internal/contextseed/` seeds it to `<appconfig.Dir()>/context/`.
 - [ ] `options.global_context_paths` registered at workspace open.
 - [ ] `options.skills_paths` merges instead of overwriting.
-- [ ] Vendored patch disposed per 1.4 (all eleven paths); `third_party/crush`
-      checkout clean.
+- [x] Vendored patch disposed per 1.4 (all eleven paths); `third_party/crush`
+      checkout clean, verified 2026-08-31 by an empty `git status --porcelain`.
+      Step 1.1 must now read the persona from the off-repo backup named in the
+      third pass below.
 - [ ] Parity test moved into the gotack module, including the no-`{{` assertion.
 - [ ] Sage persona recorded as the known gap per 1.6 (no re-patch).
 - [ ] `release.yml` copies `resources/context` into the artifact and the ZIP.
@@ -770,6 +772,30 @@ Phase 6 — learning loop:
 - [ ] Proposals routed through the D3 approval path.
 - [ ] Skills frontmatter normalised; user and project skills directories added.
 - [ ] Skill generation deliberately deferred until memory proposals are trusted.
+
+Carry-over hygiene, inherited 2026-08-31 from the now-completed cleanup plan
+(`docs/plans/completed/cleanup-dead-code-and-doc-drift.md`). Re-audited the
+same day; thirteen of its twenty items had landed, and only these are open:
+
+- [ ] A8: mark `cfg.Zalo.Token` and `cfg.Zalo.AllowedChats` deprecated in
+      `internal/appconfig` with a removal target. `app.go:133` and
+      `internal/zalo/manager.go:152` still call `ImportLegacy` with no stated
+      expiry.
+- [ ] B2: collapse `activateWorkspace` (`bind_workspace.go:77`) and
+      `activateAssistantWorkspace` (`:117`) onto `replaceWorkspaceStream`
+      (`bind_engine.go:316`). Do this together with C2, never separately (R8).
+- [ ] C2: extract the supervisor into `internal/enginelink`. The package still
+      does not exist, which is what keeps A8, B2 and Phase 5 entangled.
+- [ ] C4: decide typed errors versus one string table before adding more
+      user-facing Vietnamese strings; seven non-test files carry them today.
+- [ ] C5: write the frontend placement rule into `docs/README.md`.
+      `features/conversations` is imported by five components, so the
+      directory is used, not dead; only the rule is missing.
+- [ ] C6: `release.yml` packages neither `resources/bin/` nor
+      `resources/context/`. Phase 1.5 must fix both in one release-job change.
+- [ ] F: `docs/contracts/crush-rest-sse.md` and `contracts/zalo-bot.md` are
+      still absent while hard rule 7 requires a contract per external
+      boundary. Phase 1.6 already owes the first file.
 
 ## Decisions
 
@@ -866,6 +892,31 @@ Remaining before code:
 
 - Apply the `AGENTS.md` amendment from decision 0001 together with the first
   Phase 2 change.
+- Step 1.1 must now extract `resources/context/TACK.md` from the off-repo
+  backup named in the third pass below. The vendored copy no longer exists.
+
+## Third pass, 2026-08-31
+
+Step 1.4 was executed ahead of the rest of Phase 1, on request, so the vendored
+patch could stop rotting against the next pin bump.
+
+- Evidence before disposal: `git -C third_party/crush status --porcelain`
+  listed exactly the eleven paths this plan enumerated, six tracked and five
+  untracked, on detached HEAD `6d14dd9`, which matches `.crush-pin`.
+- Backup taken first, deliberately outside the module tree, at
+  `C:\MCP-Machine\backups\gotack-vendored-patch-2026-08-31\`: ten verbatim
+  file copies plus `vendored-tracked.patch` (13,205 bytes, the `git diff` of the
+  six tracked paths). `assistant.md.tpl` (7,904 bytes) is the only surviving
+  source of the Tack persona text and is the input for step 1.1.
+- Disposal: `git checkout HEAD --` on the six tracked paths, then a delete of
+  the five untracked files. `git status --porcelain` is now empty,
+  `internal/agent/prompts.go` embeds only the `coder`, `task` and `initialize`
+  templates again, and `process_other.go` is restored.
+- Accepted consequence: development builds run upstream's coder prompt with no
+  persona until 1.1 through 1.3 land. Recovery is the patch file above.
+- Do not restore that backup under `/artifacts/`. A `.go` file anywhere below
+  the module root is compiled by `go build ./...` even when the directory is
+  git-ignored, so an in-tree backup breaks the build and the invariant check.
 
 Environment correction, verified 2026-08-31: `git` works on this machine
 (git 2.51.0.windows.1). The earlier session's empty `git` output was an
