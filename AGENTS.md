@@ -33,10 +33,11 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | app.go | App object bound to the UI, lifecycle and service wiring |
 | bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
 | events.go | Host to UI event emission, single place |
-| office_seed.go, context_seed.go, guard_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
-| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, office, officecli, permission, recall, session, terminal, uievents, workspace, zalo |
+| office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, permission, recall, session, terminal, uievents, workspace, zalo |
 | cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | cmd/guard/ | PreToolUse approval hook (destructive-command blocklist, graduated tiers); ships as guard.exe |
+| cmd/memory/ | Persistent self-editing memory MCP server over stdio; curates MEMORY.md / USER.md in the seeded context dir; ships as memory.exe |
 | cmd/recall/ | Cross-session recall MCP server over stdio; reads crush.db read-only, index in recall.db |
 | frontend/ | Svelte 5 UI. Folder name fixed by Wails v2 |
 | third_party/crush/ | Vendored Crush engine, own git history, ignored by this repo; only third_party/README.md is tracked |
@@ -58,7 +59,7 @@ tree. Update both in the same change, or the two will drift.
 1. Bound methods stay in package main. The UI calls `window.go.main.App.*`.
 2. Never import `third_party/crush/internal/...`; use `internal/crushapi` over REST + SSE.
 3. UI-to-host calls go only through `frontend/src/platform/desktop.ts`.
-4. No agent logic in the desktop layer. Crush owns agent execution, sessions, permissions, LSP, MCP and persistence.
+4. Desktop-layer services must not duplicate the engine: the agent turn loop, tool dispatch, message/session persistence, and permission adjudication belong to Crush. Desktop services may schedule runs, curate seeded context files, index engine history read-only, and reflect on completed runs — always over the REST + SSE boundary, never by importing `third_party/crush/internal/...` (`docs/decisions/0001`).
 5. No polling when SSE events exist. Terminal and editor are lazy-loaded.
 6. Keep implementation files under 1000 lines; split by responsibility before a file becomes a mixed-responsibility module.
 7. Update the relevant `docs/contracts/` document in the same change when an external or UI/host contract changes.
