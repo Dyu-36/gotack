@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/terminal"
 	"github.com/Dyu-36/gotack/internal/uievents"
+	"github.com/Dyu-36/gotack/internal/userstrings"
 	"github.com/Dyu-36/gotack/internal/workspace"
 	"github.com/Dyu-36/gotack/internal/zalo"
 )
@@ -144,6 +146,7 @@ func (a *App) startup(ctx context.Context) {
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
 	}, a.log)
+	//lint:ignore SA1019 one-shot migration of the deprecated ZaloSettings.Token/AllowedChats legacy fields (removal target Gotack v1.0).
 	if err := a.zalo.ImportLegacy(cfg.Zalo.Token, cfg.Zalo.AllowedChats); err != nil && a.log != nil {
 		a.log.Warn("zalo legacy import failed", "err", err)
 	}
@@ -285,7 +288,7 @@ func (a *App) zaloCurrentModel(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("desktop config not loaded")
 	}
 	if a.cfg.Model == "" {
-		return "", fmt.Errorf("chưa chọn mô hình")
+		return "", errors.New(userstrings.ErrNoModelSelected)
 	}
 	if a.cfg.Provider == "" {
 		return a.cfg.Model, nil

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
 // bind_session.go -- role: Wails-bound API for sessions and prompts.
@@ -339,7 +340,6 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 // A file that cannot be decoded or extracted degrades into a warning carried
 // inside the prompt, so one unreadable file never drops the rest of the turn.
 func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
-	const sizeLimit = "vượt quá giới hạn 5 MB"
 	out := make([]attachments.Prepared, 0, len(input))
 	for i, item := range input {
 		name := filepath.Base(strings.TrimSpace(item.FileName))
@@ -358,16 +358,16 @@ func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []at
 			continue
 		}
 		if len(item.Content) > base64.StdEncoding.EncodedLen(attachments.MaxAttachmentSize) {
-			out = append(out, attachments.Failed(name, sizeLimit))
+			out = append(out, attachments.Failed(name, userstrings.AttachmentTooLarge))
 			continue
 		}
 		content, err := base64.StdEncoding.DecodeString(item.Content)
 		if err != nil {
-			out = append(out, attachments.Failed(name, "nội dung tải lên không hợp lệ"))
+			out = append(out, attachments.Failed(name, userstrings.AttachmentInvalidUpload))
 			continue
 		}
 		if len(content) > attachments.MaxAttachmentSize {
-			out = append(out, attachments.Failed(name, sizeLimit))
+			out = append(out, attachments.Failed(name, userstrings.AttachmentTooLarge))
 			continue
 		}
 		prepared, err := attachments.Prepare(name, item.MimeType, content, supportsVision)

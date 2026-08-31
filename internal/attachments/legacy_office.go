@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
 // legacy_office.go -- role: convert binary or non-OOXML documents (.xls, .doc,
@@ -40,7 +42,7 @@ func ConvertLegacyOffice(path string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	target, ok := ooxmlTargets[ext]
 	if !ok {
-		return "", fmt.Errorf("không hỗ trợ chuyển đổi %q", ext)
+		return "", fmt.Errorf(userstrings.FmtUnsupportedConversion, ext)
 	}
 	converted := strings.TrimSuffix(path, filepath.Ext(path)) + target
 	if info, err := os.Stat(converted); err == nil && info.Size() > 0 {
@@ -55,11 +57,11 @@ func ConvertLegacyOffice(path string) (string, error) {
 			if info, statErr := os.Stat(converted); statErr == nil && info.Size() > 0 {
 				return converted, nil
 			}
-			err = errors.New("không tạo được tệp kết quả")
+			err = errors.New(userstrings.ErrConversionResultMissing)
 		}
 		problems = append(problems, "LibreOffice: "+err.Error())
 	} else {
-		problems = append(problems, "không tìm thấy LibreOffice (soffice)")
+		problems = append(problems, userstrings.ErrLibreOfficeMissing)
 	}
 
 	if runtime.GOOS == "windows" {
@@ -68,7 +70,7 @@ func ConvertLegacyOffice(path string) (string, error) {
 			if info, statErr := os.Stat(converted); statErr == nil && info.Size() > 0 {
 				return converted, nil
 			}
-			err = errors.New("không tạo được tệp kết quả")
+			err = errors.New(userstrings.ErrConversionResultMissing)
 		}
 		problems = append(problems, "Microsoft Office COM: "+err.Error())
 	}
@@ -121,7 +123,7 @@ var officeCOMFormats = map[string]int{".xlsx": 51, ".docx": 16, ".pptx": 24}
 func convertWithOfficeCOM(src, dst, target string) error {
 	format, ok := officeCOMFormats[target]
 	if !ok {
-		return fmt.Errorf("không có định dạng COM cho %q", target)
+		return fmt.Errorf(userstrings.FmtNoCOMFormat, target)
 	}
 	source, destination := psQuote(src), psQuote(dst)
 
