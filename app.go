@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/terminal"
 	"github.com/Dyu-36/gotack/internal/uievents"
+	"github.com/Dyu-36/gotack/internal/userstrings"
 	"github.com/Dyu-36/gotack/internal/workspace"
 	"github.com/Dyu-36/gotack/internal/zalo"
 )
@@ -276,7 +278,7 @@ func (a *App) zaloCurrentModel(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("desktop config not loaded")
 	}
 	if a.cfg.Model == "" {
-		return "", fmt.Errorf("chưa chọn mô hình")
+		return "", errors.New(userstrings.ErrNoModelSelected)
 	}
 	if a.cfg.Provider == "" {
 		return a.cfg.Model, nil
