@@ -19,7 +19,6 @@ type fakeServer struct {
 	mu        sync.Mutex
 	updates   [][]Update
 	delivered []map[string]any
-	offset    int
 	server    *httptest.Server
 }
 
@@ -73,11 +72,6 @@ func (f *fakeServer) deliveredMessages(t *testing.T) []string {
 		}
 	}
 	return out
-}
-
-func sampleUpdate(chatID, text string) Update {
-	id := int64(1)
-	return Update{UpdateID: &id, MessageID: "m-" + chatID + "-" + text, ChatID: chatID, SenderName: "An", Text: text}
 }
 
 func tempPath(t *testing.T) string {
@@ -144,7 +138,7 @@ func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
 	// dispatcher and confirm the answer is delivered.
 	server := newFakeServer(t, nil)
 	manager := NewManager(tempPath(t), Runtime{
-		Start: func(_ context.Context, _, chatID, _ string) (string, error) { return "session-" + chatID, nil },
+		Start:   func(_ context.Context, _, chatID, _ string) (string, error) { return "session-" + chatID, nil },
 		Session: func(_ context.Context, id string) (string, error) { return "title:" + id, nil },
 		Model:   func(_ context.Context) (string, error) { return "mock/large", nil },
 	}, nil)
