@@ -3,8 +3,10 @@
 The desktop host exposes exactly one bound object: `window.go.main.App.*`
 (the `App` struct in package `main`). The UI reaches it only through
 `frontend/src/platform/desktop.ts`; method names here mirror that module.
-Host-to-UI events are declared once in `internal/uievents/names.go` and
-mirrored by the `events` map in `desktop.ts`.
+Host-to-UI events are declared once in `internal/uievents/names.go`.
+`frontend/src/platform/events.generated.ts` is generated from that file by
+`go run ./internal/uievents/gen` and must never be hand-edited. No workflow
+runs the generator, so regenerate it in the same change as an event rename.
 
 ## UI -> Host (bound methods)
 
@@ -12,7 +14,7 @@ mirrored by the `events` map in `desktop.ts`.
 
 | Method | Result | Notes |
 | --- | --- | --- |
-| `BackendReady()` | `bool` | True once the host can serve UI calls. |
+| `BackendReady()` | `bool` | True once the host can serve UI calls. Currently returns a constant `true`, since Wails only binds the object after startup completes. |
 
 ### Engine
 
@@ -40,6 +42,11 @@ while the current host owns the process.
 | `EnsureAssistantWorkspace()` | `WorkspaceInfo` | Attaches the always-available default workspace (`C:\` on Windows) so startup chat has a real session context. |
 | `CurrentWorkspace()` | `WorkspaceInfo?` | Null when nothing is attached. |
 | `SelectWorkspace()` | `string` | Native directory picker; empty on cancel. |
+
+Security-relevant default: every workspace the host attaches is opened with
+Crush permission prompts skipped, and the default assistant workspace is the
+drive root. This is a deliberate single-user desktop trade-off. Any change to
+workspace attachment must keep this documented here and in `README.md`.
 
 ### Sessions
 
@@ -72,11 +79,11 @@ composer adds the image to the same pending attachment list.
 
 | Method | Result | Notes |
 | --- | --- | --- |
-| `ChangedFiles(sessionID)` | `FileStatus[]` | Latest version per path. |
-| `FileDiff(sessionID, path)` | `string` | Capped unified diff. |
+| `ChangedFiles(sessionID)` | `FileStatus[]` | Latest version per path. Returns `changes.FileStatus` directly with no bind-layer DTO; `desktop.ts` mirrors the same wire shape under the name `ChangedFileInfo`. |
+| `FileDiff(sessionID, path)` | `string` | Capped unified diff (256 KiB). |
 | `OpenTerminal(cwd)` | `id`, `error` | Lazy PTY; output via events. |
 | `WriteTerminal(id, data)` | `error` | |
-| `ResizeTerminal(id, cols, rows)` | `error` | |
+| `ResizeTerminal(id, cols, rows)` | `error` | Rejects sizes outside 1..1000. |
 | `CloseTerminal(id)` | `error` | |
 
 ### Settings and catalog
@@ -84,8 +91,22 @@ composer adds the image to the same pending attachment list.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `GetSettings()` | `SettingsInfo` | `api_key` is always empty (write-only). |
-| `SaveSettings(settings)` | `error` | Applies provider/model/thinking/credential through the Crush REST API. `small_model` selects the small-task model. |
+| `SaveSettings(settings)` | `error` | Applies provider/model/thinking/credential through the Crush REST API. |
 | `ListProviders()` | `Provider[]` | Live catwalk catalog for the open workspace. Without one, the host uses a private catalog workspace and does not change `CurrentWorkspace()`. Requires the engine. |
+| `RevealProviderAPIKey(providerID)` | `string`, `error` | Returns the stored key for one provider so Settings can reveal it on explicit user action. Deliberate exception to the write-only secret rule below. |
+| `DeleteProvider(providerID)` | `error` | Removes the provider's stored credential and configuration from the Crush config. |
+
+`SettingsInfo`:
+`{theme, autostart_engine, provider, credential_provider?, provider_only?, model, small_model, thinking, api_key, custom_url}`.
+
+Two fields are on the wire but have no effect today. They are kept for
+compatibility with the current UI type; do not build behavior on them without
+implementing them first.
+
+| Field | Actual behavior |
+| --- | --- |
+| `small_model` | Accepted and discarded. `SaveSettings` stores `model` into the small slot, and the Crush config write sets `models.large` and `models.small` to the same model ID. Settings intentionally shows one model selector. |
+| `autostart_engine` | Forced to `true` on both read and write. The host always adopts or starts the engine during `OnStartup`, so the toggle cannot be turned off. |
 
 ### Zalo connection
 
@@ -110,6 +131,10 @@ the host's temporary Zalo inbox, and includes its local path in the agent turn.
 Sessions persist across desktop restarts under `<configDir>/zalo.json` and are re-bound
 to the matching chat when the bridge reconnects.
 
+Access control is pairing-only. The legacy `zalo.allowed_chats` config key is
+imported once at startup for backwards compatibility and is never written
+again; it is not an allow-list the UI can manage.
+
 ### Bundled Office and timetable integration
 
 The packaged runtime under `build/bin/resources/` contains `officecli.exe`, a
@@ -122,6 +147,10 @@ Office MCP server plus `options.skills_paths` through the Crush config
 endpoints. Crush can therefore invoke the Office MCP tools or execute the
 timetable solver/exporter with the bundled `python` command without separate
 user setup.
+
+Platform limit: the bundle is located by looking for `officecli.exe`, so
+seeding only resolves on Windows. On other platforms the Office MCP server is
+still registered but the bundled runtime and skills are not seeded.
 
 ## Host -> UI events
 
@@ -141,6 +170,12 @@ user setup.
 
 1. Bound methods stay in package `main`; arguments and results are
    JSON-serializable.
-2. Secrets are write-only across this boundary (`api_key`, Zalo token).
+2. Secrets are write-only across this boundary, with one deliberate exception:
+   `RevealProviderAPIKey` returns a stored provider key on explicit user
+   action. The Zalo token is never returned; `api_key` is always empty on read.
+   Any new secret-returning method must be listed here.
 3. Update this document, `desktop.ts`, `internal/uievents/names.go`, and the
-   Go binds in the same change.
+   Go binds in the same change, then regenerate `events.generated.ts`.
+4. A field documented here as having no effect must either be implemented or
+   removed from `SettingsInfo` and `desktop.ts`; do not leave a third state
+   where the UI believes it works.
