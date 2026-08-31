@@ -1,11 +1,22 @@
 param(
     [Parameter(Mandatory = $false)]
-    [ValidatePattern('^[0-9a-f]{40}$')]
-    [string]$Commit = '6d14dd93a9e526505f7de54ae5999431bc32a793'
+    [string]$Commit = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+
+if (-not $Commit) {
+    $pinFile = Join-Path $repoRoot '.crush-pin'
+    if (-not (Test-Path $pinFile)) {
+        throw "No -Commit given and $pinFile does not exist."
+    }
+    $Commit = (Get-Content $pinFile -Raw).Trim()
+}
+if ($Commit -notmatch '^[0-9a-f]{40}$') {
+    throw "Commit '$Commit' is not a 40-character lowercase SHA."
+}
+
 $crushDir = Join-Path $repoRoot 'third_party/crush'
 $bundleDir = Join-Path $repoRoot 'build/bin/resources'
 $bundleExe = Join-Path $bundleDir 'crush.exe'

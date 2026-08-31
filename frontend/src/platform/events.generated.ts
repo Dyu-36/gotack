@@ -1,6 +1,6 @@
 // events.generated.ts -- DO NOT EDIT.
 // Source: internal/uievents/names.go
-// Regenerate with: go run ./internal/uievents/gen
+// Regenerate with: go run ./internal/uievents/gen/main.go
 
 export const events = {
   changesUpdated: "changes:updated",

@@ -10,7 +10,6 @@ permissions:
   contents: read
 
 env:
-  CRUSH_COMMIT: 6d14dd93a9e526505f7de54ae5999431bc32a793
   WAILS_VERSION: v2.15.0
   PNPM_VERSION: 11.20.0
 
@@ -43,7 +42,7 @@ jobs:
           fi
       - name: Check generated event names are in sync
         run: |
-          go run ./internal/uievents/gen
+          go run ./internal/uievents/gen/main.go
           git diff --exit-code -- frontend/src/platform/events.generated.ts
 
   frontend:
@@ -65,8 +64,12 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
+      - name: Check repository invariants
+        run: node scripts/check-repository-invariants.mjs
       - name: Check frontend
         run: pnpm --dir frontend check
+      - name: Test frontend
+        run: pnpm --dir frontend test
       - name: Build frontend
         run: pnpm --dir frontend build
 
@@ -100,6 +103,9 @@ jobs:
       - name: Build Gotack
         shell: pwsh
         run: wails build -platform windows/amd64 -clean
+      - name: Load Crush pin
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .crush-pin -Raw).Trim())
       - name: Build pinned Crush
         shell: pwsh
         run: |

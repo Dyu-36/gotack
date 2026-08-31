@@ -5,8 +5,9 @@ The desktop host exposes exactly one bound object: `window.go.main.App.*`
 `frontend/src/platform/desktop.ts`; method names here mirror that module.
 Host-to-UI events are declared once in `internal/uievents/names.go`.
 `frontend/src/platform/events.generated.ts` is generated from that file by
-`go run ./internal/uievents/gen` and must never be hand-edited. No workflow
-runs the generator, so regenerate it in the same change as an event rename.
+`go run ./internal/uievents/gen/main.go` and must never be hand-edited. CI runs the
+generator and fails when the generated file drifts, so regenerate it in the
+same change as an event rename before pushing.
 
 ## UI -> Host (bound methods)
 

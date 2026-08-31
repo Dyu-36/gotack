@@ -3,7 +3,7 @@
 // gen reads the event-name constants from the parent package and emits a
 // TypeScript file with the events table and EventName union. Run with:
 //
-//	go run ./internal/uievents/gen
+//	go run ./internal/uievents/gen/main.go
 package main
 
 import (
@@ -66,7 +66,7 @@ func main() {
 	var sb strings.Builder
 	sb.WriteString("// events.generated.ts -- DO NOT EDIT.\n")
 	sb.WriteString("// Source: internal/uievents/names.go\n")
-	sb.WriteString("// Regenerate with: go run ./internal/uievents/gen\n\n")
+	sb.WriteString("// Regenerate with: go run ./internal/uievents/gen/main.go\n\n")
 	sb.WriteString("export const events = {\n")
 	for _, e := range events {
 		fmt.Fprintf(&sb, "  %s: %q,\n", toCamel(e[0]), e[1])
