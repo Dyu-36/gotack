@@ -25,10 +25,15 @@ const (
 // Config is the on-disk user settings model. Empty fields fall back to
 // Defaults() at load time; EngineBinary empty means PATH lookup.
 type Config struct {
-	Theme             string                             `json:"theme"`
-	EngineBinary      string                             `json:"engine_binary"` // path to crush executable, empty = PATH lookup
-	RecentWorkspaces  []string                           `json:"recent_workspaces"`
-	Debug             bool                               `json:"debug"`
+	Theme            string   `json:"theme"`
+	EngineBinary     string   `json:"engine_binary"` // path to crush executable, empty = PATH lookup
+	RecentWorkspaces []string `json:"recent_workspaces"`
+	Debug            bool     `json:"debug"`
+	// AutoApprove is the explicit opt-in escape hatch of ADR 0002: true skips
+	// interactive permission prompts for attached workspaces, restoring the
+	// legacy fully-automatic behaviour. The guard's deny rules still apply,
+	// because the hook decides before Crush's permission system ever runs.
+	AutoApprove       bool                               `json:"auto_approve,omitempty"`
 	Provider          string                             `json:"provider,omitempty"`
 	Model             string                             `json:"model,omitempty"`
 	Thinking          string                             `json:"thinking,omitempty"`

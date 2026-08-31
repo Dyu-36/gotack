@@ -1,0 +1,9 @@
+// Package guard implements Gotack's approval policy for Crush tool calls.
+//
+// It is the decision engine behind the cmd/guard executable, which Crush runs
+// as its only hook event (PreToolUse). The package is deliberately pure: it
+// reads the hook payload, classifies the requested operation against the
+// destructive-command blocklist and the graduated approval tiers, and returns
+// a hook decision. It performs no agent work and never prompts; a hook can only
+// allow, deny, or stay silent (fall through to Crush's permission relay).
+package guard
