@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
+	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
@@ -141,6 +142,14 @@ func (a *App) startup(ctx context.Context) {
 		c.term = terminal.New(a.log, a.emit)
 		return c
 	})
+
+	// Dropped files reach the host as absolute paths, never as base64 through
+	// the webview; the composer renders chips from the emitted metadata.
+	a.registerFileDrop()
+
+	// One-shot trim, not a loop: every send used to copy its upload into the
+	// attachment cache and nothing ever removed it again.
+	go attachments.PruneCache()
 
 	// The Crush engine is part of Gotack's runtime, not an optional project
 	// feature. Start/attach it whenever the desktop app opens so chat, provider

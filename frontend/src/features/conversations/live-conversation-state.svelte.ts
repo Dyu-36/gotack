@@ -1,4 +1,4 @@
-import type { EngineInfo, PermissionRequestPayload as Envelope, QuestionRequestEvent } from '../../platform/desktop'
+import { desktop, type EngineInfo, type PermissionRequestPayload as Envelope, type QuestionRequestEvent } from '../../platform/desktop'
 import type { ChatAttachment, Conversation, ReasoningEffort, SessionSummary } from './types.svelte'
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
@@ -84,8 +84,13 @@ export function createLiveConversationState() {
     thinking: { get value() { return thinking }, set value(v) { thinking = v } },
     apiKey: { get value() { return apiKey }, set value(v) { apiKey = v } },
     customUrl: { get value() { return customUrl }, set value(v) { customUrl = v } },
+    activeId: { get value() { return activeId } },
     reportError, clearError, updateConversation,
     ensureWorkspace: () => messages.ensureWorkspace(),
+    reloadMessages: (id: string) => messages.loadMessages(id),
+    // prompt:files arrives when the OS drops files on the window; the host has
+    // already resolved their paths, so the composer only needs the chips.
+    attachPaths: (picks) => messages.attachPaths(picks),
   })
 
   const permissions = createPermissionState({
@@ -126,6 +131,10 @@ export function createLiveConversationState() {
 
     setInput: (v: string) => { input = v },
     attachFiles: (files: File[]) => messages.attachFiles(files),
+    // Only the desktop host can resolve real paths, so the browser preview keeps
+    // the plain <input type="file"> fallback.
+    get hasFilePicker() { return desktop.available() },
+    pickFiles: () => messages.pickFiles(),
     removeAttachment: (id: string) => messages.removeAttachment(id),
     setModel: (next: string, label?: string, providerID?: string) => engineState.setModel(next, label, providerID),
     setThinking: (value: ReasoningEffort) => engineState.setThinking(value),

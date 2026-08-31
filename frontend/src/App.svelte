@@ -65,6 +65,7 @@
           onInput={conversations.setInput}
           onSend={() => void conversations.send()}
           onAttachFiles={(files) => conversations.attachFiles(files)}
+          onPickFiles={conversations.hasFilePicker ? () => conversations.pickFiles() : undefined}
           onRemoveAttachment={(id) => conversations.removeAttachment(id)}
           onStop={() => void conversations.cancel()}
           onOpenSidebar={() => (sidebarOpen = true)}

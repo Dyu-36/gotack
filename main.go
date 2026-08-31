@@ -29,6 +29,11 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		// EnableFileDrop hands the host the absolute paths of dropped files,
+		// so an attachment never travels through the webview as base64.
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true,
+		},
 	})
 	if err != nil {
 		println("Error:", err.Error())

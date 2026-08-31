@@ -18,4 +18,7 @@ const (
 	ChangesUpdated    = "changes:updated"
 	TerminalData      = "terminal:data"
 	TerminalExit      = "terminal:exit"
+	// PromptFiles carries files the user dropped onto the window, as paths
+	// rather than base64 bodies.
+	PromptFiles = "prompt:files"
 )
