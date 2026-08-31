@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
 // charset.go -- role: turn raw attachment bytes into UTF-8 text.
@@ -28,7 +30,7 @@ func DecodeText(content []byte) (string, string) {
 		return string(content), "UTF-8"
 	}
 	if little, ok := looksLikeUTF16(content); ok {
-		return decodeUTF16(content, !little), "UTF-16 (không BOM)"
+		return decodeUTF16(content, !little), userstrings.EncodingUTF16NoBOM
 	}
 	return decodeCP1252(content), "Windows-1252"
 }

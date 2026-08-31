@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
 // pdf.go -- role: extract text from a PDF without adding a Go dependency.
@@ -24,7 +26,7 @@ const wdFormatText = 2
 func ExtractTextFromPDF(path string) (string, error) {
 	dir, err := os.MkdirTemp("", "gotack-pdf-")
 	if err != nil {
-		return "", fmt.Errorf("tạo thư mục tạm: %w", err)
+		return "", fmt.Errorf(userstrings.FmtTempDirCreate, err)
 	}
 	defer os.RemoveAll(dir)
 
@@ -47,7 +49,7 @@ func ExtractTextFromPDF(path string) (string, error) {
 		}
 		problems = append(problems, "LibreOffice: "+conversionProblem(convErr))
 	} else {
-		problems = append(problems, "không tìm thấy LibreOffice (soffice)")
+		problems = append(problems, userstrings.ErrLibreOfficeMissing)
 	}
 
 	if runtime.GOOS == "windows" {
@@ -76,7 +78,7 @@ func readExtracted(path string) (string, bool) {
 
 func conversionProblem(err error) string {
 	if err == nil {
-		return "không trích xuất được văn bản"
+		return userstrings.ErrTextExtractionFailed
 	}
 	return err.Error()
 }

@@ -51,9 +51,24 @@ type ModelCapabilityOverride struct {
 
 // ZaloSettings holds the Zalo Bot API connection. The bot token is a secret
 // stored locally on the user's machine; it is never returned to the webview.
+//
+// Token and AllowedChats are legacy keys kept only for the one-shot
+// migration in zalo.Manager.ImportLegacy; the channel state file
+// <configDir>/zalo.json owns the live token and paired chats now.
 type ZaloSettings struct {
-	Enabled      bool     `json:"enabled,omitempty"`
-	Token        string   `json:"token,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
+	// Token carried the bot token before the channel state file existed.
+	//
+	// Deprecated: the channel state file (<configDir>/zalo.json) owns the
+	// token now; this field is consumed only once at startup by
+	// zalo.Manager.ImportLegacy. Removal target: Gotack v1.0 — drop the
+	// field, the ImportLegacy call site, and ImportLegacy together.
+	Token string `json:"token,omitempty"`
+	// AllowedChats carried the pre-pairing allow-list.
+	//
+	// Deprecated: paired chats live in the channel state file now; this
+	// field is consumed only once at startup by zalo.Manager.ImportLegacy.
+	// Removal target: Gotack v1.0, together with Token.
 	AllowedChats []string `json:"allowed_chats,omitempty"`
 }
 

@@ -151,6 +151,11 @@ func (m *Manager) saveLocked() error {
 
 // ImportLegacy migrates the former allow-list configuration once. Existing
 // channel state always wins.
+//
+// Deprecated: this exists only to migrate the deprecated
+// appconfig.ZaloSettings.Token and appconfig.ZaloSettings.AllowedChats keys
+// (removal target: Gotack v1.0). Its behavior stays unchanged until the
+// fields are dropped; then remove this method and its call site together.
 func (m *Manager) ImportLegacy(token string, allowed []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
