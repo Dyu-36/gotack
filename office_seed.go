@@ -161,8 +161,32 @@ func (a *App) registerOfficeTools(workspaceID string) {
 	if skillsPath == "" {
 		return
 	}
-	merged := []string{skillsPath}
+	// Read the effective list first: writing only the bundled path would
+	// clobber skills directories the user configured outside Gotack. On a
+	// read failure the write is skipped too, because merging blindly is the
+	// same overwrite bug this guard exists to prevent.
+	current, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
+	if err != nil {
+		if a.log != nil {
+			a.log.Warn("office skills path read failed; skipping merge", "err", err)
+		}
+		return
+	}
+	merged := mergeSkillsPaths(current.SkillsPaths(), skillsPath)
 	if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "options.skills_paths", merged); err != nil && a.log != nil {
 		a.log.Warn("office skills path registration failed", "err", err)
 	}
+}
+
+// mergeSkillsPaths returns existing with bundled appended only when absent.
+// The user's entries keep their original order: Crush resolves skills from
+// every listed directory, and reordering or rewriting user entries here
+// would change which skills they see.
+func mergeSkillsPaths(existing []string, bundled string) []string {
+	for _, path := range existing {
+		if path == bundled {
+			return existing
+		}
+	}
+	return append(existing, bundled)
 }

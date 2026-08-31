@@ -718,7 +718,11 @@ Phase 1 — relocate the persona:
 - [ ] `resources/context/TACK.md` extracted, template directives stripped.
 - [ ] `internal/contextseed/` seeds it to `<appconfig.Dir()>/context/`.
 - [ ] `options.global_context_paths` registered at workspace open.
-- [ ] `options.skills_paths` merges instead of overwriting.
+- [x] `options.skills_paths` merges instead of overwriting.
+      `registerOfficeTools` now reads the workspace config via
+      `crushapi.GetWorkspaceConfig` and appends the bundled path only when
+      absent (`mergeSkillsPaths` in `office_seed.go`); regression table tests
+      in `office_seed_test.go` green 2026-08-31.
 - [x] Vendored patch disposed per 1.4 (all eleven paths); `third_party/crush`
       checkout clean, verified 2026-08-31 by an empty `git status --porcelain`.
       Step 1.1 must now read the persona from the off-repo backup named in the
