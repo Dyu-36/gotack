@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
@@ -186,20 +188,48 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	return out, nil
 }
 
-func (a *App) isCurrentModelVision() bool {
-	if a.cfg == nil {
-		return true
+func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
+	if a.cfg == nil || svc == nil || svc.api == nil || svc.ws == nil {
+		return false
 	}
+	providerID := strings.TrimSpace(a.cfg.Provider)
 	modelID := strings.TrimSpace(a.cfg.Model)
-	if modelID == "" {
-		return true
+	if providerID == "" || modelID == "" {
+		return false
 	}
-	if a.cfg.ModelCapabilities != nil {
-		if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil {
-			return *override.SupportsVision
+	// A local override may safely force the text/OCR fallback, but it must not
+	// promote a model that Crush itself will strip from the request as text-only.
+	if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil && !*override.SupportsVision {
+		return false
+	}
+	desc, ok := svc.ws.Current()
+	if !ok || desc.WorkspaceID == "" {
+		return false
+	}
+	baseCtx := a.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
+	defer cancel()
+	providers, err := svc.api.ListProviders(ctx, desc.WorkspaceID)
+	if err != nil {
+		if a.log != nil {
+			a.log.Warn("could not resolve model attachment capability; using text fallback", "provider", providerID, "model", modelID, "err", err)
+		}
+		return false
+	}
+	for _, provider := range providers {
+		if !strings.EqualFold(provider.ID, providerID) {
+			continue
+		}
+		for _, model := range provider.Models {
+			if strings.EqualFold(model.ID, modelID) {
+				return model.SupportsVision
+			}
 		}
 	}
-	return crushapi.InferModelVision(a.cfg.Provider, modelID)
+	return false
 }
 
 // SendPrompt starts an agent turn and returns the run ID. Reassert session
@@ -213,11 +243,14 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 	if err := a.setCurrentSession(id); err != nil {
 		return "", fmt.Errorf("prepare prompt event stream: %w", err)
 	}
-	supportsVision := a.isCurrentModelVision()
+	supportsVision := false
+	prompt, tagged := attachments.FileTags(text)
+	if len(input) > 0 || len(tagged) > 0 {
+		supportsVision = a.isCurrentModelVision(svc)
+	}
 	// An @[C:\path\file.xlsx] tag used to reach the model as literal text, so the
 	// agent answered about a path it could not read. Expand the tags into real
 	// attachments and remove them from the visible prompt.
-	prompt, tagged := attachments.FileTags(text)
 	// Fail-soft: an unreadable file becomes a warning inside the prompt rather
 	// than aborting the whole turn.
 	prepared := decodePromptAttachments(input, supportsVision)
