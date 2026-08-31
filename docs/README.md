@@ -13,8 +13,12 @@ Start with the smallest authoritative surface.
 - `contracts/crush-rest-sse.md`: the host-to-engine boundary: every config
   key the host writes, every REST endpoint and SSE event it consumes, and
   the undo path for each; update it in the same change as `internal/crushapi`
-  or any `SetConfigField`/`RemoveConfigField` call. The Zalo Bot API
-  boundary is still described only in code (`internal/zalo`).
+  or any `SetConfigField`/`RemoveConfigField` call.
+- `contracts/zalo-bot.md`: the Zalo Bot API boundary: the external endpoints
+  the host calls, the `Zalo.*` config keys it consumes (including the
+  deprecated legacy keys), pairing, session mapping, media handling, and the
+  legacy-import path; update it in the same change as `internal/zalo` or
+  `bind_zalo.go`.
 - `product/`: current product behavior. Still the generic harness placeholder;
   Gotack's product behavior currently lives in `../README.md` and
   `contracts/wails-bindings.md`.
