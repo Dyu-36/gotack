@@ -31,14 +31,22 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | --- | --- |
 | main.go | Wails entry point: window options, embeds frontend/dist |
 | app.go | App object bound to the UI, lifecycle and service wiring |
-| bind_*.go | Wails-bound API groups: bridge, engine, workspace, session, permission, changes, terminal |
+| bind_*.go | Wails-bound API groups: bridge, dialog, engine, workspace, session, permission, changes, terminal, config, zalo |
 | events.go | Host to UI event emission, single place |
-| internal/ | Desktop-side implementation, one package per role |
+| office_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, crushapi, engine, logging, mcp, office, officecli, permission, session, terminal, uievents, workspace, zalo |
+| cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | frontend/ | Svelte 5 UI. Folder name fixed by Wails v2 |
-| third_party/crush/ | Vendored Crush engine, own git history, ignored by this repo |
-| docs/ | Architecture, contracts, decisions, guides, plans and product docs |
+| third_party/crush/ | Vendored Crush engine, own git history, ignored by this repo; only third_party/README.md is tracked |
+| resources/skills/ | Skill tree bundled into release artifacts |
+| docs/ | Contracts, decisions, patterns, plans, product docs and templates |
 | build/ | Wails packaging assets per platform |
-| scripts/ | Developer entry points |
+| scripts/ | Developer entry points, PowerShell and Windows only |
+| .agents/skills/, .harness-core/ | Vendored repository-harness protocol and skills; .harness-core/manifest.json pins the upstream file hashes |
+| .github/workflows/ | ci.yml and release.yml |
+
+This table and the `Repository layout` block in `README.md` describe the same
+tree. Update both in the same change, or the two will drift.
 
 ## Hard rules
 
@@ -49,6 +57,7 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 5. No polling when SSE events exist. Terminal and editor are lazy-loaded.
 6. Keep implementation files under 1000 lines; split by responsibility before a file becomes a mixed-responsibility module.
 7. Update the relevant `docs/contracts/` document in the same change when an external or UI/host contract changes.
+8. Never leave a bound field or method that the host accepts and then ignores. Either implement it, or remove it from the Go struct, `desktop.ts` and the contract in the same change. A field the UI believes works is worse than a missing field.
 <!-- gotack-layout:end -->
 
 <!-- ui-verification:start -->
