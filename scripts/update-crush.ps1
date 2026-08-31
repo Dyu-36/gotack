@@ -63,6 +63,31 @@ foreach ($marker in $requiredMarkers) {
     }
 }
 
+# Recall schema coupling (docs/contracts/gotack-recall-mcp.md): cmd/recall
+# reads the private crush.db sessions/messages schema. A pin bump that renames
+# these tables or columns must fail here loudly instead of silently returning
+# empty session_search results.
+$schemaFiles = @(
+    (Join-Path $crushDir 'internal/db/migrations/20250424200609_initial.sql'),
+    (Join-Path $crushDir 'internal/db/models.go')
+)
+$schemaText = ($schemaFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+$requiredSchemaMarkers = @(
+    'CREATE TABLE IF NOT EXISTS sessions',
+    'CREATE TABLE IF NOT EXISTS messages',
+    'title TEXT',
+    'role TEXT',
+    'parts TEXT',
+    'session_id TEXT',
+    'updated_at INTEGER'
+)
+
+foreach ($marker in $requiredSchemaMarkers) {
+    if (-not $schemaText.Contains($marker)) {
+        throw "Crush recall schema marker missing at ${Commit}: $marker"
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
 Push-Location $crushDir
 try {
@@ -73,4 +98,5 @@ finally {
 }
 
 Write-Host "Crush contract markers verified at $Commit"
+Write-Host "Crush recall schema markers verified at $Commit"
 Write-Host "Bundled binary: $bundleExe"

@@ -34,9 +34,10 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
 | events.go | Host to UI event emission, single place |
 | office_seed.go, context_seed.go, guard_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
-| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, office, officecli, permission, session, terminal, uievents, workspace, zalo |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, office, officecli, permission, recall, session, terminal, uievents, workspace, zalo |
 | cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | cmd/guard/ | PreToolUse approval hook (destructive-command blocklist, graduated tiers); ships as guard.exe |
+| cmd/recall/ | Cross-session recall MCP server over stdio; reads crush.db read-only, index in recall.db |
 | frontend/ | Svelte 5 UI. Folder name fixed by Wails v2 |
 | third_party/crush/ | Vendored Crush engine, own git history, ignored by this repo; only third_party/README.md is tracked |
 | resources/skills/ | Skill tree bundled into release artifacts |

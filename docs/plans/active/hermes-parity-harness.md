@@ -766,10 +766,21 @@ Phase 3 — recall:
 
 - [x] Journal mode verified (WAL) and read-only strategy chosen:
       `file:…?mode=ro&_txlock=immediate`, per upstream `openDBReadOnly` (R3).
-- [ ] `cmd/recall/` with FTS5 index at `<appconfig.Dir()>/recall.db`.
-- [ ] Incremental sync by `updated_at` watermark.
-- [ ] `update-crush.ps1` marker check extended to the depended-on schema.
-- [ ] Schema mismatch surfaces as an error, not an empty result.
+- [x] `cmd/recall/` with FTS5 index at `<appconfig.Dir()>/recall.db`.
+      Implemented as `<appconfig.Dir()>/recall/recall.db` per the WP5 work
+      order; proven by `internal/recall` tests over fixture databases built
+      with the real SQLite driver (WP5 gate `artifacts/gates/wp5-test.txt`).
+- [x] Incremental sync by `updated_at` watermark.
+      Watermarks stored in `recall_meta`, inclusive bound keeps re-reads
+      idempotent; proven by `TestIncrementalSyncByWatermark`.
+- [x] `update-crush.ps1` marker check extended to the depended-on schema.
+      `scripts/update-crush.ps1` now fails a pin bump missing the sessions/
+      messages tables or the title/role/parts/session_id/updated_at columns.
+- [x] Schema mismatch surfaces as an error, not an empty result.
+      Missing tables/required columns return `ErrSchemaMismatch` through the
+      MCP tool as an isError result; proven by `TestSchemaMismatchSurfacesAsError`
+      and `TestToolSurfacesSchemaMismatch`; missing optional columns degrade
+      with a logged warning (`TestMissingOptionalColumnsDegradeGracefully`).
 
 Phase 4 — approvals:
 
@@ -895,6 +906,17 @@ same day; thirteen of its twenty items had landed, and only these are open:
   `file:…?mode=ro&_txlock=immediate`. Reason: the engine uses WAL, and
   upstream's own `openDBReadOnly` proves this DSN shape works while engines
   run.
+- 2026-08-31 (WP5): Phase 3 adds exactly the SQLite driver Crush itself
+  uses, `modernc.org/sqlite v1.56.0` — the exact requirement line in
+  `third_party/crush/go.mod`, pure Go, driver name `sqlite`. Reason:
+  reading `crush.db` is impossible without a driver, and the work order's
+  dependency exception authorizes this one module and nothing else;
+  matching Crush's pin line keeps both SQLite stacks on one version line.
+- 2026-08-31 (WP5): Recall probes `{dataDir}/crush.lock` with bounded
+  retry/backoff but never acquires it, and proceeds read-only when the
+  engine holds it. Reason: 3.1 forbids holding the data-dir lock, the
+  engine holds it for its whole lifetime, and recall must stay usable while
+  the engine runs; a read-only open against WAL is safe.
 
 ## Validation
 
