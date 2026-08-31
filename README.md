@@ -201,8 +201,8 @@ Crush is developed by Charmbracelet:
 main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindings)
 office_seed.go  settings_crush.go      package main helpers, not bound methods
 internal/                              host implementation, one package per role
-  appconfig  attachments  changes  crushapi  engine  logging  mcp  office
-  officecli  permission  session  terminal  uievents  workspace  zalo
+  appconfig  attachments  changes  crushapi  engine  enginelink  logging  mcp
+  office  officecli  permission  session  terminal  uievents  workspace  zalo
 cmd/office/                            bundled Office MCP server (stdio), ships as office.exe
 frontend/                              Svelte 5 UI (folder name required by Wails v2)
 third_party/crush/                     vendored Crush engine (own git history, ignored here;

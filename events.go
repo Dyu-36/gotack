@@ -3,8 +3,6 @@ package main
 import (
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/engine"
-	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -28,17 +26,4 @@ func (a *App) emit(name string, data any) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, name, data)
-}
-
-func (a *App) setStatus(s engine.Status) {
-	if a.getConn() == nil {
-		return
-	}
-	var info EngineInfo
-	a.swapConn(func(c *conn) *conn {
-		c.status = s
-		info = a.engineInfoLocked()
-		return c
-	})
-	a.emit(uievents.EngineStatus, info)
 }

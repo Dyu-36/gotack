@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
+	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
 // bind_workspace.go -- role: Wails-bound API for workspace selection.
@@ -46,39 +47,29 @@ func (a *App) ListRecentWorkspaces() []string {
 // drops the Zalo chat-to-session mappings that belonged to the old workspace,
 // and re-registers the bundled Office MCP server.
 //
-// Both activation paths below need exactly this sequence. They previously
-// inlined two byte-identical copies, which is how they drifted away from
-// replaceWorkspaceStream in bind_engine.go without anything failing loudly.
-// Note it is NOT the same as replaceWorkspaceStream: that helper returns an
-// error and cancels on attach failure, while these paths route failure through
-// transportLost. Collapsing them would change reconnect behaviour.
+// Every activation path runs exactly this sequence through activateCurrent,
+// which is how it stays aligned with replaceWorkspaceStream in
+// bind_engine.go. Note it is NOT the same as replaceWorkspaceStream: that
+// helper returns an error and cancels on attach failure, while these paths
+// route failure through transportLost. Collapsing them would change
+// reconnect behaviour.
 func (a *App) rebindWorkspaceRuntime(workspaceID string) {
-	var cancel context.CancelFunc
-	var streamCtx context.Context
+	var scope context.Context
 	if a.getConn() != nil {
-		a.swapConn(func(c *conn) *conn {
-			cancel = c.cancelStream
-			streamCtx, c.cancelStream = context.WithCancel(a.ctx)
-			return c
-		})
+		scope = a.link.ReplaceStreamScope(a.ctx)
 	}
-	if cancel != nil {
-		cancel()
-	}
-	if streamCtx != nil {
-		a.startStream(streamCtx, workspaceID)
+	if scope != nil {
+		a.startStream(scope, workspaceID)
 	}
 	a.resetZaloSessions()
 	a.registerOfficeTools(workspaceID)
 }
 
-// activateWorkspace makes a Crush workspace current, forces permission prompts
-// off, switches the event stream, and wires workspace-scoped integrations.
-func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool) (WorkspaceInfo, error) {
-	desc, err := svc.ws.Open(a.ctx, path)
-	if err != nil {
-		return WorkspaceInfo{}, err
-	}
+// activateCurrent is the single shared activation sequence: force permission
+// prompts off, optionally record the path in the recent list, and re-point
+// every workspace-scoped runtime at the new workspace. Both activation entry
+// points funnel through it so the two cannot drift.
+func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
 	// CreateWorkspace uses YOLO=true for new workspaces. This explicit call also
 	// upgrades a workspace that an older Gotack/Crush process created with YOLO
 	// disabled, because Crush uses first-wins semantics for duplicate paths.
@@ -95,6 +86,16 @@ func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool)
 		WorkspaceID: desc.WorkspaceID,
 		IsDefault:   isDefaultWorkspace(desc.Path),
 	}, nil
+}
+
+// activateWorkspace makes a Crush workspace current through the shared
+// activation sequence.
+func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool) (WorkspaceInfo, error) {
+	desc, err := svc.ws.Open(a.ctx, path)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	return a.activateCurrent(svc, desc, remember)
 }
 
 func (a *App) reapplySavedWorkspaceSettings() {
@@ -114,6 +115,10 @@ func (a *App) reapplySavedWorkspaceSettings() {
 	}
 }
 
+// activateAssistantWorkspace attaches the default workspace through the
+// shared activation sequence. When the current workspace already is the
+// default one, only the permission flag is re-asserted: rebinding would
+// replace a healthy event stream with an identical one for no benefit.
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
 		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
@@ -125,12 +130,7 @@ func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, er
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
-		return WorkspaceInfo{}, err
-	}
-	a.rebindWorkspaceRuntime(desc.WorkspaceID)
-
-	return WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: true}, nil
+	return a.activateCurrent(svc, desc, false)
 }
 
 // EnsureAssistantWorkspace attaches Gotack's always-available default

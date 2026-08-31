@@ -12,6 +12,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
@@ -24,12 +25,14 @@ import (
 // app.go -- role: Wails application object, lifecycle and service wiring.
 // App is the only struct bound into the UI, reachable as window.go.main.App.*
 //
-// Static configuration (cfg, log, ctx, sup) lives directly on App because it is
-// assigned once in startup and read by every bind call. The dynamic connection
-// state (api, fwd, ws, sess, perms, diffs, term, ep, version, lastError,
-// status, cancelStream) is swapped atomically through a *conn pointer so read
-// paths need no lock at all. Zalo state is deliberately NOT part of conn: the
-// manager owns its own lifecycle and outlives engine reconnects.
+// Static configuration (cfg, log, ctx, sup, link) lives directly on App
+// because it is assigned once in startup and read by every bind call. The
+// dynamic connection state (api, fwd, ws, sess, perms, diffs, term) is
+// swapped atomically through a *conn pointer so read paths need no lock at
+// all. Connection status, endpoint, version, and the single live
+// attach/stream scope live in link (internal/enginelink). Zalo state is
+// deliberately NOT part of conn: the manager owns its own lifecycle and
+// outlives engine reconnects.
 
 // conn holds the dynamic connection state. The host reads it with
 // a.conn.Load() and mutates it through a.swapConn(...), so read paths need no
@@ -42,16 +45,6 @@ type conn struct {
 	perms *permission.Relay
 	diffs *changes.Service
 	term  *terminal.Service
-
-	ep        crushapi.Endpoint
-	version   string
-	lastError string
-	status    engine.Status
-
-	// cancelStream cancels the current attach scope. The attach context
-	// itself is passed to connect()/attachStream() as an argument rather than
-	// stored here, so each scope has exactly one owner.
-	cancelStream context.CancelFunc
 }
 
 type App struct {
@@ -62,6 +55,10 @@ type App struct {
 	// sup is the concrete engine supervisor, typed as the narrow EngineAPI
 	// seam so app.go depends on the interface, not the implementation.
 	sup engine.EngineAPI
+	// link is the engine connection state machine (status, attach scope,
+	// event-stream scope). Constructed in NewApp without a supervisor and
+	// rewired in startup once sup exists.
+	link *enginelink.Link
 
 	zalo         *zalo.Manager
 	officeSeeder *officeSeeder
@@ -100,9 +97,9 @@ func (a *App) getConn() *conn {
 
 func NewApp() *App {
 	a := &App{}
+	a.link = enginelink.NewLink(nil)
 	a.conn.Store(&conn{
-		perms:  permission.NewRelay(permissionTTL),
-		status: engine.StatusStopped,
+		perms: permission.NewRelay(permissionTTL),
 	})
 	return a
 }
@@ -123,6 +120,7 @@ func (a *App) startup(ctx context.Context) {
 		a.log = slog.Default()
 	}
 	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
+	a.link = enginelink.NewLink(a.sup)
 
 	a.officeSeeder = newOfficeSeeder(a.log)
 	a.ensureOfficeSeed()
@@ -170,9 +168,9 @@ func (a *App) shutdown(ctx context.Context) {
 		// was already cleared.
 		return
 	}
-	if c.cancelStream != nil {
-		c.cancelStream()
-	}
+	// The link owns the live attach/stream scope; cancelling it disconnects
+	// the UI event stream while the engine process itself keeps running.
+	a.link.CancelScope()
 	if a.zalo != nil {
 		a.zalo.Stop()
 	}
