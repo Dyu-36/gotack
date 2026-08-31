@@ -9,7 +9,6 @@ permissions:
   contents: write
 
 env:
-  CRUSH_COMMIT: 6d14dd93a9e526505f7de54ae5999431bc32a793
   WAILS_VERSION: v2.15.0
   PNPM_VERSION: 11.20.0
 
@@ -51,12 +50,18 @@ jobs:
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
 
+      - name: Load Crush pin
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .crush-pin -Raw).Trim())
+
       - name: Verify source
         shell: pwsh
         run: |
           go test ./...
           go vet ./...
+          node scripts/check-repository-invariants.mjs
           pnpm --dir frontend check
+          pnpm --dir frontend test
           pnpm --dir frontend build
 
       - name: Install Wails CLI

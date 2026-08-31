@@ -35,11 +35,12 @@ This table records intent, so it must be reconciled with `go.mod` and
 | Svelte | **5.56.10** | installed |
 | TypeScript | **~5.9.3** | installed |
 | Vite | **8.2.2** | installed |
+| Vitest | **4.1.11** | installed |
 | `@sveltejs/vite-plugin-svelte` | **7.3.0** | installed |
 | Tailwind CSS | **4.3.3** (`tailwindcss` + `@tailwindcss/vite`) | installed |
 | Desktop web runtime | **System WebView** | installed |
 | Crush integration | **REST + SSE API** | installed |
-| Crush pin | **`6d14dd93a9e526505f7de54ae5999431bc32a793`** | installed, duplicated in `third_party/README.md` and both workflows |
+| Crush pin | **`.crush-pin`** | installed; single tracked owner at the repository root, read by both workflows and `scripts/update-crush.ps1` |
 | Markdown rendering | **`marked` ^18.0.11** + **`dompurify` ^3.4.14** | installed |
 | Toasts | **`svelte-sonner` 1.2.1** | installed |
 | UI font | **`@fontsource-variable/inter` 5.3.0** | installed |
@@ -66,7 +67,7 @@ Notes:
 - CodeMirror 6 is split across independently versioned packages. `codemirror@6.0.2` is the umbrella/basic-setup package, while core packages such as `@codemirror/view` have their own current versions.
 - xterm.js beta builds are intentionally excluded from the baseline.
 - The terminal panel lazy-loads `@xterm/xterm` only when opened; no editor package ships until the editor feature lands.
-- Open deviation: five direct dependencies are still declared as ranges rather than exact pins — `marked ^18.0.11` and `dompurify ^3.4.14` (runtime), `@types/dompurify ^3.2.0` and `svelte-check ^4.7.6` (dev), and `typescript ~5.9.3`. The remaining ten entries in `frontend/package.json` are pinned exactly. Pin these five or relax the policy; leaving the two in conflict makes the policy unenforceable.
+- Open deviation: five direct dependencies are still declared as ranges rather than exact pins — `marked ^18.0.11` and `dompurify ^3.4.14` (runtime), `@types/dompurify ^3.2.0` and `svelte-check ^4.7.6` (dev), and `typescript ~5.9.3`. The remaining eleven entries in `frontend/package.json` are pinned exactly. Pin these five or relax the policy; leaving the two in conflict makes the policy unenforceable.
 
 Version policy:
 
@@ -170,10 +171,12 @@ Release candidate. The desktop client, Zalo connection, and Office integration
 are implemented and covered by the Go unit and smoke suites.
 
 What automated validation proves today (`.github/workflows/ci.yml`):
-`go test ./...`, `go vet ./...`, `pnpm --dir frontend check`,
+`go test ./...`, `go vet ./...`, `gofmt`, generated UI-event drift,
+repository invariants, `pnpm --dir frontend check`, `pnpm --dir frontend test`,
 `pnpm --dir frontend build`, and a Windows `wails build`. `release.yml` re-runs
-those checks, builds the pinned Crush commit and `cmd/office`, bundles
-`officecli.exe` plus `resources/skills`, and publishes the portable ZIP.
+the source checks, including repository invariants and frontend tests, then
+builds the pinned Crush commit and `cmd/office`, bundles `officecli.exe` plus
+`resources/skills`, and publishes the portable ZIP.
 
 What is **not** covered by automated validation, and is therefore manually
 verified only:
@@ -182,8 +185,6 @@ verified only:
 - the bundled timetable Python runtime — no workflow runs
   `scripts/prepare-resources.ps1`, and `release.yml` does not copy
   `resources/bin/` into the artifact;
-- `gofmt` formatting, which no job enforces;
-- regeneration of `frontend/src/platform/events.generated.ts`;
 - any UI end-to-end run.
 
 Report issues against the tagged releases.

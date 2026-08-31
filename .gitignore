@@ -51,6 +51,7 @@ frontend/package.json.md5
 *.swp
 *.swo
 .omp/
+.qoder/
 mcp.json
 .codebase-memory/
 .cbmignore

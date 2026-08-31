@@ -33,3 +33,7 @@ decision into `docs/decisions/`; keep task-local choices in the plan.
 - [`cleanup-dead-code-and-doc-drift.md`](active/cleanup-dead-code-and-doc-drift.md)
   — remove dead state and duplicated blocks in `package main`, and finish
   closing the gap between the docs and the code.
+- [`hermes-parity-harness.md`](active/hermes-parity-harness.md)
+  — bring Hermes-class memory, cross-session recall, graduated approvals,
+  scheduling and a learning loop onto the Crush core, and relocate the
+  Tack/Sage persona out of the vendored checkout into a tracked, released seam.
