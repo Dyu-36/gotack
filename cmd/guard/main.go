@@ -1,14 +1,17 @@
 // guard is the Gotack PreToolUse approval hook. Crush spawns it before every
 // tool call, piping the hook payload to stdin; guard writes its decision to
 // stdout. The decision logic lives in internal/guard so it is unit-testable;
-// this binary only performs the stdin/stdout round-trip. It never prompts and
-// never blocks: a hook can only allow, deny, or stay silent.
+// this binary only resolves the per-session options and performs the
+// stdin/stdout round-trip. It never prompts and never blocks: a hook can only
+// allow, deny, or stay silent.
 package main
 
 import (
 	"io"
 	"os"
+	"path/filepath"
 
+	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/guard"
 )
 
@@ -27,7 +30,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	out := guard.Evaluate(guard.ParseInput(data))
+	in := guard.ParseInput(data)
+	out := guard.Evaluate(in, optionsFor(in))
+	if out.Decision == guard.DecisionDeny {
+		// Every deny is logged on stderr: the refusal reason must be visible
+		// beyond the tool result, above all for unattended sessions where no
+		// human watches the UI.
+		os.Stderr.WriteString(out.Reason + "\n")
+	}
 	payload, err := guard.MarshalOutput(out)
 	if err != nil {
 		return err
@@ -37,4 +47,17 @@ func run() error {
 	}
 	_, err = os.Stdout.Write(payload)
 	return err
+}
+
+// optionsFor derives the per-session policy options. The write-safe root is
+// the session's own working directory (the workspace path), the memory
+// context dir is the fixed appconfig location, and the unattended roster
+// records which sessions have no human to answer prompts.
+func optionsFor(in guard.Input) guard.Options {
+	dir := appconfig.Dir()
+	return guard.Options{
+		WriteSafeRoot: in.CWD,
+		ContextDir:    filepath.Join(dir, "context"),
+		Unattended:    guard.RosterContains(filepath.Join(dir, guard.UnattendedRosterFileName), in.SessionID),
+	}
 }

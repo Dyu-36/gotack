@@ -12,6 +12,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
@@ -214,6 +215,16 @@ func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text s
 			return "", err
 		}
 		sessionID = sess.ID
+	}
+	// A Zalo turn has no human at the desktop UI, so the session is recorded
+	// as unattended before any prompt runs: the guard then denies ask-tier
+	// operations with a legible reason instead of hanging on a prompt nobody
+	// can answer (ADR 0002). Marking happens on every turn, which also covers
+	// sessions the manager reuses from a previous host run. A failed mark
+	// fails the turn: running it without the unattended record could hang.
+	if err := guard.MarkUnattendedSession(
+		filepath.Join(appconfig.Dir(), guard.UnattendedRosterFileName), sessionID); err != nil {
+		return "", err
 	}
 	if _, err := svc.sess.Send(ctx, sessionID, text); err != nil {
 		return "", err
