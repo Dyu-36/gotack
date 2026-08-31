@@ -715,18 +715,37 @@ Phase 0 — authority gate:
 
 Phase 1 — relocate the persona:
 
-- [ ] `resources/context/TACK.md` extracted, template directives stripped.
-- [ ] `internal/contextseed/` seeds it to `<appconfig.Dir()>/context/`.
-- [ ] `options.global_context_paths` registered at workspace open.
+- [x] `resources/context/TACK.md` extracted, template directives stripped.
+      Evidence: `resources/context/TACK.md` tracked on this branch; the
+      no-`{{` guard lives in `internal/contextseed/seed_test.go`
+      (`TestRepoTrackedTackContext`).
+- [x] `internal/contextseed/` seeds it to `<appconfig.Dir()>/context/`.
+      Evidence: `internal/contextseed/seed.go` wired in `app.go` startup via
+      `ensureContextSeed`; table-driven tests cover fresh/idempotent/
+      preserved/propagated seeding.
+- [x] `options.global_context_paths` registered at workspace open.
+      Evidence: `context_seed.go` `registerContextPaths`, called from
+      `rebindWorkspaceRuntime` (`bind_workspace.go`) so both activation paths
+      get it; key name verified against vendored `Options.GlobalContextPaths`.
 - [ ] `options.skills_paths` merges instead of overwriting.
 - [x] Vendored patch disposed per 1.4 (all eleven paths); `third_party/crush`
       checkout clean, verified 2026-08-31 by an empty `git status --porcelain`.
       Step 1.1 must now read the persona from the off-repo backup named in the
       third pass below.
-- [ ] Parity test moved into the gotack module, including the no-`{{` assertion.
-- [ ] Sage persona recorded as the known gap per 1.6 (no re-patch).
-- [ ] `release.yml` copies `resources/context` into the artifact and the ZIP.
-- [ ] `docs/contracts/crush-rest-sse.md` created listing every written key.
+- [x] Parity test moved into the gotack module, including the no-`{{` assertion.
+      Evidence: `internal/contextseed/seed_test.go` runs in CI via
+      `go test ./...` and asserts the old markers plus the negative `{{` check.
+- [x] Sage persona recorded as the known gap per 1.6 (no re-patch).
+      Evidence: this plan's 1.6 plus Decisions (second pass) already record
+      the gap; `docs/contracts/crush-rest-sse.md` carries it forward as the
+      durable record. No re-patch was made.
+- [x] `release.yml` copies `resources/context` into the artifact and the ZIP.
+      Evidence: `release.yml` gained a `Prepare bundled runtime payloads` step
+      (runs `scripts/prepare-resources.ps1`) and the ZIP assembly now copies
+      both `resources/bin` payloads and `resources/context`.
+- [x] `docs/contracts/crush-rest-sse.md` created listing every written key.
+      Evidence: the document inventories every config key, REST endpoint and
+      SSE event, each with its `RemoveConfigField` undo path.
 
 Phase 2 — memory:
 
@@ -791,11 +810,17 @@ same day; thirteen of its twenty items had landed, and only these are open:
 - [ ] C5: write the frontend placement rule into `docs/README.md`.
       `features/conversations` is imported by five components, so the
       directory is used, not dead; only the rule is missing.
-- [ ] C6: `release.yml` packages neither `resources/bin/` nor
+- [x] C6: `release.yml` packages neither `resources/bin/` nor
       `resources/context/`. Phase 1.5 must fix both in one release-job change.
+      Done 2026-08-31 on `feat/phase1-persona-context`: the release job runs
+      `scripts/prepare-resources.ps1` and copies both directories into the
+      portable ZIP; copy logic proven by a temp-dir dry run of the same
+      commands.
 - [ ] F: `docs/contracts/crush-rest-sse.md` and `contracts/zalo-bot.md` are
       still absent while hard rule 7 requires a contract per external
-      boundary. Phase 1.6 already owes the first file.
+      boundary. Phase 1.6 already owes the first file. Partial: `crush-rest-sse.md`
+      landed 2026-08-31 on `feat/phase1-persona-context`; `zalo-bot.md`
+      remains open.
 
 ## Decisions
 
