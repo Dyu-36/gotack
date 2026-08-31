@@ -26,12 +26,13 @@ import (
 // Static configuration (cfg, log, ctx, sup) lives directly on App because it is
 // assigned once in startup and read by every bind call. The dynamic connection
 // state (api, fwd, ws, sess, perms, diffs, term, ep, version, lastError,
-// status, cancelStream, zaloChats, zaloCancel, zalo) is swapped atomically
-// through a *conn pointer so read paths need no lock at all.
+// status, cancelStream) is swapped atomically through a *conn pointer so read
+// paths need no lock at all. Zalo state is deliberately NOT part of conn: the
+// manager owns its own lifecycle and outlives engine reconnects.
 
 // conn holds the dynamic connection state. The host reads it with
-// a.conn.Load() and mutates it through a.swapConn(...); the previous
-// sync.RWMutex is gone.
+// a.conn.Load() and mutates it through a.swapConn(...), so read paths need no
+// mutex; see docs/plans/completed/d1-conn-pointer.md for the rationale.
 type conn struct {
 	api   *crushapi.Client
 	fwd   *uievents.Forwarder
@@ -46,8 +47,9 @@ type conn struct {
 	lastError string
 	status    engine.Status
 
-	attachCtx context.Context
-
+	// cancelStream cancels the current attach scope. The attach context
+	// itself is passed to connect()/attachStream() as an argument rather than
+	// stored here, so each scope has exactly one owner.
 	cancelStream context.CancelFunc
 }
 
@@ -60,8 +62,8 @@ type App struct {
 	// seam so app.go depends on the interface, not the implementation.
 	sup engine.EngineAPI
 
-	zalo          *zalo.Manager
-	officeSeeder  *officeSeeder
+	zalo         *zalo.Manager
+	officeSeeder *officeSeeder
 
 	conn atomic.Pointer[conn]
 }
