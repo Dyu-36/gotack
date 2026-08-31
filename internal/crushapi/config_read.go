@@ -11,6 +11,23 @@ import (
 // include credentials resolved from global/workspace config and environment.
 type WorkspaceConfig struct {
 	Providers map[string]ProviderConfig `json:"providers,omitempty"`
+	Options   *WorkspaceOptions         `json:"options,omitempty"`
+}
+
+// WorkspaceOptions carries the options fields Gotack must read back before
+// writing list-valued keys, so registration merges instead of clobbering
+// values the user configured outside the app.
+type WorkspaceOptions struct {
+	SkillsPaths []string `json:"skills_paths,omitempty"`
+}
+
+// SkillsPaths returns options.skills_paths, or nil when the server omitted
+// the options object or the field.
+func (c WorkspaceConfig) SkillsPaths() []string {
+	if c.Options == nil {
+		return nil
+	}
+	return c.Options.SkillsPaths
 }
 
 // ProviderConfig mirrors the provider fields needed by Gotack to decide which
