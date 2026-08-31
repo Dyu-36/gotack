@@ -33,12 +33,14 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | app.go | App object bound to the UI, lifecycle and service wiring |
 | bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
 | events.go | Host to UI event emission, single place |
-| office_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
-| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, crushapi, engine, enginelink, logging, mcp, office, officecli, permission, session, terminal, uievents, workspace, zalo |
+| office_seed.go, context_seed.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, logging, mcp, office, officecli, permission, session, terminal, uievents, workspace, zalo |
 | cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | frontend/ | Svelte 5 UI. Folder name fixed by Wails v2 |
 | third_party/crush/ | Vendored Crush engine, own git history, ignored by this repo; only third_party/README.md is tracked |
 | resources/skills/ | Skill tree bundled into release artifacts |
+| resources/context/ | Tracked persona context files seeded into the user data dir and shipped in release artifacts |
+| resources/bin/ | Ignored runtime payloads; `scripts/prepare-resources.ps1` recreates them before packaging |
 | docs/ | Contracts, decisions, patterns, plans, product docs and templates |
 | build/ | Wails packaging assets per platform |
 | scripts/ | Developer entry points, PowerShell and Windows only |

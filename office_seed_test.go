@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/crushapi"
-	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/officecli"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -140,9 +139,15 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 				c.api = api
 				c.ws = workspace.NewService(api)
 				c.sess = session.NewService(api, c.ws)
-				c.status = engine.StatusRunning
 				return c
 			})
+			// Drive the link through the same transitions connect() uses so the
+			// services above count as a live engine connection.
+			scope, started := app.link.BeginConnect(context.Background())
+			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+				t.Fatal("link rejected the test connect scope")
+			}
+			app.link.MarkRunning()
 
 			app.registerOfficeTools("ws-1")
 
