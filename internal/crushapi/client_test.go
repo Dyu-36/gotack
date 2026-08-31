@@ -168,3 +168,46 @@ func TestEnsureAgentInitializesOnlyWhenNotReady(t *testing.T) {
 		})
 	}
 }
+
+func TestSendPromptWithAttachmentsPostsAgentPayload(t *testing.T) {
+	var got struct {
+		SessionID   string       `json:"session_id"`
+		RunID       string       `json:"run_id"`
+		Prompt      string       `json:"prompt"`
+		Attachments []Attachment `json:"attachments"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/workspaces/ws-1/agent" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode prompt request: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	client := NewClient(&http.Client{Transport: transport})
+	attachments := []Attachment{{
+		FilePath: "photo.png",
+		FileName: "photo.png",
+		MimeType: "image/png",
+		Content:  []byte("png-data"),
+	}}
+	if err := client.SendPromptWithAttachments(context.Background(), "ws-1", "session-1", "describe", "run-1", attachments); err != nil {
+		t.Fatalf("SendPromptWithAttachments() error = %v", err)
+	}
+
+	if got.SessionID != "session-1" || got.RunID != "run-1" || got.Prompt != "describe" {
+		t.Fatalf("prompt metadata = %#v", got)
+	}
+	if len(got.Attachments) != 1 || got.Attachments[0].FileName != "photo.png" || string(got.Attachments[0].Content) != "png-data" {
+		t.Fatalf("attachments = %#v", got.Attachments)
+	}
+}

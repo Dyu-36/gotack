@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -16,7 +17,10 @@ import (
 )
 
 func TestToMessageInfoIncludesConversationModel(t *testing.T) {
-	parts := json.RawMessage(`[{"type":"text","data":{"text":"hello"}}]`)
+	parts := json.RawMessage(`[
+		{"type":"text","data":{"text":"hello"}},
+		{"type":"binary","data":{"Path":"photo.png","MIMEType":"image/png","Data":"iVBORw=="}}
+	]`)
 	got := toMessageInfo(crushapi.Message{
 		ID:        "message-1",
 		Role:      "assistant",
@@ -31,6 +35,56 @@ func TestToMessageInfoIncludesConversationModel(t *testing.T) {
 	}
 	if got.Model != "gpt-5.6" || got.Provider != "openai" {
 		t.Fatalf("model selection = %q/%q, want openai/gpt-5.6", got.Provider, got.Model)
+	}
+	if len(got.Attachments) != 1 || got.Attachments[0].FileName != "photo.png" || got.Attachments[0].Content != "iVBORw==" {
+		t.Fatalf("attachments = %#v", got.Attachments)
+	}
+}
+
+func TestDecodePromptAttachmentsSniffsAndLimitsContent(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\n")
+	got, err := decodePromptAttachments([]PromptAttachment{{
+		FileName: `C:\tmp\photo.png`,
+		Content:  base64.StdEncoding.EncodeToString(png),
+	}}, true)
+	if err != nil {
+		t.Fatalf("decodePromptAttachments() error = %v", err)
+	}
+	if len(got) != 1 || got[0].FileName != "photo.png" || !strings.HasSuffix(got[0].FilePath, "photo.png") {
+		t.Fatalf("decoded attachment = %#v", got)
+	}
+	if got[0].MimeType != "image/png" || string(got[0].Content) != string(png) {
+		t.Fatalf("decoded content = %#v", got[0])
+	}
+
+	// Text-only mode converts image to text attachment with metadata/OCR
+	gotNonVision, err := decodePromptAttachments([]PromptAttachment{{
+		FileName: `C:\tmp\photo.png`,
+		Content:  base64.StdEncoding.EncodeToString(png),
+	}}, false)
+	if err != nil {
+		t.Fatalf("decodePromptAttachments(non-vision) error = %v", err)
+	}
+	if len(gotNonVision) != 1 || gotNonVision[0].MimeType != "text/plain; charset=utf-8" {
+		t.Fatalf("expected text fallback for non-vision attachment, got %#v", gotNonVision)
+	}
+
+	jsonCode := []byte(`{"version": "1.0.0"}`)
+	gotText, err := decodePromptAttachments([]PromptAttachment{{
+		FileName: "config.json",
+		MimeType: "application/json",
+		Content:  base64.StdEncoding.EncodeToString(jsonCode),
+	}}, true)
+	if err != nil {
+		t.Fatalf("decodePromptAttachments(json) error = %v", err)
+	}
+	if len(gotText) != 1 || gotText[0].MimeType != "text/plain; charset=utf-8" || !strings.Contains(string(gotText[0].Content), `{"version": "1.0.0"}`) {
+		t.Fatalf("decoded text attachment = %#v", gotText)
+	}
+
+	tooLarge := strings.Repeat("A", base64.StdEncoding.EncodedLen(maxPromptAttachmentSize)+1)
+	if _, err := decodePromptAttachments([]PromptAttachment{{FileName: "large.bin", Content: tooLarge}}, true); err == nil || !strings.Contains(err.Error(), "5 MB") {
+		t.Fatalf("oversized attachment error = %v, want 5 MB limit", err)
 	}
 }
 

@@ -34,3 +34,14 @@ func TestStatusUsesFrontendPairedChatField(t *testing.T) {
 		t.Fatalf("status leaked the config-only field name: %s", text)
 	}
 }
+
+func TestManagerStatusUsesEmptyPairedChatArray(t *testing.T) {
+	manager := NewManager(t.TempDir()+"/zalo.json", Runtime{}, nil)
+	payload, err := json.Marshal(manager.Status())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"paired_chat_ids":[]`) {
+		t.Fatalf("empty paired chats must serialize as an array: %s", payload)
+	}
+}

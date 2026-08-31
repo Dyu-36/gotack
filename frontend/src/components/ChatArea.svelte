@@ -1,7 +1,7 @@
 <script lang="ts">
   import Composer from './Composer.svelte'
   import MessageBubble from './MessageBubble.svelte'
-  import type { Message, ModelType, ReasoningEffort } from '../features/conversations/types.svelte'
+  import type { ChatAttachment, Message, ModelType, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
     sessionTitle: string
@@ -11,6 +11,7 @@
     onToggleTheme?: () => void
     messages: Message[]
     input: string
+    attachments?: ChatAttachment[]
     backendReady?: boolean
     isStreaming?: boolean
     modelLabel?: string
@@ -20,6 +21,8 @@
     selectedThinkingId?: string
     onInput: (value: string) => void
     onSend: () => void
+    onAttachFiles?: (files: File[]) => void | Promise<void>
+    onRemoveAttachment?: (id: string) => void
     onStop: () => void
     onOpenSidebar: () => void
     onOpenSettings: () => void
@@ -37,6 +40,7 @@
     onToggleTheme,
     messages,
     input,
+    attachments = [],
     backendReady = false,
     isStreaming = false,
     modelLabel = 'Model mặc định',
@@ -46,6 +50,8 @@
     selectedThinkingId = 'none',
     onInput,
     onSend,
+    onAttachFiles = () => {},
+    onRemoveAttachment = () => {},
     onStop,
     onOpenSidebar,
     onOpenSettings,
@@ -290,7 +296,7 @@
   {/if}
 
   <div class="shrink-0 pt-2">
-    <Composer bind:this={composer} value={input} onInput={onInput} onSend={onSend} onStop={onStop} ready={backendReady} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedProviderId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
+    <Composer bind:this={composer} value={input} {attachments} onInput={onInput} onSend={onSend} {onAttachFiles} {onRemoveAttachment} onStop={onStop} ready={backendReady} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedProviderId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
   </div>
 </div>
 

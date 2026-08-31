@@ -131,6 +131,21 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 		providers[i].Configured = true
 		providers[i].CredentialKind = kind
 	}
+	if a.cfg != nil && a.cfg.ModelCapabilities != nil {
+		for i := range providers {
+			for j := range providers[i].Models {
+				m := &providers[i].Models[j]
+				if override, ok := a.cfg.ModelCapabilities[m.ID]; ok {
+					if override.SupportsVision != nil {
+						m.SupportsVision = *override.SupportsVision
+					}
+					if override.CanReason != nil {
+						m.CanReason = *override.CanReason
+					}
+				}
+			}
+		}
+	}
 	return providers, nil
 }
 

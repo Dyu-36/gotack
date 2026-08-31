@@ -277,10 +277,17 @@ func parseUpdates(raw json.RawMessage) []Update {
 	} else {
 		var wrapper struct {
 			Updates []json.RawMessage `json:"updates"`
+			Data    []json.RawMessage `json:"data"`
 		}
-		if json.Unmarshal(raw, &wrapper) == nil && len(wrapper.Updates) > 0 {
-			values = wrapper.Updates
-		} else {
+		if json.Unmarshal(raw, &wrapper) == nil {
+			switch {
+			case len(wrapper.Updates) > 0:
+				values = wrapper.Updates
+			case len(wrapper.Data) > 0:
+				values = wrapper.Data
+			}
+		}
+		if len(values) == 0 {
 			values = []json.RawMessage{raw}
 		}
 	}
@@ -336,13 +343,25 @@ func parseUpdate(raw json.RawMessage) (Update, bool) {
 
 func findAttachmentURL(value any) string {
 	switch node := value.(type) {
+	case string:
+		candidate := strings.TrimSpace(node)
+		if strings.HasPrefix(candidate, "https://") || strings.HasPrefix(candidate, "http://") {
+			return candidate
+		}
 	case map[string]any:
-		for _, key := range []string{"download_url", "file_url", "attachment_url", "url", "href", "link"} {
+		for _, key := range []string{
+			"photo_url", "image_url", "picture_url", "document_url",
+			"file_url", "voice_url", "audio_url", "video_url",
+			"download_url", "attachment_url", "url", "href", "link",
+		} {
 			if candidate := strings.TrimSpace(looseString(node[key])); strings.HasPrefix(candidate, "https://") || strings.HasPrefix(candidate, "http://") {
 				return candidate
 			}
 		}
-		for _, key := range []string{"attachment", "attachments", "file", "files", "photo", "document", "payload"} {
+		for _, key := range []string{
+			"attachment", "attachments", "file", "files", "photo", "image",
+			"document", "voice", "audio", "video", "payload",
+		} {
 			if found := findAttachmentURL(node[key]); found != "" {
 				return found
 			}
@@ -377,8 +396,16 @@ func attachmentFileName(rawURL, contentType string) string {
 			name += ".png"
 		case strings.Contains(contentType, "jpeg"):
 			name += ".jpg"
+		case strings.Contains(contentType, "gif"):
+			name += ".gif"
+		case strings.Contains(contentType, "webp"):
+			name += ".webp"
+		case strings.Contains(contentType, "bmp"):
+			name += ".bmp"
 		case strings.Contains(contentType, "pdf"):
 			name += ".pdf"
+		case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "image/"):
+			name += ".jpg"
 		default:
 			name += ".bin"
 		}

@@ -1,5 +1,5 @@
 import type { EngineInfo, PermissionRequestPayload as Envelope, QuestionRequestEvent } from '../../platform/desktop'
-import type { Conversation, ModelType, ReasoningEffort, SessionSummary } from './types.svelte'
+import type { ChatAttachment, Conversation, ModelType, ReasoningEffort, SessionSummary } from './types.svelte'
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
 import { createMessageState } from './live-conversation-messages.svelte'
@@ -15,6 +15,7 @@ export function createLiveConversationState() {
   let conversations = $state<Conversation[]>([])
   let activeId = $state('')
   let input = $state('')
+  let attachments = $state<ChatAttachment[]>([])
   let workspace = $state(DEFAULT_WORKSPACE_LABEL)
   let backendReady = $state(false)
   let engine = $state<EngineInfo | null>(null)
@@ -62,6 +63,7 @@ export function createLiveConversationState() {
     activeId: { get value() { return activeId }, set value(v) { activeId = v } },
 
     input: { get value() { return input }, set value(v) { input = v } },
+    attachments: { get value() { return attachments }, set value(v) { attachments = v } },
     workspace: { get value() { return workspace }, set value(v) { workspace = v } },
     streamingText: { get value() { return streamingText }, set value(v) { streamingText = v } },
     reportError, clearError, updateConversation, rememberSession,
@@ -103,6 +105,7 @@ export function createLiveConversationState() {
     get activeId() { return activeId },
     get active() { return conversations.find((item) => item.id === activeId) },
     get input() { return input },
+    get attachments() { return attachments },
     get workspace() { return workspace },
     get backendReady() { return backendReady },
     get engine() { return engine },
@@ -128,6 +131,8 @@ export function createLiveConversationState() {
     get permissionExpired() { return permissions.permissionExpired.value },
 
     setInput: (v: string) => { input = v },
+    attachFiles: (files: File[]) => messages.attachFiles(files),
+    removeAttachment: (id: string) => messages.removeAttachment(id),
     setModel: (next: string, label?: string, providerID?: string, type: ModelType = 'large') => engineState.setModel(next, label, providerID, type),
     setThinking: (value: ReasoningEffort) => engineState.setThinking(value),
     init: () => engineState.init(),

@@ -50,9 +50,16 @@ while the current host owns the process.
 | `RenameSession(id, title)` | `SessionInfo` | Persisted via engine PUT. |
 | `DeleteSession(id)` | `error` | UI selects another session afterwards. |
 | `SwitchSession(id)` | `error` | Advisory current-session update. |
-| `SessionMessages(id)` | `MessageInfo[]` | History replay includes `model` and `provider` so selecting or restoring a conversation reapplies its latest model; live updates come from events. |
-| `SendPrompt(id, text)` | `runID`, `error` | Starts one agent turn after workspace/session/model readiness. |
+| `SessionMessages(id)` | `MessageInfo[]` | History replay includes `model`, `provider`, attachment metadata, and image content so selecting or restoring a conversation reapplies its latest model and restores file/image chips; live updates come from events. |
+| `SendPrompt(id, text, attachments)` | `runID`, `error` | Starts one agent turn after workspace/session/model readiness. `attachments` is `PromptAttachment[]`; each file is limited to 5 MiB and forwarded to Crush's native attachment contract. |
 | `CancelPrompt(id)` | `error` | Interrupts the running turn. |
+
+`PromptAttachment`: `{file_name, mime_type?, content}` where `content` is standard base64.
+When `text` is empty but attachments are provided, the backend automatically composes
+a Vietnamese review prompt ("Hãy xem và xử lý tệp/các tệp đính kèm sau:").
+`MessageInfo.attachments[]`: `{file_name, mime_type, size, content?}`. The UI
+file picker accepts multiple files; pasting clipboard image data into the
+composer adds the image to the same pending attachment list.
 
 ### Approvals
 
@@ -96,9 +103,12 @@ while the current host owns the process.
 The Zalo bridge polls the official Zalo Bot API (`getMe`, long-poll
 `getUpdates`, `sendMessage`, `sendPhoto`, `sendChatAction`, `deleteWebhook`),
 serves only chats that paired via `/pair <6-digit code>`, and replies to a
-chat when the agent run it started completes. Sessions persist across desktop
-restarts under `<configDir>/zalo.json` and are re-bound to the matching chat
-when the bridge reconnects.
+chat when the agent run it started completes. Inbound media accepts the direct
+and nested image URL fields used by the Bot API (`photo`, `photo_url`,
+`image_url`, `picture_url`, and attachment objects), downloads the file into
+the host's temporary Zalo inbox, and includes its local path in the agent turn.
+Sessions persist across desktop restarts under `<configDir>/zalo.json` and are re-bound
+to the matching chat when the bridge reconnects.
 
 ### Bundled Office and timetable integration
 

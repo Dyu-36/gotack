@@ -1,9 +1,18 @@
 export type MessageRole = 'user' | 'assistant'
 
+export type ChatAttachment = {
+  id: string
+  fileName: string
+  mimeType: string
+  size: number
+  content: string
+}
+
 export class ChatMessage {
   readonly id: string
   readonly role: MessageRole
   content = $state('')
+  attachments = $state<ChatAttachment[]>([])
   seq = 0
   kind: 'message' | 'tool' = 'message'
   toolName?: string

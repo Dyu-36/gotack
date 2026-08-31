@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
+	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
@@ -21,13 +25,33 @@ type SessionInfo struct {
 
 // MessageInfo is the JSON shape of a replayed history message.
 type MessageInfo struct {
-	ID        string `json:"id"`
-	Role      string `json:"role"`
-	Text      string `json:"text"`
-	Model     string `json:"model"`
-	Provider  string `json:"provider"`
-	CreatedAt int64  `json:"created_at"`
+	ID          string           `json:"id"`
+	Role        string           `json:"role"`
+	Text        string           `json:"text"`
+	Model       string           `json:"model"`
+	Provider    string           `json:"provider"`
+	CreatedAt   int64            `json:"created_at"`
+	Attachments []AttachmentInfo `json:"attachments,omitempty"`
 }
+
+// PromptAttachment is the JSON shape accepted from the composer. Content is
+// base64 so Wails does not need to coerce browser ArrayBuffers into Go bytes.
+type PromptAttachment struct {
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type,omitempty"`
+	Content  string `json:"content"`
+}
+
+// AttachmentInfo is attachment metadata returned with replayed messages.
+// Image content is returned as base64 so the UI can restore its preview.
+type AttachmentInfo struct {
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	Size     int    `json:"size"`
+	Content  string `json:"content,omitempty"`
+}
+
+const maxPromptAttachmentSize = 5 * 1024 * 1024
 
 // setCurrentSession marks sessionID as this client's active session. Crush
 // requires a live workspace SSE subscription for presence; if that stream was
@@ -128,7 +152,8 @@ func (a *App) SwitchSession(id string) error {
 }
 
 // SessionMessages replays history for the first render. Text parts are
-// concatenated; live tool activity arrives via tool:activity.
+// concatenated, binary attachments are included, and live tool activity
+// arrives via tool:activity.
 func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -146,10 +171,26 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	return out, nil
 }
 
+func (a *App) isCurrentModelVision() bool {
+	if a.cfg == nil {
+		return true
+	}
+	modelID := strings.TrimSpace(a.cfg.Model)
+	if modelID == "" {
+		return true
+	}
+	if a.cfg.ModelCapabilities != nil {
+		if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil {
+			return *override.SupportsVision
+		}
+	}
+	return crushapi.InferModelVision(a.cfg.Provider, modelID)
+}
+
 // SendPrompt starts an agent turn and returns the run ID. Reassert session
 // presence first so a stale/lost SSE attachment cannot accept the POST while
 // leaving the UI with no message or run-complete events.
-func (a *App) SendPrompt(id, text string) (string, error) {
+func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, error) {
 	svc, err := a.services()
 	if err != nil {
 		return "", err
@@ -157,7 +198,12 @@ func (a *App) SendPrompt(id, text string) (string, error) {
 	if err := a.setCurrentSession(id); err != nil {
 		return "", fmt.Errorf("prepare prompt event stream: %w", err)
 	}
-	return svc.sess.Send(a.ctx, id, text)
+	supportsVision := a.isCurrentModelVision()
+	attachments, err := decodePromptAttachments(input, supportsVision)
+	if err != nil {
+		return "", err
+	}
+	return svc.sess.SendWithAttachments(a.ctx, id, text, attachments)
 }
 
 // CancelPrompt interrupts the running turn.
@@ -170,7 +216,7 @@ func (a *App) CancelPrompt(id string) error {
 }
 
 func toMessageInfo(m crushapi.Message) MessageInfo {
-	return MessageInfo{
+	info := MessageInfo{
 		ID:        m.ID,
 		Role:      string(m.Role),
 		Text:      crushapi.ExtractText(m.Parts),
@@ -178,6 +224,45 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 		Provider:  m.Provider,
 		CreatedAt: m.CreatedAt,
 	}
+	for _, attachment := range crushapi.ExtractAttachments(m.Parts) {
+		content := ""
+		if strings.HasPrefix(attachment.MimeType, "image/") {
+			content = base64.StdEncoding.EncodeToString(attachment.Content)
+		}
+		info.Attachments = append(info.Attachments, AttachmentInfo{
+			FileName: filepath.Base(attachment.FileName),
+			MimeType: attachment.MimeType,
+			Size:     len(attachment.Content),
+			Content:  content,
+		})
+	}
+	return info
+}
+
+func decodePromptAttachments(input []PromptAttachment, supportsVision bool) ([]crushapi.Attachment, error) {
+	out := make([]crushapi.Attachment, 0, len(input))
+	for i, item := range input {
+		name := filepath.Base(strings.TrimSpace(item.FileName))
+		if name == "" || name == "." {
+			return nil, fmt.Errorf("attachment %d: file name is required", i+1)
+		}
+		if len(item.Content) > base64.StdEncoding.EncodedLen(maxPromptAttachmentSize) {
+			return nil, fmt.Errorf("attachment %q exceeds the 5 MB limit", name)
+		}
+		content, err := base64.StdEncoding.DecodeString(item.Content)
+		if err != nil {
+			return nil, fmt.Errorf("attachment %q has invalid content: %w", name, err)
+		}
+		if len(content) > maxPromptAttachmentSize {
+			return nil, fmt.Errorf("attachment %q exceeds the 5 MB limit", name)
+		}
+		att, err := attachments.ProcessWithModel(name, item.MimeType, content, supportsVision)
+		if err != nil {
+			return nil, fmt.Errorf("attachment %q: %w", name, err)
+		}
+		out = append(out, att)
+	}
+	return out, nil
 }
 
 // toSessionInfo maps a Crush session row to the Wails-bound shape.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -28,5 +30,18 @@ func TestSaveZaloConfigRequiresTokenWhenEnabled(t *testing.T) {
 
 	if _, err := app.SaveZaloConfig(ZaloConfigUpdate{Enabled: true}); err == nil {
 		t.Fatal("enabling Zalo without a token must fail")
+	}
+}
+
+func TestGetZaloConfigUsesEmptyPairedChatArray(t *testing.T) {
+	manager := zalo.NewManager(t.TempDir()+"/zalo.json", zalo.Runtime{}, nil)
+	app := &App{cfg: appconfig.Defaults(), zalo: manager}
+
+	payload, err := json.Marshal(app.GetZaloConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"paired_chats":[]`) {
+		t.Fatalf("empty paired chats must serialize as an array: %s", payload)
 	}
 }

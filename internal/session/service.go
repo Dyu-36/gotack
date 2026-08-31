@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 	"github.com/google/uuid"
@@ -140,6 +141,11 @@ func (s *Service) Messages(ctx context.Context, id string) ([]crushapi.Message, 
 
 // Send submits a prompt to the engine.
 func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
+	return s.SendWithAttachments(ctx, id, text, nil)
+}
+
+// SendWithAttachments submits a prompt and its inline files to the engine.
+func (s *Service) SendWithAttachments(ctx context.Context, id, text string, atts []crushapi.Attachment) (string, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
 		return "", err
@@ -150,11 +156,12 @@ func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
 	if id == "" {
 		return "", errors.New("session id is required")
 	}
-	if strings.TrimSpace(text) == "" {
+	promptText := attachments.ComposePrompt(text, atts)
+	if promptText == "" {
 		return "", errors.New("prompt text is required")
 	}
 	runID := uuid.NewString()
-	if err := s.api.SendPrompt(ctx, wsID, id, text, runID); err != nil {
+	if err := s.api.SendPromptWithAttachments(ctx, wsID, id, promptText, runID, atts); err != nil {
 		return "", fmt.Errorf("send prompt: %w", err)
 	}
 	return runID, nil

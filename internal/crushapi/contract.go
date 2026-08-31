@@ -78,6 +78,15 @@ type Message struct {
 	UpdatedAt int64           `json:"updated_at"`
 }
 
+// Attachment mirrors proto.Attachment for prompts sent to the agent.
+// Content is encoded as base64 by encoding/json, matching Crush's []byte field.
+type Attachment struct {
+	FilePath string `json:"file_path"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	Content  []byte `json:"content"`
+}
+
 // TextPart is the unwrapped data of a "text" content part.
 type TextPart struct {
 	Text string `json:"text"`
@@ -95,6 +104,15 @@ type ToolCall struct {
 	Name     string          `json:"name"`
 	Input    json.RawMessage `json:"input"`
 	Finished bool            `json:"finished,omitempty"`
+}
+
+// BinaryPart is the unwrapped data of a "binary" content part in message
+// history. Crush's proto type has no JSON tags, so its field names are
+// capitalized on the wire.
+type BinaryPart struct {
+	Path     string `json:"Path"`
+	MIMEType string `json:"MIMEType"`
+	Data     []byte `json:"Data"`
 }
 
 // File mirrors proto.File.
@@ -223,13 +241,14 @@ type partWrapper struct {
 	Data json.RawMessage `json:"data"`
 }
 
-// Parts is the UI-relevant content of a Message.Parts blob: the concatenated
-// text and the tool calls. It exists so the SSE forwarder can decode the blob
-// once per event instead of twice, which matters because every token delta
-// re-sends the whole parts array.
+// Parts is the UI-relevant content of a Message.Parts blob: concatenated text,
+// tool calls, and binary attachments. It exists so the SSE forwarder can
+// decode the blob once per event instead of repeatedly, which matters because
+// every token delta re-sends the whole parts array.
 type Parts struct {
-	Text      string
-	ToolCalls []ToolCall
+	Text        string
+	ToolCalls   []ToolCall
+	Attachments []Attachment
 }
 
 // ExtractParts decodes a Message.Parts blob in a single pass. Empty or invalid
@@ -264,6 +283,17 @@ func ExtractParts(parts json.RawMessage) Parts {
 				continue
 			}
 			out.ToolCalls = append(out.ToolCalls, tc)
+		case "binary":
+			var binary BinaryPart
+			if err := json.Unmarshal(w.Data, &binary); err != nil {
+				continue
+			}
+			out.Attachments = append(out.Attachments, Attachment{
+				FilePath: binary.Path,
+				FileName: binary.Path,
+				MimeType: binary.MIMEType,
+				Content:  binary.Data,
+			})
 		}
 	}
 	out.Text = b.String()
@@ -275,3 +305,6 @@ func ExtractText(parts json.RawMessage) string { return ExtractParts(parts).Text
 
 // ExtractToolCalls returns the tool_call parts of a Message.Parts blob.
 func ExtractToolCalls(parts json.RawMessage) []ToolCall { return ExtractParts(parts).ToolCalls }
+
+// ExtractAttachments returns the binary parts of a Message.Parts blob.
+func ExtractAttachments(parts json.RawMessage) []Attachment { return ExtractParts(parts).Attachments }

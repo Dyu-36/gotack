@@ -54,6 +54,7 @@
           onToggleTheme={theme.toggle}
           messages={conversations.active?.messages ?? []}
           input={conversations.input}
+          attachments={conversations.attachments}
           backendReady={conversations.backendReady}
           isStreaming={conversations.active?.status === 'streaming'}
           modelLabel={conversations.modelLabel}
@@ -63,6 +64,8 @@
           selectedThinkingId={conversations.thinking}
           onInput={conversations.setInput}
           onSend={() => void conversations.send()}
+          onAttachFiles={(files) => conversations.attachFiles(files)}
+          onRemoveAttachment={(id) => conversations.removeAttachment(id)}
           onStop={() => void conversations.cancel()}
           onOpenSidebar={() => (sidebarOpen = true)}
           onOpenSettings={() => (settingsOpen = true)}

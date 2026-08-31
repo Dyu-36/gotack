@@ -171,11 +171,19 @@ func (c *Client) History(ctx context.Context, wsID, sessionID string) ([]File, e
 // RunComplete event so callers can correlate. An empty runID omits the
 // field, which the server treats as "best effort" matching.
 func (c *Client) SendPrompt(ctx context.Context, wsID, sessionID, text, runID string) error {
+	return c.SendPromptWithAttachments(ctx, wsID, sessionID, text, runID, nil)
+}
+
+// SendPromptWithAttachments posts an AgentMessage with optional inline file
+// data. Crush persists these attachments with the user message and supplies
+// text/image content to the selected model according to its capabilities.
+func (c *Client) SendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment) error {
 	body, _ := json.Marshal(struct {
-		SessionID string `json:"session_id"`
-		RunID     string `json:"run_id,omitempty"`
-		Prompt    string `json:"prompt"`
-	}{SessionID: sessionID, RunID: runID, Prompt: text})
+		SessionID   string       `json:"session_id"`
+		RunID       string       `json:"run_id,omitempty"`
+		Prompt      string       `json:"prompt"`
+		Attachments []Attachment `json:"attachments,omitempty"`
+	}{SessionID: sessionID, RunID: runID, Prompt: text, Attachments: attachments})
 	resp, err := c.do(ctx, http.MethodPost, expandPath(agentPath, "id", wsID), bytes.NewReader(body))
 	if err != nil {
 		return err

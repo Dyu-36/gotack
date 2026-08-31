@@ -1,11 +1,11 @@
 # gotack
 
-A lightweight desktop client for [Crush](https://github.com/charmbracelet/crush), designed for fast startup, low memory usage, and smooth operation on low-resource machines.
+A lightweight general-purpose desktop AI assistant powered by [Crush](https://github.com/charmbracelet/crush), designed for fast startup, low memory usage, and smooth operation on low-resource machines.
 
 ## Goals
 
 - Keep desktop memory usage low enough to remain practical on 6 GB RAM systems.
-- Reuse Crush as the coding-agent engine instead of duplicating agent logic.
+- Reuse Crush as the local agent engine instead of duplicating agent logic.
 - Keep the desktop layer thin and independently replaceable.
 - Favor native/system components over bundled heavyweight runtimes.
 - Start fast and stay responsive while Crush, LSPs, shells, and build tools are running.
@@ -14,8 +14,9 @@ A lightweight desktop client for [Crush](https://github.com/charmbracelet/crush)
 
 Beyond bringing Crush into a native desktop workflow, `gotack` ships a small set of capabilities designed specifically for day-to-day desktop use:
 
-- **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. The bridge long-polls `getUpdates`, forwards messages from allow-listed chats to the agent (one reusable session per chat), and sends the finished answer back with `sendMessage`, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI.
-- **Office integration** — a bundled `office` MCP server (built from `cmd/office`) registered into the Crush workspace config as `mcp_servers.gotack-office` whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files: `office_info`, `office_read`, `office_create`, `office_edit`.
+- **Tack-style local assistant** — the primary Crush prompt is aligned with Stack's Tack agent for general filesystem, Office, automation, system, research and software tasks. Its read-only sub-agent follows Stack's Sage research role, while Crush still injects Gotack's live skills and local context.
+- **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. The bridge long-polls `getUpdates`, forwards messages and image/document attachments from allow-listed chats to the agent (one reusable session per chat), and sends the finished answer and referenced output files back, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI.
+- **Office integration** — the Stack-compatible `officecli` executable, Office skill set, timetable solver/exporter and a bundled `office` MCP server (built from `cmd/office`) are installed into Crush's runtime whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files without a separate Office CLI setup.
 - **Live model catalog** — the provider and model pickers are populated from the engine's `GET /v1/workspaces/{id}/providers` catalog (including per-model context windows and costs) instead of a bundled static list; selected large and small models are applied to Crush directly.
 
 ## Stack baseline
@@ -120,12 +121,12 @@ Features that can consume significant memory should be loaded only when required
 
 ## Initial scope
 
-The first usable version should focus on the coding-agent workflow rather than becoming a full IDE:
+The first usable version focuses on a fast local-assistant workflow rather than becoming a full IDE:
 
 1. Discover or launch the local Crush server.
 2. Create and attach to a workspace.
 3. List and switch sessions.
-4. Send prompts and stream agent activity.
+4. Send prompts for local files, Office work, system tasks or code and stream agent activity.
 5. Render messages, reasoning, and tool calls.
 6. Handle permission and question requests.
 7. Show changed files and lightweight diffs.

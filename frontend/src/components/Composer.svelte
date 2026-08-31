@@ -1,6 +1,7 @@
 <script lang="ts">
   import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
-  import type { ReasoningEffort } from '../features/conversations/types.svelte'
+  import { attachmentDataURL, formatAttachmentSize, isPreviewableImage } from '../features/conversations/attachments'
+  import type { ChatAttachment, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
     value: string
@@ -11,8 +12,11 @@
     selectedModelId?: string
     selectedProviderId?: string
     selectedThinkingId?: string
+    attachments?: ChatAttachment[]
     onInput: (value: string) => void
     onSend: () => void
+    onAttachFiles?: (files: File[]) => void | Promise<void>
+    onRemoveAttachment?: (id: string) => void
     onStop?: () => void
     onSelectModel?: (id: string, label: string, providerId?: string) => void
     onSelectThinking?: (id: ReasoningEffort) => void
@@ -28,8 +32,11 @@
     selectedModelId = '',
     selectedProviderId = '',
     selectedThinkingId = 'high',
+    attachments = [],
     onInput,
     onSend,
+    onAttachFiles = () => {},
+    onRemoveAttachment = () => {},
     onStop = () => {},
     onSelectModel = () => {},
     onSelectThinking = () => {},
@@ -37,15 +44,18 @@
   }: Props = $props()
 
   let textarea: HTMLTextAreaElement | undefined = $state()
+  let fileInput: HTMLInputElement | undefined = $state()
   let modelMenuOpen = $state(false)
   let thinkingMenuOpen = $state(false)
   let modelSearch = $state('')
 
-  let canSend = $derived(value.trim().length > 0 && !isStreaming)
+  let canSend = $derived((value.trim().length > 0 || attachments.length > 0) && !isStreaming)
 
   let selectedModel = $derived(
     catalog.configuredModels.find((m) => m.id === selectedModelId && (!selectedProviderId || m.providerId === selectedProviderId)),
   )
+
+  let hasImageAttachments = $derived(attachments.some((a) => isPreviewableImage(a.mimeType)))
 
   let thinkingOptions = $derived.by(() => {
     if (!selectedModel) return REASONING_EFFORT_OPTIONS
@@ -111,6 +121,23 @@
     }
   }
 
+  function handleFileSelection(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
+    const files = Array.from(input.files ?? [])
+    input.value = ''
+    if (files.length) void onAttachFiles(files)
+  }
+
+  function handlePaste(event: ClipboardEvent) {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (!files.length) return
+    event.preventDefault()
+    void onAttachFiles(files)
+  }
+
   function pickModel(id: string, name: string, providerId: string) {
     onSelectModel(id, name, providerId)
     modelMenuOpen = false
@@ -124,14 +151,52 @@
 </script>
 
 <div class="w-full max-w-input-w mx-auto px-4 pb-4 relative">
+  <input
+    bind:this={fileInput}
+    type="file"
+    multiple
+    class="hidden"
+    onchange={handleFileSelection}
+    aria-label="Tải lên tệp đính kèm"
+  />
+
   <div class="rounded-mm border border-mm-border bg-mm-bg transition-all focus-within:border-mm-accent/60 focus-within:ring-2 focus-within:ring-mm-accent/15 shadow-sm">
+    {#if attachments.length}
+      <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label="Tệp đính kèm">
+        {#each attachments as attachment (attachment.id)}
+          <div class="attachment-preview group/attachment" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
+            {#if isPreviewableImage(attachment.mimeType)}
+              <img src={attachmentDataURL(attachment)} alt={attachment.fileName} />
+            {:else}
+              <svg class="w-5 h-5 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h6" /></svg>
+              <span class="max-w-32 truncate text-xs text-mm-text">{attachment.fileName}</span>
+            {/if}
+            <button
+              type="button"
+              class="attachment-remove"
+              aria-label={`Gỡ tệp ${attachment.fileName}`}
+              title="Gỡ tệp"
+              onclick={() => onRemoveAttachment(attachment.id)}
+            >×</button>
+          </div>
+        {/each}
+      </div>
+      {#if hasImageAttachments && selectedModel && !selectedModel.supports_vision}
+        <div class="px-3 pt-1.5 pb-0 text-3xs text-mm-tertiary flex items-center gap-1">
+          <span class="text-amber-500 font-semibold">ℹ️ Text-only Model:</span>
+          <span>Gotack sẽ tự động OCR bóc tách nội dung văn bản từ ảnh khi gửi.</span>
+        </div>
+      {/if}
+    {/if}
+
     <div class="px-4 pt-3.5 pb-2">
       <textarea
         bind:this={textarea}
         value={value}
         oninput={(event) => { onInput(event.currentTarget.value); autoResize() }}
         onkeydown={handleKeydown}
-        placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter để xuống dòng)"
+        onpaste={handlePaste}
+        placeholder="Nhập tin nhắn hoặc dán ảnh... (Enter để gửi, Shift+Enter để xuống dòng)"
         rows="1"
         disabled={isStreaming}
         aria-busy={!ready}
@@ -140,7 +205,19 @@
       ></textarea>
     </div>
 
-    <div class="flex items-center justify-end px-3 pb-3">
+    <div class="flex items-center justify-between px-3 pb-3">
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="p-1.5 rounded text-mm-tertiary hover:text-mm-text hover:bg-mm-hover transition-colors"
+          title="Đính kèm tệp hoặc ảnh"
+          aria-label="Đính kèm tệp"
+          onclick={() => fileInput?.click()}
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+        </button>
+      </div>
+
       <div class="flex items-center gap-1">
         <div class="relative">
           <button
@@ -231,6 +308,9 @@
                           <div class="flex-1 min-w-0 pr-2">
                             <div class="flex items-center gap-1.5">
                               <span class="font-medium truncate">{m.name}</span>
+                              {#if m.supports_vision}
+                                <span class="text-3xs px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-medium">Vision</span>
+                              {/if}
                               {#if m.can_reason}
                                 <span class="text-3xs px-1 py-0.2 rounded bg-mm-accent/15 text-mm-accent font-medium">Reasoning</span>
                               {/if}
@@ -303,4 +383,46 @@
     cursor: pointer;
   }
   .menu-item:hover, .menu-item.active { background: var(--mm-hover); }
+
+  .attachment-preview {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border: 1px solid var(--mm-border);
+    border-radius: 8px;
+    background: var(--mm-panel);
+    max-width: 200px;
+    height: 38px;
+  }
+  .attachment-preview img {
+    width: 30px;
+    height: 30px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  .attachment-remove {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--mm-text);
+    color: var(--mm-bg);
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--mm-border);
+    cursor: pointer;
+    opacity: 0.85;
+    transition: opacity 0.15s;
+  }
+  .attachment-remove:hover {
+    opacity: 1;
+  }
 </style>
