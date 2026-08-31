@@ -16,15 +16,8 @@ import (
 //
 // Process model: gotack (UI + host) -> crush server as a separate process.
 // Ownership is tracked so an adopted server is never terminated on UI exit.
-
-type Status string
-
-const (
-	StatusStopped  Status = "stopped"
-	StatusStarting Status = "starting"
-	StatusRunning  Status = "running"
-	StatusError    Status = "error"
-)
+// The connection status derived from this process lives in
+// internal/enginelink, which drives the attach state machine.
 
 type Supervisor struct {
 	log    *slog.Logger

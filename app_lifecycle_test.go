@@ -31,15 +31,13 @@ func TestShutdownLeavesEngineRunning(t *testing.T) {
 	engine := &lifecycleEngine{}
 	app.sup = engine
 
-	streamCancelled := false
-	app.swapConn(func(c *conn) *conn {
-		c.cancelStream = func() { streamCancelled = true }
-		return c
-	})
+	// Install a live event-stream scope the way workspace activation does;
+	// shutdown must cancel it without touching the engine process.
+	scope := app.link.ReplaceStreamScope(context.Background())
 
 	app.shutdown(context.Background())
 
-	if !streamCancelled {
+	if scope.Err() == nil {
 		t.Fatal("shutdown must disconnect the UI event stream")
 	}
 	if engine.stopCalls != 0 {

@@ -11,7 +11,6 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/crushapi"
-	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -59,9 +58,18 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 		c.api = api
 		c.ws = ws
 		c.sess = session.NewService(api, ws)
-		c.status = engine.StatusRunning
 		return c
 	})
+	// Drive the link through the same transitions connect() uses so the
+	// services above count as a live engine connection.
+	scope, started := app.link.BeginConnect(context.Background())
+	if !started {
+		t.Fatal("fresh link must accept a connect attempt")
+	}
+	if !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+		t.Fatal("commit attach rejected a live scope")
+	}
+	app.link.MarkRunning()
 
 	providers, err := app.ListProviders()
 	if err != nil {
