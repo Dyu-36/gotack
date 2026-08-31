@@ -201,10 +201,11 @@ main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindin
 office_seed.go  context_seed.go  guard_seed.go  settings_crush.go   package main helpers, not bound methods
 internal/                              host implementation, one package per role
   appconfig  attachments  changes  contextseed  crushapi  engine  enginelink
-  guard  logging  mcp  office  officecli  permission  session  terminal
-  uievents  workspace  zalo
+  guard  logging  mcp  office  officecli  permission  recall  session
+  terminal  uievents  workspace  zalo
 cmd/office/                            bundled Office MCP server (stdio), ships as office.exe
 cmd/guard/                             PreToolUse approval hook (blocklist/tiers), ships as guard.exe
+cmd/recall/                            cross-session recall MCP server (stdio), reads crush.db read-only
 frontend/                              Svelte 5 UI (folder name required by Wails v2)
 third_party/crush/                     vendored Crush engine (own git history, ignored here;
                                        only third_party/README.md is tracked)
