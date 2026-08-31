@@ -20,13 +20,13 @@ import (
 // ZaloConfigInfo is the stored channel state returned to the UI; HasToken
 // hides the secret instead of echoing it.
 type ZaloConfigInfo struct {
-	Enabled      bool     `json:"enabled"`
-	PairedChats  []string `json:"paired_chats"`
-	PairingCode  string   `json:"pairing_code"`
-	HasToken     bool     `json:"has_token"`
-	BotName      string   `json:"bot_name,omitempty"`
-	TokenSuffix  string   `json:"token_suffix,omitempty"`
-	Running      bool     `json:"running"`
+	Enabled     bool     `json:"enabled"`
+	PairedChats []string `json:"paired_chats"`
+	PairingCode string   `json:"pairing_code"`
+	HasToken    bool     `json:"has_token"`
+	BotName     string   `json:"bot_name,omitempty"`
+	TokenSuffix string   `json:"token_suffix,omitempty"`
+	Running     bool     `json:"running"`
 }
 
 // ZaloConfigUpdate is the editable payload: an empty token keeps the stored
