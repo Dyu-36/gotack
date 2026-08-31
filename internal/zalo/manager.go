@@ -56,7 +56,6 @@ type Manager struct {
 	runtime       Runtime
 	log           *slog.Logger
 
-
 	state     StoredChannel
 	mu        sync.Mutex
 	running   bool

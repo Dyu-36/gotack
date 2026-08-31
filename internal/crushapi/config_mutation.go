@@ -111,4 +111,3 @@ func (c *Client) RemoveConfigField(ctx context.Context, wsID string, scope int, 
 	}
 	return c.doJSON(ctx, "POST", expandPath(configRemovePath, "id", wsID), bytes.NewReader(body), nil)
 }
-
