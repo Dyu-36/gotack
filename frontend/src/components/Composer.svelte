@@ -13,6 +13,7 @@
     selectedProviderId?: string
     selectedThinkingId?: string
     attachments?: ChatAttachment[]
+    conversationStarted?: boolean
     onInput: (value: string) => void
     onSend: () => void
     onAttachFiles?: (files: File[]) => void | Promise<void>
@@ -36,6 +37,7 @@
     selectedProviderId = '',
     selectedThinkingId = 'high',
     attachments = [],
+    conversationStarted = false,
     onInput,
     onSend,
     onAttachFiles = () => {},
@@ -154,7 +156,7 @@
   }
 </script>
 
-<div class="w-full max-w-input-w mx-auto px-4 pb-4 relative">
+<div class="w-full mx-auto px-4 pb-4 relative {conversationStarted ? 'max-w-5xl' : 'max-w-input-w'}">
   <input
     bind:this={fileInput}
     type="file"
