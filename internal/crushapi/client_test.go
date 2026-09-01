@@ -28,7 +28,8 @@ func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == workspacesPath:
 			_, _ = zw.Write([]byte(`{"id":"ws-1","path":"D:/repo"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces/ws-1/providers":
-			_, _ = zw.Write([]byte(`[{"id":"opencode-go","name":"OpenCode Go","models":[{"id":"minimax-m3","name":"MiniMax M3","supports_attachments":false},{"id":"vision-model","name":"Vision Model","supports_attachments":true}]}]`))
+			_, _ = zw.Write([]byte(`[{"id":"opencode-go","name":"OpenCode Go","models":[{"id":"text-model","name":"Text Model","supports_attachments":false},{"id":"vision-model","name":"Vision Model","supports_attachments":true}]}]`))
+
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = zw.Write([]byte(`{"message":"not found"}`))
@@ -58,7 +59,7 @@ func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
 		t.Fatalf("ListProviders() = %#v", providers)
 	}
 	if providers[0].Models[0].SupportsVision {
-		t.Fatal("minimax-m3 supports_attachments=false was promoted to vision")
+		t.Fatal("text-model supports_attachments=false was promoted to vision")
 	}
 	if !providers[0].Models[1].SupportsVision {
 		t.Fatal("supports_attachments=true was not decoded as vision support")

@@ -24,10 +24,15 @@ async function refresh() {
   status = 'loading'
   loadError = ''
   try {
-    providers = await desktop.listProviders()
+    const rawProviders = await desktop.listProviders()
+    providers = rawProviders.map((p) => ({
+      ...p,
+      models: p.models || [],
+    }))
     if (!providers.length) throw new Error('Backend returned an empty provider catalog')
     status = 'ready'
   } catch (cause) {
+
     providers = []
     status = 'error'
     loadError = cause instanceof Error ? cause.message : String(cause)

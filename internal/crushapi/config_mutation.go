@@ -79,6 +79,29 @@ func (c *Client) SetProviderAPIKey(ctx context.Context, wsID string, scope int, 
 	return c.doJSON(ctx, "POST", expandPath(configProviderKeyPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
+// SetProviderOAuthToken stores an OAuth token credential through Crush's
+// typed credential endpoint.
+func (c *Client) SetProviderOAuthToken(ctx context.Context, wsID string, scope int, providerID string, token any) error {
+	if wsID == "" || strings.TrimSpace(providerID) == "" {
+		return errors.New("crushapi: workspace id and provider id are required")
+	}
+	raw, err := json.Marshal(token)
+	if err != nil {
+		return fmt.Errorf("crushapi: encode provider oauth token: %w", err)
+	}
+	body, err := json.Marshal(struct {
+		Scope      int             `json:"scope"`
+		ProviderID string          `json:"provider_id"`
+		Kind       string          `json:"kind"`
+		APIKey     json.RawMessage `json:"api_key"`
+	}{Scope: scope, ProviderID: providerID, Kind: "oauth", APIKey: raw})
+	if err != nil {
+		return fmt.Errorf("crushapi: encode provider oauth key request: %w", err)
+	}
+	return c.doJSON(ctx, "POST", expandPath(configProviderKeyPath, "id", wsID), bytes.NewReader(body), nil)
+}
+
+
 // SetConfigField writes one Crush config field using the server's sjson path
 // semantics. It is used for provider base_url, which Crush hot-reloads.
 func (c *Client) SetConfigField(ctx context.Context, wsID string, scope int, key string, value any) error {

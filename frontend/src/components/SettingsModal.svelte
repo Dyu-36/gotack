@@ -1,9 +1,10 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner'
   import { catalog } from '../features/conversations/catalog.svelte'
-  import { desktop, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
+  import { desktop, type ChatGPTOAuthStatus, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
 
   type Theme = 'system' | 'light' | 'dark'
+
   type Tab = 'providers' | 'zalo' | 'appearance'
 
   type SettingsPayload = {
@@ -58,6 +59,9 @@
   let zaloPairingCode = $state('')
   let zaloPairedChats = $state<string[]>([])
 
+  let chatgptOAuthStatus = $state<ChatGPTOAuthStatus | null>(null)
+  let isLoggingInChatGPT = $state(false)
+
   $effect(() => {
     selectedTheme = theme
     selectedProvider = provider
@@ -65,9 +69,49 @@
     currentCustomUrl = customUrl
     if (catalog.status === 'idle') void catalog.refresh()
     void loadZalo()
+    void loadChatGPTOAuthStatus()
   })
 
+  async function loadChatGPTOAuthStatus() {
+    try {
+      chatgptOAuthStatus = await desktop.getChatGPTOAuthStatus()
+    } catch {
+      chatgptOAuthStatus = null
+    }
+  }
+
+  async function loginWithChatGPT() {
+    isLoggingInChatGPT = true
+    try {
+      toast.info('Đang mở trình duyệt để đăng nhập tài khoản ChatGPT...')
+      chatgptOAuthStatus = await desktop.loginChatGPTOAuth()
+      await catalog.refresh()
+      toast.success(
+        chatgptOAuthStatus?.email
+          ? `Đã liên kết tài khoản ChatGPT: ${chatgptOAuthStatus.email}`
+          : 'Đăng nhập ChatGPT OAuth thành công!',
+      )
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      isLoggingInChatGPT = false
+    }
+  }
+
+  async function logoutChatGPT() {
+    if (!window.confirm('Đăng xuất tài khoản ChatGPT và hủy liên kết OAuth?')) return
+    try {
+      await desktop.logoutChatGPTOAuth()
+      chatgptOAuthStatus = { connected: false }
+      await catalog.refresh()
+      toast.success('Đã đăng xuất tài khoản ChatGPT')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   async function loadZalo() {
+
     try {
       const config = await desktop.getZaloConfig()
       zaloEnabled = config.enabled
@@ -291,17 +335,61 @@
               {#each catalog.providers as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
             </select>
             {#if selectedProvider}
+              {#if selectedProvider === 'openai'}
+                <div class="oauth-box">
+                  <div class="oauth-header">
+                    <div class="oauth-icon">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+                    </div>
+                    <div class="oauth-info">
+                      <strong>Xác thực tài khoản ChatGPT (OAuth PKCE)</strong>
+                      <p>Sử dụng tài khoản ChatGPT (Plus, Pro, Team hoặc Free) trực tiếp qua trình duyệt mà không cần tạo OpenAI API Key riêng.</p>
+                    </div>
+                  </div>
+                  {#if chatgptOAuthStatus?.connected}
+                    <div class="oauth-connected">
+                      <div class="oauth-badge">
+                        <span class="status-dot"></span>
+                        <span>Đã kết nối {chatgptOAuthStatus.email ? `(${chatgptOAuthStatus.email})` : ''} {chatgptOAuthStatus.plan ? `· Gói: ${chatgptOAuthStatus.plan.toUpperCase()}` : ''}</span>
+                      </div>
+                      <div class="oauth-actions">
+                        <button type="button" class="btn-notion text-xs text-red-500 hover:text-red-600" onclick={logoutChatGPT}>Đăng xuất</button>
+                        <button type="button" class="btn-notion text-xs" disabled={isLoggingInChatGPT} onclick={loginWithChatGPT}>Đăng nhập lại</button>
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="oauth-login">
+                      <button
+                        type="button"
+                        class="btn-oauth"
+                        disabled={isLoggingInChatGPT}
+                        onclick={loginWithChatGPT}
+                      >
+                        {#if isLoggingInChatGPT}
+                          <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                          <span>Đang chờ đăng nhập trên trình duyệt...</span>
+                        {:else}
+                          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+                          <span>Đăng nhập bằng tài khoản ChatGPT</span>
+                        {/if}
+                      </button>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
               <label class="field-label" for="endpoint">Custom endpoint (tùy chọn)</label>
               <input id="endpoint" class="field font-mono" bind:value={currentCustomUrl} placeholder={providerInfo?.api_endpoint ?? 'https://…'} />
               <p class="hint">Ghi vào <code>providers.{selectedProvider}.base_url</code> qua API cấu hình của Tack.</p>
 
-              <label class="field-label" for="api-key">API key</label>
+              <label class="field-label" for="api-key">API key {selectedProvider === 'openai' && chatgptOAuthStatus?.connected ? '(hoặc dùng API key thay vì OAuth)' : ''}</label>
               <div class="flex gap-2">
                 <input id="api-key" class="field flex-1 font-mono" type={showApiKey ? 'text' : 'password'} bind:value={currentApiKey} autocomplete="off" placeholder="Bỏ trống để giữ credential hiện tại" />
                 <button type="button" class="btn-notion px-3 text-xs" onclick={() => (showApiKey = !showApiKey)}>{showApiKey ? 'Ẩn' : 'Hiện'}</button>
               </div>
               <p class="hint">Credential được Tack lưu an toàn. Danh sách phía trên chỉ hiện provider có credential sử dụng được.</p>
             {/if}
+
           {:else if catalog.status === 'loading'}
             <p class="hint">Đang tải danh sách provider...</p>
           {:else if catalog.status === 'error'}
@@ -424,4 +512,19 @@
   .icon-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .delete-btn { color: #ef4444; }
   .delete-btn:hover:not(:disabled) { color: #ef4444; background: rgb(239 68 68 / 10%); border-color: rgb(239 68 68 / 35%); }
+  .oauth-box { padding: 12px; border: 1px solid var(--mm-border); border-radius: 8px; background: var(--mm-panel); display: grid; gap: 8px; }
+  .oauth-header { display: flex; align-items: flex-start; gap: 10px; }
+  .oauth-icon { width: 22px; height: 22px; color: #10b981; flex-shrink: 0; margin-top: 1px; }
+  .oauth-icon svg { width: 100%; height: 100%; }
+  .oauth-info strong { font-size: 12px; color: var(--mm-text); display: block; }
+  .oauth-info p { margin: 2px 0 0; font-size: 11px; color: var(--mm-secondary); line-height: 1.4; }
+  .oauth-connected { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--mm-border); }
+  .oauth-badge { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; color: #10b981; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
+  .oauth-actions { display: flex; gap: 6px; }
+  .oauth-login { padding-top: 4px; }
+  .btn-oauth { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.1); color: #10b981; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 120ms ease; }
+  .btn-oauth:hover:not(:disabled) { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.5); }
+  .btn-oauth:disabled { opacity: 0.6; cursor: wait; }
 </style>
+

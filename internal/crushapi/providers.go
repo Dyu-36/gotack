@@ -88,5 +88,6 @@ func (c *Client) ListProviders(ctx context.Context, wsID string) ([]Provider, er
 	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
 		return nil, fmt.Errorf("crushapi: decode providers: %w", err)
 	}
+
 	return providers, nil
 }

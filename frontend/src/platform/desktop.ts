@@ -70,7 +70,14 @@ export type ZaloStatusInfo = {
   last_error?: string
 }
 export type ZaloFileRequest = { path: string; chat_id?: string }
+export type ChatGPTOAuthStatus = {
+  connected: boolean
+  email?: string
+  plan?: string
+  expires_at?: number
+}
 // Mirrors Go SettingsInfo in bind_config.go. `autostart_engine` and
+
 // `small_model` were removed on both sides: the host always starts the engine
 // during OnStartup and always pins Crush's small-model slot to `model`, so
 // sending them was a silent no-op.
@@ -148,7 +155,11 @@ type BackendApp = {
   ListProviders: () => Promise<ProviderCatalogEntry[]>
   RevealProviderAPIKey: (providerID: string) => Promise<string>
   DeleteProvider: (providerID: string) => Promise<void>
+  LoginChatGPTOAuth: () => Promise<ChatGPTOAuthStatus>
+  GetChatGPTOAuthStatus: () => Promise<ChatGPTOAuthStatus>
+  LogoutChatGPTOAuth: () => Promise<void>
   GetZaloConfig: () => Promise<ZaloConfigInfo>
+
   SaveZaloConfig: (update: ZaloConfigUpdate) => Promise<ZaloStatusInfo>
   TestZaloConnection: () => Promise<ZaloStatusInfo>
   RemoveZaloToken: () => Promise<ZaloStatusInfo>
@@ -207,4 +218,6 @@ export const desktop = {
   sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
   listProviders: () => call('ListProviders'), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
+  loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'),
 }
+
