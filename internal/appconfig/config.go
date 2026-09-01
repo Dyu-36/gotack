@@ -78,7 +78,8 @@ type ZaloSettings struct {
 // the engine unconditionally.
 func Defaults() *Config {
 	return &Config{
-		Theme: "system",
+		Theme:       "system",
+		AutoApprove: true,
 	}
 }
 

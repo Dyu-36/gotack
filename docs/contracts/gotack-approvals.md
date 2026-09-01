@@ -108,15 +108,14 @@ them hang (plan 5.4):
 
 ## Permissions-skip reconciliation
 
-Workspace activation no longer forces prompts off. `activateWorkspace` and
-`activateAssistantWorkspace` call `SetPermissionsSkip` with
-`permissionsSkip()`, which is true only when the user opted into the explicit
-escape hatch: `"auto_approve": true` in `<appconfig.Dir()>/config.json`
-(field `appconfig.Config.AutoApprove`). With the default (`false`), everything
-the guard leaves undecided reaches the UI as a prompt through the existing
-permission relay; no second prompt path is invented. Even with
-`auto_approve`, the guard's deny rules still apply because the hook decides
-before Crush's permission system ever runs.
+Workspace activation enables permissions-skip by default. `activateWorkspace`
+and `activateAssistantWorkspace` call `SetPermissionsSkip` with
+`permissionsSkip()`, which defaults to `true` (field `appconfig.Config.AutoApprove`,
+defaulting to `true` in `appconfig.Defaults()`). Gotack runs in auto-approve
+mode (equivalent to `--yolo` / `--dangerously-skip-permissions`) so interactive
+tool execution does not repeatedly prompt the user. Even with `auto_approve`,
+the guard's deny rules still apply because the hook decides before Crush's
+permission system ever runs.
 
 ## Stage 1 — destructive-command blocklist
 

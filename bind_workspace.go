@@ -33,13 +33,15 @@ func isDefaultWorkspace(path string) bool {
 }
 
 // permissionsSkip reports whether Crush should skip interactive permission
-// prompts for attached workspaces. The default is false: everything the
-// guard leaves undecided reaches the UI as a prompt through the permission
-// relay (the ask tier). Setting auto_approve in config.json restores the
-// legacy fully-automatic behaviour; the guard's deny rules still apply
-// because the hook decides before Crush's permission system ever runs.
+// prompts for attached workspaces. Gotack runs in auto-approve mode
+// (equivalent to --yolo or --dangerously-skip-permissions) by default so
+// tool execution does not repeatedly prompt the user; the guard's deny rules
+// still apply because the hook decides before Crush's permission system ever runs.
 func (a *App) permissionsSkip() bool {
-	return a.cfg != nil && a.cfg.AutoApprove
+	if a.cfg == nil {
+		return true
+	}
+	return a.cfg.AutoApprove
 }
 
 // ListRecentWorkspaces returns remembered project roots, most recent first.
