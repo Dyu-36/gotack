@@ -133,8 +133,14 @@ that metadata only; the bytes stay on disk until `SendPrompt` reads them.
 | `ListProviders()` | `Provider[]` | Live catwalk catalog for the open workspace. Without one, the host uses a private catalog workspace and does not change `CurrentWorkspace()`. Requires the engine. |
 | `RevealProviderAPIKey(providerID)` | `string`, `error` | Returns the stored key for one provider so Settings can reveal it on explicit user action. Deliberate exception to the write-only secret rule below. |
 | `DeleteProvider(providerID)` | `error` | Removes the provider's stored credential and configuration from the Crush config. |
+| `LoginChatGPTOAuth()` | `ChatGPTOAuthStatus`, `error` | Launches browser OAuth PKCE authentication with OpenAI for ChatGPT accounts (Plus/Pro/Team/Free) and applies credentials to Crush. |
+| `GetChatGPTOAuthStatus()` | `ChatGPTOAuthStatus`, `error` | Returns the current OAuth authentication status, email, and plan type for ChatGPT. |
+| `LogoutChatGPTOAuth()` | `error` | Removes ChatGPT OAuth credentials and disables the OpenAI provider in Crush. |
+
+`ChatGPTOAuthStatus`: `{connected, email?, plan?, expires_at?}`.
 
 `SettingsInfo`:
+
 `{theme, provider, credential_provider?, provider_only?, model, thinking, api_key, custom_url}`.
 
 `small_model` and `autostart_engine` were previously on the wire with no effect
