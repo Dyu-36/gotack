@@ -103,6 +103,9 @@ func TestDefaults(t *testing.T) {
 	if d.Provider != "" || d.Model != "" || d.Thinking != "" {
 		t.Errorf("agent settings must default empty so Crush catalog defaults apply, got provider=%q model=%q thinking=%q", d.Provider, d.Model, d.Thinking)
 	}
+	if !d.AutoApprove {
+		t.Errorf("AutoApprove=%v want true", d.AutoApprove)
+	}
 	if d.Zalo.Enabled || d.Zalo.Token != "" {
 		t.Errorf("Zalo must default disabled with no token, got %+v", d.Zalo)
 	}
