@@ -97,8 +97,8 @@
 </script>
 
 {#if message.role === 'user'}
-  <div class="flex justify-end mb-4 group animate-fade-in pl-8 sm:pl-16">
-    <div class="max-w-[85%] sm:max-w-[80%] flex flex-col items-end">
+  <div class="flex justify-end mb-4 group animate-fade-in pl-12 sm:pl-24">
+    <div class="max-w-[80%] sm:max-w-[75%] flex flex-col items-end">
       {#if message.attachments.length}
         <div class="flex flex-wrap justify-end gap-2 mb-2" aria-label="Tệp đã gửi">
           {#each message.attachments as attachment (attachment.id)}
@@ -138,11 +138,11 @@
 <!-- An assistant row with no text is a tool-only agent step: render nothing
      instead of an avatar bubble with an empty body. -->
 {:else if message.role === 'assistant' && (message.content.trim() || isStreaming)}
-  <div class="flex items-start gap-3 mb-5 group animate-fade-in pr-6 sm:pr-14">
+  <div class="flex items-start gap-3 mb-5 group animate-fade-in pr-8 sm:pr-20">
     <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
       <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
     </div>
-    <div class="flex-1 min-w-0 max-w-[92%] sm:max-w-[88%]">
+    <div class="flex-1 min-w-0 max-w-[90%] sm:max-w-[85%]">
       {#if rendered}
         <div class="prose-notion" use:chatLinks bind:this={renderedContentEl}>
           {@html rendered}

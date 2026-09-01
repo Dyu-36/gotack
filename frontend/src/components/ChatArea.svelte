@@ -269,10 +269,10 @@
     </div>
   {:else}
     <div bind:this={scroller} onscroll={handleScroll} class="messages relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại" aria-live="polite" aria-relevant="additions text" aria-busy={isStreaming}>
-      <div class="max-w-3xl mx-auto px-4 pt-6 pb-6">
+      <div class="max-w-5xl mx-auto px-4 pt-6 pb-6">
         {#each messages as message, idx (message.id)}
           {#if message.kind === 'tool'}
-            <div class="tool-row mb-4 mr-6 sm:mr-14" aria-label={`Tool ${message.toolName ?? ''}`}>
+            <div class="tool-row mb-4 mr-8 sm:mr-20" aria-label={`Tool ${message.toolName ?? ''}`}>
               <span class:done={message.toolFinished} class="tool-dot"></span>
               <span class="font-mono text-xs text-mm-text font-medium">{message.toolName ?? 'tool'}</span>
               <span class="text-2xs text-mm-tertiary">{message.toolFinished ? 'hoàn thành' : 'đang chạy'}</span>
@@ -286,7 +286,7 @@
           {/if}
         {/each}
         {#if isStreaming && messages.length > 0 && messages.at(-1)?.role === 'user'}
-          <div class="flex items-start gap-3 mb-5 animate-fade-in pr-6 sm:pr-14">
+          <div class="flex items-start gap-3 mb-5 animate-fade-in pr-8 sm:pr-20">
             <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
               <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
             </div>
@@ -305,7 +305,7 @@
   {/if}
 
   <div class="shrink-0 pt-2">
-    <Composer bind:this={composer} value={input} {attachments} onInput={onInput} onSend={onSend} {onAttachFiles} {onPickFiles} {onRemoveAttachment} onStop={onStop} ready={backendReady} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedProviderId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
+    <Composer bind:this={composer} value={input} {attachments} conversationStarted={messages.length > 0} onInput={onInput} onSend={onSend} {onAttachFiles} {onPickFiles} {onRemoveAttachment} onStop={onStop} ready={backendReady} {isStreaming} {modelLabel} {thinkingLabel} {selectedModelId} {selectedProviderId} {selectedThinkingId} {onSelectModel} {onSelectThinking} {onOpenSettings} />
   </div>
 </div>
 
