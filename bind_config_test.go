@@ -75,8 +75,18 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProviders() error = %v", err)
 	}
-	if len(providers) != 1 || providers[0].ID != "anthropic" || len(providers[0].Models) != 1 {
+	if len(providers) != 3 || providers[0].ID != "anthropic" || len(providers[0].Models) != 1 {
 		t.Fatalf("ListProviders() = %#v", providers)
+	}
+	mistral := findProvider(t, providers, mistralProviderID)
+	if mistral.APIEndpoint != mistralDefaultEndpoint || len(mistral.Models) == 0 {
+		t.Fatalf("Mistral overlay = %#v", mistral)
+	}
+	// Codex is listed without a credential so Settings can start the ChatGPT
+	// sign-in from the provider list.
+	codex := findProvider(t, providers, codexProviderID)
+	if codex.APIEndpoint != codexBackendURL || codex.CredentialKind != "" {
+		t.Fatalf("Codex overlay = %#v", codex)
 	}
 	wantPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
 	if createdPath != wantPath {

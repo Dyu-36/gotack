@@ -25,10 +25,12 @@ async function refresh() {
   loadError = ''
   try {
     const rawProviders = await desktop.listProviders()
-    providers = rawProviders.map((p) => ({
-      ...p,
-      models: p.models || [],
-    }))
+    providers = rawProviders
+      .map((p) => ({
+        ...p,
+        models: p.models || [],
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
     if (!providers.length) throw new Error('Backend returned an empty provider catalog')
     status = 'ready'
   } catch (cause) {

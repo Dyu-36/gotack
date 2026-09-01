@@ -119,13 +119,28 @@ func (a *App) connect(scope context.Context) {
 		// under Gotack's app-data directory. Users can chat immediately without
 		// selecting a folder, and all workspaces run with permission prompts off.
 		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
+		// Runs before the workspace attach so the engine builds its agent from the
+		// provider that owns the ChatGPT credential after the OpenAI/Codex split.
+		a.migrateChatGPTProviderCredential(svc)
+		workspaceWarning := ""
 		if _, err := a.activateAssistantWorkspace(svc); err != nil {
-			return fmt.Errorf("initialize assistant workspace: %w", err)
+			// Attaching the default workspace must not decide whether the engine
+			// counts as reachable. Crush rejects workspace creation when a stored
+			// provider credential is unusable, and Settings -- the only place to
+			// repair it -- stays out of reach while a failed attach keeps the link
+			// in error. Report the engine as running and carry the reason instead;
+			// EnsureAssistantWorkspace retries from the UI once it is fixed.
+			a.log.Warn("could not attach the default workspace", "err", err)
+			workspaceWarning = fmt.Sprintf("initialize assistant workspace: %v", err)
 		}
 
 		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
 		a.link.MarkRunning()
-		a.emit(uievents.EngineStatus, a.engineInfo())
+		status := a.engineInfo()
+		if status.Error == "" {
+			status.Error = workspaceWarning
+		}
+		a.emit(uievents.EngineStatus, status)
 		// Readiness is pushed, never polled: overdue scheduled runs
 		// re-evaluate immediately after a (re)connect.
 		a.setSchedulerReady(true)

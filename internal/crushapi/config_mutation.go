@@ -14,10 +14,11 @@ import (
 // pinned against the upstream commit recorded in third_party/README.md.
 
 const (
-	configSetPath         = "/v1/workspaces/{id}/config/set"
-	configRemovePath      = "/v1/workspaces/{id}/config/remove"
-	configModelPath       = "/v1/workspaces/{id}/config/model"
-	configProviderKeyPath = "/v1/workspaces/{id}/config/provider-key"
+	configSetPath          = "/v1/workspaces/{id}/config/set"
+	configRemovePath       = "/v1/workspaces/{id}/config/remove"
+	configModelPath        = "/v1/workspaces/{id}/config/model"
+	configProviderKeyPath  = "/v1/workspaces/{id}/config/provider-key"
+	configRefreshOAuthPath = "/v1/workspaces/{id}/config/refresh-oauth"
 )
 
 // Config scope values are defined by Crush as global=0 and workspace=1.
@@ -101,6 +102,21 @@ func (c *Client) SetProviderOAuthToken(ctx context.Context, wsID string, scope i
 	return c.doJSON(ctx, "POST", expandPath(configProviderKeyPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
+// RefreshProviderOAuthToken asks Crush to refresh and persist a provider's
+// OAuth credential using its provider-specific token exchange.
+func (c *Client) RefreshProviderOAuthToken(ctx context.Context, wsID string, scope int, providerID string) error {
+	if wsID == "" || strings.TrimSpace(providerID) == "" {
+		return errors.New("crushapi: workspace id and provider id are required")
+	}
+	body, err := json.Marshal(struct {
+		Scope      int    `json:"scope"`
+		ProviderID string `json:"provider_id"`
+	}{Scope: scope, ProviderID: providerID})
+	if err != nil {
+		return fmt.Errorf("crushapi: encode provider oauth refresh: %w", err)
+	}
+	return c.doJSON(ctx, "POST", expandPath(configRefreshOAuthPath, "id", wsID), bytes.NewReader(body), nil)
+}
 
 // SetConfigField writes one Crush config field using the server's sjson path
 // semantics. It is used for provider base_url, which Crush hot-reloads.

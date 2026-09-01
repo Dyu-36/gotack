@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -128,8 +129,36 @@ func (a *App) reapplySavedWorkspaceSettings() {
 		CustomURL: a.cfg.CustomURL,
 	}
 	// Credentials are owned by Crush and are intentionally not replayed here.
-	if err := a.applyCrushSettings(saved, ""); err != nil && a.log != nil {
-		a.log.Warn("could not reapply saved Crush settings", "err", err)
+	effective, err := a.applyEffectiveCrushSettings(saved, "")
+	if err != nil {
+		if a.log != nil {
+			a.log.Warn("could not reapply saved Crush settings", "err", err)
+		}
+		return
+	}
+	a.persistCorrectedSelection(effective)
+}
+
+// persistCorrectedSelection stores a selection the host had to repoint while
+// applying it. Without it the correction would live only in the engine's
+// config, so the next replay would send the stale provider again and the two
+// configs would keep contradicting each other.
+func (a *App) persistCorrectedSelection(s SettingsInfo) {
+	if a.cfg == nil {
+		return
+	}
+	provider := strings.TrimSpace(s.Provider)
+	model := strings.TrimSpace(s.Model)
+	endpoint := strings.TrimSpace(s.CustomURL)
+	if provider == a.cfg.Provider && model == a.cfg.Model && endpoint == a.cfg.CustomURL {
+		return
+	}
+	a.cfg.Provider = provider
+	a.cfg.Model = model
+	a.cfg.CustomURL = endpoint
+	cfgCopy := *a.cfg
+	if err := appconfig.Save(&cfgCopy); err != nil && a.log != nil {
+		a.log.Warn("could not save the corrected provider selection", "err", err)
 	}
 }
 

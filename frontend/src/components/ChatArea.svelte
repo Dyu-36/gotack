@@ -272,7 +272,7 @@
       <div class="max-w-3xl mx-auto px-4 pt-6 pb-6">
         {#each messages as message, idx (message.id)}
           {#if message.kind === 'tool'}
-            <div class="tool-row mb-4" aria-label={`Tool ${message.toolName ?? ''}`}>
+            <div class="tool-row mb-4 mr-6 sm:mr-14" aria-label={`Tool ${message.toolName ?? ''}`}>
               <span class:done={message.toolFinished} class="tool-dot"></span>
               <span class="font-mono text-xs text-mm-text font-medium">{message.toolName ?? 'tool'}</span>
               <span class="text-2xs text-mm-tertiary">{message.toolFinished ? 'hoàn thành' : 'đang chạy'}</span>
@@ -286,7 +286,7 @@
           {/if}
         {/each}
         {#if isStreaming && messages.length > 0 && messages.at(-1)?.role === 'user'}
-          <div class="flex items-start gap-3 mb-5 animate-fade-in">
+          <div class="flex items-start gap-3 mb-5 animate-fade-in pr-6 sm:pr-14">
             <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
               <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
             </div>

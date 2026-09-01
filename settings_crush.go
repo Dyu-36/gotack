@@ -11,6 +11,27 @@ import (
 
 var safeProviderID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// applyEffectiveCrushSettings applies a settings payload after repointing a
+// selection that the provider split stranded, and returns what was actually
+// written. Every caller that persists the selection must use this instead of
+// applyCrushSettings: the UI replays the selection it read at boot, so a
+// payload naming the credential-less "openai" provider would otherwise undo the
+// Codex migration on the very next save.
+func (a *App) applyEffectiveCrushSettings(s SettingsInfo, apiKey string) (SettingsInfo, error) {
+	// A missing engine or workspace is not an error here; applyCrushSettings
+	// already decides whether that is a no-op or a refused credential write.
+	if svc, err := a.services(); err == nil {
+		if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
+			redirected, err := a.redirectStrandedChatGPTSelection(svc, desc.WorkspaceID, s, apiKey)
+			if err != nil {
+				return s, err
+			}
+			s = redirected
+		}
+	}
+	return s, a.applyCrushSettings(s, apiKey)
+}
+
 // applyCrushSettings pushes agent-affecting settings into the currently open
 // Crush workspace. Crush hot-reloads these endpoints, so no engine restart is
 // needed. apiKey is an argument on purpose: it is never persisted in Gotack.
@@ -30,8 +51,21 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 		credentialProvider = provider // backwards compatibility with older UI payloads
 	}
 	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
+	seededLocalProvider := false
+	if credentialProvider != "" {
+		seededLocalProvider, err = prepareLocalProviderConfig(a.ctx, svc.api, ws, scope, credentialProvider)
+		if err != nil {
+			return err
+		}
+	}
 	if apiKey != "" && credentialProvider == "" {
 		return errors.New("provider is required before storing an API key")
+	}
+	if apiKey != "" && credentialProvider == codexProviderID {
+		// Codex authenticates through the ChatGPT browser sign-in only. Storing a
+		// key here would overwrite the OAuth credential with a value the
+		// subscription backend rejects.
+		return errors.New("codex signs in with ChatGPT, not an API key; use the openai provider for an API key")
 	}
 	if credentialProvider != "" && s.ProviderOnly {
 		if !safeProviderID.MatchString(credentialProvider) {
@@ -74,9 +108,25 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 		if !safeProviderID.MatchString(credentialProvider) {
 			return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
 		}
+		// A custom endpoint must never land on a provider whose credential is a
+		// browser sign-in. Such a token is only valid against the backend the
+		// engine picked for it, so an endpoint carried over from another provider
+		// would break a working login. Refuse instead of writing or dropping it.
+		oauthBacked, oauthErr := providerUsesOAuth(a.ctx, svc.api, ws, credentialProvider)
+		if oauthErr != nil {
+			return oauthErr
+		}
+		if oauthBacked {
+			return fmt.Errorf("provider %q signs in with OAuth and does not accept a custom endpoint", credentialProvider)
+		}
 		key := "providers." + credentialProvider + ".base_url"
 		if err := svc.api.SetConfigField(a.ctx, ws, scope, key, endpoint); err != nil {
 			return fmt.Errorf("apply Crush provider endpoint: %w", err)
+		}
+	}
+	if seededLocalProvider {
+		if err := finalizeLocalProviderConfig(a.ctx, svc.api, ws, scope, credentialProvider); err != nil {
+			return err
 		}
 	}
 

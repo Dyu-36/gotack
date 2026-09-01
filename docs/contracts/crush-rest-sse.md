@@ -55,6 +55,7 @@ them:
 | Preferred large model (`models.large`) | `POST /v1/workspaces/{id}/config/model` (`SetPreferredModel`) | `settings_crush.go` | Select another model through the same endpoint; there is no unset |
 | Preferred small model (`models.small`) | same endpoint | `settings_crush.go` (pinned to the same selection as large) | same |
 | Provider API key | `POST /v1/workspaces/{id}/config/provider-key` (`SetProviderAPIKey`) | `settings_crush.go` | Credentials are owned by Crush; the host never deletes them |
+| ChatGPT OAuth token | `POST /v1/workspaces/{id}/config/provider-key` (`SetProviderOAuthToken`, kind `oauth`) | `bind_oauth.go` | Crush preserves account-routing and refresh metadata, stores the account's live Codex model catalog, routes OpenAI Responses requests to `https://chatgpt.com/backend-api/codex`, and refreshes the token through the dedicated refresh endpoint. `DeleteProvider("openai")` removes it. |
 
 ### Runtime state, not config keys
 
@@ -79,6 +80,7 @@ All in `internal/crushapi`; one method per route, no business logic.
 | `/v1/workspaces/{id}/config/remove` | POST | undo path for every `config/set` key |
 | `/v1/workspaces/{id}/config/model` | POST | model selection |
 | `/v1/workspaces/{id}/config/provider-key` | POST | credential storage |
+| `/v1/workspaces/{id}/config/refresh-oauth` | POST | provider-specific OAuth refresh; used by ChatGPT status checks and the agent's auth retry path |
 | `/v1/workspaces/{id}/providers` | GET | configured-provider listing |
 | `/v1/workspaces/{id}/sessions` | GET, POST | session list/create (`internal/session`) |
 | `/v1/workspaces/{id}/sessions/{sid}` | GET, PUT, DELETE | session rename/delete (`session_mutation.go`) |

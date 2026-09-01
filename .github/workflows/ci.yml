@@ -111,6 +111,7 @@ jobs:
         run: |
           git clone --filter=blob:none https://github.com/charmbracelet/crush.git "$env:RUNNER_TEMP\crush"
           git -C "$env:RUNNER_TEMP\crush" checkout $env:CRUSH_COMMIT
+          ./scripts/apply-crush-patches.ps1 -CrushDir "$env:RUNNER_TEMP\crush"
           New-Item -ItemType Directory -Force build\bin\resources | Out-Null
           Push-Location "$env:RUNNER_TEMP\crush"
           go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\crush.exe" .

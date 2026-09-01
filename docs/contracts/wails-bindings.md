@@ -28,6 +28,12 @@ same change as an event rename before pushing.
 
 `EngineInfo`: `{status: stopped|starting|running|error, running, endpoint, version, owned, error?}`.
 
+`error` is independent of `status`. A `running` engine still reports `error`
+when the default workspace could not be attached, most often because a stored
+provider credential is unusable. The UI must stay interactive in that state --
+Settings is the only place the cause can be fixed -- and retries the attach
+with `EnsureAssistantWorkspace()`.
+
 The desktop host starts or adopts the engine during `OnStartup`, before the UI
 requests a workspace. Normal UI shutdown disconnects host-owned streams and
 terminals but leaves the engine process running, so the next Gotack launch
@@ -129,13 +135,52 @@ that metadata only; the bytes stay on disk until `SendPrompt` reads them.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `GetSettings()` | `SettingsInfo` | `api_key` is always empty (write-only). |
-| `SaveSettings(settings)` | `error` | Applies provider/model/thinking/credential through the Crush REST API. |
-| `ListProviders()` | `Provider[]` | Live catwalk catalog for the open workspace. Without one, the host uses a private catalog workspace and does not change `CurrentWorkspace()`. Requires the engine. |
+| `SaveSettings(settings)` | `error` | Applies provider/model/thinking/credential through the Crush REST API. Rejects an API key or a custom endpoint for an OAuth-backed provider: `codex signs in with ChatGPT, not an API key; use the openai provider for an API key` and `provider "codex" signs in with OAuth and does not accept a custom endpoint`. |
+| `ListProviders()` | `Provider[]` | Live Catwalk catalog for the open workspace plus Gotack-local provider overlays that are omitted automatically once Catwalk publishes the same provider ID. The local overlays are Mistral (`openai-compat`, `https://api.mistral.ai/v1`) with curated model capabilities, and Codex (`openai`, Codex backend) with no models and no API-key field; configured custom-provider models from Crush are merged ahead of the fallback metadata. Without a workspace, the host uses a private catalog workspace and does not change `CurrentWorkspace()`. Requires the engine. |
 | `RevealProviderAPIKey(providerID)` | `string`, `error` | Returns the stored key for one provider so Settings can reveal it on explicit user action. Deliberate exception to the write-only secret rule below. |
 | `DeleteProvider(providerID)` | `error` | Removes the provider's stored credential and configuration from the Crush config. |
-| `LoginChatGPTOAuth()` | `ChatGPTOAuthStatus`, `error` | Launches browser OAuth PKCE authentication with OpenAI for ChatGPT accounts (Plus/Pro/Team/Free) and applies credentials to Crush. |
-| `GetChatGPTOAuthStatus()` | `ChatGPTOAuthStatus`, `error` | Returns the current OAuth authentication status, email, and plan type for ChatGPT. |
-| `LogoutChatGPTOAuth()` | `error` | Removes ChatGPT OAuth credentials and disables the OpenAI provider in Crush. |
+| `LoginChatGPTOAuth()` | `ChatGPTOAuthStatus`, `error` | Launches OpenAI's browser OAuth PKCE flow for ChatGPT accounts (Free/Go/Plus/Pro/Business/Edu/Enterprise), seeds the `codex` provider, stores the credential and account-routing metadata there, loads the models available to that account from the Codex backend, and selects the first available model when the previous selection is unavailable. |
+| `GetChatGPTOAuthStatus()` | `ChatGPTOAuthStatus`, `error` | Returns connection state, email, plan, and expiry for the `codex` provider. A malformed credential or one without a ChatGPT account ID is disconnected; an expired credential with a refresh token is refreshed through Crush before status is returned. A pre-split login stored on `openai` is moved to `codex` first (see below). |
+| `LogoutChatGPTOAuth()` | `error` | Removes the `codex` provider's credential and configuration from Crush. The `openai` provider and its API key are untouched. |
+
+**Provider split.** ChatGPT subscription sign-in and the public OpenAI API are
+two separate providers, because one provider ID holds exactly one credential in
+Crush and storing an OAuth token rewrites that provider's endpoint and catalog:
+
+- `openai` -- public OpenAI API, API key only. Accepts a custom endpoint.
+- `codex` ("ChatGPT (Codex)") -- ChatGPT subscription, browser OAuth only. Its
+  endpoint is fixed to the Codex backend and its catalog is account-scoped.
+
+Installs that signed in before the split keep their credential on `openai`. The
+host moves it to `codex` automatically, once, on engine connect and on the next
+`GetChatGPTOAuthStatus()`, and strips the OAuth leftovers from `openai`. No
+second sign-in is required.
+
+Whichever of the two paths performs the move also repoints the selection in the
+same pass, because a saved selection naming `openai` is replayed into the engine
+by every later settings apply and would restore the broken routing:
+
+- `models.large` / `models.small` and the saved provider move to `codex`.
+- The saved model id is validated against the account-scoped Codex catalog and
+  falls back to that provider's default large model when it is not offered.
+- A saved custom endpoint is cleared, since `codex` rejects one.
+- A provider the user selected deliberately is left alone; only an empty,
+  `openai`, or already-`codex` selection is taken over.
+- An install where the credential already reached `codex` while the selection
+  stayed on `openai` is converged on the next connect. The migration itself no
+  longer sees anything to move there, so the repoint is gated on `openai`
+  holding no credential at all -- an API key on `openai` keeps its selection.
+
+The same guard runs on every settings apply, not only during the migration. The
+webview replays the selection it read at boot, so a payload that still names
+`openai` while that provider holds no credential is repointed at `codex` before
+it reaches the engine, and `SaveSettings` persists what was applied rather than
+what was sent. Three writes are never redirected: one carrying an API key, a
+provider-only write, and one naming an `openai` provider that already holds a
+key.
+
+The migration is best effort: a failure is logged and retried on the next status
+check instead of blocking startup.
 
 `ChatGPTOAuthStatus`: `{connected, email?, plan?, expires_at?}`.
 
