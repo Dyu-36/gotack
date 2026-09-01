@@ -8,6 +8,8 @@ Vendored upstream code is used only for contract inspection and release builds. 
 - Pinned commit: the single tracked owner is `.crush-pin` at the repository
   root. The workflows, `scripts/update-crush.ps1`, and this document all read
   or reference that file.
+- Gotack-specific engine compatibility patches live in `third_party/patches/*.patch`
+  and are applied, in filename order, on top of the pin before Crush is tested or built.
 - Contract checked: REST v1 sessions, agent/cancel, config/model, config/set, config/provider-key, permissions, question batches, workspace SSE (`message`, `run_complete`, `file`, permission/question events).
 - Desktop integration: REST + SSE only through `internal/crushapi`; Gotack never imports `third_party/crush/internal/...`.
 
@@ -15,11 +17,11 @@ Vendored upstream code is used only for contract inspection and release builds. 
 
 Release builds prefer a bundled Crush executable at `resources/crush.exe` next to `gotack.exe` on Windows (or `resources/crush` on Unix). If the bundle is absent, Gotack falls back to `crush` on `PATH`. A non-empty `engine_binary` setting is an explicit override and wins over both.
 
-The release job must build Crush from the exact pinned commit above and place it in the Gotack artifact. This makes a release deterministic while retaining the PATH fallback for developer machines.
+The release job must build Crush from the exact pinned commit plus the tracked patch set above and place it in the Gotack artifact. This keeps releases deterministic while retaining the PATH fallback for developer machines.
 
 ## Refresh procedure
 
-Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.crush-pin`). The script refreshes the ignored `third_party/crush` checkout, verifies the REST/SSE route markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, update `.crush-pin` in the same PR.
+Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.crush-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, verifies the REST/SSE route markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.crush-pin` in the same PR.
 
 ## Rules
 

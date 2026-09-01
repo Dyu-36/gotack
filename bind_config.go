@@ -128,6 +128,7 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	providers, localOverlays := mergeLocalProviderOverlays(providers)
 	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("get resolved Crush config: %w", err)
@@ -136,6 +137,20 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 		pc, exists := cfg.Providers[providers[i].ID]
 		if !exists || pc.Disable {
 			continue
+		}
+		if localOverlays[providers[i].ID] {
+			if pc.Name != "" {
+				providers[i].Name = pc.Name
+			}
+			if pc.Type != "" {
+				providers[i].Type = pc.Type
+			}
+			if pc.BaseURL != "" {
+				providers[i].APIEndpoint = pc.BaseURL
+			}
+			if len(pc.Models) > 0 {
+				providers[i].Models = mergeProviderModels(pc.Models, providers[i].Models)
+			}
 		}
 		kind, _, usable := resolvedProviderCredential(pc)
 		if !usable {
@@ -245,25 +260,29 @@ func (a *App) DeleteProvider(providerID string) error {
 // provider-key endpoint and are never written to Gotack's config.json.
 func (a *App) SaveSettings(s SettingsInfo) error {
 	apiKey := strings.TrimSpace(s.APIKey)
-	if err := a.applyCrushSettings(s, apiKey); err != nil {
+	// The host repoints a selection stranded by the provider split while it
+	// applies it, so persist what the engine received instead of what the UI
+	// sent: the two differ exactly when the stale selection was corrected.
+	effective, err := a.applyEffectiveCrushSettings(s, apiKey)
+	if err != nil {
 		return err
 	}
 
 	if a.cfg == nil {
 		a.cfg = appconfig.Defaults()
 	}
-	if s.Theme != "" {
-		a.cfg.Theme = s.Theme
+	if effective.Theme != "" {
+		a.cfg.Theme = effective.Theme
 	}
-	a.cfg.Provider = strings.TrimSpace(s.Provider)
-	a.cfg.Model = strings.TrimSpace(s.Model)
+	a.cfg.Provider = strings.TrimSpace(effective.Provider)
+	a.cfg.Model = strings.TrimSpace(effective.Model)
 	// Gotack exposes one model selector. applyCrushSettings pins both
 	// models.large and models.small to it, so there is nothing extra to persist.
-	a.cfg.Thinking = strings.TrimSpace(s.Thinking)
+	a.cfg.Thinking = strings.TrimSpace(effective.Thinking)
 	a.cfg.APIKey = "" // scrub any credential persisted by older builds
-	credentialProvider := strings.TrimSpace(s.CredentialProvider)
+	credentialProvider := strings.TrimSpace(effective.CredentialProvider)
 	if credentialProvider == "" || credentialProvider == a.cfg.Provider {
-		a.cfg.CustomURL = strings.TrimSpace(s.CustomURL)
+		a.cfg.CustomURL = strings.TrimSpace(effective.CustomURL)
 	}
 	cfgCopy := *a.cfg
 

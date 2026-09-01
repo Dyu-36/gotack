@@ -42,8 +42,11 @@ type Token struct {
 	TokenType       string `json:"token_type,omitempty"`
 	ExpiresIn       int    `json:"expires_in,omitempty"`
 	ExpiresAt       int64  `json:"expires_at,omitempty"`
+	AccountID       string `json:"account_id,omitempty"`
 	AccountEmail    string `json:"account_email,omitempty"`
 	AccountPlan     string `json:"account_plan,omitempty"`
+	ChatGPTUserID   string `json:"chatgpt_user_id,omitempty"`
+	AccountFedRAMP  bool   `json:"chatgpt_account_is_fedramp,omitempty"`
 	Email           string `json:"email,omitempty"`
 	ChatGPTPlanType string `json:"chatgpt_plan_type,omitempty"`
 }
@@ -63,7 +66,6 @@ func (t *Token) UserPlan() string {
 	}
 	return t.ChatGPTPlanType
 }
-
 
 // GeneratePKCE creates a cryptographically random code verifier and its S256 code challenge (RFC 7636).
 func GeneratePKCE() (verifier, challenge string, err error) {
@@ -86,34 +88,73 @@ func GenerateState() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// ParseIDTokenClaims extracts user email and plan details from the unencrypted JWT payload of id_token.
-func ParseIDTokenClaims(idToken string) (email, plan string) {
+// IDTokenClaims is the subset of Codex OAuth identity metadata needed to route
+// subscription-backed requests to the right ChatGPT account.
+type IDTokenClaims struct {
+	Email          string
+	Plan           string
+	AccountID      string
+	ChatGPTUserID  string
+	AccountFedRAMP bool
+}
+
+// ParseIDTokenMetadata extracts ChatGPT account metadata from the unencrypted
+// JWT payload. Signature validation remains the authorization server's job;
+// this metadata is never treated as proof of authentication by itself.
+func ParseIDTokenMetadata(idToken string) IDTokenClaims {
 	parts := strings.Split(idToken, ".")
-	if len(parts) < 2 {
-		return "", ""
+	if len(parts) != 3 || parts[1] == "" {
+		return IDTokenClaims{}
 	}
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", ""
+		return IDTokenClaims{}
 	}
 	var claims struct {
-		Email        string `json:"email"`
-		ProfileEmail string `json:"https://api.openai.com/profile.email"`
-		PlanType     string `json:"chatgpt_plan_type"`
-		Plan         string `json:"plan"`
+		Email   string `json:"email"`
+		Profile struct {
+			Email string `json:"email"`
+		} `json:"https://api.openai.com/profile"`
+		Auth struct {
+			PlanType       string `json:"chatgpt_plan_type"`
+			UserID         string `json:"chatgpt_user_id"`
+			LegacyUserID   string `json:"user_id"`
+			AccountID      string `json:"chatgpt_account_id"`
+			AccountFedRAMP bool   `json:"chatgpt_account_is_fedramp"`
+		} `json:"https://api.openai.com/auth"`
+		// Retain compatibility with older fixtures/token responses.
+		PlanType string `json:"chatgpt_plan_type"`
+		Plan     string `json:"plan"`
 	}
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return "", ""
+		return IDTokenClaims{}
 	}
-	email = claims.Email
-	if email == "" {
-		email = claims.ProfileEmail
+	metadata := IDTokenClaims{
+		Email:          claims.Email,
+		Plan:           claims.Auth.PlanType,
+		AccountID:      claims.Auth.AccountID,
+		ChatGPTUserID:  claims.Auth.UserID,
+		AccountFedRAMP: claims.Auth.AccountFedRAMP,
 	}
-	plan = claims.PlanType
-	if plan == "" {
-		plan = claims.Plan
+	if metadata.Email == "" {
+		metadata.Email = claims.Profile.Email
 	}
-	return email, plan
+	if metadata.Plan == "" {
+		metadata.Plan = claims.PlanType
+	}
+	if metadata.Plan == "" {
+		metadata.Plan = claims.Plan
+	}
+	if metadata.ChatGPTUserID == "" {
+		metadata.ChatGPTUserID = claims.Auth.LegacyUserID
+	}
+	return metadata
+}
+
+// ParseIDTokenClaims is retained for callers that only display identity data.
+func ParseIDTokenClaims(idToken string) (email, plan string) {
+	metadata := ParseIDTokenMetadata(idToken)
+	return metadata.Email, metadata.Plan
 }
 
 // Options configures the OAuth flow parameters.
@@ -192,6 +233,7 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 	vals.Set("state", state)
 	vals.Set("id_token_add_organizations", "true")
 	vals.Set("codex_cli_simplified_flow", "true")
+	vals.Set("originator", "gotack")
 
 	authURL := opts.AuthURL + "?" + vals.Encode()
 
@@ -313,7 +355,12 @@ func ExchangeCode(ctx context.Context, opts Options, code, verifier, redirectURI
 	}
 
 	if tok.IDToken != "" {
-		tok.AccountEmail, tok.AccountPlan = ParseIDTokenClaims(tok.IDToken)
+		metadata := ParseIDTokenMetadata(tok.IDToken)
+		tok.AccountEmail = metadata.Email
+		tok.AccountPlan = metadata.Plan
+		tok.AccountID = metadata.AccountID
+		tok.ChatGPTUserID = metadata.ChatGPTUserID
+		tok.AccountFedRAMP = metadata.AccountFedRAMP
 	}
 
 	return &tok, nil
@@ -379,7 +426,12 @@ func RefreshToken(ctx context.Context, opts Options, refreshToken string) (*Toke
 	}
 
 	if tok.IDToken != "" {
-		tok.AccountEmail, tok.AccountPlan = ParseIDTokenClaims(tok.IDToken)
+		metadata := ParseIDTokenMetadata(tok.IDToken)
+		tok.AccountEmail = metadata.Email
+		tok.AccountPlan = metadata.Plan
+		tok.AccountID = metadata.AccountID
+		tok.ChatGPTUserID = metadata.ChatGPTUserID
+		tok.AccountFedRAMP = metadata.AccountFedRAMP
 	}
 
 	return &tok, nil

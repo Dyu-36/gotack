@@ -31,7 +31,7 @@ func TestGeneratePKCE(t *testing.T) {
 
 func TestParseIDTokenClaims(t *testing.T) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"user@example.com","chatgpt_plan_type":"plus"}`))
+	claims := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/profile":{"email":"user@example.com"},"https://api.openai.com/auth":{"chatgpt_plan_type":"plus","chatgpt_account_id":"acct_123","chatgpt_user_id":"user_123","chatgpt_account_is_fedramp":true}}`))
 	jwt := fmt.Sprintf("%s.%s.signature", header, claims)
 
 	email, plan := ParseIDTokenClaims(jwt)
@@ -40,6 +40,10 @@ func TestParseIDTokenClaims(t *testing.T) {
 	}
 	if plan != "plus" {
 		t.Errorf("got plan %q, want plus", plan)
+	}
+	metadata := ParseIDTokenMetadata(jwt)
+	if metadata.AccountID != "acct_123" || metadata.ChatGPTUserID != "user_123" || !metadata.AccountFedRAMP {
+		t.Fatalf("unexpected account metadata: %+v", metadata)
 	}
 }
 
@@ -61,7 +65,7 @@ func TestOAuthLoginAndRefresh(t *testing.T) {
 				return
 			}
 			header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
-			payload := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"chatgpt_user@test.local","chatgpt_plan_type":"team"}`))
+			payload := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"chatgpt_user@test.local","https://api.openai.com/auth":{"chatgpt_plan_type":"plus","chatgpt_account_id":"acct_test"}}`))
 			idToken := fmt.Sprintf("%s.%s.sig", header, payload)
 
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -132,8 +136,11 @@ func TestOAuthLoginAndRefresh(t *testing.T) {
 	if token.AccountEmail != "chatgpt_user@test.local" {
 		t.Errorf("got email %q, want chatgpt_user@test.local", token.AccountEmail)
 	}
-	if token.AccountPlan != "team" {
-		t.Errorf("got plan %q, want team", token.AccountPlan)
+	if token.AccountPlan != "plus" {
+		t.Errorf("got plan %q, want plus", token.AccountPlan)
+	}
+	if token.AccountID != "acct_test" {
+		t.Errorf("got account id %q, want acct_test", token.AccountID)
 	}
 
 	// Test Refresh

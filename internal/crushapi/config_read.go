@@ -55,6 +55,7 @@ type ProviderConfig struct {
 	APIKey  string          `json:"api_key,omitempty"`
 	OAuth   json.RawMessage `json:"oauth,omitempty"`
 	Disable bool            `json:"disable,omitempty"`
+	Models  []Model         `json:"models,omitempty"`
 }
 
 // GetWorkspaceConfig calls GET /v1/workspaces/{id}/config.

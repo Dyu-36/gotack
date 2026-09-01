@@ -7,13 +7,15 @@
   import RequestModals from './components/RequestModals.svelte'
   import { createLiveConversationState } from './features/conversations/live-conversation-state.svelte'
 
+  import { onMount } from 'svelte'
+
   const conversations = createLiveConversationState()
   const theme = createThemeState()
 
   let sidebarOpen = $state(true)
   let settingsOpen = $state(false)
 
-  $effect(() => {
+  onMount(() => {
     theme.initialize()
     void conversations.init()
     return () => {

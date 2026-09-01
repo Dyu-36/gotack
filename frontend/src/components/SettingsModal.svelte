@@ -183,8 +183,10 @@
       provider_only: true,
       model,
       thinking,
-      api_key: currentApiKey.trim(),
-      custom_url: selectedProvider ? currentCustomUrl.trim() : '',
+      // Codex is authenticated by the ChatGPT sign-in: it takes no API key, and
+      // its endpoint belongs to the engine. The host rejects both for it.
+      api_key: selectedProvider === 'codex' ? '' : currentApiKey.trim(),
+      custom_url: selectedProvider && selectedProvider !== 'codex' ? currentCustomUrl.trim() : '',
     }
     onThemeChange(selectedTheme)
     onSaveSettings(payload)
@@ -335,7 +337,7 @@
               {#each catalog.providers as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
             </select>
             {#if selectedProvider}
-              {#if selectedProvider === 'openai'}
+              {#if selectedProvider === 'codex'}
                 <div class="oauth-box">
                   <div class="oauth-header">
                     <div class="oauth-icon">
@@ -343,7 +345,7 @@
                     </div>
                     <div class="oauth-info">
                       <strong>Xác thực tài khoản ChatGPT (OAuth PKCE)</strong>
-                      <p>Sử dụng tài khoản ChatGPT (Plus, Pro, Team hoặc Free) trực tiếp qua trình duyệt mà không cần tạo OpenAI API Key riêng.</p>
+                      <p>Sử dụng tài khoản ChatGPT (Free, Go, Plus, Pro, Business, Edu hoặc Enterprise) trực tiếp qua trình duyệt mà không cần tạo OpenAI API Key riêng.</p>
                     </div>
                   </div>
                   {#if chatgptOAuthStatus?.connected}
@@ -378,16 +380,20 @@
                 </div>
               {/if}
 
-              <label class="field-label" for="endpoint">Custom endpoint (tùy chọn)</label>
-              <input id="endpoint" class="field font-mono" bind:value={currentCustomUrl} placeholder={providerInfo?.api_endpoint ?? 'https://…'} />
-              <p class="hint">Ghi vào <code>providers.{selectedProvider}.base_url</code> qua API cấu hình của Tack.</p>
+              {#if selectedProvider === 'codex'}
+                <p class="hint">Codex đăng nhập bằng tài khoản ChatGPT nên không dùng API key hay endpoint riêng. Cần OpenAI API Key thì chọn provider <code>OpenAI</code>.</p>
+              {:else}
+                <label class="field-label" for="endpoint">Custom endpoint (tùy chọn)</label>
+                <input id="endpoint" class="field font-mono" bind:value={currentCustomUrl} placeholder={providerInfo?.api_endpoint ?? 'https://…'} />
+                <p class="hint">Ghi vào <code>providers.{selectedProvider}.base_url</code> qua API cấu hình của Tack.</p>
 
-              <label class="field-label" for="api-key">API key {selectedProvider === 'openai' && chatgptOAuthStatus?.connected ? '(hoặc dùng API key thay vì OAuth)' : ''}</label>
-              <div class="flex gap-2">
-                <input id="api-key" class="field flex-1 font-mono" type={showApiKey ? 'text' : 'password'} bind:value={currentApiKey} autocomplete="off" placeholder="Bỏ trống để giữ credential hiện tại" />
-                <button type="button" class="btn-notion px-3 text-xs" onclick={() => (showApiKey = !showApiKey)}>{showApiKey ? 'Ẩn' : 'Hiện'}</button>
-              </div>
-              <p class="hint">Credential được Tack lưu an toàn. Danh sách phía trên chỉ hiện provider có credential sử dụng được.</p>
+                <label class="field-label" for="api-key">API key</label>
+                <div class="flex gap-2">
+                  <input id="api-key" class="field flex-1 font-mono" type={showApiKey ? 'text' : 'password'} bind:value={currentApiKey} autocomplete="off" placeholder="Bỏ trống để giữ credential hiện tại" />
+                  <button type="button" class="btn-notion px-3 text-xs" onclick={() => (showApiKey = !showApiKey)}>{showApiKey ? 'Ẩn' : 'Hiện'}</button>
+                </div>
+                <p class="hint">Credential được Tack lưu an toàn. Danh sách phía trên chỉ hiện provider có credential sử dụng được.</p>
+              {/if}
             {/if}
 
           {:else if catalog.status === 'loading'}
@@ -527,4 +533,3 @@
   .btn-oauth:hover:not(:disabled) { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.5); }
   .btn-oauth:disabled { opacity: 0.6; cursor: wait; }
 </style>
-

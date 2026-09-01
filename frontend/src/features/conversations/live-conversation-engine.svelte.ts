@@ -336,8 +336,18 @@ export function createEngineState(deps: EngineDeps) {
   const setModel = (next: string, label?: string, providerID?: string) => {
     deps.model.value = next
     deps.modelLabel.value = label ?? catalog.modelName(next, providerID) ?? next
-    if (providerID) deps.provider.value = providerID
-    else {
+    if (providerID) {
+      deps.provider.value = providerID
+      // Provider switches must carry that provider's endpoint into the queued
+      // SaveSettings call. Reusing the previous provider's custom URL would
+      // rewrite a newly selected custom provider (for example Mistral) to the
+      // wrong backend before its first run. OAuth endpoints belong to the
+      // engine, however, and SaveSettings deliberately rejects them as custom.
+      const selectedProvider = catalog.provider(providerID)
+      deps.customUrl.value = providerID === 'codex' || selectedProvider?.credential_kind === 'oauth'
+        ? ''
+        : (selectedProvider?.api_endpoint ?? '')
+    } else {
       const match = catalog.models.find((m) => m.id === next)
       if (match) deps.provider.value = match.providerId
     }

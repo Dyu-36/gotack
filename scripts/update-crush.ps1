@@ -35,6 +35,8 @@ if ($actual -ne $Commit) {
     throw "Crush checkout mismatch: expected $Commit, got $actual"
 }
 
+& (Join-Path $PSScriptRoot 'apply-crush-patches.ps1') -CrushDir $crushDir
+
 # These markers intentionally fail loudly when upstream routes/events move.
 # A pin update is not accepted until internal/crushapi is reviewed against the
 # new server contract.

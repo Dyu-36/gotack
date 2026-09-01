@@ -1,0 +1,1352 @@
+diff --git a/internal/agent/agent.go b/internal/agent/agent.go
+index ffd7165..dc12876 100644
+--- a/internal/agent/agent.go
++++ b/internal/agent/agent.go
+@@ -151,10 +151,11 @@ type SessionAgent interface {
+ }
+ 
+ type Model struct {
+-	Model      fantasy.LanguageModel
+-	CatwalkCfg catwalk.Model
+-	ModelCfg   config.SelectedModel
+-	FlatRate   bool
++	Model               fantasy.LanguageModel
++	CatwalkCfg          catwalk.Model
++	ModelCfg            config.SelectedModel
++	FlatRate            bool
++	OmitMaxOutputTokens bool
+ }
+ 
+ // activeCancel wraps a context.CancelFunc with a unique pointer identity.
+@@ -788,11 +789,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	var stepMessages []fantasy.Message
+ 	var shouldSummarize bool
+ 	sanitizedToolCalls := make(map[string]bool)
+-	// Don't send MaxOutputTokens if 0 — some providers (e.g. LM Studio) reject it
+-	var maxOutputTokens *int64
+-	if call.MaxOutputTokens > 0 {
+-		maxOutputTokens = &call.MaxOutputTokens
+-	}
++	// Don't send MaxOutputTokens if 0, or when the selected backend does not
++	// accept the field (notably ChatGPT's subscription-backed Codex endpoint).
++	maxOutputTokens := maxOutputTokensForModel(largeModel, call.MaxOutputTokens)
+ 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
+ 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
+ 		Files:            files,
+@@ -1747,13 +1746,15 @@ func (a *sessionAgent) GenerateTitle(ctx context.Context, sessionID string, user
+ 	largeModel := a.largeModel.Get()
+ 	systemPromptPrefix := a.systemPromptPrefix.Get()
+ 
+-	newAgent := func(m fantasy.LanguageModel, p []byte, tok int64) fantasy.Agent {
+-		return fantasy.NewAgent(
+-			m,
+-			fantasy.WithSystemPrompt(string(p)+"\n /no_think"),
+-			fantasy.WithMaxOutputTokens(tok),
++	newAgent := func(m Model, p []byte, tok int64) fantasy.Agent {
++		opts := []fantasy.AgentOption{
++			fantasy.WithSystemPrompt(string(p) + "\n /no_think"),
+ 			fantasy.WithUserAgent(userAgent),
+-		)
++		}
++		if maxOutputTokens := maxOutputTokensForModel(m, tok); maxOutputTokens != nil {
++			opts = append(opts, fantasy.WithMaxOutputTokens(*maxOutputTokens))
++		}
++		return fantasy.NewAgent(m.Model, opts...)
+ 	}
+ 
+ 	streamCall := fantasy.AgentStreamCall{
+@@ -1788,7 +1789,7 @@ func (a *sessionAgent) GenerateTitle(ctx context.Context, sessionID string, user
+ 		if attempt.model.CatwalkCfg.CanReason {
+ 			tok = attempt.model.CatwalkCfg.DefaultMaxTokens
+ 		}
+-		agent := newAgent(attempt.model.Model, titlePrompt, tok)
++		agent := newAgent(attempt.model, titlePrompt, tok)
+ 		resp, err = agent.Stream(ctx, streamCall)
+ 		if err == nil && resp.Response.FinishReason != fantasy.FinishReasonLength {
+ 			model = attempt.model
+diff --git a/internal/agent/coordinator.go b/internal/agent/coordinator.go
+index 5a7b3f8..e8e72ab 100644
+--- a/internal/agent/coordinator.go
++++ b/internal/agent/coordinator.go
+@@ -876,15 +876,17 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
+ 	}
+ 
+ 	return Model{
+-			Model:      largeModel,
+-			CatwalkCfg: *largeCatwalkModel,
+-			ModelCfg:   largeModelCfg,
+-			FlatRate:   largeProviderCfg.FlatRate,
++			Model:               largeModel,
++			CatwalkCfg:          *largeCatwalkModel,
++			ModelCfg:            largeModelCfg,
++			FlatRate:            largeProviderCfg.FlatRate,
++			OmitMaxOutputTokens: omitMaxOutputTokens(largeProviderCfg),
+ 		}, Model{
+-			Model:      smallModel,
+-			CatwalkCfg: *smallCatwalkModel,
+-			ModelCfg:   smallModelCfg,
+-			FlatRate:   smallProviderCfg.FlatRate,
++			Model:               smallModel,
++			CatwalkCfg:          *smallCatwalkModel,
++			ModelCfg:            smallModelCfg,
++			FlatRate:            smallProviderCfg.FlatRate,
++			OmitMaxOutputTokens: omitMaxOutputTokens(smallProviderCfg),
+ 		}, nil
+ }
+ 
+@@ -1113,6 +1115,10 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
+ 
+ 	apiKey, _ := c.cfg.Resolve(providerCfg.APIKey)
+ 	baseURL, _ := c.cfg.Resolve(providerCfg.BaseURL)
++	baseURL, err := applyOpenAIOAuthRouting(providerCfg, baseURL, headers)
++	if err != nil {
++		return nil, err
++	}
+ 
+ 	switch providerCfg.ID {
+ 	case string(catwalk.InferenceProviderOpenCodeGo), string(catwalk.InferenceProviderOpenCodeZen):
+diff --git a/internal/agent/openai_oauth.go b/internal/agent/openai_oauth.go
+new file mode 100644
+index 0000000..6b71249
+--- /dev/null
++++ b/internal/agent/openai_oauth.go
+@@ -0,0 +1,54 @@
++package agent
++
++import (
++	"errors"
++	"maps"
++
++	"github.com/charmbracelet/crush/internal/config"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
++)
++
++// applyOpenAIOAuthRouting switches an OAuth-authenticated ChatGPT subscription
++// provider from the public API endpoint to the Codex backend and adds the
++// account-routing headers expected by that backend.
++//
++// Routing is keyed on the credential, not on the provider id alone. "codex"
++// carries the subscription login while "openai" keeps working for configs
++// written before the two were split; an "openai" provider holding an API key
++// has no OAuth token and still talks to the public OpenAI API.
++func applyOpenAIOAuthRouting(provider config.ProviderConfig, baseURL string, headers map[string]string) (string, error) {
++	if provider.OAuthToken == nil || !openaioauth.IsSubscriptionProvider(provider.ID) {
++		return baseURL, nil
++	}
++	if provider.OAuthToken.AccessToken == "" {
++		return "", errors.New("OpenAI OAuth credential is missing an access token")
++	}
++	// Credentials stored before subscription routing existed, and refresh
++	// responses that omit unchanged fields, arrive without an account id. The
++	// tokens themselves still carry the claim, so recover it here: refusing
++	// would strand the user in an app that cannot open a workspace, which is the
++	// only place the sign-in this error asks for actually lives.
++	openaioauth.RecoverAccountMetadata(provider.OAuthToken)
++	if provider.OAuthToken.AccountID == "" {
++		return "", errors.New("OpenAI OAuth credential is missing the ChatGPT account id; sign in again")
++	}
++	maps.Copy(headers, openaioauth.Headers(provider.OAuthToken.AccountID, provider.OAuthToken.AccountFedRAMP))
++	return openaioauth.CodexBackendURL, nil
++}
++
++// omitMaxOutputTokens reports whether the request is routed to ChatGPT's
++// subscription-backed Codex endpoint. Unlike the public Responses API, that
++// endpoint rejects the max_output_tokens request field outright.
++func omitMaxOutputTokens(provider config.ProviderConfig) bool {
++	return provider.OAuthToken != nil && openaioauth.IsSubscriptionProvider(provider.ID)
++}
++
++// maxOutputTokensForModel preserves explicit/default output limits everywhere
++// except backends whose request contract rejects the field. Returning nil keeps
++// Fantasy from serializing max_output_tokens at all.
++func maxOutputTokensForModel(model Model, tokens int64) *int64 {
++	if tokens <= 0 || model.OmitMaxOutputTokens {
++		return nil
++	}
++	return &tokens
++}
+diff --git a/internal/agent/openai_oauth_test.go b/internal/agent/openai_oauth_test.go
+new file mode 100644
+index 0000000..25ed696
+--- /dev/null
++++ b/internal/agent/openai_oauth_test.go
+@@ -0,0 +1,134 @@
++package agent
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"charm.land/catwalk/pkg/catwalk"
++	"charm.land/fantasy"
++	fantasyopenai "charm.land/fantasy/providers/openai"
++	"github.com/charmbracelet/crush/internal/config"
++	"github.com/charmbracelet/crush/internal/oauth"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
++	"github.com/stretchr/testify/require"
++)
++
++func TestApplyOpenAIOAuthRouting(t *testing.T) {
++	t.Parallel()
++	headers := map[string]string{"version": "wrong"}
++	baseURL, err := applyOpenAIOAuthRouting(config.ProviderConfig{
++		ID:         string(catwalk.InferenceProviderOpenAI),
++		OAuthToken: &oauth.Token{AccessToken: "access", AccountID: "acct_123", AccountFedRAMP: true},
++	}, "https://api.openai.com/v1", headers)
++	require.NoError(t, err)
++	require.Equal(t, openaioauth.CodexBackendURL, baseURL)
++	require.Equal(t, "acct_123", headers["ChatGPT-Account-Id"])
++	require.Equal(t, "gotack", headers["originator"])
++	require.Equal(t, openaioauth.CodexClientVersion, headers["version"])
++	require.Equal(t, "gotack/"+openaioauth.CodexClientVersion, headers["User-Agent"])
++	require.Equal(t, "true", headers["X-OpenAI-Fedramp"])
++	require.True(t, omitMaxOutputTokens(config.ProviderConfig{
++		ID:         string(catwalk.InferenceProviderOpenAI),
++		OAuthToken: &oauth.Token{AccessToken: "access"},
++	}))
++}
++
++func TestApplyOpenAIOAuthRoutingRequiresAccountID(t *testing.T) {
++	t.Parallel()
++	_, err := applyOpenAIOAuthRouting(config.ProviderConfig{
++		ID:         string(catwalk.InferenceProviderOpenAI),
++		OAuthToken: &oauth.Token{AccessToken: "access"},
++	}, "", map[string]string{})
++	require.ErrorContains(t, err, "account id")
++}
++
++func TestApplyOpenAIOAuthRoutingAcceptsCodexProvider(t *testing.T) {
++	t.Parallel()
++	headers := map[string]string{}
++	baseURL, err := applyOpenAIOAuthRouting(config.ProviderConfig{
++		ID:         openaioauth.ProviderID,
++		OAuthToken: &oauth.Token{AccessToken: "access", AccountID: "acct_123"},
++	}, "https://api.openai.com/v1", headers)
++	require.NoError(t, err)
++	require.Equal(t, openaioauth.CodexBackendURL, baseURL)
++	require.Equal(t, "acct_123", headers["ChatGPT-Account-Id"])
++}
++
++// An OpenAI provider authenticated with an API key must keep talking to the
++// public API: that is the whole point of splitting Codex off.
++func TestApplyOpenAIOAuthRoutingLeavesAPIKeyOpenAIAlone(t *testing.T) {
++	t.Parallel()
++	headers := map[string]string{}
++	baseURL, err := applyOpenAIOAuthRouting(config.ProviderConfig{
++		ID:     string(catwalk.InferenceProviderOpenAI),
++		APIKey: "sk-test",
++	}, "https://api.openai.com/v1", headers)
++	require.NoError(t, err)
++	require.Equal(t, "https://api.openai.com/v1", baseURL)
++	require.Empty(t, headers)
++	require.False(t, omitMaxOutputTokens(config.ProviderConfig{
++		ID:     string(catwalk.InferenceProviderOpenAI),
++		APIKey: "sk-test",
++	}))
++}
++
++func TestMaxOutputTokensForModel(t *testing.T) {
++	t.Parallel()
++
++	tokens := maxOutputTokensForModel(Model{}, 128000)
++	require.NotNil(t, tokens)
++	require.Equal(t, int64(128000), *tokens)
++	require.Nil(t, maxOutputTokensForModel(Model{}, 0))
++	require.Nil(t, maxOutputTokensForModel(Model{OmitMaxOutputTokens: true}, 128000))
++}
++
++func TestMaxOutputTokensResponsesWireContract(t *testing.T) {
++	t.Parallel()
++
++	for _, tc := range []struct {
++		name string
++		omit bool
++	}{
++		{name: "ChatGPT subscription omits the unsupported field", omit: true},
++		{name: "public OpenAI API keeps the supported field", omit: false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			t.Parallel()
++
++			var requestBody map[string]any
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				require.Equal(t, "/responses", r.URL.Path)
++				require.NoError(t, json.NewDecoder(r.Body).Decode(&requestBody))
++				w.Header().Set("Content-Type", "application/json")
++				_, _ = w.Write([]byte(`{"id":"resp_test","object":"response","created_at":0,"status":"completed","model":"gpt-5.6-terra","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`))
++			}))
++			defer server.Close()
++
++			provider, err := fantasyopenai.New(
++				fantasyopenai.WithAPIKey("test-token"),
++				fantasyopenai.WithBaseURL(server.URL),
++				fantasyopenai.WithUseResponsesAPI(),
++			)
++			require.NoError(t, err)
++			languageModel, err := provider.LanguageModel(t.Context(), "gpt-5.6-terra")
++			require.NoError(t, err)
++
++			maxOutputTokens := maxOutputTokensForModel(Model{OmitMaxOutputTokens: tc.omit}, 128000)
++			_, err = languageModel.Generate(t.Context(), fantasy.Call{
++				Prompt:          fantasy.Prompt{fantasy.NewUserMessage("hello")},
++				MaxOutputTokens: maxOutputTokens,
++			})
++			require.NoError(t, err)
++
++			got, present := requestBody["max_output_tokens"]
++			if tc.omit {
++				require.False(t, present, "subscription request must omit max_output_tokens, got %v", got)
++				return
++			}
++			require.True(t, present)
++			require.Equal(t, float64(128000), got)
++		})
++	}
++}
+diff --git a/internal/backend/events.go b/internal/backend/events.go
+index bf20fbc..40f8870 100644
+--- a/internal/backend/events.go
++++ b/internal/backend/events.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 
+ 	tea "charm.land/bubbletea/v2"
++	"charm.land/catwalk/pkg/catwalk"
+ 
+ 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
+ 	"github.com/charmbracelet/crush/internal/app"
+@@ -67,7 +68,20 @@ func (b *Backend) GetWorkspaceProviders(workspaceID string) (any, error) {
+ 		return nil, err
+ 	}
+ 
+-	providers, _ := config.Providers(ws.Cfg.Config())
++	cfg := ws.Cfg.Config()
++	providers, _ := config.Providers(cfg)
++	if openAI, ok := cfg.Providers.Get(string(catwalk.InferenceProviderOpenAI)); ok && openAI.OAuthToken != nil && len(openAI.Models) > 0 {
++		for i := range providers {
++			if providers[i].ID != catwalk.InferenceProviderOpenAI {
++				continue
++			}
++			providers[i].APIEndpoint = openAI.BaseURL
++			providers[i].Models = openAI.Models
++			providers[i].DefaultLargeModelID = openAI.Models[0].ID
++			providers[i].DefaultSmallModelID = openAI.Models[0].ID
++			break
++		}
++	}
+ 	return providers, nil
+ }
+ 
+diff --git a/internal/config/load.go b/internal/config/load.go
+index b6ac00b..b4d1cb0 100644
+--- a/internal/config/load.go
++++ b/internal/config/load.go
+@@ -248,15 +248,20 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
+ 					}
+ 					models = append(models, model)
+ 				}
+-				for _, model := range p.Models {
+-					if seen[model.ID] {
+-						continue
++				// A ChatGPT OAuth catalog is already account-scoped. Appending the
++				// public OpenAI catalog would expose models the subscription cannot
++				// run, especially after an app restart and config reload.
++				if p.ID != catwalk.InferenceProviderOpenAI || config.OAuthToken == nil {
++					for _, model := range p.Models {
++						if seen[model.ID] {
++							continue
++						}
++						seen[model.ID] = true
++						if model.Name == "" {
++							model.Name = model.ID
++						}
++						models = append(models, model)
+ 					}
+-					seen[model.ID] = true
+-					if model.Name == "" {
+-						model.Name = model.ID
+-					}
+-					models = append(models, model)
+ 				}
+ 
+ 				p.Models = models
+diff --git a/internal/config/load_test.go b/internal/config/load_test.go
+index 6cbe86c..560dc00 100644
+--- a/internal/config/load_test.go
++++ b/internal/config/load_test.go
+@@ -44,6 +44,34 @@ func TestConfig_LoadFromBytes(t *testing.T) {
+ 	require.Equal(t, "https://api.openai.com/v2", pc.BaseURL)
+ }
+ 
++func TestConfigureProvidersChatGPTOAuthUsesOnlyAccountModels(t *testing.T) {
++	t.Parallel()
++	discover := false
++	cfg := &Config{
++		Providers: csync.NewMapFrom(map[string]ProviderConfig{
++			"openai": {
++				APIKey:             "oauth-access",
++				OAuthToken:         &oauth.Token{AccessToken: "oauth-access", AccountID: "acct_123"},
++				Models:             []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}},
++				AutoDiscoverModels: &discover,
++			},
++		}),
++	}
++	cfg.setDefaults("/tmp", "")
++	resolverEnv := env.NewFromMap(map[string]string{})
++	err := cfg.configureProviders(context.Background(), testStore(cfg), resolverEnv, NewShellVariableResolver(resolverEnv), []catwalk.Provider{{
++		ID:     catwalk.InferenceProviderOpenAI,
++		Name:   "OpenAI",
++		Type:   catwalk.TypeOpenAI,
++		Models: []catwalk.Model{{ID: "gpt-public", Name: "Public API only"}},
++	}})
++	require.NoError(t, err)
++	provider, ok := cfg.Providers.Get("openai")
++	require.True(t, ok)
++	require.Equal(t, []string{"gpt-entitled"}, []string{provider.Models[0].ID})
++	require.Len(t, provider.Models, 1)
++}
++
+ func TestLookupConfigs_BoundedByProject(t *testing.T) {
+ 	// Force GlobalConfig and GlobalConfigData to point at locations we
+ 	// control so they can be present in the result without polluting
+diff --git a/internal/config/openai_oauth.go b/internal/config/openai_oauth.go
+new file mode 100644
+index 0000000..ef08a9c
+--- /dev/null
++++ b/internal/config/openai_oauth.go
+@@ -0,0 +1,61 @@
++package config
++
++import (
++	"context"
++	"time"
++
++	"charm.land/catwalk/pkg/catwalk"
++	"github.com/charmbracelet/crush/internal/oauth"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
++)
++
++func boolPtr(value bool) *bool { return &value }
++
++func (s *ConfigStore) fetchOpenAIModels(ctx context.Context, token *oauth.Token) ([]catwalk.Model, error) {
++	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
++	defer cancel()
++	if s.listOpenAIModels != nil {
++		return s.listOpenAIModels(ctx, token)
++	}
++	return openaioauth.ListModels(ctx, token)
++}
++
++// mergeOAuthTokenMetadata keeps account-routing and display metadata when the
++// authorization server omits unchanged fields from a refresh response.
++func mergeOAuthTokenMetadata(fresh, previous *oauth.Token) {
++	if fresh == nil {
++		return
++	}
++	// A refresh can return a token with no account metadata and no previous
++	// entry to copy from. Recovering the claims from the token itself keeps a
++	// refresh from downgrading a working credential into one the agent refuses
++	// to route.
++	defer openaioauth.RecoverAccountMetadata(fresh)
++	if previous == nil {
++		return
++	}
++	if fresh.RefreshToken == "" {
++		fresh.RefreshToken = previous.RefreshToken
++	}
++	if fresh.IDToken == "" {
++		fresh.IDToken = previous.IDToken
++	}
++	if fresh.TokenType == "" {
++		fresh.TokenType = previous.TokenType
++	}
++	if fresh.AccountID == "" {
++		fresh.AccountID = previous.AccountID
++	}
++	if fresh.AccountEmail == "" {
++		fresh.AccountEmail = previous.AccountEmail
++	}
++	if fresh.AccountPlan == "" {
++		fresh.AccountPlan = previous.AccountPlan
++	}
++	if fresh.ChatGPTUserID == "" {
++		fresh.ChatGPTUserID = previous.ChatGPTUserID
++	}
++	if !fresh.AccountFedRAMP {
++		fresh.AccountFedRAMP = previous.AccountFedRAMP
++	}
++}
+diff --git a/internal/config/openai_oauth_test.go b/internal/config/openai_oauth_test.go
+new file mode 100644
+index 0000000..5d8120a
+--- /dev/null
++++ b/internal/config/openai_oauth_test.go
+@@ -0,0 +1,59 @@
++package config
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"charm.land/catwalk/pkg/catwalk"
++	"github.com/charmbracelet/crush/internal/csync"
++	"github.com/charmbracelet/crush/internal/oauth"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
++	"github.com/stretchr/testify/require"
++)
++
++func TestSetProviderAPIKeyPersistsChatGPTCatalog(t *testing.T) {
++	t.Parallel()
++	path := filepath.Join(t.TempDir(), "crush.json")
++	require.NoError(t, os.WriteFile(path, []byte(`{}`), 0o600))
++	store := &ConfigStore{
++		config: &Config{Providers: csync.NewMapFrom(map[string]ProviderConfig{
++			"openai": {ID: "openai", Name: "OpenAI", Type: catwalk.TypeOpenAI},
++		})},
++		globalDataPath: path,
++		listOpenAIModels: func(_ context.Context, token *oauth.Token) ([]catwalk.Model, error) {
++			require.Equal(t, "acct_123", token.AccountID)
++			return []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}}, nil
++		},
++	}
++	token := &oauth.Token{AccessToken: "access", RefreshToken: "refresh", AccountID: "acct_123"}
++	require.NoError(t, store.SetProviderAPIKey(ScopeGlobal, "openai", token))
++
++	provider, ok := store.Config().Providers.Get("openai")
++	require.True(t, ok)
++	require.Equal(t, openaioauth.CodexBackendURL, provider.BaseURL)
++	require.Equal(t, []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}}, provider.Models)
++	require.True(t, provider.FlatRate)
++
++	var saved struct {
++		Providers map[string]ProviderConfig `json:"providers"`
++	}
++	data, err := os.ReadFile(path)
++	require.NoError(t, err)
++	require.NoError(t, json.Unmarshal(data, &saved))
++	require.Equal(t, "acct_123", saved.Providers["openai"].OAuthToken.AccountID)
++	require.Equal(t, "gpt-entitled", saved.Providers["openai"].Models[0].ID)
++}
++
++func TestMergeOAuthTokenMetadata(t *testing.T) {
++	t.Parallel()
++	previous := &oauth.Token{RefreshToken: "refresh", AccountID: "acct", AccountEmail: "u@example.com", AccountPlan: "plus", ChatGPTUserID: "user", AccountFedRAMP: true}
++	fresh := &oauth.Token{AccessToken: "new-access"}
++	mergeOAuthTokenMetadata(fresh, previous)
++	require.Equal(t, "refresh", fresh.RefreshToken)
++	require.Equal(t, "acct", fresh.AccountID)
++	require.Equal(t, "plus", fresh.AccountPlan)
++	require.True(t, fresh.AccountFedRAMP)
++}
+diff --git a/internal/config/store.go b/internal/config/store.go
+index aded5da..19fecd8 100644
+--- a/internal/config/store.go
++++ b/internal/config/store.go
+@@ -19,6 +19,7 @@ import (
+ 	"github.com/charmbracelet/crush/internal/oauth"
+ 	"github.com/charmbracelet/crush/internal/oauth/copilot"
+ 	"github.com/charmbracelet/crush/internal/oauth/hyper"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+ 	"github.com/tidwall/gjson"
+ 	"github.com/tidwall/sjson"
+ 	"golang.org/x/sync/singleflight"
+@@ -119,7 +120,8 @@ type ConfigStore struct {
+ 	// It is a field so tests can substitute a fake exchange without making
+ 	// real network calls. Production code leaves it nil, and exchange falls
+ 	// back to the real provider clients.
+-	exchangeToken func(ctx context.Context, providerID, refreshToken string) (*oauth.Token, error)
++	exchangeToken    func(ctx context.Context, providerID, refreshToken string) (*oauth.Token, error)
++	listOpenAIModels func(ctx context.Context, token *oauth.Token) ([]catwalk.Model, error)
+ 
+ 	// authSignalMu guards authSignals, which maps provider IDs to
+ 	// channels that WaitForTokenChange blocks on. SignalAuthComplete
+@@ -565,6 +567,7 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
+ 	var providerConfig ProviderConfig
+ 	var exists bool
+ 	var setKeyOrToken func()
++	var oauthModels []catwalk.Model
+ 
+ 	switch v := apiKey.(type) {
+ 	case string:
+@@ -573,24 +576,41 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
+ 		}
+ 		setKeyOrToken = func() { providerConfig.APIKey = v }
+ 	case *oauth.Token:
++		fields := map[string]any{
++			fmt.Sprintf("providers.%s.api_key", providerID): v.AccessToken,
++			fmt.Sprintf("providers.%s.oauth", providerID):   v,
++		}
++		if openaioauth.IsSubscriptionProvider(providerID) {
++			var err error
++			oauthModels, err = s.fetchOpenAIModels(context.Background(), v)
++			if err != nil {
++				return fmt.Errorf("fetch ChatGPT subscription models: %w", err)
++			}
++			fields[fmt.Sprintf("providers.%s.base_url", providerID)] = openaioauth.CodexBackendURL
++			fields[fmt.Sprintf("providers.%s.models", providerID)] = oauthModels
++			fields[fmt.Sprintf("providers.%s.discover_models", providerID)] = false
++			fields[fmt.Sprintf("providers.%s.flat_rate", providerID)] = true
++		}
+ 		// Hold the refresh lock across the write so a peer's in-flight
+ 		// token exchange cannot land on top of a credential the user just
+ 		// obtained interactively — which would silently invalidate the
+ 		// login they only just completed.
+ 		if err := s.withRefreshLock(providerID, func() error {
+-			return s.SetConfigFields(scope, map[string]any{
+-				fmt.Sprintf("providers.%s.api_key", providerID): v.AccessToken,
+-				fmt.Sprintf("providers.%s.oauth", providerID):   v,
+-			})
++			return s.SetConfigFields(scope, fields)
+ 		}); err != nil {
+ 			return err
+ 		}
+ 		setKeyOrToken = func() {
+ 			providerConfig.APIKey = v.AccessToken
+ 			providerConfig.OAuthToken = v
+-			switch providerID {
+-			case string(catwalk.InferenceProviderCopilot):
++			switch {
++			case providerID == string(catwalk.InferenceProviderCopilot):
+ 				providerConfig.SetupGitHubCopilot()
++			case openaioauth.IsSubscriptionProvider(providerID):
++				providerConfig.BaseURL = openaioauth.CodexBackendURL
++				providerConfig.Models = oauthModels
++				providerConfig.AutoDiscoverModels = boolPtr(false)
++				providerConfig.FlatRate = true
+ 			}
+ 		}
+ 	}
+@@ -734,15 +754,32 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope,
+ 		return fmt.Errorf("failed to refresh OAuth token for provider %s: %w", providerID, refreshErr)
+ 	}
+ 
++	mergeOAuthTokenMetadata(refreshedToken, entryToken)
++	fields := map[string]any{
++		fmt.Sprintf("providers.%s.api_key", providerID): refreshedToken.AccessToken,
++		fmt.Sprintf("providers.%s.oauth", providerID):   refreshedToken,
++	}
++	if providerID == string(catwalk.InferenceProviderOpenAI) {
++		providerConfig.BaseURL = openaioauth.CodexBackendURL
++		providerConfig.AutoDiscoverModels = boolPtr(false)
++		providerConfig.FlatRate = true
++		fields[fmt.Sprintf("providers.%s.base_url", providerID)] = openaioauth.CodexBackendURL
++		fields[fmt.Sprintf("providers.%s.discover_models", providerID)] = false
++		fields[fmt.Sprintf("providers.%s.flat_rate", providerID)] = true
++		if models, modelErr := s.fetchOpenAIModels(ctx, refreshedToken); modelErr != nil {
++			slog.Warn("Failed to refresh ChatGPT subscription model catalog", "error", modelErr)
++		} else {
++			providerConfig.Models = models
++			fields[fmt.Sprintf("providers.%s.models", providerID)] = models
++		}
++	}
++
+ 	slog.Info("Successfully refreshed OAuth token", "provider", providerID)
+ 	if err := s.applyToken(providerConfig, refreshedToken, providerID); err != nil {
+ 		return err
+ 	}
+ 
+-	if err := s.SetConfigFields(scope, map[string]any{
+-		fmt.Sprintf("providers.%s.api_key", providerID): refreshedToken.AccessToken,
+-		fmt.Sprintf("providers.%s.oauth", providerID):   refreshedToken,
+-	}); err != nil {
++	if err := s.SetConfigFields(scope, fields); err != nil {
+ 		return fmt.Errorf("failed to persist refreshed token: %w", err)
+ 	}
+ 	return nil
+@@ -867,6 +904,8 @@ func (s *ConfigStore) exchange(ctx context.Context, providerID, refreshToken str
+ 	switch providerID {
+ 	case string(catwalk.InferenceProviderCopilot):
+ 		return copilot.RefreshToken(ctx, refreshToken)
++	case string(catwalk.InferenceProviderOpenAI):
++		return openaioauth.RefreshToken(ctx, refreshToken)
+ 	case hyperp.Name:
+ 		return hyper.ExchangeToken(ctx, refreshToken)
+ 	default:
+diff --git a/internal/oauth/openai/claims.go b/internal/oauth/openai/claims.go
+new file mode 100644
+index 0000000..01e0e98
+--- /dev/null
++++ b/internal/oauth/openai/claims.go
+@@ -0,0 +1,106 @@
++package openai
++
++import (
++	"encoding/base64"
++	"encoding/json"
++	"strings"
++
++	"github.com/charmbracelet/crush/internal/oauth"
++)
++
++// AccountMetadata is the ChatGPT routing data carried by the unencrypted
++// payload of an OpenAI-issued JWT. Signature validation stays the
++// authorization server's job: these claims only address the right
++// subscription account and are never treated as proof of authentication.
++type AccountMetadata struct {
++	AccountID string
++	Email     string
++	Plan      string
++	UserID    string
++	FedRAMP   bool
++}
++
++// MetadataFromJWT decodes the payload segment of an OpenAI id token or access
++// token; both carry the same namespaced claims. A malformed or foreign token
++// yields the zero value instead of an error, because callers treat missing
++// metadata as unknown rather than as a failure.
++func MetadataFromJWT(token string) AccountMetadata {
++	parts := strings.Split(token, ".")
++	if len(parts) != 3 || parts[1] == "" {
++		return AccountMetadata{}
++	}
++	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
++	if err != nil {
++		return AccountMetadata{}
++	}
++	var claims struct {
++		Email   string `json:"email"`
++		Profile struct {
++			Email string `json:"email"`
++		} `json:"https://api.openai.com/profile"`
++		Auth struct {
++			AccountID    string `json:"chatgpt_account_id"`
++			PlanType     string `json:"chatgpt_plan_type"`
++			UserID       string `json:"chatgpt_user_id"`
++			LegacyUserID string `json:"user_id"`
++			FedRAMP      bool   `json:"chatgpt_account_is_fedramp"`
++		} `json:"https://api.openai.com/auth"`
++	}
++	if err := json.Unmarshal(payload, &claims); err != nil {
++		return AccountMetadata{}
++	}
++	metadata := AccountMetadata{
++		AccountID: claims.Auth.AccountID,
++		Email:     claims.Email,
++		Plan:      claims.Auth.PlanType,
++		UserID:    claims.Auth.UserID,
++		FedRAMP:   claims.Auth.FedRAMP,
++	}
++	if metadata.Email == "" {
++		metadata.Email = claims.Profile.Email
++	}
++	if metadata.UserID == "" {
++		metadata.UserID = claims.Auth.LegacyUserID
++	}
++	return metadata
++}
++
++// RecoverAccountMetadata backfills routing metadata a stored credential is
++// missing by re-reading the claims of the tokens it already carries. Tokens
++// persisted by builds that predate ChatGPT subscription support, and refresh
++// responses that omit unchanged fields, keep working instead of forcing an
++// interactive sign-in the user may have no way to reach. It reports whether
++// the token changed.
++func RecoverAccountMetadata(token *oauth.Token) bool {
++	if token == nil {
++		return false
++	}
++	changed := false
++	for _, jwt := range []string{token.IDToken, token.AccessToken} {
++		if jwt == "" {
++			continue
++		}
++		metadata := MetadataFromJWT(jwt)
++		if token.AccountID == "" && metadata.AccountID != "" {
++			token.AccountID = metadata.AccountID
++			changed = true
++		}
++		if token.AccountEmail == "" && metadata.Email != "" {
++			token.AccountEmail = metadata.Email
++			changed = true
++		}
++		if token.AccountPlan == "" && metadata.Plan != "" {
++			token.AccountPlan = metadata.Plan
++			changed = true
++		}
++		if token.ChatGPTUserID == "" && metadata.UserID != "" {
++			token.ChatGPTUserID = metadata.UserID
++			changed = true
++		}
++		if !token.AccountFedRAMP && metadata.FedRAMP {
++			token.AccountFedRAMP = true
++			changed = true
++		}
++	}
++	return changed
++}
+diff --git a/internal/oauth/openai/claims_test.go b/internal/oauth/openai/claims_test.go
+new file mode 100644
+index 0000000..9c8eed4
+--- /dev/null
++++ b/internal/oauth/openai/claims_test.go
+@@ -0,0 +1,136 @@
++package openai
++
++import (
++	"encoding/base64"
++	"encoding/json"
++	"testing"
++
++	"github.com/charmbracelet/crush/internal/oauth"
++)
++
++func testJWT(t *testing.T, claims map[string]any) string {
++	t.Helper()
++	payload, err := json.Marshal(claims)
++	if err != nil {
++		t.Fatalf("marshal claims: %v", err)
++	}
++	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
++	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
++}
++
++func TestMetadataFromJWTReadsChatGPTClaims(t *testing.T) {
++	token := testJWT(t, map[string]any{
++		"https://api.openai.com/auth": map[string]any{
++			"chatgpt_account_id":         "acct-123",
++			"chatgpt_plan_type":          "pro",
++			"chatgpt_user_id":            "user-789",
++			"chatgpt_account_is_fedramp": true,
++		},
++		"https://api.openai.com/profile": map[string]any{"email": "user@example.com"},
++	})
++
++	got := MetadataFromJWT(token)
++	want := AccountMetadata{
++		AccountID: "acct-123",
++		Email:     "user@example.com",
++		Plan:      "pro",
++		UserID:    "user-789",
++		FedRAMP:   true,
++	}
++	if got != want {
++		t.Fatalf("metadata = %+v, want %+v", got, want)
++	}
++}
++
++func TestMetadataFromJWTIgnoresMalformedTokens(t *testing.T) {
++	cases := map[string]string{
++		"empty":           "",
++		"opaque":          "sk-live-abc123",
++		"bad base64":      "a.!!!.c",
++		"payload no json": "a." + base64.RawURLEncoding.EncodeToString([]byte("nope")) + ".c",
++	}
++	for name, token := range cases {
++		if got := MetadataFromJWT(token); got != (AccountMetadata{}) {
++			t.Fatalf("%s: metadata = %+v, want zero value", name, got)
++		}
++	}
++}
++
++func TestRecoverAccountMetadataBackfillsFromAccessToken(t *testing.T) {
++	// Reproduces the credential that made workspace creation fail: both tokens
++	// are present and valid, but every account field was persisted empty.
++	token := &oauth.Token{AccessToken: testJWT(t, map[string]any{
++		"https://api.openai.com/auth": map[string]any{
++			"chatgpt_account_id": "acct-abc",
++			"chatgpt_plan_type":  "plus",
++			"chatgpt_user_id":    "user-1",
++		},
++	})}
++
++	if !RecoverAccountMetadata(token) {
++		t.Fatal("expected recovery to report a change")
++	}
++	if token.AccountID != "acct-abc" {
++		t.Fatalf("account id = %q, want acct-abc", token.AccountID)
++	}
++	if token.AccountPlan != "plus" {
++		t.Fatalf("account plan = %q, want plus", token.AccountPlan)
++	}
++	if token.ChatGPTUserID != "user-1" {
++		t.Fatalf("chatgpt user id = %q, want user-1", token.ChatGPTUserID)
++	}
++}
++
++func TestRecoverAccountMetadataKeepsStoredValues(t *testing.T) {
++	token := &oauth.Token{
++		AccessToken: testJWT(t, map[string]any{
++			"https://api.openai.com/auth": map[string]any{
++				"chatgpt_account_id": "acct-from-token",
++				"chatgpt_plan_type":  "pro",
++				"chatgpt_user_id":    "user-from-token",
++			},
++		}),
++		AccountID:     "acct-stored",
++		AccountPlan:   "team",
++		ChatGPTUserID: "user-stored",
++		AccountEmail:  "stored@example.com",
++	}
++
++	if RecoverAccountMetadata(token) {
++		t.Fatal("expected no change when the credential is already complete")
++	}
++	if token.AccountID != "acct-stored" || token.AccountPlan != "team" {
++		t.Fatalf("stored metadata was overwritten: %+v", token)
++	}
++}
++
++func TestRecoverAccountMetadataPrefersIDToken(t *testing.T) {
++	token := &oauth.Token{
++		IDToken: testJWT(t, map[string]any{
++			"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct-id-token"},
++		}),
++		AccessToken: testJWT(t, map[string]any{
++			"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct-access-token"},
++		}),
++	}
++
++	if !RecoverAccountMetadata(token) {
++		t.Fatal("expected recovery to report a change")
++	}
++	if token.AccountID != "acct-id-token" {
++		t.Fatalf("account id = %q, want acct-id-token", token.AccountID)
++	}
++}
++
++func TestRecoverAccountMetadataToleratesNilAndOpaqueTokens(t *testing.T) {
++	if RecoverAccountMetadata(nil) {
++		t.Fatal("nil token must not report a change")
++	}
++	token := &oauth.Token{AccessToken: "opaque-not-a-jwt"}
++	if RecoverAccountMetadata(token) {
++		t.Fatal("opaque token must not report a change")
++	}
++	if token.AccountID != "" {
++		t.Fatalf("account id = %q, want empty", token.AccountID)
++	}
++}
+diff --git a/internal/oauth/openai/client.go b/internal/oauth/openai/client.go
+new file mode 100644
+index 0000000..2153193
+--- /dev/null
++++ b/internal/oauth/openai/client.go
+@@ -0,0 +1,227 @@
++package openai
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"net/url"
++	"slices"
++	"strings"
++	"time"
++
++	"charm.land/catwalk/pkg/catwalk"
++	"github.com/charmbracelet/crush/internal/oauth"
++)
++
++const (
++	ClientID          = "app_EMoamEEZ73f0CkXaXp7hrann"
++	TokenURL          = "https://auth.openai.com/oauth/token"
++	CodexBackendURL   = "https://chatgpt.com/backend-api/codex"
++	defaultOriginator = "gotack"
++
++	// CodexClientVersion is the Codex backend protocol compatibility level.
++	// Keep it independent from Crush/Gotack's application version: the Codex
++	// backend uses this value for model/capability negotiation.
++	CodexClientVersion = "0.150.1"
++)
++
++// Client talks to the ChatGPT Codex OAuth and subscription endpoints. Fields
++// are configurable so protocol tests can use an httptest server.
++type Client struct {
++	HTTPClient *http.Client
++	TokenURL   string
++	BaseURL    string
++	ClientID   string
++	Version    string
++	Originator string
++}
++
++func DefaultClient() Client {
++	return Client{
++		HTTPClient: &http.Client{Timeout: 30 * time.Second},
++		TokenURL:   TokenURL,
++		BaseURL:    CodexBackendURL,
++		ClientID:   ClientID,
++		Version:    CodexClientVersion,
++		Originator: defaultOriginator,
++	}
++}
++
++// Headers returns the non-secret headers required by ChatGPT's Codex backend.
++func Headers(accountID string, fedRAMP bool) map[string]string {
++	headers := map[string]string{
++		"ChatGPT-Account-Id": accountID,
++		"originator":         defaultOriginator,
++		"version":            CodexClientVersion,
++		"User-Agent":         "gotack/" + CodexClientVersion,
++	}
++	if fedRAMP {
++		headers["X-OpenAI-Fedramp"] = "true"
++	}
++	return headers
++}
++
++func (c Client) normalized() Client {
++	d := DefaultClient()
++	if c.HTTPClient == nil {
++		c.HTTPClient = d.HTTPClient
++	}
++	if c.TokenURL == "" {
++		c.TokenURL = d.TokenURL
++	}
++	if c.BaseURL == "" {
++		c.BaseURL = d.BaseURL
++	}
++	if c.ClientID == "" {
++		c.ClientID = d.ClientID
++	}
++	if c.Version == "" {
++		c.Version = d.Version
++	}
++	if c.Originator == "" {
++		c.Originator = d.Originator
++	}
++	return c
++}
++
++func RefreshToken(ctx context.Context, refreshToken string) (*oauth.Token, error) {
++	return DefaultClient().RefreshToken(ctx, refreshToken)
++}
++
++func (c Client) RefreshToken(ctx context.Context, refreshToken string) (*oauth.Token, error) {
++	if strings.TrimSpace(refreshToken) == "" {
++		return nil, errors.New("refresh token is required")
++	}
++	c = c.normalized()
++	form := url.Values{
++		"grant_type":    {"refresh_token"},
++		"client_id":     {c.ClientID},
++		"refresh_token": {refreshToken},
++	}
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.TokenURL, strings.NewReader(form.Encode()))
++	if err != nil {
++		return nil, fmt.Errorf("create OpenAI token refresh request: %w", err)
++	}
++	req.Header.Set("Accept", "application/json")
++	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++	resp, err := c.HTTPClient.Do(req)
++	if err != nil {
++		return nil, fmt.Errorf("refresh OpenAI OAuth token: %w", err)
++	}
++	defer resp.Body.Close()
++	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
++	if err != nil {
++		return nil, fmt.Errorf("read OpenAI token refresh response: %w", err)
++	}
++	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
++		return nil, &oauth.TokenExchangeError{StatusCode: resp.StatusCode, Body: string(body)}
++	}
++	var token oauth.Token
++	if err := json.Unmarshal(body, &token); err != nil {
++		return nil, fmt.Errorf("decode OpenAI token refresh response: %w", err)
++	}
++	if token.AccessToken == "" {
++		return nil, errors.New("OpenAI token refresh response missing access_token")
++	}
++	if token.RefreshToken == "" {
++		token.RefreshToken = refreshToken
++	}
++	token.SetExpiresAt()
++	return &token, nil
++}
++
++type modelsResponse struct {
++	Models []modelInfo `json:"models"`
++}
++
++type modelInfo struct {
++	Slug                     string `json:"slug"`
++	DisplayName              string `json:"display_name"`
++	Visibility               string `json:"visibility"`
++	Priority                 int    `json:"priority"`
++	ContextWindow            int64  `json:"context_window"`
++	DefaultReasoningLevel    string `json:"default_reasoning_level"`
++	SupportedReasoningLevels []struct {
++		Effort string `json:"effort"`
++	} `json:"supported_reasoning_levels"`
++	InputModalities []string `json:"input_modalities"`
++}
++
++func ListModels(ctx context.Context, token *oauth.Token) ([]catwalk.Model, error) {
++	return DefaultClient().ListModels(ctx, token)
++}
++
++func (c Client) ListModels(ctx context.Context, token *oauth.Token) ([]catwalk.Model, error) {
++	if token == nil || token.AccessToken == "" {
++		return nil, errors.New("OpenAI access token is required")
++	}
++	if token.AccountID == "" {
++		return nil, errors.New("ChatGPT account id is required")
++	}
++	c = c.normalized()
++	endpoint := strings.TrimRight(c.BaseURL, "/") + "/models?client_version=" + url.QueryEscape(c.Version)
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
++	if err != nil {
++		return nil, fmt.Errorf("create ChatGPT model request: %w", err)
++	}
++	req.Header.Set("Accept", "application/json")
++	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
++	req.Header.Set("ChatGPT-Account-Id", token.AccountID)
++	req.Header.Set("originator", c.Originator)
++	req.Header.Set("version", c.Version)
++	req.Header.Set("User-Agent", c.Originator+"/"+c.Version)
++	if token.AccountFedRAMP {
++		req.Header.Set("X-OpenAI-Fedramp", "true")
++	}
++	resp, err := c.HTTPClient.Do(req)
++	if err != nil {
++		return nil, fmt.Errorf("list ChatGPT models: %w", err)
++	}
++	defer resp.Body.Close()
++	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
++	if err != nil {
++		return nil, fmt.Errorf("read ChatGPT model response: %w", err)
++	}
++	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
++		return nil, fmt.Errorf("list ChatGPT models: status %d body %q", resp.StatusCode, string(body))
++	}
++	var payload modelsResponse
++	if err := json.Unmarshal(body, &payload); err != nil {
++		return nil, fmt.Errorf("decode ChatGPT model response: %w", err)
++	}
++	slices.SortStableFunc(payload.Models, func(a, b modelInfo) int { return a.Priority - b.Priority })
++	models := make([]catwalk.Model, 0, len(payload.Models))
++	for _, remote := range payload.Models {
++		if remote.Slug == "" || remote.Visibility != "list" {
++			continue
++		}
++		levels := make([]string, 0, len(remote.SupportedReasoningLevels))
++		for _, level := range remote.SupportedReasoningLevels {
++			if level.Effort != "" {
++				levels = append(levels, level.Effort)
++			}
++		}
++		name := remote.DisplayName
++		if name == "" {
++			name = remote.Slug
++		}
++		supportsImages := remote.InputModalities == nil || slices.Contains(remote.InputModalities, "image")
++		models = append(models, catwalk.Model{
++			ID:                     remote.Slug,
++			Name:                   name,
++			ContextWindow:          remote.ContextWindow,
++			DefaultMaxTokens:       32768,
++			CanReason:              len(levels) > 0,
++			ReasoningLevels:        levels,
++			DefaultReasoningEffort: remote.DefaultReasoningLevel,
++			SupportsImages:         supportsImages,
++		})
++	}
++	if len(models) == 0 {
++		return nil, errors.New("ChatGPT model catalog returned no selectable models")
++	}
++	return models, nil
++}
+diff --git a/internal/oauth/openai/client_test.go b/internal/oauth/openai/client_test.go
+new file mode 100644
+index 0000000..4832b27
+--- /dev/null
++++ b/internal/oauth/openai/client_test.go
+@@ -0,0 +1,77 @@
++package openai
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/charmbracelet/crush/internal/oauth"
++	"github.com/stretchr/testify/require"
++)
++
++func TestClientListModelsUsesSubscriptionProtocol(t *testing.T) {
++	t.Parallel()
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		require.Equal(t, "/models", r.URL.Path)
++		require.Equal(t, "test-version", r.URL.Query().Get("client_version"))
++		require.Equal(t, "Bearer access", r.Header.Get("Authorization"))
++		require.Equal(t, "acct_123", r.Header.Get("ChatGPT-Account-Id"))
++		require.Equal(t, "gotack-test", r.Header.Get("originator"))
++		require.Equal(t, "test-version", r.Header.Get("version"))
++		require.Equal(t, "gotack-test/test-version", r.Header.Get("User-Agent"))
++		require.Equal(t, "true", r.Header.Get("X-OpenAI-Fedramp"))
++		_ = json.NewEncoder(w).Encode(map[string]any{"models": []any{
++			map[string]any{"slug": "hidden", "display_name": "Hidden", "visibility": "hide", "priority": 0},
++			map[string]any{"slug": "gpt-second", "display_name": "Second", "visibility": "list", "priority": 2},
++			map[string]any{
++				"slug": "gpt-first", "display_name": "First", "visibility": "list", "priority": 1,
++				"context_window": 200000, "default_reasoning_level": "medium",
++				"supported_reasoning_levels": []any{map[string]any{"effort": "low"}, map[string]any{"effort": "medium"}},
++				"input_modalities":           []string{"text", "image"},
++			},
++		}})
++	}))
++	defer server.Close()
++
++	client := Client{HTTPClient: server.Client(), BaseURL: server.URL, Version: "test-version", Originator: "gotack-test"}
++	models, err := client.ListModels(context.Background(), &oauth.Token{AccessToken: "access", AccountID: "acct_123", AccountFedRAMP: true})
++	require.NoError(t, err)
++	require.Len(t, models, 2)
++	require.Equal(t, "gpt-first", models[0].ID)
++	require.Equal(t, int64(200000), models[0].ContextWindow)
++	require.Equal(t, []string{"low", "medium"}, models[0].ReasoningLevels)
++	require.True(t, models[0].SupportsImages)
++}
++
++func TestDefaultClientUsesCodexProtocolVersion(t *testing.T) {
++	t.Parallel()
++	client := DefaultClient()
++	require.Equal(t, CodexClientVersion, client.Version)
++	require.NotEqual(t, "devel", client.Version)
++
++	headers := Headers("acct_123", false)
++	require.Equal(t, CodexClientVersion, headers["version"])
++	require.Equal(t, "gotack", headers["originator"])
++	require.Equal(t, "gotack/"+CodexClientVersion, headers["User-Agent"])
++}
++
++func TestClientRefreshToken(t *testing.T) {
++	t.Parallel()
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		require.NoError(t, r.ParseForm())
++		require.Equal(t, "refresh_token", r.Form.Get("grant_type"))
++		require.Equal(t, "client-test", r.Form.Get("client_id"))
++		require.Equal(t, "old-refresh", r.Form.Get("refresh_token"))
++		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "new-access", "expires_in": 3600})
++	}))
++	defer server.Close()
++
++	client := Client{HTTPClient: server.Client(), TokenURL: server.URL, ClientID: "client-test"}
++	token, err := client.RefreshToken(context.Background(), "old-refresh")
++	require.NoError(t, err)
++	require.Equal(t, "new-access", token.AccessToken)
++	require.Equal(t, "old-refresh", token.RefreshToken)
++	require.Greater(t, token.ExpiresAt, int64(0))
++}
+diff --git a/internal/oauth/openai/provider.go b/internal/oauth/openai/provider.go
+new file mode 100644
+index 0000000..02ba810
+--- /dev/null
++++ b/internal/oauth/openai/provider.go
+@@ -0,0 +1,22 @@
++package openai
++
++// ProviderID is the Crush provider id reserved for ChatGPT subscription
++// authentication. Keeping it separate from the public "openai" provider lets a
++// user hold an OpenAI API key and a ChatGPT subscription at the same time
++// without either credential overwriting the other's endpoint or model catalog.
++const ProviderID = "codex"
++
++// LegacyProviderID is where ChatGPT OAuth credentials lived before the split.
++// Configs written by older builds keep working: routing is decided by the
++// credential, so an upgrade never invalidates a login that already works.
++const LegacyProviderID = "openai"
++
++// IsSubscriptionProvider reports whether a provider id may hold a ChatGPT
++// subscription credential.
++//
++// Callers must still require an OAuth token before applying subscription
++// routing. An "openai" provider authenticated with an API key has no OAuth
++// token and must keep talking to the public OpenAI API.
++func IsSubscriptionProvider(providerID string) bool {
++	return providerID == ProviderID || providerID == LegacyProviderID
++}
+diff --git a/internal/oauth/openai/provider_test.go b/internal/oauth/openai/provider_test.go
+new file mode 100644
+index 0000000..0c45226
+--- /dev/null
++++ b/internal/oauth/openai/provider_test.go
+@@ -0,0 +1,27 @@
++package openai
++
++import "testing"
++
++func TestIsSubscriptionProvider(t *testing.T) {
++	t.Parallel()
++	for _, tc := range []struct {
++		providerID string
++		want       bool
++	}{
++		{ProviderID, true},
++		{LegacyProviderID, true},
++		{"anthropic", false},
++		{"", false},
++	} {
++		if got := IsSubscriptionProvider(tc.providerID); got != tc.want {
++			t.Fatalf("IsSubscriptionProvider(%q) = %v, want %v", tc.providerID, got, tc.want)
++		}
++	}
++}
++
++func TestSubscriptionProviderIDIsNotThePublicOpenAIProvider(t *testing.T) {
++	t.Parallel()
++	if ProviderID == LegacyProviderID {
++		t.Fatal("the subscription provider must not reuse the public OpenAI provider id")
++	}
++}
+diff --git a/internal/oauth/token.go b/internal/oauth/token.go
+index 72feadf..7df1129 100644
+--- a/internal/oauth/token.go
++++ b/internal/oauth/token.go
+@@ -26,11 +26,18 @@ type OAuthClient struct {
+ 
+ // Token represents an OAuth2 token.
+ type Token struct {
+-	AccessToken  string       `json:"access_token"`
+-	RefreshToken string       `json:"refresh_token,omitempty"`
+-	ExpiresIn    int          `json:"expires_in"`
+-	ExpiresAt    int64        `json:"expires_at"`
+-	Client       *OAuthClient `json:"client,omitempty"`
++	AccessToken    string       `json:"access_token"`
++	RefreshToken   string       `json:"refresh_token,omitempty"`
++	IDToken        string       `json:"id_token,omitempty"`
++	TokenType      string       `json:"token_type,omitempty"`
++	ExpiresIn      int          `json:"expires_in"`
++	ExpiresAt      int64        `json:"expires_at"`
++	AccountID      string       `json:"account_id,omitempty"`
++	AccountEmail   string       `json:"account_email,omitempty"`
++	AccountPlan    string       `json:"account_plan,omitempty"`
++	ChatGPTUserID  string       `json:"chatgpt_user_id,omitempty"`
++	AccountFedRAMP bool         `json:"chatgpt_account_is_fedramp,omitempty"`
++	Client         *OAuthClient `json:"client,omitempty"`
+ }
+ 
+ // SetExpiresAt calculates and sets the ExpiresAt field based on the
+diff --git a/internal/proto/requests_test.go b/internal/proto/requests_test.go
+index 8ca7180..6585a93 100644
+--- a/internal/proto/requests_test.go
++++ b/internal/proto/requests_test.go
+@@ -40,10 +40,15 @@ func TestConfigProviderKeyRequestOAuthRoundTrip(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	tok := &oauth.Token{
+-		AccessToken:  "access",
+-		RefreshToken: "refresh",
+-		ExpiresIn:    60,
+-		ExpiresAt:    1234567890,
++		AccessToken:    "access",
++		RefreshToken:   "refresh",
++		ExpiresIn:      60,
++		ExpiresAt:      1234567890,
++		AccountID:      "acct_123",
++		AccountEmail:   "user@example.com",
++		AccountPlan:    "plus",
++		ChatGPTUserID:  "user_123",
++		AccountFedRAMP: true,
+ 	}
+ 	apiKey, err := json.Marshal(tok)
+ 	require.NoError(t, err)

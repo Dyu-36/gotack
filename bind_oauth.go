@@ -59,33 +59,48 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 
 	scope := crushapi.ConfigScopeGlobal
 
-	// Store OAuth token into Crush
-	if err := svc.api.SetProviderOAuthToken(a.ctx, workspaceID, scope, "openai", token); err != nil {
-		return ChatGPTOAuthStatus{}, fmt.Errorf("save oauth token to engine: %w", err)
+	// Codex is not published by Catwalk, so the provider has to exist in config
+	// before the engine will accept a credential for it. Seeding also enables it.
+	if err := seedCodexProvider(a.ctx, svc.api, workspaceID, scope); err != nil {
+		return ChatGPTOAuthStatus{}, err
 	}
 
-	// Enable provider in Crush
-	if err := svc.api.SetConfigField(a.ctx, workspaceID, scope, "providers.openai.disable", false); err != nil {
-		return ChatGPTOAuthStatus{}, fmt.Errorf("enable openai provider: %w", err)
+	// Store the OAuth token into Crush. The engine points the provider at the
+	// Codex backend and stores the account-scoped model catalog alongside it.
+	if err := svc.api.SetProviderOAuthToken(a.ctx, workspaceID, scope, codexProviderID, token); err != nil {
+		return ChatGPTOAuthStatus{}, fmt.Errorf("save oauth token to engine: %w", err)
 	}
 
 	// Update local config preferences if needed
 	if a.cfg == nil {
 		a.cfg = appconfig.Defaults()
 	}
-	if a.cfg.Provider == "" || a.cfg.Provider == "openai" {
-		a.cfg.Provider = "openai"
-		if a.cfg.Model == "" {
-			a.cfg.Model = "gpt-4o"
+	// A ChatGPT login only takes over the active provider when the user is not
+	// deliberately on something else. "openai" counts as a previous ChatGPT
+	// selection because it is where this credential used to live.
+	if a.cfg.Provider == "" || a.cfg.Provider == openAIProviderID || a.cfg.Provider == codexProviderID {
+		a.cfg.Provider = codexProviderID
+		providers, listErr := svc.api.ListProviders(a.ctx, workspaceID)
+		if listErr != nil {
+			return ChatGPTOAuthStatus{}, fmt.Errorf("load ChatGPT subscription models: %w", listErr)
 		}
-		_ = a.applyCrushSettings(SettingsInfo{
-			Theme:    a.cfg.Theme,
-			Provider: a.cfg.Provider,
-			Model:    a.cfg.Model,
-			Thinking: a.cfg.Thinking,
-		}, "")
+		modelID, modelErr := selectChatGPTModel(providers, a.cfg.Model)
+		if modelErr != nil {
+			return ChatGPTOAuthStatus{}, modelErr
+		}
+		a.cfg.Model = modelID
+		effort, think := crushReasoning(a.cfg.Thinking)
+		selected := crushapi.SelectedModel{Provider: codexProviderID, Model: modelID, ReasoningEffort: effort, Think: think}
+		if err := svc.api.SetPreferredModel(a.ctx, workspaceID, scope, "large", selected); err != nil {
+			return ChatGPTOAuthStatus{}, fmt.Errorf("select ChatGPT large model: %w", err)
+		}
+		if err := svc.api.SetPreferredModel(a.ctx, workspaceID, scope, "small", selected); err != nil {
+			return ChatGPTOAuthStatus{}, fmt.Errorf("select ChatGPT small model: %w", err)
+		}
 		cfgCopy := *a.cfg
-		_ = appconfig.Save(&cfgCopy)
+		if err := appconfig.Save(&cfgCopy); err != nil {
+			return ChatGPTOAuthStatus{}, fmt.Errorf("save ChatGPT model preference: %w", err)
+		}
 	}
 
 	return ChatGPTOAuthStatus{
@@ -111,12 +126,25 @@ func (a *App) GetChatGPTOAuthStatus() (ChatGPTOAuthStatus, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
 
+	// Credentials written before "codex" existed still sit under "openai". They
+	// are moved here so an upgraded install reports connected without the user
+	// opening Settings or signing in again. A failure is not fatal: status is
+	// still readable, and the next call retries.
+	if moved, err := migrateChatGPTOAuthToCodex(ctx, svc.api, workspaceID); err != nil {
+		a.warnCodexMigration("could not move the ChatGPT credential to the Codex provider", "err", err)
+	} else if moved {
+		// Whichever path moves the credential first owns the repoint. Without it
+		// the saved selection keeps naming the provider that no longer holds a
+		// credential, and the next settings replay restores the broken routing.
+		a.repointSavedModelAtCodex(svc, workspaceID)
+	}
+
 	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("get Crush config: %w", err)
 	}
 
-	pc, ok := cfg.Providers["openai"]
+	pc, ok := cfg.Providers[codexProviderID]
 	if !ok || pc.Disable {
 		return ChatGPTOAuthStatus{Connected: false}, nil
 	}
@@ -127,21 +155,55 @@ func (a *App) GetChatGPTOAuthStatus() (ChatGPTOAuthStatus, error) {
 	}
 
 	var tok openaioauth.Token
-	if err := json.Unmarshal(pc.OAuth, &tok); err == nil && tok.AccessToken != "" {
-		return ChatGPTOAuthStatus{
-			Connected: true,
-			Email:     tok.UserEmail(),
-			Plan:      tok.UserPlan(),
-			ExpiresAt: tok.ExpiresAt,
-		}, nil
+	if err := json.Unmarshal(pc.OAuth, &tok); err != nil || tok.AccessToken == "" || tok.AccountID == "" {
+		return ChatGPTOAuthStatus{Connected: false}, nil
 	}
-
-
-	return ChatGPTOAuthStatus{Connected: true}, nil
+	if tok.ExpiresAt > 0 && time.Now().Unix() >= tok.ExpiresAt {
+		if tok.RefreshToken == "" {
+			return ChatGPTOAuthStatus{Connected: false}, nil
+		}
+		if err := svc.api.RefreshProviderOAuthToken(ctx, workspaceID, crushapi.ConfigScopeGlobal, codexProviderID); err != nil {
+			return ChatGPTOAuthStatus{Connected: false}, nil
+		}
+		cfg, err = svc.api.GetWorkspaceConfig(ctx, workspaceID)
+		if err != nil {
+			return ChatGPTOAuthStatus{}, fmt.Errorf("get refreshed Crush config: %w", err)
+		}
+		pc = cfg.Providers[codexProviderID]
+		if err := json.Unmarshal(pc.OAuth, &tok); err != nil || tok.AccessToken == "" || tok.AccountID == "" {
+			return ChatGPTOAuthStatus{Connected: false}, nil
+		}
+	}
+	return ChatGPTOAuthStatus{
+		Connected: true,
+		Email:     tok.UserEmail(),
+		Plan:      tok.UserPlan(),
+		ExpiresAt: tok.ExpiresAt,
+	}, nil
 }
 
-// LogoutChatGPTOAuth removes ChatGPT OAuth credentials and disables the OpenAI provider.
+func selectChatGPTModel(providers []crushapi.Provider, current string) (string, error) {
+	for _, provider := range providers {
+		if provider.ID != codexProviderID {
+			continue
+		}
+		for _, model := range provider.Models {
+			if current != "" && model.ID == current {
+				return current, nil
+			}
+		}
+		if provider.DefaultLargeModelID != "" {
+			return provider.DefaultLargeModelID, nil
+		}
+		if len(provider.Models) > 0 {
+			return provider.Models[0].ID, nil
+		}
+	}
+	return "", fmt.Errorf("ChatGPT subscription returned no selectable models")
+}
+
+// LogoutChatGPTOAuth removes the ChatGPT OAuth credential and disables the
+// Codex provider. An OpenAI API key stored separately is untouched.
 func (a *App) LogoutChatGPTOAuth() error {
-	return a.DeleteProvider("openai")
+	return a.DeleteProvider(codexProviderID)
 }
-
