@@ -12,13 +12,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// supervisor.go -- role: launch, adopt and stop the crush child process.
-//
-// Process model: gotack (UI + host) -> crush server as a separate process.
-// Ownership is tracked so an adopted server is never terminated on UI exit.
-// The connection status derived from this process lives in
-// internal/enginelink, which drives the attach state machine.
-
 type Supervisor struct {
 	log    *slog.Logger
 	binary string
@@ -27,12 +20,9 @@ type Supervisor struct {
 	cmd      *exec.Cmd
 	owned    bool
 	endpoint crushapi.Endpoint
-	logFile  *os.File // engine stdout/stderr sink, closed by Stop
+	logFile  *os.File
 }
 
-// NewSupervisor returns a Supervisor. EngineBinary is an explicit override;
-// otherwise the release resolver prefers bundled resources/crush(.exe) and
-// falls back to an externally installed crush on PATH.
 func NewSupervisor(log *slog.Logger, binary string) *Supervisor {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -49,8 +39,6 @@ func (s *Supervisor) Owned() bool {
 	return s.owned
 }
 
-// Start launches `<binary> server` as a child process. The child lifetime is
-// owned by this supervisor and is not tied to an attach/reconnect context.
 func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	s.mu.Lock()
 	if s.cmd != nil && s.cmd.Process != nil {
@@ -65,11 +53,7 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	cmd := exec.Command(bin, "server")
 	configureProcAttr(cmd)
 
-	// The engine runs on a hidden console, so tee stdout/stderr into the log
-	// directory
-	// instead: this is the only place engine-side failures (MCP init, LSP,
-	// skill parsing) are visible once the console is gone.
-	logPath := filepath.Join(appconfig.LogDir(), "crush-engine.log")
+	logPath := filepath.Join(appconfig.LogDir(), "tack-engine.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		s.log.Warn("engine: cannot open engine log, discarding output", "path", logPath, "err", err)
@@ -97,8 +81,6 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	return ep, nil
 }
 
-// Stop terminates the owned child process tree, if any. Adopted servers never
-// populate cmd/owned and therefore cannot be killed by Gotack shutdown.
 func (s *Supervisor) Stop() error {
 	s.mu.Lock()
 	cmd := s.cmd
@@ -124,6 +106,4 @@ func (s *Supervisor) Stop() error {
 	return nil
 }
 
-// Compile-time check that *Supervisor satisfies EngineAPI. If a method
-// signature changes, the build breaks here first.
 var _ EngineAPI = (*Supervisor)(nil)

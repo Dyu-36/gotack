@@ -18,7 +18,6 @@ import { catalog } from './catalog.svelte'
 const RECONNECT_MAX_MS = 30_000
 type SettingsPayload = { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }
 
-
 export type EngineDeps = {
   conversations: { value: Conversation[] }
   backendReady: { value: boolean }
@@ -33,15 +32,15 @@ export type EngineDeps = {
   thinking: { value: ReasoningEffort }
   apiKey: { value: string }
   customUrl: { value: string }
-  // activeId scopes streaming state to the conversation on screen.
+
   activeId: { value: string }
   reportError: (cause: unknown, prefix?: string) => void
   clearError: () => void
   updateConversation: (id: string, fn: (c: Conversation) => Conversation) => void
   ensureWorkspace: () => Promise<void>
-  // Replaces streamed text with the authoritative snapshot when a run ends.
+
   reloadMessages: (id: string) => Promise<unknown>
-  // Receives prompt:files, emitted when the OS drops files on the window.
+
   attachPaths: (picks: PromptFilePick[]) => void
 }
 
@@ -133,9 +132,7 @@ export function createEngineState(deps: EngineDeps) {
             m.content = result.text
             m.seq = result.seq
             if (result.kind === 'resync') {
-              // Wire seq chain broke (gap, restart, or out-of-order).
-              // We rebuilt from the server snapshot, so rendering is
-              // intact; surface a soft warning rather than crashing.
+
               console.warn(
                 `session:delta resync for ${event.message_id} ` +
                   `(prev seq=${prev?.seq ?? 'null'}, got ${event.seq})`,
@@ -157,8 +154,7 @@ export function createEngineState(deps: EngineDeps) {
           c.updatedAt = Date.now()
           return c
         })
-        // Only the conversation on screen may drive the streaming indicator;
-        // background sessions used to leak their text into the open one.
+
         if (event.session_id === deps.activeId.value) deps.streamingText.value = event.text
       }),
       on<ToolActivityEvent>(events.toolActivity, (event) => {
@@ -190,16 +186,14 @@ export function createEngineState(deps: EngineDeps) {
         deps.updateConversation(event.session_id, (c) => ({ ...c, status: 'idle', updatedAt: Date.now() }))
         if (event.session_id === deps.activeId.value) {
           deps.streamingText.value = ''
-          // Re-read history so tool rows settle into their finished state and
-          // text-less agent steps disappear instead of lingering as bubbles.
+
           void deps.reloadMessages(event.session_id)
         }
         if (event.error) deps.reportError(event.error, 'Agent run')
       }),
       on<Envelope>(events.permissionRequest, (event) => (deps.permission.value = event)),
       on<QuestionRequestEvent>(events.questionRequest, (event) => (deps.question.value = event)),
-      // Files dropped on the window: the host already resolved their paths, so
-      // the composer shows chips without reading a byte in the webview.
+
       on<PromptFilePick[]>(events.promptFiles, (picks) => deps.attachPaths(picks ?? [])),
     )
   }
@@ -220,9 +214,6 @@ export function createEngineState(deps: EngineDeps) {
     return levels[0]
   }
 
-  // applyLoadedSelection resolves the stored provider/model against the live
-  // catalog once it is available. It also repairs an incompatible stored
-  // thinking effort before the next provider request.
   const applyLoadedSelection = async (providerID?: string, modelID?: string) => {
     const restored = Boolean(providerID && modelID)
     if (providerID && modelID) {
@@ -257,18 +248,14 @@ export function createEngineState(deps: EngineDeps) {
       return
     }
     subscribe()
-    // The size cap lives in Go (internal/appconfig). Mirror it so the composer
-    // rejects an oversize upload with the exact number the host enforces.
+
     const limits = await desktop.attachmentLimits().catch(() => null)
     if (limits?.max_bytes) setAttachmentLimit(limits.max_bytes)
     await loadSettings()
     try {
       let status = await desktop.startEngine()
       await handleEngine(status)
-      // Startup may already be connecting before the webview subscribes to
-      // engine:status. Poll the authoritative bridge state until that first
-      // connection settles so a missed edge-trigger cannot strand chat in
-      // backendReady=false for the entire process lifetime.
+
       for (let attempt = 0; !status.running && status.status !== 'error' && attempt < 24 && !destroyed; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 250))
         status = await desktop.engineStatus()
@@ -294,9 +281,7 @@ export function createEngineState(deps: EngineDeps) {
   const saveSettings = async (s: SettingsPayload, refreshCatalog = true) => {
     try {
       await desktop.saveSettings(s)
-      // Re-read the backend's resolved catalog after provider configuration changes.
-      // Model switches already use the loaded catalog and avoid a redundant
-      // round trip on the send path.
+
       if (refreshCatalog) await catalog.refresh()
       deps.provider.value = s.provider
       deps.model.value = s.model
@@ -329,20 +314,12 @@ export function createEngineState(deps: EngineDeps) {
     return selectionApply
   }
 
-  // The picker only ever selects one model. The former `type: ModelType`
-  // parameter and its `type === 'small'` branch were unreachable: Composer's
-  // pickModel is the only call site and passes three arguments, and the host
-  // pins Crush's small-model slot to the same id regardless.
   const setModel = (next: string, label?: string, providerID?: string) => {
     deps.model.value = next
     deps.modelLabel.value = label ?? catalog.modelName(next, providerID) ?? next
     if (providerID) {
       deps.provider.value = providerID
-      // Provider switches must carry that provider's endpoint into the queued
-      // SaveSettings call. Reusing the previous provider's custom URL would
-      // rewrite a newly selected custom provider (for example Mistral) to the
-      // wrong backend before its first run. OAuth endpoints belong to the
-      // engine, however, and SaveSettings deliberately rejects them as custom.
+
       const selectedProvider = catalog.provider(providerID)
       deps.customUrl.value = providerID === 'codex' || selectedProvider?.credential_kind === 'oauth'
         ? ''

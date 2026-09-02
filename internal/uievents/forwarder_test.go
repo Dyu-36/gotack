@@ -129,8 +129,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 	if len(deltas) > 3 {
 		t.Fatalf("coalescing failed: %d deltas for 4 updates", len(deltas))
 	}
-	// Every coalesced flush of the same message must carry a strictly
-	// increasing seq starting at 1, so the frontend can detect a gap.
+
 	for i, ev := range deltas {
 		p := ev.data.(SessionDeltaPayload)
 		if p.Seq != int64(i+1) {
@@ -141,9 +140,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 	if last.Text != "Hello world" || last.MessageID != "m1" || last.SessionID != "s1" {
 		t.Fatalf("final delta = %+v", last)
 	}
-	// Append always equals the full text for the first flush of a message
-	// because the UI has not seen anything yet. Older clients that ignore
-	// the field keep working; new clients can swap to append-only.
+
 	if last.Append != "Hello world" {
 		t.Fatalf("first-flush append = %q want %q", last.Append, "Hello world")
 	}
@@ -155,7 +152,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	var c collector
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
-	f.setDelay(time.Second) // only the run_complete flush path fires it
+	f.setDelay(time.Second)
 
 	ch := make(chan crushapi.StreamEvent, 4)
 	done := make(chan struct{})
@@ -291,10 +288,6 @@ func TestForwarderReportsOnlyAdmittedLearningResults(t *testing.T) {
 	}
 }
 
-// TestForwarderAppendIsSuffix verifies that consecutive flushes for the same
-// message emit a suffix, not a full re-send. This is the contract the
-// frontend relies on to render the append-only model without re-walking the
-// whole text on every tick.
 func TestForwarderAppendIsSuffix(t *testing.T) {
 	var c collector
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
@@ -307,8 +300,6 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 		close(done)
 	}()
 
-	// Two distinct full-text updates; the first flush should carry the full
-	// text, the second should carry only the suffix appended since flush 1.
 	ch <- messageUpdate("mA", "sA", "", textParts("Hello"))
 	time.Sleep(40 * time.Millisecond)
 	ch <- messageUpdate("mA", "sA", "", textParts("Hello world"))
@@ -328,9 +319,7 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 	if first.Seq != 1 {
 		t.Fatalf("first delta seq = %d, want 1", first.Seq)
 	}
-	// The seq must be strictly increasing across all flushes of the same
-	// message; that monotonicity is what applyDelta uses to decide
-	// between append and resync.
+
 	for i := 1; i < len(deltas); i++ {
 		prev := deltas[i-1].data.(SessionDeltaPayload)
 		cur := deltas[i].data.(SessionDeltaPayload)

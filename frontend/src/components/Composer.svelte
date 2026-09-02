@@ -17,8 +17,6 @@
     onInput: (value: string) => void
     onSend: () => void
     onAttachFiles?: (files: File[]) => void | Promise<void>
-    // When present, the paperclip asks the host for a native dialog so a picked
-    // file travels as a path instead of base64 through the webview.
     onPickFiles?: () => void | Promise<void>
     onRemoveAttachment?: (id: string) => void
     onStop?: () => void

@@ -12,8 +12,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// samePathTestCase captures both the platform-agnostic identity rule
-// (cleaned, absolute) and the platform-specific case-sensitivity rule.
 type samePathTestCase struct {
 	name string
 	a, b string
@@ -29,7 +27,7 @@ func TestSamePathPlatformConvention(t *testing.T) {
 		{name: "dot segment cleaned", a: "/tmp/proj", b: "/tmp/./proj", want: true},
 		{name: "different dir", a: "/tmp/proj", b: "/tmp/other", want: false},
 	}
-	// Case sensitivity only matters on Windows and macOS.
+
 	caseInsensitive := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 	if caseInsensitive {
 		cases = append(cases,

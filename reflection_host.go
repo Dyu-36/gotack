@@ -1,8 +1,5 @@
 package main
 
-// reflection_host.go -- role: adapt Hermes' bounded background review to the
-// Crush REST + SSE boundary; Crush remains the sole turn executor.
-
 import (
 	"context"
 	"errors"

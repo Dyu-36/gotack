@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// ftsFixture seeds one session whose messages separate the FTS5 shapes:
-// phrase order, prefix stems and disjoint topics.
 func ftsFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -37,8 +35,6 @@ func ftsFixture(t *testing.T) string {
 	return dir
 }
 
-// hitIDs returns the matched message ids, sorted so a set comparison does not
-// depend on the ranking under test elsewhere.
 func hitIDs(results []DiscoveryResult) string {
 	ids := make([]string, 0, len(results))
 	for _, result := range results {
@@ -48,9 +44,6 @@ func hitIDs(results []DiscoveryResult) string {
 	return strings.Join(ids, ",")
 }
 
-// TestSearchFtsSyntax pins the operators Hermes implements for the keyword
-// shape: several words mean AND, a quoted run is an exact
-// phrase, OR and NOT combine clauses, and a trailing star matches a prefix.
 func TestSearchFtsSyntax(t *testing.T) {
 	store := newTestStore(t, ftsFixture(t))
 	cases := []struct {
@@ -78,9 +71,6 @@ func TestSearchFtsSyntax(t *testing.T) {
 	}
 }
 
-// TestBuildMatchRendersSafeExpressions locks the exact MATCH expression for
-// each shape, including the fallback that keeps a malformed operator query
-// from failing the call.
 func TestBuildMatchRendersSafeExpressions(t *testing.T) {
 	cases := []struct {
 		name  string

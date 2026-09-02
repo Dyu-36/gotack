@@ -8,10 +8,6 @@ import (
 	"net/http"
 )
 
-// Provider and Model mirror the UI-relevant subset of the catwalk catalog
-// served by GET /v1/workspaces/{id}/providers. The engine resolves the full
-// catalog; the desktop layer only needs identity, naming and capability
-// fields to render provider and model pickers.
 type Provider struct {
 	ID                  string  `json:"id"`
 	Name                string  `json:"name"`
@@ -20,14 +16,11 @@ type Provider struct {
 	DefaultLargeModelID string  `json:"default_large_model_id,omitempty"`
 	DefaultSmallModelID string  `json:"default_small_model_id,omitempty"`
 	Models              []Model `json:"models,omitempty"`
-	// Configured is enriched by Gotack from Crush's resolved workspace config.
-	// A provider is true only when Crush actually loaded it into the effective
-	// config (credentials/endpoint requirements satisfied and not disabled).
+
 	Configured     bool   `json:"configured"`
 	CredentialKind string `json:"credential_kind,omitempty"`
 }
 
-// Model is one selectable model inside a provider.
 type Model struct {
 	ID                     string   `json:"id"`
 	Name                   string   `json:"name"`
@@ -42,10 +35,6 @@ type Model struct {
 	CostPer1MOut           float64  `json:"cost_per_1m_out,omitempty"`
 }
 
-// UnmarshalJSON accepts both Gotack's UI-facing supports_vision field and
-// Catwalk/Crush's native supports_attachments field. Gotack keeps serializing
-// supports_vision across Wails, but capability decisions must preserve the
-// authoritative value returned by Crush instead of guessing from model names.
 func (m *Model) UnmarshalJSON(data []byte) error {
 	type modelWire Model
 	var decoded modelWire
@@ -68,9 +57,6 @@ func (m *Model) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ListProviders returns the provider catalog for a workspace. The engine may
-// take tens of seconds on a cold cache while it refreshes from the network,
-// so callers should pass a context with a generous deadline.
 func (c *Client) ListProviders(ctx context.Context, wsID string) ([]Provider, error) {
 	if wsID == "" {
 		return nil, errors.New("crushapi: workspace id is required")

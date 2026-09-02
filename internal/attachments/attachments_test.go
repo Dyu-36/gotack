@@ -106,8 +106,7 @@ func TestPrepare(t *testing.T) {
 	if prepared.MimeType != "text/plain; charset=utf-8" {
 		t.Errorf("Prepare() MimeType = %q, want text/plain; charset=utf-8", prepared.MimeType)
 	}
-	// Derived text must ride in the prompt: Crush turns every attachment into a
-	// binary part, so text placed there would never reach the model.
+
 	if prepared.Attachment != nil {
 		t.Errorf("Prepare() Attachment = %+v, want nil for derived text", prepared.Attachment)
 	}

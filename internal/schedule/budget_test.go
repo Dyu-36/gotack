@@ -5,9 +5,6 @@ import (
 	"time"
 )
 
-// budget_test.go -- role: table-driven proofs for the per-job hourly budget,
-// the cap that keeps scheduled firings from ever spamming the engine.
-
 func TestBudgetFor(t *testing.T) {
 	cases := []struct {
 		name string

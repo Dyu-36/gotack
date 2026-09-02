@@ -28,17 +28,12 @@ type localEngineModel struct {
 type localProviderSpec struct {
 	Provider       crushapi.Provider
 	APIKeyTemplate string
-	// OAuthOnly marks a provider whose only credential is an OAuth login.
-	// Seeding must not invent an API key template for it, and model discovery
-	// stays off because its catalog is account-scoped and written by the engine
-	// when the token is stored.
+
 	OAuthOnly bool
 }
 
 func mistralProviderSpec() localProviderSpec {
-	// Pin the current GA model IDs so curated capability metadata cannot drift
-	// when a `-latest` alias moves. Crush model discovery appends any additional
-	// account-available models after the provider is configured.
+
 	models := []crushapi.Model{
 		{
 			ID:             "mistral-medium-3-5",
@@ -87,10 +82,6 @@ func localProviderSpecFor(providerID string) (localProviderSpec, bool) {
 	}
 }
 
-// mergeLocalProviderOverlays appends providers Gotack supports locally only
-// when Crush/Catwalk does not already advertise the same provider ID. The
-// returned set identifies which entries came from the local overlay so callers
-// may safely enrich only those entries from effective custom-provider config.
 func mergeLocalProviderOverlays(providers []crushapi.Provider) ([]crushapi.Provider, map[string]bool) {
 	seen := make(map[string]bool, len(providers))
 	for _, provider := range providers {
@@ -158,13 +149,6 @@ func localProviderConfigFields(spec localProviderSpec) map[string]any {
 	return fields
 }
 
-// prepareLocalProviderConfig seeds a custom provider only while Catwalk does
-// not know that provider ID. Once Catwalk publishes Mistral, the upstream entry
-// wins and this function becomes a no-op without requiring a migration.
-//
-// It returns true when the provider is Gotack-managed, including a matching
-// provider left by an earlier attempt. The caller can then retry finalization
-// after credentials and endpoint configuration succeed.
 func prepareLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID string, scope int, providerID string) (bool, error) {
 	spec, supported := localProviderSpecFor(providerID)
 	if !supported {
@@ -176,11 +160,7 @@ func prepareLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID 
 		return false, fmt.Errorf("read provider config before local bootstrap: %w", err)
 	}
 	if configured, exists := cfg.Providers[providerID]; exists {
-		// Preserve an existing hand-written custom provider. The Gotack overlay
-		// only takes ownership when the stable identity fields match its spec.
-		// Check this before the catalog: after a successful atomic seed, Crush
-		// may publish the provider before a later finalization step is retried.
-		// Returning ownership here lets the retry complete that step.
+
 		return localProviderIdentityMatches(configured, spec), nil
 	}
 
@@ -194,10 +174,6 @@ func prepareLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID 
 		}
 	}
 
-	// An OAuth-only provider carries neither a curated catalog nor a key
-	// template. Writing an empty models list would erase the account-scoped
-	// catalog the engine stores with the token, and an empty api_key would read
-	// back as a configured credential in Settings.
 	if err := api.SetConfigFields(ctx, wsID, scope, localProviderConfigFields(spec)); err != nil {
 		return false, fmt.Errorf("seed local provider %s: %w", providerID, err)
 	}
@@ -215,9 +191,7 @@ func finalizeLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID
 		return nil
 	}
 	if spec.OAuthOnly {
-		// The account-scoped catalog arrives with the OAuth token. Turning
-		// discovery on would ask the Codex backend for a model list it does not
-		// serve, and a failed discovery must not replace that catalog.
+
 		return nil
 	}
 	if err := api.SetConfigField(ctx, wsID, scope, "providers."+providerID+".discover_models", true); err != nil {

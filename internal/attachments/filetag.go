@@ -2,20 +2,11 @@ package attachments
 
 import "strings"
 
-// filetag.go -- role: recognise inline file references typed in the composer,
-// for example @[C:\Users\me\report.xls] or @"C:\report.xls".
-//
-// Ported from C:/stack's FileTag::parse. Without it the tag reached the model as
-// literal text: the user saw a file named in the prompt while the agent only
-// received characters, never the file's content.
-
 const (
 	bracketTagPrefix = "@["
 	quotedTagPrefix  = `@"`
 )
 
-// FileTags splits text into the user-visible text with the tags removed and the
-// referenced paths in first-seen order.
 func FileTags(text string) (string, []string) {
 	var visible strings.Builder
 	var paths []string
@@ -36,7 +27,7 @@ func FileTags(text string) (string, []string) {
 		path := strings.TrimSpace(rest[start+2 : start+2+inner])
 		consumed := start + 2 + inner + len(closer)
 		if path == "" {
-			// Not a file reference: keep the characters exactly as typed.
+
 			visible.WriteString(rest[:consumed])
 			rest = rest[consumed:]
 			continue
@@ -50,8 +41,6 @@ func FileTags(text string) (string, []string) {
 	return strings.TrimSpace(visible.String()), paths
 }
 
-// nextFileTag returns the offset of the next file tag and the closing delimiter
-// it expects, or -1 when the text holds none.
 func nextFileTag(text string) (int, string) {
 	bracket := strings.Index(text, bracketTagPrefix)
 	quoted := strings.Index(text, quotedTagPrefix)
@@ -65,9 +54,6 @@ func nextFileTag(text string) (int, string) {
 	}
 }
 
-// stitch appends the text before a removed tag and returns the remainder, with
-// the gap the tag left behind collapsed into one separator. Indentation
-// elsewhere is untouched, so pasted code in the same prompt survives intact.
 func stitch(visible *strings.Builder, before, after string) string {
 	head := strings.TrimRight(before, " \t")
 	tail := strings.TrimLeft(after, " \t")

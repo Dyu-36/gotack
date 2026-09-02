@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// partFixture builds one on-disk part envelope exactly as Crush's
-// marshalParts writes it: {"type": ..., "data": {...}}.
 func partFixture(t *testing.T, partType string, data any) string {
 	t.Helper()
 	raw, err := json.Marshal(data)
@@ -41,7 +39,7 @@ func TestExtractPartsText(t *testing.T) {
 	cases := []struct {
 		name  string
 		build func(t *testing.T) string
-		want  []string // substrings the extracted text must contain, in order
+		want  []string
 	}{
 		{
 			name: "text part",
@@ -153,7 +151,7 @@ func TestExtractPartsTextIndexesToolResultsOnlyWhenRoleIsTool(t *testing.T) {
 }
 
 func TestTruncateBytesKeepsRunes(t *testing.T) {
-	input := strings.Repeat("ệ", 10) // 3-byte UTF-8 rune
+	input := strings.Repeat("ệ", 10)
 	got := truncateBytes(input, 7)
 	if len(got) > 6 {
 		t.Fatalf("truncate split a rune: %q (%d bytes)", got, len(got))

@@ -9,9 +9,6 @@ import (
 	"time"
 )
 
-// job_test.go -- role: proofs for the schedule.json model: spec validation,
-// due-time computation, persistence round-trip and atomic writes.
-
 func mustTime(t *testing.T, value string) time.Time {
 	t.Helper()
 	ts, err := time.Parse(time.RFC3339, value)
@@ -137,8 +134,7 @@ func TestNextDue(t *testing.T) {
 func TestFileRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, FileName)
-	// Fire records inside the budget window survive; LastRun is plain
-	// bookkeeping and has no window.
+
 	last := base2026().Add(-10 * time.Minute)
 	fire := base2026().Add(-9*time.Minute - 58*time.Second)
 	in := &File{Jobs: []*Job{
@@ -211,7 +207,7 @@ func TestSaveFileIsAtomicAndClean(t *testing.T) {
 	if err := SaveFile(path, file, base2026()); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	// The temp file must not survive the rename.
+
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("temp file left behind: %v", err)
 	}
@@ -223,7 +219,7 @@ func TestSaveFileIsAtomicAndClean(t *testing.T) {
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("saved file is not valid JSON: %v", err)
 	}
-	// Overwriting an existing file must keep producing valid JSON.
+
 	file.Jobs[0].LastOutcome = "complete"
 	if err := SaveFile(path, file, base2026()); err != nil {
 		t.Fatalf("second save: %v", err)

@@ -1,9 +1,5 @@
 package main
 
-// skills_seed.go -- role: register the per-user skill mutation MCP server
-// against the same directory Crush indexes. Project skills remain readable
-// through Crush but are never passed to this writer.
-
 import (
 	"context"
 	"os"

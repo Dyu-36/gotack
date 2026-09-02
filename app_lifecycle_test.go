@@ -31,8 +31,6 @@ func TestShutdownLeavesEngineRunning(t *testing.T) {
 	engine := &lifecycleEngine{}
 	app.sup = engine
 
-	// Install a live event-stream scope the way workspace activation does;
-	// shutdown must cancel it without touching the engine process.
 	scope := app.link.ReplaceStreamScope(context.Background())
 
 	app.shutdown(context.Background())

@@ -1,9 +1,5 @@
 //go:build ignore
 
-// gen reads the event-name constants from the parent package and emits a
-// TypeScript file with the events table and EventName union. Run with:
-//
-//	go run ./internal/uievents/gen/main.go
 package main
 
 import (
@@ -86,7 +82,6 @@ func main() {
 	fmt.Println("wrote", out)
 }
 
-// toCamel converts EngineStatus -> engineStatus, SessionDelta -> sessionDelta.
 func toCamel(s string) string {
 	if s == "" {
 		return s

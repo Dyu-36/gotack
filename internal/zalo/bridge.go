@@ -253,8 +253,6 @@ func (m *Manager) startTurn(ctx context.Context, client *Client, update Update) 
 	m.log.Info("zalo turn started", "chat", update.ChatID, "session", sessionID, "started", startedAt)
 }
 
-// Done routes one completed agent answer to the chat that started its session.
-// Sessions not active through Zalo are ignored.
 func (m *Manager) Done(sessionID, text string) {
 	m.mu.Lock()
 	chatID := ""
@@ -398,29 +396,27 @@ func (m *Manager) handleSendFile(ctx context.Context, client *Client, chatID, ar
 	}
 }
 
-// SendFile sends one local file to a paired chat, or every paired chat when
-// chatID is empty.
 func (m *Manager) SendFile(ctx context.Context, path, chatID string) (string, error) {
 	absolute, err := filepath.Abs(strings.TrimSpace(path))
 	if err != nil || !isSendableFile(absolute) {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không tìm thấy tệp gửi được: %s", path)
 	}
 	state := m.snapshot()
 	if state.Token == "" {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Chưa lưu Bot Token Zalo trong Cài đặt")
 	}
 	targets := state.PairedChatIDs
 	if strings.TrimSpace(chatID) != "" {
 		if !contains(targets, chatID) {
-			//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 			return "", fmt.Errorf("Chat Zalo %s chưa ghép cặp với Gotack", chatID)
 		}
 		targets = []string{chatID}
 	}
 	if len(targets) == 0 {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Chưa có tài khoản Zalo nào ghép cặp")
 	}
 	client, err := m.newClient(state.Token)
@@ -437,7 +433,7 @@ func (m *Manager) SendFile(ctx context.Context, path, chatID string) (string, er
 		}
 	}
 	if sent == 0 {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không gửi được %s qua Zalo: %s", filepath.Base(absolute), strings.Join(failures, "; "))
 	}
 	return fmt.Sprintf("Đã gửi %s qua Zalo (%d hội thoại)", filepath.Base(absolute), sent), nil

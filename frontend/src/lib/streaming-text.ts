@@ -34,13 +34,6 @@ export function takeGraphemePrefix(value: string, count: number): string {
   return value.slice(0, end)
 }
 
-/**
- * Advances displayed text towards the latest stream snapshot without adding a
- * fixed delay. Small backlogs reveal one or two graphemes per animation frame;
- * larger bursts catch up aggressively so the UI never drifts far behind the
- * engine. A resync is applied immediately because the existing prefix is no
- * longer trustworthy.
- */
 export function nextStreamingText(current: string, target: string, reducedMotion = false): string {
   if (reducedMotion || !target.startsWith(current)) return target
 

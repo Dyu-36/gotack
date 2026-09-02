@@ -16,7 +16,6 @@ const (
 	discoverScanLimit  = 300
 )
 
-// Store couples the read-only Crush source with gotack's derived FTS index.
 type Store struct {
 	dataDir  string
 	indexDir string
@@ -24,9 +23,7 @@ type Store struct {
 
 	mu    sync.Mutex
 	index *sql.DB
-	// roleAvailable tracks the source schema observed by the last sync. When
-	// an old Crush database has no role column, the default user/assistant
-	// filter would hide every row; degrade to an unfiltered search instead.
+
 	roleAvailable bool
 }
 
@@ -48,7 +45,6 @@ func (s *Store) Close() error {
 	return err
 }
 
-// Rebuild drops only derived state, then recreates it from crush.db.
 func (s *Store) Rebuild(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -213,8 +209,6 @@ type SearchOptions struct {
 	ExcludeSessionID string
 }
 
-// SearchWithOptions discovers distinct sessions and hydrates actual messages.
-// Adaptive detail expands only the first result, as Hermes does.
 func (s *Store) SearchWithOptions(ctx context.Context, opts SearchOptions) ([]DiscoveryResult, error) {
 	match, err := buildMatch(opts.Query)
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// writeSource creates one bundled source file for the table-driven cases.
 func writeSource(t *testing.T, sourceDir, rel, content string) {
 	t.Helper()
 	target := filepath.Join(sourceDir, rel)
@@ -94,8 +93,7 @@ func TestSeed(t *testing.T) {
 				if err := os.WriteFile(userEdit, []byte("persona v1, user additions"), 0o644); err != nil {
 					t.Fatalf("simulate user edit: %v", err)
 				}
-				// A Gotack release ships an updated bundled persona; the
-				// seeder must still not touch the edited copy.
+
 				writeSource(t, sourceDir, "TACK.md", "persona v2 with different length")
 
 				if err := seeder.Seed(sourceDir); err != nil {
@@ -189,9 +187,6 @@ func TestSeedRejectsMalformedReportWithoutChangingUserFile(t *testing.T) {
 	}
 }
 
-// TestRepoTrackedTackContext replaces the parity test that lived inside the
-// vendored Crush checkout: the persona source is now a tracked asset of the
-// gotack module, and these assertions run in CI.
 func TestRepoTrackedTackContext(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "context", "TACK.md"))
 	if err != nil {
@@ -199,8 +194,6 @@ func TestRepoTrackedTackContext(t *testing.T) {
 	}
 	text := string(data)
 
-	// Context files are injected as raw text; a Go template directive would
-	// reach the model verbatim, so none may survive extraction.
 	if strings.Contains(text, "{{") {
 		t.Errorf("TACK.md contains a Go template directive; context files are not template-executed")
 	}

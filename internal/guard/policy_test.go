@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// policy_test.go -- table tests for the graduated tier decisions: the
-// blocklist floor, write-safe root, memory context dir, and unattended posture.
-
-// input builds a hook payload for one tool call rooted at cwd.
 func input(t *testing.T, cwd, tool string, toolInput map[string]any) Input {
 	t.Helper()
 	raw, err := json.Marshal(toolInput)
@@ -206,7 +202,7 @@ func TestBackgroundReviewWhitelist(t *testing.T) {
 	}
 
 	denied := []string{
-		"sourcegraph", // network-backed search is outside the local review set.
+		"sourcegraph",
 		"bash",
 		"write",
 		"download",

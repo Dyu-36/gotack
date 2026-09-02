@@ -26,8 +26,7 @@ func TestPickShellPrefersEnv(t *testing.T) {
 }
 
 func TestPickShellFallsBackWhenEnvMissing(t *testing.T) {
-	// Point SHELL at a path that does not exist; pickShell should skip it
-	// and fall through to /bin/bash (or /bin/sh).
+
 	t.Setenv("SHELL", "/this/path/does/not/exist")
 
 	got, _ := pickShell()

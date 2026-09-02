@@ -15,17 +15,10 @@ const (
 	snapshotPrefix     = "snapshot-"
 )
 
-// PromptContextRoot is kept separate from ContextDir so the engine never
-// walks the writable source tree (which also contains lock and temp files).
 func (s *Seeder) PromptContextRoot() string {
 	return filepath.Join(s.dataDir, promptSnapshotRoot)
 }
 
-// BuildPromptSnapshot creates one immutable context projection for Crush.
-// MEMORY.md and USER.md are parsed and sanitized into the projection; their
-// source files remain untouched. Other context files are copied verbatim.
-// The returned directory is generation-named so a live engine never observes
-// a half-written replacement while a workspace is being rebound.
 func (s *Seeder) BuildPromptSnapshot() (string, error) {
 	source := s.ContextDir()
 	if info, err := os.Stat(source); err != nil || !info.IsDir() {
@@ -101,8 +94,7 @@ func (s *Seeder) snapshotMemoryFile(source, rel string, entry os.DirEntry, stagi
 	case memory.UserFileName:
 		target = memory.TargetUser
 	default:
-		// The memory directory is a writable store. Its lock files and atomic
-		// temp files are intentionally never part of the prompt projection.
+
 		return nil
 	}
 	data, err := os.ReadFile(source)
@@ -140,9 +132,6 @@ func writePromptFile(destination string, data []byte, entry os.DirEntry) error {
 	return os.WriteFile(destination, data, mode)
 }
 
-// PrunePromptSnapshots removes only old generation directories owned by this
-// seeder. Cleanup is best effort: the active generation must stay usable even
-// if a stale directory is temporarily locked by another process.
 func (s *Seeder) PrunePromptSnapshots(keep string) {
 	entries, err := os.ReadDir(s.PromptContextRoot())
 	if err != nil {

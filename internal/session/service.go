@@ -12,24 +12,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// service.go -- role: list, create and switch sessions, send and cancel prompts.
-//
-// Streaming updates are not returned here, they arrive via internal/uievents.
-
-// defaultTitle is the seed title used when the caller passes an empty string.
-// The UI shows this until the user renames the session.
 const defaultTitle = "New session"
 
-// Service orchestrates session lifecycle. It owns no durable session state;
-// every mutation is forwarded to Crush, which remains the source of truth.
 type Service struct {
 	api *crushapi.Client
 	ws  *workspace.Service
 }
 
-// NewService wires a Service. The workspace service is used to resolve the
-// current workspace id, so Open must have been called before any session
-// method.
 func NewService(api *crushapi.Client, ws *workspace.Service) *Service {
 	return &Service{api: api, ws: ws}
 }
@@ -45,7 +34,6 @@ func (s *Service) currentWorkspaceID() (string, error) {
 	return desc.WorkspaceID, nil
 }
 
-// List returns all sessions for the current workspace.
 func (s *Service) List(ctx context.Context) ([]crushapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -57,7 +45,6 @@ func (s *Service) List(ctx context.Context) ([]crushapi.Session, error) {
 	return s.api.ListSessions(ctx, wsID)
 }
 
-// Create opens a new session under the current workspace.
 func (s *Service) Create(ctx context.Context, title string) (crushapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -76,8 +63,6 @@ func (s *Service) Create(ctx context.Context, title string) (crushapi.Session, e
 	return sess, nil
 }
 
-// Rename fetches the current complete session snapshot and persists the title
-// with Crush's PUT session endpoint so the change survives UI restarts.
 func (s *Service) Rename(ctx context.Context, id, title string) (crushapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -105,8 +90,6 @@ func (s *Service) Rename(ctx context.Context, id, title string) (crushapi.Sessio
 	return saved, nil
 }
 
-// Delete removes a session from Crush. Messages and file history are deleted
-// by the engine's session service in the same transaction.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -124,7 +107,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Messages returns the full message history for the given session.
 func (s *Service) Messages(ctx context.Context, id string) ([]crushapi.Message, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
@@ -139,23 +121,14 @@ func (s *Service) Messages(ctx context.Context, id string) ([]crushapi.Message, 
 	return s.api.Messages(ctx, wsID, id)
 }
 
-// Send submits a prompt to the engine.
 func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
 	return s.SendWithAttachments(ctx, id, text, nil)
 }
 
-// SendWithInputBudget submits a prompt with an aggregate input-token ceiling.
-// It is reserved for the detached background reviewer; normal foreground
-// sends continue through Send/SendWithAttachments without a budget.
 func (s *Service) SendWithInputBudget(ctx context.Context, id, text string, maxInputTokens int64) (string, error) {
 	return s.sendWithAttachmentsAndBudget(ctx, id, text, nil, maxInputTokens)
 }
 
-// SendWithAttachments submits a prompt and its inline files to the engine.
-//
-// Derived file text rides inside the prompt: Crush converts every attachment
-// into a binary content part, so text placed there never reaches the model.
-// Only items carrying bytes the model can consume become native attachments.
 func (s *Service) SendWithAttachments(ctx context.Context, id, text string, items []attachments.Prepared) (string, error) {
 	return s.sendWithAttachmentsAndBudget(ctx, id, text, items, 0)
 }
@@ -188,7 +161,6 @@ func (s *Service) sendWithAttachmentsAndBudget(ctx context.Context, id, text str
 	return runID, nil
 }
 
-// Cancel asks the engine to abort the in-flight prompt for the session.
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {

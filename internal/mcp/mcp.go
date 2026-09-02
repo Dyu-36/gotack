@@ -1,5 +1,3 @@
-// Package mcp implements the Model Context Protocol stdio server surface:
-// newline-delimited JSON-RPC 2.0 with initialize, tools/list and tools/call.
 package mcp
 
 import (
@@ -11,29 +9,22 @@ import (
 	"log"
 )
 
-// protocolVersion is the MCP revision this server speaks.
 const protocolVersion = "2024-11-05"
 
-// Tool is one capability exposed to the client.
 type Tool struct {
 	Name        string
 	Description string
 	Schema      json.RawMessage
-	// Handler returns the text result. A returned error becomes an isError
-	// tool result, not a protocol failure.
+
 	Handler func(ctx context.Context, args json.RawMessage) (string, error)
 }
 
-// Server dispatches MCP requests to a fixed tool set.
 type Server struct {
 	Name    string
 	Version string
 	Tools   []Tool
 }
 
-// Serve reads newline-delimited requests until the input closes or ctx is
-// cancelled. Protocol-level failures return JSON-RPC errors; malformed lines
-// are logged and skipped.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReader(in)
 	encoder := json.NewEncoder(out)
@@ -50,7 +41,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return nil // EOF: the client closed its end
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -72,7 +63,7 @@ func (s *Server) handle(ctx context.Context, line []byte) json.RawMessage {
 		return nil
 	}
 	if request.ID == nil {
-		return nil // notification: nothing to answer
+		return nil
 	}
 
 	switch request.Method {

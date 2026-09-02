@@ -13,26 +13,12 @@ const (
 	maxRecent      = 10
 )
 
-// config.go -- role: typed settings model plus load and save.
-//
-// UI preferences (theme), engine preferences (endpoint override) and recent
-// workspaces. Persisted as JSON inside the user config directory.
-//
-// Dropping a key is backwards compatible: encoding/json ignores unknown object
-// members, so config.json files written by older builds (autostart_engine,
-// small_model) still load without error.
-
-// Config is the on-disk user settings model. Empty fields fall back to
-// Defaults() at load time; EngineBinary empty means PATH lookup.
 type Config struct {
 	Theme            string   `json:"theme"`
-	EngineBinary     string   `json:"engine_binary"` // path to crush executable, empty = PATH lookup
+	EngineBinary     string   `json:"engine_binary"`
 	RecentWorkspaces []string `json:"recent_workspaces"`
 	Debug            bool     `json:"debug"`
-	// AutoApprove is the explicit opt-in escape hatch of ADR 0002: true skips
-	// interactive permission prompts for attached workspaces, restoring the
-	// legacy fully-automatic behaviour. The guard's deny rules still apply,
-	// because the hook decides before Crush's permission system ever runs.
+
 	AutoApprove       bool                               `json:"auto_approve,omitempty"`
 	Provider          string                             `json:"provider,omitempty"`
 	Model             string                             `json:"model,omitempty"`
@@ -43,18 +29,11 @@ type Config struct {
 	Zalo              ZaloSettings                       `json:"zalo,omitempty"`
 }
 
-// ModelCapabilityOverride allows user-defined or runtime overrides for a model's capabilities.
 type ModelCapabilityOverride struct {
 	SupportsVision *bool `json:"supports_vision,omitempty"`
 	CanReason      *bool `json:"can_reason,omitempty"`
 }
 
-// ZaloSettings holds the Zalo Bot API connection. The bot token is a secret
-// stored locally on the user's machine; it is never returned to the webview.
-//
-// Token and AllowedChats are legacy keys kept only for the one-shot
-// migration in zalo.Manager.ImportLegacy; the channel state file
-// <configDir>/zalo.json owns the live token and paired chats now.
 type ZaloSettings struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Token carried the bot token before the channel state file existed.
@@ -72,16 +51,12 @@ type ZaloSettings struct {
 	AllowedChats []string `json:"allowed_chats,omitempty"`
 }
 
-// Defaults returns a config with opt-in behavior disabled. Crush's catalog
-// supplies the provider and model until the user selects them.
 func Defaults() *Config {
 	return &Config{
 		Theme: "system",
 	}
 }
 
-// Load reads the JSON config from Dir()/config.json. A missing file returns
-// Defaults with no error; an unreadable or malformed file returns an error.
 func Load() (*Config, error) {
 	path := filepath.Join(Dir(), configFileName)
 	data, err := os.ReadFile(path)
@@ -101,8 +76,6 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes cfg as pretty JSON to Dir()/config.json, creating the directory
-// if it does not exist.
 func Save(cfg *Config) error {
 	if cfg == nil {
 		return errors.New("nil config")
@@ -122,16 +95,11 @@ func Save(cfg *Config) error {
 	return nil
 }
 
-// AddRecentWorkspace moves path to the front of cfg.RecentWorkspaces, removes
-// any prior equal entry, and caps the list at maxRecent entries. Comparison is
-// on filepath.Clean(path) so trailing separators and redundant slashes do not
-// produce duplicates. Empty path is ignored.
 func AddRecentWorkspace(cfg *Config, path string) {
 	if cfg == nil || path == "" {
 		return
 	}
-	// ToSlash keeps the stored form stable across platforms so a config
-	// synced or compared between OSes matches; Windows accepts both forms.
+
 	cleaned := filepath.ToSlash(filepath.Clean(path))
 	out := make([]string, 0, maxRecent)
 	out = append(out, cleaned)
@@ -147,15 +115,13 @@ func AddRecentWorkspace(cfg *Config, path string) {
 	cfg.RecentWorkspaces = out
 }
 
-// LogDir returns the per-user log directory under os.UserCacheDir() and
-// ensures it exists. Shared with the logging package.
 func LogDir() string {
 	base, err := os.UserCacheDir()
 	if err != nil || base == "" {
 		base = os.TempDir()
 	}
 	dir := filepath.Join(base, "gotack")
-	// best-effort: ignore mkdir failure and let the caller log the issue.
+
 	_ = os.MkdirAll(dir, 0o755)
 	return dir
 }

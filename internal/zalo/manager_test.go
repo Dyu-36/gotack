@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-// fakeServer captures every getUpdates / sendMessage call the bridge makes so
-// the worker can be exercised end-to-end.
 type fakeServer struct {
 	mu        sync.Mutex
 	updates   [][]Update
@@ -133,9 +131,7 @@ func TestManagerSetTokenPersistsState(t *testing.T) {
 	}
 }
 func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
-	// Simulate the bridge state machine synchronously without the polling
-	// worker: pair a chat directly, then push one turn through the
-	// dispatcher and confirm the answer is delivered.
+
 	server := newFakeServer(t, nil)
 	manager := NewManager(tempPath(t), Runtime{
 		Start:   func(_ context.Context, _, chatID, _ string) (string, error) { return "session-" + chatID, nil },
@@ -154,7 +150,7 @@ func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
 	if !waitFor(t, 5*time.Second, func() bool { return manager.Status().BotName == "Gotack Bot" }) {
 		t.Fatalf("set token did not populate bot name: %+v", manager.Status())
 	}
-	// Pair chat directly so the test is independent of polling timing.
+
 	manager.mu.Lock()
 	manager.state.PairedChatIDs = []string{"c1"}
 	manager.state.ChatSessions = map[string]string{"c1": "session-c1"}

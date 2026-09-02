@@ -7,15 +7,8 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// maxMessageTextBytes caps the searchable text extracted from one message.
-// Tool outputs can carry megabytes; indexing them whole would bloat recall.db
-// without improving recall quality.
 const maxMessageTextBytes = 64 * 1024
 
-// extractPartsText returns the searchable fields from one Crush message.
-// Crush keeps reasoning and tool results in the same parts blob, while
-// Hermes' default discovery indexes ordinary user/assistant content and only
-// searches tool output when the caller explicitly asks for role=tool.
 func extractPartsText(raw, role string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || trimmed == "[]" {
@@ -39,8 +32,6 @@ func extractPartsText(raw, role string) string {
 	return strings.TrimSpace(truncateBytes(sb.String(), maxMessageTextBytes))
 }
 
-// appendField adds one non-empty field separated by a newline so the FTS
-// tokenizer still sees distinct terms.
 func appendField(sb *strings.Builder, value string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -52,8 +43,6 @@ func appendField(sb *strings.Builder, value string) {
 	sb.WriteString(value)
 }
 
-// truncateBytes cuts s to at most n bytes without splitting a UTF-8 rune,
-// so the FTS tokenizer never sees invalid UTF-8.
 func truncateBytes(s string, n int) string {
 	if len(s) <= n {
 		return s

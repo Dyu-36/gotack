@@ -14,13 +14,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
-// legacy_office.go -- role: convert binary or non-OOXML documents (.xls, .doc,
-// .ppt, OpenDocument, RTF) into the OOXML twin that internal/office can read.
-//
-// Without this step a .xls attachment fell through to "binary", so the model
-// only received a file path and started shelling out to install spreadsheet
-// packages at runtime.
-
 const conversionTimeout = 2 * time.Minute
 
 var ooxmlTargets = map[string]string{
@@ -36,8 +29,6 @@ var ooxmlTargets = map[string]string{
 	".odp":  ".pptx",
 }
 
-// ConvertLegacyOffice converts path into its OOXML twin next to the source and
-// returns the converted file path.
 func ConvertLegacyOffice(path string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	target, ok := ooxmlTargets[ext]
@@ -115,11 +106,8 @@ func runConversion(binary string, args ...string) error {
 	return fmt.Errorf("%w (%s)", err, detail)
 }
 
-// officeCOMFormats maps a target extension to its Office SaveAs format id.
 var officeCOMFormats = map[string]int{".xlsx": 51, ".docx": 16, ".pptx": 24}
 
-// convertWithOfficeCOM drives an installed Microsoft Office through PowerShell.
-// It is the Windows fallback for machines without LibreOffice.
 func convertWithOfficeCOM(src, dst, target string) error {
 	format, ok := officeCOMFormats[target]
 	if !ok {
@@ -134,13 +122,12 @@ func convertWithOfficeCOM(src, dst, target string) error {
 	case ".docx":
 		script = fmt.Sprintf(`$ErrorActionPreference='Stop';$app=New-Object -ComObject Word.Application;$app.Visible=$false;try{$doc=$app.Documents.Open(%s,$false,$true);$doc.SaveAs2(%s,%d);$doc.Close($false)}finally{$app.Quit()}`, source, destination, format)
 	default:
-		// PowerPoint refuses Visible=$false, so it is deliberately not set.
+
 		script = fmt.Sprintf(`$ErrorActionPreference='Stop';$app=New-Object -ComObject PowerPoint.Application;try{$pres=$app.Presentations.Open(%s,$true,$false,$false);$pres.SaveAs(%s,%d);$pres.Close()}finally{$app.Quit()}`, source, destination, format)
 	}
 	return runConversion("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 }
 
-// psQuote wraps a path in a PowerShell single-quoted literal.
 func psQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

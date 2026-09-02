@@ -15,15 +15,8 @@ import (
 	"github.com/Dyu-36/gotack/internal/mcp"
 )
 
-// ViewToolName is the safety-handshake tool for the managed skill writer.
-// Crush remains the canonical source for the catalog and ordinary skill reads;
-// this tool exists only because a separate skills MCP process must remember
-// which exact file a background review inspected before it may mutate it.
 const ViewToolName = "skill_view"
 
-// ViewResult is intentionally compact. FilePath is relative to the selected
-// skill directory (SKILL.md when omitted in the request), so it can be copied
-// directly into a later skill_manage operation.
 type ViewResult struct {
 	Success  bool   `json:"success"`
 	Name     string `json:"name,omitempty"`
@@ -39,9 +32,6 @@ type viewRequest struct {
 	BackgroundReview bool   `json:"_background_review,omitempty"`
 }
 
-// View reads one managed skill file. A background call records a digest in
-// process-local state; ApplyWithMeta consumes that mark and rechecks the file
-// before writing, so a stale view cannot authorize a changed file.
 func (m *Manager) View(ctx context.Context, name, filePath string, meta RequestMeta) (ViewResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ViewResult{}, err

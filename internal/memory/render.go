@@ -16,8 +16,6 @@ const (
 	userHeaderLabel   = "USER PROFILE (who the user is)"
 )
 
-// File is the parsed raw entry list. Entries may contain newlines; only the
-// exact delimiter line separates them.
 type File struct {
 	Entries []string
 }
@@ -37,8 +35,6 @@ func Header(target Target, size, capacity int) string {
 	return fmt.Sprintf("%s [%d%% — %s/%s chars]", label, percent, group(size), group(capacity))
 }
 
-// Render wraps raw entries in the same compact block Hermes injects into its
-// system prompt. Empty memory stays an empty file and consumes no prompt tokens.
 func Render(target Target, body string) string {
 	if body == "" {
 		return ""
@@ -51,8 +47,6 @@ func serializeEntries(entries []string) string {
 	return strings.Join(entries, EntryDelimiter)
 }
 
-// parseFile accepts current Hermes blocks, raw Hermes files, and the former
-// gotack marker/provenance format. Migration drops only generated wrappers.
 func parseFile(text string) File {
 	text = strings.TrimPrefix(text, "\ufeff")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -62,8 +56,6 @@ func parseFile(text string) File {
 		return File{}
 	}
 
-	// The retired gotack format began every entry with § and could put a
-	// legacy section label on that marker line.
 	trimmed := strings.TrimSpace(text)
 	if strings.HasPrefix(trimmed, EntryMarker+"\n") || strings.HasPrefix(trimmed, EntryMarker+" ") {
 		return File{Entries: parseLegacyEntries(trimmed)}
@@ -85,8 +77,7 @@ func stripBlockHeader(text string) string {
 	if len(lines) >= 3 && lines[0] == blockSeparator && isMemoryHeader(lines[1]) && lines[2] == blockSeparator {
 		return strings.Join(lines[3:], "\n")
 	}
-	// Migrate the earlier gotack representation, which wrote only the MEMORY
-	// header above its marker-prefixed body.
+
 	if len(lines) > 0 && isMemoryHeader(lines[0]) {
 		return strings.Join(lines[1:], "\n")
 	}

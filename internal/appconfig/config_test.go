@@ -145,9 +145,6 @@ func TestAddRecentWorkspaceIgnoresCleanVariants(t *testing.T) {
 	}
 }
 
-// TestZaloLegacyFieldsCarryDeprecationNotice guards the A8 contract: the
-// legacy Zalo keys stay doc-deprecated until the Gotack v1.0 removal target,
-// because zalo.Manager.ImportLegacy still consumes them at startup.
 func TestZaloLegacyFieldsCarryDeprecationNotice(t *testing.T) {
 	file, err := parser.ParseFile(token.NewFileSet(), "config.go", nil, parser.ParseComments)
 	if err != nil {

@@ -15,10 +15,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-// The webview replays the selection it read at boot. When that snapshot still
-// names the pre-split "openai" provider, applying it verbatim would point the
-// engine back at a provider that holds no credential and undo the Codex
-// migration seconds after it ran.
 func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("AppData", configRoot)
@@ -39,8 +35,7 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws-1/config":
 			return jsonHTTPResponse(http.StatusOK, migratedConfig), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws-1/providers":
-			// Crush never advertises Codex; the entry comes from the local overlay
-			// and the subscription models from provider config.
+
 			return jsonHTTPResponse(http.StatusOK, `[{"id":"openai","name":"OpenAI"}]`), nil
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/models":
 			var payload struct {
@@ -59,8 +54,7 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 			}
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
 		default:
-			// Provider seeding and agent initialisation are not what this test pins
-			// down; they only have to succeed.
+
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
 		}
 	})
@@ -104,8 +98,7 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 	if effective.Provider != codexProviderID || effective.Model != "gpt-subscription" {
 		t.Fatalf("effective selection = %q/%q, want codex/gpt-subscription", effective.Provider, effective.Model)
 	}
-	// A Codex credential is only valid against the endpoint the engine picked for
-	// it, so an endpoint inherited from the API-key provider must not survive.
+
 	if effective.CustomURL != "" {
 		t.Fatalf("effective endpoint = %q, want it cleared", effective.CustomURL)
 	}
@@ -115,8 +108,6 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 	}
 }
 
-// A deliberate API-key setup on "openai" must never be turned into a Codex
-// selection, so the redirect refuses before it reads any credential.
 func TestChatGPTRedirectCandidate(t *testing.T) {
 	cases := []struct {
 		name     string

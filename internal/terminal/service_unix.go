@@ -14,9 +14,6 @@ import (
 	"github.com/creack/pty"
 )
 
-// unixBackend wraps the master end of a pty(7) pair so it satisfies
-// ptyBackend. The child process is reaped by the reap goroutine and its
-// exit code is delivered through Wait via the done channel.
 type unixBackend struct {
 	master *os.File
 	cmd    *exec.Cmd
@@ -35,14 +32,9 @@ func (b *unixBackend) Resize(cols, rows uint16) error {
 	})
 }
 
-// Close terminates the child if it is still alive and closes the master fd.
-// It is safe to call multiple times; the first call wins, later calls return
-// nil. We do not return the error from the actual close because the child
-// may have already exited on its own.
 func (b *unixBackend) Close() error {
 	if b.cmd != nil && b.cmd.Process != nil {
-		// Best-effort SIGTERM; the reaper will reap. If the child is already
-		// gone the signal is harmlessly dropped by the kernel.
+
 		_ = b.cmd.Process.Signal(syscall.SIGTERM)
 	}
 	if b.master != nil {
@@ -53,22 +45,15 @@ func (b *unixBackend) Close() error {
 	return nil
 }
 
-// Wait blocks until the child exits and returns its exit code. A successful
-// normal exit is 0; an exit by signal is reported as -1 because the Go
-// high-level API does not surface the signal number.
 func (b *unixBackend) Wait() (int32, error) {
 	<-b.done
 	return b.code, b.err
 }
 
-// init wires the real pty(7) backend. Tests override openBackend directly.
 func init() {
 	openBackend = openUnixBackend
 }
 
-// openUnixBackend validates cwd, picks $SHELL (or /bin/bash) and starts it
-// attached to a fresh pty. The initial window is 80x24 which the UI can
-// resize as soon as the first TerminalData chunk arrives.
 func openUnixBackend(cwd string) (ptyBackend, shellSpec, error) {
 	cleaned, err := validateCwd(cwd)
 	if err != nil {
@@ -78,8 +63,7 @@ func openUnixBackend(cwd string) (ptyBackend, shellSpec, error) {
 	shell, args := pickShell()
 	cmd := exec.Command(shell, args...)
 	cmd.Dir = cleaned
-	// Inherit the parent environment but force TERM so shells that gate
-	// colour output on it do not see "dumb" or nothing.
+
 	cmd.Env = withTERM(os.Environ())
 
 	ws := &pty.Winsize{Rows: 24, Cols: 80}
@@ -100,8 +84,6 @@ func openUnixBackend(cwd string) (ptyBackend, shellSpec, error) {
 	}, nil
 }
 
-// reap waits for the child to exit and stashes the result on the backend so
-// the public Wait call can return immediately.
 func (b *unixBackend) reap() {
 	err := b.cmd.Wait()
 	if err != nil {
@@ -113,12 +95,6 @@ func (b *unixBackend) reap() {
 	close(b.done)
 }
 
-// pickShell returns the shell binary and its default args. The $SHELL
-// environment variable is preferred because that is the user-chosen default;
-// on a fresh container or minimal CI image that may be empty or point to
-// something that does not exist, so we fall back to /bin/bash which is
-// effectively universal on the Unix-likes we care about (linux, darwin,
-// *bsd). The last-ditch fallback is /bin/sh, which POSIX mandates.
 func pickShell() (string, []string) {
 	if sh := strings.TrimSpace(os.Getenv("SHELL")); sh != "" {
 		if _, err := os.Stat(sh); err == nil {
@@ -131,8 +107,6 @@ func pickShell() (string, []string) {
 	return "/bin/sh", []string{"-i"}
 }
 
-// withTERM returns env with TERM forced to xterm-256color. Shells that
-// detect no TERM fall back to monochrome output.
 func withTERM(env []string) []string {
 	const want = "TERM=xterm-256color"
 	out := make([]string, 0, len(env))
@@ -151,9 +125,6 @@ func withTERM(env []string) []string {
 	return out
 }
 
-// validateCwd enforces the rules from the bridge spec: the path must be an
-// existing, accessible directory. Symlinks are followed and the result is
-// cleaned so the child process receives a stable path.
 func validateCwd(cwd string) (string, error) {
 	trimmed := strings.TrimSpace(cwd)
 	if trimmed == "" {

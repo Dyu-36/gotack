@@ -1,5 +1,3 @@
-// Package zalo connects Gotack to the official Zalo Bot API so the local
-// agent can receive requests from and send results to a paired Zalo chat.
 package zalo
 
 import (
@@ -20,18 +18,16 @@ import (
 
 const defaultBaseURL = "https://bot-api.zaloplatforms.com"
 
-// Client calls the Zalo Bot API on behalf of one bot token.
 type Client struct {
 	token string
 	base  string
 	http  *http.Client
 }
 
-// NewClient validates token shape and creates a bounded HTTP client.
 func NewClient(token string) (*Client, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return nil, errors.New("Chưa có Bot Token Zalo")
 	}
 	base := strings.TrimRight(strings.TrimSpace(os.Getenv("ZALO_BOT_API_BASE")), "/")
@@ -52,13 +48,11 @@ func NewClient(token string) (*Client, error) {
 	}, nil
 }
 
-// BotInfo identifies the bot behind a token.
 type BotInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// Update is one normalized inbound Bot API event.
 type Update struct {
 	UpdateID      *int64
 	MessageID     string
@@ -68,7 +62,6 @@ type Update struct {
 	AttachmentURL string
 }
 
-// APIError is a structured Bot API failure.
 type APIError struct {
 	Method      string
 	Code        int
@@ -79,7 +72,6 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("zalo: %s failed (%d): %s", e.Method, e.Code, e.Description)
 }
 
-// GetMe validates the token and returns the bot identity.
 func (c *Client) GetMe(ctx context.Context) (BotInfo, error) {
 	result, err := c.call(ctx, "getMe", map[string]any{}, 20*time.Second)
 	if err != nil {
@@ -92,8 +84,6 @@ func (c *Client) GetMe(ctx context.Context) (BotInfo, error) {
 	return BotInfo{ID: firstString(result, "id"), Name: name}, nil
 }
 
-// GetUpdates long-polls for all updates returned in one response. It accepts
-// both array-shaped and single-update Bot API payloads.
 func (c *Client) GetUpdates(ctx context.Context, offset *int64, pollTimeout time.Duration) ([]Update, error) {
 	seconds := int(pollTimeout / time.Second)
 	if seconds < 1 {
@@ -114,8 +104,6 @@ func (c *Client) GetUpdates(ctx context.Context, offset *int64, pollTimeout time
 	return parseUpdates(result), nil
 }
 
-// SendMessage delivers a text reply. Markdown is attempted first for plain
-// text and retried without parse_mode when Zalo rejects it.
 func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
 	chatID = strings.TrimSpace(chatID)
 	if chatID == "" {
@@ -132,13 +120,10 @@ func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
 	return err
 }
 
-// SendChatAction is best effort because some Zalo bot plans do not expose it.
 func (c *Client) SendChatAction(ctx context.Context, chatID, action string) {
 	_, _ = c.call(ctx, "sendChatAction", map[string]any{"chat_id": chatID, "action": action}, 10*time.Second)
 }
 
-// SendPhotoURL sends an uploaded image URL. A caption rejected by Zalo is
-// retried as a separate message.
 func (c *Client) SendPhotoURL(ctx context.Context, chatID, photoURL, caption string) error {
 	body := map[string]any{"chat_id": chatID, "photo": photoURL}
 	if strings.TrimSpace(caption) != "" {
@@ -155,61 +140,58 @@ func (c *Client) SendPhotoURL(ctx context.Context, chatID, photoURL, caption str
 	return c.SendMessage(ctx, chatID, caption)
 }
 
-// DeleteWebhook makes long polling authoritative for this bot token.
 func (c *Client) DeleteWebhook(ctx context.Context) error {
 	_, err := c.call(ctx, "deleteWebhook", map[string]any{}, 15*time.Second)
 	return err
 }
 
-// DownloadAttachment stores one inbound file under dir and enforces the same
-// 45 MiB bound used for outbound delivery.
 func (c *Client) DownloadAttachment(ctx context.Context, rawURL, dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không tạo được thư mục nhận tệp: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không tạo được yêu cầu tải tệp: %w", err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không tải được tệp: %s", c.redact(err.Error()))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không tải được tệp (HTTP %d)", resp.StatusCode)
 	}
 	name := attachmentFileName(rawURL, resp.Header.Get("Content-Type"))
 	path := filepath.Join(dir, name)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không lưu được tệp vừa tải: %w", err)
 	}
 	written, copyErr := io.Copy(file, io.LimitReader(resp.Body, maxUploadBytes+1))
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = os.Remove(path)
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không đọc được tệp vừa tải: %w", copyErr)
 	}
 	if closeErr != nil {
 		_ = os.Remove(path)
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", fmt.Errorf("Không đóng được tệp vừa tải: %w", closeErr)
 	}
 	if written == 0 {
 		_ = os.Remove(path)
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", errors.New("Tệp nhận được bị rỗng")
 	}
 	if written > maxUploadBytes {
 		_ = os.Remove(path)
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return "", errors.New("Tệp gửi vào quá lớn (giới hạn 45 MB)")
 	}
 	return path, nil

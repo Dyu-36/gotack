@@ -84,9 +84,6 @@ func Prompt(messages []Message, review Review) string {
 		"This is a background review. Use only memory, skill_view, skill_manage, ls, glob, grep, and Crush view on paths from the injected skill catalog. Do not edit workspace files, run commands, fetch network content, delegate work, or ask the user questions."
 }
 
-// Digest projects only the newest transcript items into a detached review.
-// Unlike Hermes' same-process warm-cache fork, Gotack creates a fresh REST
-// session, so every retained item must be explicitly bounded.
 func Digest(messages []Message) string {
 	if len(messages) == 0 {
 		return "[Conversation snapshot is empty.]"

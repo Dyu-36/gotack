@@ -1,4 +1,3 @@
-// memory is the gotack persistent-memory MCP server.
 package main
 
 import (

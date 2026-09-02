@@ -1,16 +1,3 @@
-// merge-delta.test.ts -- role: Vitest unit tests for applyDelta.
-//
-// The helper is the only seam between the wire session:delta event and
-// the live ChatMessage state, so it must preserve five properties:
-//
-//   1. First delta at seq=1 anchors the text to the wire's fullText.
-//   2. Subsequent deltas at seq=prev.seq+1 append the suffix.
-//   3. A seq gap (drop, restart, or out-of-order) forces a resync from
-//      the full snapshot; the local concatenated view is discarded.
-//   4. The wire treats seq=0 as a resync sentinel: even with prior
-//      state we drop the local view and rebuild from fullText.
-//   5. A first delta with seq>1 (e.g. the client joins mid-stream)
-//      also resyncs rather than producing a half-built message.
 
 import { describe, expect, it } from 'vitest'
 import { applyDelta } from './merge-delta'
@@ -44,7 +31,7 @@ describe('applyDelta', () => {
 
   it('resyncs when the incoming seq is greater than prev.seq + 1', () => {
     const prev = { text: 'Hello', seq: 1 }
-    // seq=3 is missing 2; the wire has dropped a frame.
+
     const result = applyDelta(prev, ' world!', 3, 'Hello world!')
     expect(result.kind).toBe('resync')
     expect(result).toEqual({ kind: 'resync', text: 'Hello world!', seq: 3 })
@@ -52,7 +39,7 @@ describe('applyDelta', () => {
 
   it('resyncs on a restart where seq resets to 1 mid-message', () => {
     const prev = { text: 'Hello', seq: 5 }
-    // Engine restarted, counter begins again at 1.
+
     const result = applyDelta(prev, 'Hi', 1, 'Hi')
     expect(result.kind).toBe('resync')
     expect(result).toEqual({ kind: 'resync', text: 'Hi', seq: 1 })
@@ -73,14 +60,14 @@ describe('applyDelta', () => {
   })
 
   it('resyncs on the first ever delta when seq is not 1', () => {
-    // Late-joining client, wire has already emitted seq=2.
+
     const result = applyDelta(null, ' world', 2, 'Hello world')
     expect(result.kind).toBe('resync')
     expect(result).toEqual({ kind: 'resync', text: 'Hello world', seq: 2 })
   })
 
   it('a resync followed by an in-order append rebuilds correctly', () => {
-    // First delta forces a resync (seq 2 after seq 5 is a gap/restart); next delta at seq=3 appends.
+
     const r1 = applyDelta({ text: 'stale', seq: 5 }, '!', 2, 'Hi!')
     expect(r1.kind).toBe('resync')
     const state = { text: r1.text, seq: r1.seq }
@@ -92,7 +79,7 @@ describe('applyDelta', () => {
   })
 
   it('append is unused on resync; fullText always wins', () => {
-    // Even if append claims a large suffix, the resync returns fullText.
+
     const prev = { text: 'old', seq: 1 }
     const result = applyDelta(prev, 'long-suffix-to-ignore', 10, 'snapshot')
     expect(result.kind).toBe('resync')

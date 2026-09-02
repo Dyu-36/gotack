@@ -1,9 +1,3 @@
-// contract_test.go -- role: focused unit tests for the wire-shape helpers.
-//
-// Crush's Message.Parts is a wrapped JSON array; the bridge uses
-// ExtractParts to pull typed values out. These tests
-// pin the wire format we accept so future server changes are caught
-// here before they reach the UI.
 package crushapi
 
 import (
@@ -204,9 +198,6 @@ func TestExtractToolResults(t *testing.T) {
 	}
 }
 
-// equalToolCalls compares two slices of ToolCall semantically. RawMessage
-// fields are compared as JSON bytes via jsonEqual so a "{"x":1}" matches
-// the same value regardless of whitespace.
 func equalToolCalls(a, b []ToolCall) bool {
 	if len(a) != len(b) {
 		return false

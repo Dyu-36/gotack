@@ -28,21 +28,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/zalo"
 )
 
-// app.go -- role: Wails application object, lifecycle and service wiring.
-// App is the only struct bound into the UI, reachable as window.go.main.App.*
-//
-// Static configuration (cfg, log, ctx, sup, link) lives directly on App
-// because it is assigned once in startup and read by every bind call. The
-// dynamic connection state (api, fwd, ws, sess, perms, diffs, term) is
-// swapped atomically through a *conn pointer so read paths need no lock at
-// all. Connection status, endpoint, version, and the single live
-// attach/stream scope live in link (internal/enginelink). Zalo state is
-// deliberately NOT part of conn: the manager owns its own lifecycle and
-// outlives engine reconnects.
-
-// conn holds the dynamic connection state. The host reads it with
-// a.conn.Load() and mutates it through a.swapConn(...), so read paths need no
-// mutex.
 type conn struct {
 	api   *crushapi.Client
 	fwd   *uievents.Forwarder
@@ -58,33 +43,22 @@ type App struct {
 
 	cfg *appconfig.Config
 	log *slog.Logger
-	// sup is the concrete engine supervisor, typed as the narrow EngineAPI
-	// seam so app.go depends on the interface, not the implementation.
+
 	sup engine.EngineAPI
-	// link is the engine connection state machine (status, attach scope,
-	// event-stream scope). Constructed in NewApp without a supervisor and
-	// rewired in startup once sup exists.
+
 	link *enginelink.Link
 
 	zalo          *zalo.Manager
 	officeSeeder  *officeSeeder
 	contextSeeder *contextseed.Seeder
-	// scheduler runs scheduled autonomous sessions. It is host-internal and
-	// outlives engine reconnects: readiness is pushed from the connection flow.
+
 	scheduler *schedule.Scheduler
-	// reflection is the Hermes-compatible background-review gate. It has no UI
-	// surface and consumes only existing prompt/message/run SSE boundaries.
+
 	reflection *reflection.Tracker
 
 	conn atomic.Pointer[conn]
 }
 
-// swapConn copies the current *conn, hands it to mutate, and stores the
-// returned pointer back atomically. The mutate callback may also return a
-// brand-new pointer when there is no existing conn to copy. After the swap,
-// the previous pointer must not be read or written by any other goroutine;
-// callers therefore read with getConn() to obtain a fresh pointer for the
-// current generation.
 func (a *App) swapConn(mutate func(*conn) *conn) *conn {
 	for {
 		cur := a.conn.Load()
@@ -102,8 +76,6 @@ func (a *App) swapConn(mutate func(*conn) *conn) *conn {
 	}
 }
 
-// getConn returns the current *conn or nil when no connection has been
-// initialized. Read paths must guard on a nil result before dereferencing.
 func (a *App) getConn() *conn {
 	return a.conn.Load()
 }
@@ -144,59 +116,40 @@ func (a *App) startup(ctx context.Context) {
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
 	}, a.log)
-	//lint:ignore SA1019 one-shot migration of the deprecated ZaloSettings.Token/AllowedChats legacy fields (removal target Gotack v1.0).
+
 	if err := a.zalo.ImportLegacy(cfg.Zalo.Token, cfg.Zalo.AllowedChats); err != nil && a.log != nil {
 		a.log.Warn("zalo legacy import failed", "err", err)
 	}
 	a.wireZaloRuntime()
 
-	// The scheduler is independent from any single engine connection; it
-	// waits for readiness pushed by the connection flow before firing.
 	a.startScheduler()
 
-	// The reflection tracker consumes run-completion callbacks and needs no loop
-	// of its own; constructing it performs no I/O.
 	a.startReflection()
 
-	// The terminal service lives in the conn so a stop/start cycle can
-	// re-attach to a fresh engine; constructing it performs no I/O and the
-	// PTYs stay lazy until the UI explicitly opens the panel.
 	a.swapConn(func(c *conn) *conn {
 		c.term = terminal.New(a.log, a.emit)
 		return c
 	})
 
-	// Dropped files reach the host as absolute paths, never as base64 through
-	// the webview; the composer renders chips from the emitted metadata.
 	a.registerFileDrop()
 
-	// Trim the attachment cache once at startup; no background sweeper is needed.
 	go attachments.PruneCache()
 
-	// The Crush engine is part of Gotack's runtime, not an optional project
-	// feature. Start/attach it whenever the desktop app opens so chat, provider
-	// config, Zalo, and local tools are available before a folder is selected.
 	a.tryConnect()
 	if a.zalo.Status().Configured {
 		a.zalo.Start()
 	}
 }
 
-// shutdown tears down resources owned by the desktop host but deliberately
-// leaves the engine process running. A later Gotack launch adopts that process,
-// avoiding a cold engine, MCP, and LSP startup on every UI restart.
 func (a *App) shutdown(ctx context.Context) {
 	c := a.getConn()
 	if c == nil {
-		// nothing to tear down; either startup never finished or the conn
-		// was already cleared.
+
 		return
 	}
-	// Remove a detached review while the REST connection and completion stream
-	// are still available; otherwise shutdown could strand its hidden session.
+
 	a.stopReflection(ctx)
-	// The link owns the live attach/stream scope; cancelling it disconnects
-	// the UI event stream while the engine process itself keeps running.
+
 	a.link.CancelScope()
 	a.stopScheduler()
 	if a.zalo != nil {
@@ -210,9 +163,6 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
-// wireZaloRuntime installs the agent and chat hooks on the Zalo manager. The
-// manager owns the polling loop, the pairing state and the chat-to-session
-// map; the host just translates into Crush engine calls.
 func (a *App) wireZaloRuntime() {
 	if a.zalo == nil {
 		return
@@ -226,8 +176,6 @@ func (a *App) wireZaloRuntime() {
 	})
 }
 
-// startZaloTurn submits one inbound chat message to Crush. The manager decides
-// whether to reuse a session; the host simply forwards the text.
 func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text string) (string, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -241,12 +189,7 @@ func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text s
 		}
 		sessionID = sess.ID
 	}
-	// A Zalo turn has no human at the desktop UI, so the session is recorded
-	// as unattended before any prompt runs: the guard then denies ask-tier
-	// operations with a legible reason instead of hanging on a prompt nobody
-	// can answer (ADR 0002). Marking happens on every turn, which also covers
-	// sessions the manager reuses from a previous host run. A failed mark
-	// fails the turn: running it without the unattended record could hang.
+
 	if err := guard.MarkUnattendedSession(
 		filepath.Join(appconfig.Dir(), guard.UnattendedRosterFileName), sessionID); err != nil {
 		return "", err
@@ -259,7 +202,6 @@ func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text s
 	return sessionID, nil
 }
 
-// stopZaloTurn asks Crush to abort the in-flight turn for the chat's session.
 func (a *App) stopZaloTurn(ctx context.Context, sessionID string) error {
 	svc, err := a.services()
 	if err != nil {
@@ -298,8 +240,6 @@ func (a *App) zaloCurrentModel(ctx context.Context) (string, error) {
 	return a.cfg.Provider + "/" + a.cfg.Model, nil
 }
 
-// workspacePath returns the currently open workspace root, used by the Zalo
-// manager to scope /files and outbound file resolution.
 func (a *App) workspacePath() string {
 	c := a.getConn()
 	if c == nil || c.ws == nil {
@@ -312,9 +252,6 @@ func (a *App) workspacePath() string {
 	return desc.Path
 }
 
-// runDone routes an SSE run completion to Zalo, scheduled-run accounting, and
-// the reflection tracker. It is deliberately unexported so Wails cannot expose
-// this host-only callback as a UI binding.
 func (a *App) runDone(done uievents.SessionDonePayload) {
 	if a.zalo != nil {
 		a.zalo.Done(done.SessionID, done.Text)
@@ -324,10 +261,7 @@ func (a *App) runDone(done uievents.SessionDonePayload) {
 		scheduled = a.scheduler.RecordOutcome(done.SessionID, done.Error, done.Cancelled)
 	}
 	if a.reflection != nil {
-		// Hermes disables background review for cron jobs: they have no
-		// human-in-the-loop learning signal and a review would spend tokens on
-		// autonomous output. Drop any assistant-iteration state accumulated
-		// from this scheduled run instead.
+
 		if scheduled {
 			a.reflection.Forget(done.SessionID)
 			return
@@ -342,8 +276,6 @@ func (a *App) runDone(done uievents.SessionDonePayload) {
 	}
 }
 
-// resetZaloSessions drops chat-to-session mappings; sessions belong to one
-// workspace, so they must not leak across workspace switches.
 func (a *App) resetZaloSessions() {
 	if a.zalo == nil {
 		return

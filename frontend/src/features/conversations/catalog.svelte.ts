@@ -1,10 +1,6 @@
 import { desktop, type ModelCatalogEntry, type ProviderCatalogEntry } from '../../platform/desktop'
 import type { ReasoningEffort } from './types.svelte'
 
-// catalog.svelte.ts -- role: the live provider and model catalog fetched from
-// the agent backend, plus the reasoning-effort vocabulary. Module-level state
-// keeps Composer and SettingsModal in sync without prop drilling.
-
 export const REASONING_EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; short: string }> = [
   { id: 'none', label: 'None (Không suy luận)', short: 'None' },
   { id: 'minimal', label: 'Minimal (Tối thiểu)', short: 'Min' },

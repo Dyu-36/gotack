@@ -53,8 +53,6 @@
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-    // A shorter or different snapshot is a sequence resync. Do not animate
-    // across an invalid prefix; replace it immediately with server truth.
     if (!streamActive || reducedMotion || !targetContent.startsWith(displayedContent)) {
       cancelFrame()
       displayedContent = targetContent

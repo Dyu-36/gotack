@@ -5,12 +5,6 @@ import (
 	"testing"
 )
 
-// blocklist_test.go -- role: pin the destructive-command floor.
-//
-// Per docs/patterns/encoding-invariants.md the invariant is proven in both
-// directions: every catastrophic form is denied for the intended reason, and
-// ordinary development commands are left untouched.
-
 func TestMatchBlocklistDenies(t *testing.T) {
 	cases := []struct {
 		name     string

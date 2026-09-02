@@ -9,9 +9,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/appconfig"
 )
 
-// PruneCache trims the attachment cache: entries older than
-// appconfig.AttachmentCacheTTL go first, then the oldest remaining entries until
-// the total fits appconfig.AttachmentCacheBudget.
 func PruneCache() {
 	pruneCache(CacheDir(), appconfig.AttachmentCacheTTL, appconfig.AttachmentCacheBudget)
 }
@@ -45,8 +42,7 @@ func pruneCache(dir string, ttl time.Duration, budget int64) {
 	if total <= budget {
 		return
 	}
-	// Oldest first: every cache entry is only a copy of a file the user still
-	// has, and the prompt keeps the path, so deleting one is never data loss.
+
 	sort.Slice(kept, func(i, j int) bool { return kept[i].modified.Before(kept[j].modified) })
 	for _, entry := range kept {
 		if total <= budget {
@@ -58,7 +54,6 @@ func pruneCache(dir string, ttl time.Duration, budget int64) {
 	}
 }
 
-// statCacheDir sums one cache entry and reports its newest modification time.
 func statCacheDir(path string) cacheEntry {
 	entry := cacheEntry{path: path}
 	_ = filepath.WalkDir(path, func(_ string, d os.DirEntry, err error) error {

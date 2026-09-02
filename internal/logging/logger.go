@@ -8,19 +8,8 @@ import (
 	"path/filepath"
 )
 
-// logger.go -- role: logger construction, level handling and file sink.
-//
-// The destination comes from internal/appconfig. Keep logging cheap: this app
-// targets 6 GB machines and must not buffer large amounts of text.
-
-// logFileName is the file the logger writes to under the user log dir.
 const logFileName = "gotack.log"
 
-// Setup builds a slog.Logger that writes to dir/gotack.log, with a secondary
-// stderr mirror so the developer console is also useful. Level is Info by
-// default; passing debug=true sets the level to Debug. The returned logger is
-// set as the process default via slog.SetDefault so packages that use
-// slog.Default() pick it up.
 func Setup(dir string, debug bool) (*slog.Logger, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("logging: empty log dir")
@@ -40,8 +29,6 @@ func Setup(dir string, debug bool) (*slog.Logger, error) {
 	w := io.MultiWriter(f, os.Stderr)
 	handler := slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: level,
-		// AddSource is intentionally off: it costs a runtime.Callers per record
-		// and is rarely useful for a desktop host.
 	})
 	logger := slog.New(handler)
 	slog.SetDefault(logger)

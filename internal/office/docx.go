@@ -6,16 +6,10 @@ import (
 	"strings"
 )
 
-// docx.go -- role: read, create and text-edit Word .docx packages. The writer
-// emits a minimal OOXML package with direct formatting so no styles part is
-// required.
-
 const documentXML = "word/document.xml"
 
 var textElementPattern = regexp.MustCompile(`(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)`)
 
-// docxParagraphs walks the document body and returns one text line per
-// paragraph; table rows are joined with " | ".
 func docxParagraphs(documentXML string) ([]string, error) {
 	var bodyLines []string
 
@@ -71,7 +65,6 @@ func docxParagraphs(documentXML string) ([]string, error) {
 	return bodyLines, nil
 }
 
-// docxRead renders a Word document as plain text lines.
 func docxRead(path string) (string, error) {
 	raw, err := readPackagePart(path, documentXML)
 	if err != nil {
@@ -84,7 +77,6 @@ func docxRead(path string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// docxInfo summarizes structure: paragraph and table-row counts.
 func docxInfo(path string) (string, error) {
 	raw, err := readPackagePart(path, documentXML)
 	if err != nil {
@@ -103,8 +95,6 @@ func docxInfo(path string) (string, error) {
 	return fmt.Sprintf("Word document: %d paragraphs (%d table rows), %d characters", len(lines)-tableRows, tableRows, len(strings.Join(lines, ""))), nil
 }
 
-// docxCreate builds a .docx from the markdown subset: # headings, paragraphs,
-// bullet and numbered lists, pipe tables and **bold**/*italic* runs.
 func docxCreate(path, content string) error {
 	var body strings.Builder
 	number := 0
@@ -152,9 +142,6 @@ func docxCreate(path, content string) error {
 	return writePackage(path, parts)
 }
 
-// docxReplace replaces find with replace inside single text nodes. Word often
-// splits a phrase across formatting runs; a find that spans runs is reported
-// as not found instead of being silently skipped.
 func docxReplace(path, find, replace string) (int, error) {
 	if find == "" {
 		return 0, fmt.Errorf("office: find text is required")
@@ -182,11 +169,11 @@ func docxReplace(path, find, replace string) (int, error) {
 func headingSize(level int) int {
 	switch level {
 	case 1:
-		return 32 // 16pt
+		return 32
 	case 2:
-		return 28 // 14pt
+		return 28
 	default:
-		return 24 // 12pt
+		return 24
 	}
 }
 
@@ -241,7 +228,7 @@ func tableXML(rows []string) string {
 		xml.WriteString(`</w:tr>`)
 	}
 	xml.WriteString(`</w:tbl>`)
-	// A table must be followed by a paragraph for Word to render it safely.
+
 	xml.WriteString(`<w:p/>`)
 	return xml.String()
 }

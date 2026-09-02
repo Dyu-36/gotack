@@ -37,9 +37,7 @@ type request struct {
 	Window          *int    `json:"window"`
 	Sort            string  `json:"sort"`
 	Detail          string  `json:"detail"`
-	// CurrentSessionID is an engine-injected value, not a model argument. The
-	// Crush adapter overwrites it from the trusted session context so discovery
-	// does not return the conversation already in the model's prompt.
+
 	CurrentSessionID string `json:"current_session_id"`
 }
 
@@ -61,8 +59,6 @@ func Tool(store *Store) mcp.Tool {
 	}
 }
 
-// dispatch follows Hermes' precedence: anchored scroll, session read, FTS
-// discovery, then no-argument browse.
 func dispatch(ctx context.Context, store *Store, req request) (string, error) {
 	sessionID := strings.TrimSpace(req.SessionID)
 	if req.AroundMessageID != nil {

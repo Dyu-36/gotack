@@ -59,7 +59,6 @@ func TestDecodePromptAttachmentsRoutesBytesAndDerivedText(t *testing.T) {
 		t.Fatalf("attachment bytes = %q, want the uploaded bytes", got[0].Attachment.Content)
 	}
 
-	// A text-only model gets derived text in the prompt instead of image bytes.
 	gotNonVision := decodePromptAttachments([]PromptAttachment{{
 		FileName: `C:\tmp\photo.png`,
 		Content:  base64.StdEncoding.EncodeToString(png),
@@ -71,7 +70,6 @@ func TestDecodePromptAttachmentsRoutesBytesAndDerivedText(t *testing.T) {
 		t.Fatalf("expected a derived prompt block for the image fallback")
 	}
 
-	// Text files travel inside the prompt, never as a Crush binary attachment.
 	jsonCode := []byte(`{"version": "1.0.0"}`)
 	gotText := decodePromptAttachments([]PromptAttachment{{
 		FileName: "config.json",

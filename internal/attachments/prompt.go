@@ -5,16 +5,8 @@ import (
 	"strings"
 )
 
-// prompt.go -- role: assemble the prompt text for one turn and read it back.
-//
-// Derived attachment text lives in <gotack-attachment> blocks appended to the
-// user text, because Crush stores the prompt as the user message and converts
-// real attachments into binary parts. Keeping the metadata in the prompt means
-// history replay can rebuild file chips from the same markers.
-
 const attachmentTag = "gotack-attachment"
 
-// ComposePrompt builds the effective prompt text for an agent turn.
 func ComposePrompt(text string, items []Prepared) string {
 	trimmed := strings.TrimSpace(text)
 	var warnings, blocks []string
@@ -70,7 +62,6 @@ func wrapBlock(item Prepared) string {
 	return sb.String()
 }
 
-// Ref is attachment metadata recovered from a stored prompt.
 type Ref struct {
 	FileName string
 	MimeType string
@@ -78,9 +69,6 @@ type Ref struct {
 	Size     int
 }
 
-// ParseAttachmentBlocks splits a stored prompt into the user-visible text and
-// the attachment references ComposePrompt embedded in it. Prompts written
-// before this format come back unchanged with no refs.
 func ParseAttachmentBlocks(prompt string) (string, []Ref) {
 	openTag := "<" + attachmentTag
 	closeTag := "</" + attachmentTag + ">"
@@ -137,8 +125,6 @@ func parseAttrs(head string) Ref {
 	}
 }
 
-// escapeAttr protects the tag attributes. %q is deliberately avoided: it would
-// double every backslash in a Windows path the model is meant to read.
 func escapeAttr(in string) string {
 	out := strings.ReplaceAll(in, "&", "&amp;")
 	out = strings.ReplaceAll(out, `"`, "&quot;")

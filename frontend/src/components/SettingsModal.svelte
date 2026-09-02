@@ -117,8 +117,6 @@
       zaloEnabled = config.enabled
       zaloHasToken = config.has_token
       zaloPairingCode = config.pairing_code
-      // Older hosts may serialize an empty Go slice as null. Keep the tab
-      // renderable while the desktop boundary is upgraded to always return [].
       zaloPairedChats = config.paired_chats ?? []
       zaloStatus = await desktop.zaloStatus()
     } catch (cause) {
@@ -183,15 +181,11 @@
       provider_only: true,
       model,
       thinking,
-      // Codex is authenticated by the ChatGPT sign-in: it takes no API key, and
-      // its endpoint belongs to the engine. The host rejects both for it.
       api_key: selectedProvider === 'codex' ? '' : currentApiKey.trim(),
       custom_url: selectedProvider && selectedProvider !== 'codex' ? currentCustomUrl.trim() : '',
     }
     onThemeChange(selectedTheme)
     onSaveSettings(payload)
-    // The API key is write-only. Clear the DOM value immediately after handing
-    // it to the backend so it does not linger in component state.
     currentApiKey = ''
     onClose()
   }

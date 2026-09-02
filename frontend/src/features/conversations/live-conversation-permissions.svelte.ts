@@ -17,10 +17,6 @@ export function createPermissionState(deps: PermissionDeps) {
     deps.permission.value ? deps.permission.value.expires_at_ms > 0 && now >= deps.permission.value.expires_at_ms : false,
   )
 
-  // Permission TTL countdown: tick once per second while a permission is on
-  // screen so the UI can render a live "expires in Ns" badge. Auto-clear the
-  // modal a couple of seconds after expiry so the user sees the expired state
-  // and the dialog disappears.
   let permissionExpiryTimer: number | undefined
   $effect(() => {
     if (!deps.permission.value) return

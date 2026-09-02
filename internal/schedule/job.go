@@ -1,12 +1,5 @@
 package schedule
 
-// job.go -- role: the schedule.json model: job definitions, spec validation,
-// due-time computation and atomic persistence.
-//
-// The desktop host schedules agent runs but never executes agent logic
-// itself (ADR 0001): a firing is one session plus one prompt submitted over
-// the same REST path the UI uses, and its outcome arrives over SSE.
-
 import (
 	"encoding/json"
 	"errors"
@@ -16,28 +9,20 @@ import (
 	"time"
 )
 
-// FileName is the schedule file's name inside the Gotack config directory,
-// matching the existing zalo.json convention.
 const FileName = "schedule.json"
 
-// minInterval bounds "every" specs: firings closer than one minute apart
-// would only fight the hourly budget and spam the engine.
 const minInterval = time.Minute
 
-// Job is one persistent scheduled-run definition plus the host's
-// bookkeeping about it. Every field is honoured by the runner; there is
-// nothing the host accepts and then ignores (hard rule 8).
 type Job struct {
 	ID     string `json:"id"`
-	Name   string `json:"name"`   // session title used for launched runs
-	Prompt string `json:"prompt"` // text submitted to the engine on fire
-	// Exactly one of Every and At is set.
-	Every        string `json:"every,omitempty"` // Go duration ("30m"), fires repeatedly
-	At           string `json:"at,omitempty"`    // local 24h "HH:MM", fires once a day
-	Enabled      bool   `json:"enabled"`
-	HourlyBudget int    `json:"hourly_budget,omitempty"` // 0 means DefaultHourlyBudget
+	Name   string `json:"name"`
+	Prompt string `json:"prompt"`
 
-	// Bookkeeping, written by the host and persisted across restarts.
+	Every        string `json:"every,omitempty"`
+	At           string `json:"at,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	HourlyBudget int    `json:"hourly_budget,omitempty"`
+
 	LastRun             *time.Time  `json:"last_run,omitempty"`
 	LastOutcome         string      `json:"last_outcome,omitempty"`
 	ConsecutiveFailures int         `json:"consecutive_failures,omitempty"`
@@ -45,13 +30,10 @@ type Job struct {
 	RecentFires         []time.Time `json:"recent_fires,omitempty"`
 }
 
-// File is the on-disk shape of schedule.json.
 type File struct {
 	Jobs []*Job `json:"jobs"`
 }
 
-// ValidateJob checks one job definition. The error text names the offending
-// field so a hand-edited schedule.json is easy to repair.
 func ValidateJob(job *Job) error {
 	if job == nil {
 		return errors.New("schedule: job must not be null")
@@ -80,7 +62,6 @@ func ValidateJob(job *Job) error {
 	return nil
 }
 
-// ValidateFile checks the whole file, including cross-job constraints.
 func ValidateFile(file *File) error {
 	if file == nil {
 		return errors.New("schedule: file must not be null")
@@ -98,16 +79,11 @@ func ValidateFile(file *File) error {
 	return nil
 }
 
-// NextDue reports when job is next due relative to now. Interval jobs are
-// due at last run plus the interval, or immediately when never run.
-// Time-of-day jobs are due at today's occurrence until that occurrence has
-// been run — a missed occurrence (host down at the time) catches up once —
-// and at tomorrow's occurrence afterwards.
 func NextDue(job *Job, now time.Time) time.Time {
 	if job.Every != "" {
 		d, err := time.ParseDuration(job.Every)
 		if err != nil {
-			// Validation owns malformed specs; never postpone because of one.
+
 			return now
 		}
 		if job.LastRun == nil {
@@ -122,7 +98,6 @@ func NextDue(job *Job, now time.Time) time.Time {
 	return occ
 }
 
-// occurrenceToday builds today's HH:MM in the local clock the host runs on.
 func occurrenceToday(at string, now time.Time) time.Time {
 	parsed, err := time.Parse("15:04", at)
 	if err != nil {
@@ -131,9 +106,6 @@ func occurrenceToday(at string, now time.Time) time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
 }
 
-// LoadFile reads schedule.json. A missing file is an empty schedule, not an
-// error; a malformed file is an error, because silently discarding it would
-// drop user jobs and their bookkeeping.
 func LoadFile(path string) (*File, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -152,10 +124,6 @@ func LoadFile(path string) (*File, error) {
 	return &file, nil
 }
 
-// SaveFile persists schedule.json atomically (temp file plus rename), the
-// same precedent as zalo.json, so a crash mid-write can never leave a
-// truncated schedule behind. Fire records older than the budget window are
-// pruned because nothing will ever count them again.
 func SaveFile(path string, file *File, now time.Time) error {
 	if file == nil {
 		return errors.New("schedule: file must not be null")

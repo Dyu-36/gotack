@@ -12,44 +12,27 @@ import (
 	"github.com/Dyu-36/gotack/internal/office"
 )
 
-// transform.go -- role: turn one uploaded file into (a) text the model reads in
-// the prompt and (b) at most one native Crush attachment.
-//
-// Crush's createUserMessage converts every attachment into a binary content
-// part, so text placed in Attachment.Content never reaches the prompt the model
-// sees. Derived text therefore belongs in PromptBlock, and Attachment stays
-// reserved for bytes a multimodal model can consume directly.
-
-// The limits live in internal/appconfig so the host, this package and the
-// composer cannot drift apart; App.AttachmentLimits() serves the same numbers to
-// the UI instead of letting it hardcode them again.
 const (
-	// MaxAttachmentSize is the upper bound on raw attachment bytes.
 	MaxAttachmentSize = appconfig.MaxAttachmentBytes
 
-	// MaxDerivedLines is the maximum number of text lines sent to the model.
 	MaxDerivedLines = appconfig.MaxDerivedLines
 
-	// MaxDerivedBytes is the maximum byte size of text content sent to the model.
 	MaxDerivedBytes = appconfig.MaxDerivedBytes
 )
 
-// Prepared is one composer file after saving, classification and extraction.
 type Prepared struct {
 	DisplayName string
 	Path        string
 	MimeType    string
 	Size        int
-	// PromptBlock is model-readable text appended to the prompt by ComposePrompt.
+
 	PromptBlock string
-	// Attachment carries raw bytes only when the model can consume them.
+
 	Attachment *crushapi.Attachment
-	// Warning explains why a file could not be processed; the turn still runs.
+
 	Warning string
 }
 
-// Failed builds a Prepared that only reports a problem, so one unreadable file
-// never cancels a turn that also carries text or readable attachments.
 func Failed(fileName, reason string) Prepared {
 	return Prepared{
 		DisplayName: fileName,
@@ -57,9 +40,6 @@ func Failed(fileName, reason string) Prepared {
 	}
 }
 
-// Prepare saves the file into the attachment cache, classifies it and extracts
-// text the model can read. supportsVision selects between sending image bytes
-// and falling back to OCR.
 func Prepare(fileName, declaredMime string, content []byte, supportsVision bool) (Prepared, error) {
 	name := BaseName(fileName)
 	if name == "" {
@@ -77,10 +57,6 @@ func Prepare(fileName, declaredMime string, content []byte, supportsVision bool)
 	return transform(name, declaredMime, content, savedPath, supportsVision), nil
 }
 
-// PrepareFile handles a file the host learned about by path: the native picker,
-// an OS file drop or an @[path] tag typed in the composer. The bytes are read
-// here and the original path is kept, so nothing is copied into the cache and
-// the payload never travels through the webview.
 func PrepareFile(path string, supportsVision bool) (Prepared, error) {
 	clean := strings.TrimSpace(path)
 	if clean == "" {
@@ -103,8 +79,6 @@ func PrepareFile(path string, supportsVision bool) (Prepared, error) {
 	return transform(filepath.Base(clean), "", content, clean, supportsVision), nil
 }
 
-// transform classifies and extracts a file that already exists on disk. Both
-// entry points share it, so an upload and a dropped path build the same prompt.
 func transform(name, declaredMime string, content []byte, path string, supportsVision bool) Prepared {
 	kind, mimeType := Classify(name, declaredMime, content)
 	out := Prepared{DisplayName: name, Path: path, MimeType: mimeType, Size: len(content)}
@@ -131,7 +105,7 @@ func transform(name, declaredMime string, content []byte, path string, supportsV
 		out.PromptBlock = textBlock(text, encoding)
 	case KindImage:
 		if supportsVision {
-			// The image itself is the payload, so no derived text block.
+
 			attachment := crushapi.Attachment{FilePath: path, FileName: name, MimeType: mimeType, Content: bytes.Clone(content)}
 			out.Attachment = &attachment
 			break
@@ -143,7 +117,6 @@ func transform(name, declaredMime string, content []byte, path string, supportsV
 	return out
 }
 
-// officeBlock extracts document text through internal/office.
 func officeBlock(path, note string) string {
 	var sb strings.Builder
 	if note != "" {
@@ -162,8 +135,6 @@ func officeBlock(path, note string) string {
 	return sb.String()
 }
 
-// textBlock renders a plain-text or code file, naming the source encoding when
-// it was not already UTF-8.
 func textBlock(text, encoding string) string {
 	var sb strings.Builder
 	if encoding != "" && encoding != "UTF-8" {
@@ -173,7 +144,6 @@ func textBlock(text, encoding string) string {
 	return sb.String()
 }
 
-// imageBlock is the text-only-model path: OCR instead of raw image bytes.
 func imageBlock(path string, size int) string {
 	var sb strings.Builder
 	sb.WriteString("> Model hiện tại không nhận ảnh trực tiếp; hệ thống đã thử OCR.\n")
@@ -188,8 +158,6 @@ func imageBlock(path string, size int) string {
 	return sb.String()
 }
 
-// fallbackBlock is used when no extractor applies. It points at the bundled
-// office tooling instead of leaving the agent to install packages at runtime.
 func fallbackBlock(size int, reason string) string {
 	var sb strings.Builder
 	if reason != "" {
@@ -200,8 +168,6 @@ func fallbackBlock(size int, reason string) string {
 	return sb.String()
 }
 
-// derivedContent renders extracted text with line numbers plus a coverage note,
-// so the model knows whether it is looking at the whole file.
 func derivedContent(raw string) string {
 	normalized := strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n", "\n"), "\r", "\n")
 	kept, truncated, total := clampLines(normalized)
@@ -220,7 +186,6 @@ func derivedContent(raw string) string {
 	return sb.String()
 }
 
-// clampLines bounds extracted text by both line count and byte size.
 func clampLines(text string) ([]string, bool, int) {
 	all := strings.Split(text, "\n")
 	kept := make([]string, 0, min(len(all), MaxDerivedLines))
@@ -235,8 +200,6 @@ func clampLines(text string) ([]string, bool, int) {
 	return kept, false, len(all)
 }
 
-// ClampText limits text by lines and bytes, returning the clamped content and
-// whether anything was dropped.
 func ClampText(text string) (string, bool) {
 	kept, truncated, _ := clampLines(text)
 	out := strings.Join(kept, "\n")

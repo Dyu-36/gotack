@@ -392,7 +392,7 @@ func TestViewReturnsExactFileAndMarksOnlyThatTarget(t *testing.T) {
 	if result := manager.ApplyWithMeta(context.Background(), []Operation{{Action: actionWriteFile, Name: "viewable", FilePath: "references/info.md", FileContent: &updated}}, review); !result.Success {
 		t.Fatalf("viewed support write = %+v", result)
 	}
-	// A mark for one file must never authorize a different existing file.
+
 	replacement := "Changed."
 	if result := manager.ApplyWithMeta(context.Background(), []Operation{{Action: actionPatch, Name: "viewable", OldString: "Original.", NewString: &replacement}}, review); result.Success {
 		t.Fatal("support-file view authorized an unrelated SKILL.md patch")

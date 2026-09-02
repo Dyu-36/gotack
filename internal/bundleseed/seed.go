@@ -1,4 +1,3 @@
-// Package bundleseed installs bundled resource trees using a size-keyed report.
 package bundleseed
 
 import (
@@ -11,17 +10,14 @@ import (
 
 const reportFileName = ".seed-report.json"
 
-// ExistingFilePolicy defines who owns files already present at the destination.
 type ExistingFilePolicy uint8
 
 const (
-	// ManagedFiles lets the bundle restore files that differ from its report.
 	ManagedFiles ExistingFilePolicy = iota
-	// UserEditableFiles preserves untracked files and tracked files modified by a user.
+
 	UserEditableFiles
 )
 
-// PreserveReason explains why a user-editable destination was not replaced.
 type PreserveReason uint8
 
 const (
@@ -29,7 +25,6 @@ const (
 	ModifiedFile
 )
 
-// Options selects destination ownership and optional preservation reporting.
 type Options struct {
 	ExistingFiles ExistingFilePolicy
 	OnPreserve    func(path string, reason PreserveReason)
@@ -39,9 +34,6 @@ type report struct {
 	Files map[string]int64 `json:"files"`
 }
 
-// CopyIfChanged copies source into destination and atomically updates its report.
-// A malformed existing report stops the operation before destination files are
-// inspected or changed.
 func CopyIfChanged(source, destination string, options Options) error {
 	if options.ExistingFiles != ManagedFiles && options.ExistingFiles != UserEditableFiles {
 		return fmt.Errorf("bundleseed: unsupported existing-file policy %d", options.ExistingFiles)

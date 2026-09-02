@@ -15,7 +15,7 @@ func TestRenderDiffChange(t *testing.T) {
 	if !strings.HasPrefix(out, "--- file.txt\n+++ file.txt\n") {
 		t.Fatalf("missing file headers:\n%s", out)
 	}
-	// Context clipping at file boundaries yields a 1,6 hunk here.
+
 	if !strings.Contains(out, "@@ -1,6 +1,6 @@") {
 		t.Fatalf("missing hunk header:\n%s", out)
 	}

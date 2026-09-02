@@ -19,13 +19,11 @@ const chatGPTUsageEndpoint = "https://chatgpt.com/backend-api/wham/usage"
 var providerUsageHTTPClient = &http.Client{
 	Timeout: 12 * time.Second,
 	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-		// Never forward a bearer token to a redirect destination.
+
 		return http.ErrUseLastResponse
 	},
 }
 
-// ProviderUsageWindow is one provider-defined quota window. Providers may
-// expose several independent windows (for example five-hour and weekly caps).
 type ProviderUsageWindow struct {
 	ID               string  `json:"id"`
 	Name             string  `json:"name,omitempty"`
@@ -35,9 +33,6 @@ type ProviderUsageWindow struct {
 	ResetsAt         int64   `json:"resets_at,omitempty"`
 }
 
-// ProviderUsageInfo is the provider-neutral quota payload consumed by the UI.
-// Remaining values are percentages because subscription providers do not
-// expose a reliable absolute token balance through their account APIs.
 type ProviderUsageInfo struct {
 	ProviderID        string                `json:"provider_id"`
 	ProviderName      string                `json:"provider_name"`
@@ -75,10 +70,6 @@ type chatGPTRateLimitWindow struct {
 	ResetAt            int64   `json:"reset_at"`
 }
 
-// GetProviderUsage returns the selected provider's account quota windows. The
-// contract is provider-neutral; adapters are added only when the provider has a
-// documented account-usage signal. Codex is currently the only configured
-// subscription provider with such a signal in Gotack.
 func (a *App) GetProviderUsage(providerID string) (ProviderUsageInfo, error) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" && a.cfg != nil {
@@ -124,8 +115,6 @@ func (a *App) getChatGPTProviderUsage(now time.Time) (ProviderUsageInfo, error) 
 		return unavailable, err
 	}
 
-	// Keep pre-provider-split installs working even when this is the first OAuth
-	// surface the user opens after upgrading.
 	if moved, moveErr := migrateChatGPTOAuthToCodex(ctx, svc.api, workspaceID); moveErr != nil {
 		a.warnCodexMigration("could not move the ChatGPT credential before loading usage", "err", moveErr)
 	} else if moved {

@@ -49,7 +49,7 @@ func TestRelayExpiry(t *testing.T) {
 }
 
 func TestRelayUnknownAndZeroTTL(t *testing.T) {
-	r := NewRelay(0) // falls back to the 5m default
+	r := NewRelay(0)
 	if _, ok := r.Take("missing"); ok {
 		t.Fatal("unknown id must not resolve")
 	}
@@ -67,8 +67,7 @@ func TestRelayReplacementIgnoresStaleTimer(t *testing.T) {
 	r.mu.Unlock()
 
 	r.Pending(testReq("replace"))
-	// Simulate an old callback that was already queued when Stop returned
-	// false. It must not expire the replacement entry.
+
 	r.drop("replace", oldGeneration)
 	if _, ok := r.Take("replace"); !ok {
 		t.Fatal("stale timer callback removed replacement request")

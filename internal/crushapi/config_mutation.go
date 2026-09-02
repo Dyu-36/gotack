@@ -12,10 +12,6 @@ import (
 	"strings"
 )
 
-// config_mutation.go mirrors the supported Crush v1 configuration mutation
-// endpoints without importing upstream internal packages. The wire shapes are
-// pinned against the upstream commit recorded in third_party/README.md.
-
 const (
 	configSetPath          = "/v1/workspaces/{id}/config/set"
 	configSetBatchPath     = "/v1/workspaces/{id}/config/set-batch"
@@ -26,7 +22,6 @@ const (
 	configRefreshOAuthPath = "/v1/workspaces/{id}/config/refresh-oauth"
 )
 
-// Config scope values are defined by Crush as global=0 and workspace=1.
 const (
 	ConfigScopeGlobal    = 0
 	ConfigScopeWorkspace = 1
@@ -34,7 +29,6 @@ const (
 
 var preferredModelTypes = [...]string{"large", "small"}
 
-// SelectedModel is Crush config.SelectedModel's UI-relevant wire shape.
 type SelectedModel struct {
 	Model           string `json:"model"`
 	Provider        string `json:"provider"`
@@ -42,10 +36,6 @@ type SelectedModel struct {
 	Think           bool   `json:"think,omitempty"`
 }
 
-// SetPreferredModelPair pins Crush's large and small slots to the one model
-// Gotack exposes in Settings. Patched Gotack releases use one atomic request;
-// stock or older Crush servers transparently fall back to the upstream
-// single-slot endpoint.
 func (c *Client) SetPreferredModelPair(ctx context.Context, wsID string, scope int, model SelectedModel) error {
 	if wsID == "" {
 		return errors.New("crushapi: workspace id is required")
@@ -56,9 +46,6 @@ func (c *Client) SetPreferredModelPair(ctx context.Context, wsID string, scope i
 	return c.mutatePreferredModelPair(ctx, wsID, scope, &model)
 }
 
-// RemovePreferredModelPair removes both preferred slots. Recent model history
-// remains owned by Crush and is deliberately preserved. Stock or older Crush
-// servers fall back to removing each standard config key separately.
 func (c *Client) RemovePreferredModelPair(ctx context.Context, wsID string, scope int) error {
 	if wsID == "" {
 		return errors.New("crushapi: workspace id is required")
@@ -113,8 +100,6 @@ func (c *Client) mutatePreferredModelPairLegacy(ctx context.Context, wsID string
 	return nil
 }
 
-// SetProviderAPIKey stores a plain string provider credential through Crush's
-// typed credential endpoint. The value is never logged by this package.
 func (c *Client) SetProviderAPIKey(ctx context.Context, wsID string, scope int, providerID, apiKey string) error {
 	if wsID == "" || strings.TrimSpace(providerID) == "" {
 		return errors.New("crushapi: workspace id and provider id are required")
@@ -135,8 +120,6 @@ func (c *Client) SetProviderAPIKey(ctx context.Context, wsID string, scope int, 
 	return c.doJSON(ctx, http.MethodPost, expandPath(configProviderKeyPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
-// SetProviderOAuthToken stores an OAuth token credential through Crush's
-// typed credential endpoint.
 func (c *Client) SetProviderOAuthToken(ctx context.Context, wsID string, scope int, providerID string, token any) error {
 	if wsID == "" || strings.TrimSpace(providerID) == "" {
 		return errors.New("crushapi: workspace id and provider id are required")
@@ -157,8 +140,6 @@ func (c *Client) SetProviderOAuthToken(ctx context.Context, wsID string, scope i
 	return c.doJSON(ctx, http.MethodPost, expandPath(configProviderKeyPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
-// RefreshProviderOAuthToken asks Crush to refresh and persist a provider's
-// OAuth credential using its provider-specific token exchange.
 func (c *Client) RefreshProviderOAuthToken(ctx context.Context, wsID string, scope int, providerID string) error {
 	if wsID == "" || strings.TrimSpace(providerID) == "" {
 		return errors.New("crushapi: workspace id and provider id are required")
@@ -173,8 +154,6 @@ func (c *Client) RefreshProviderOAuthToken(ctx context.Context, wsID string, sco
 	return c.doJSON(ctx, http.MethodPost, expandPath(configRefreshOAuthPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
-// SetConfigField writes one Crush config field using the server's sjson path
-// semantics.
 func (c *Client) SetConfigField(ctx context.Context, wsID string, scope int, key string, value any) error {
 	if wsID == "" || strings.TrimSpace(key) == "" {
 		return errors.New("crushapi: workspace id and config key are required")
@@ -190,9 +169,6 @@ func (c *Client) SetConfigField(ctx context.Context, wsID string, scope int, key
 	return c.doJSON(ctx, http.MethodPost, expandPath(configSetPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
-// SetConfigFields writes related Crush config paths in one server-side
-// mutation. Stock or older Crush servers transparently fall back to the
-// upstream single-field endpoint in deterministic key order.
 func (c *Client) SetConfigFields(ctx context.Context, wsID string, scope int, fields map[string]any) error {
 	if wsID == "" {
 		return errors.New("crushapi: workspace id is required")
@@ -231,8 +207,6 @@ func (c *Client) SetConfigFields(ctx context.Context, wsID string, scope int, fi
 	return nil
 }
 
-// RemoveConfigField deletes one Crush config field, for example a registered
-// MCP server entry. Deleting an absent key is not an error server-side.
 func (c *Client) RemoveConfigField(ctx context.Context, wsID string, scope int, key string) error {
 	if wsID == "" || strings.TrimSpace(key) == "" {
 		return errors.New("crushapi: workspace id and config key are required")
@@ -247,9 +221,6 @@ func (c *Client) RemoveConfigField(ctx context.Context, wsID string, scope int, 
 	return c.doJSON(ctx, http.MethodPost, expandPath(configRemovePath, "id", wsID), bytes.NewReader(body), nil)
 }
 
-// isHTTPStatus recognizes the stable error format emitted by decodeError. It
-// walks wrapped errors so compatibility checks keep working when callers add
-// context, while only an explicit HTTP 404 enables a legacy route fallback.
 func isHTTPStatus(err error, want int) bool {
 	for err != nil {
 		text, ok := strings.CutPrefix(err.Error(), "crushapi: ")

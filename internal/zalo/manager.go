@@ -14,9 +14,6 @@ import (
 	"sync"
 )
 
-// Runtime is the desktop seam used by the Zalo channel. Crush remains the
-// owner of sessions and agent execution; the channel only translates remote
-// messages into runtime calls.
 type Runtime struct {
 	Start     func(context.Context, string, string, string) (string, error)
 	Stop      func(context.Context, string) error
@@ -25,9 +22,6 @@ type Runtime struct {
 	Workspace func() string
 }
 
-// StoredChannel is the durable Zalo channel state. The token never crosses the
-// Wails boundary. Pairing rotates the six-digit code after every successful
-// use, and chat-to-session mappings survive desktop restarts.
 type StoredChannel struct {
 	Token         string            `json:"token,omitempty"`
 	BotName       string            `json:"bot_name,omitempty"`
@@ -37,7 +31,6 @@ type StoredChannel struct {
 	ChatSessions  map[string]string `json:"chat_sessions,omitempty"`
 }
 
-// Status is the public, secret-free channel snapshot returned to the UI.
 type Status struct {
 	Configured    bool     `json:"configured"`
 	Running       bool     `json:"running"`
@@ -48,8 +41,6 @@ type Status struct {
 	LastError     string   `json:"last_error,omitempty"`
 }
 
-// Manager owns persistent channel state, the long-poll worker and active turn
-// routing. It is intentionally independent from the current engine connection.
 type Manager struct {
 	clientFactory func(string) (*Client, error)
 	path          string
@@ -61,12 +52,10 @@ type Manager struct {
 	running   bool
 	lastError string
 	cancel    context.CancelFunc
-	active    map[string]string // chat id -> session id
+	active    map[string]string
 	seen      []string
 }
 
-// NewManager loads the channel state from path. A malformed file is ignored so
-// the desktop can still open; the error is exposed through Status.
 func NewManager(path string, runtime Runtime, log *slog.Logger) *Manager {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -84,8 +73,6 @@ func NewManager(path string, runtime Runtime, log *slog.Logger) *Manager {
 	return m
 }
 
-// newClient builds a Bot API client through the configured factory so tests
-// can intercept the network call.
 func (m *Manager) newClient(token string) (*Client, error) {
 	if m.clientFactory != nil {
 		return m.clientFactory(token)
@@ -169,7 +156,6 @@ func (m *Manager) ImportLegacy(token string, allowed []string) error {
 	return m.saveLocked()
 }
 
-// Status returns a copy safe for UI serialization.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -214,12 +200,10 @@ func (m *Manager) setError(err error) {
 	}
 }
 
-// SetToken validates and stores a token, rotates polling state, then starts the
-// channel. The previous token remains untouched when validation fails.
 func (m *Manager) SetToken(ctx context.Context, token string) (Status, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return Status{}, errors.New("Bot Token Zalo không được để trống")
 	}
 	client, err := m.newClient(token)
@@ -251,11 +235,10 @@ func (m *Manager) SetToken(ctx context.Context, token string) (Status, error) {
 	return m.Status(), nil
 }
 
-// TestConnection validates the stored token and refreshes the bot name.
 func (m *Manager) TestConnection(ctx context.Context) (Status, error) {
 	state := m.snapshot()
 	if state.Token == "" {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return Status{}, errors.New("Chưa lưu Bot Token Zalo")
 	}
 	client, err := m.newClient(state.Token)
@@ -280,7 +263,6 @@ func (m *Manager) TestConnection(ctx context.Context) (Status, error) {
 	return m.Status(), nil
 }
 
-// RemoveToken stops the worker and deletes all channel state.
 func (m *Manager) RemoveToken() (Status, error) {
 	m.Stop()
 	m.mu.Lock()
@@ -292,7 +274,6 @@ func (m *Manager) RemoveToken() (Status, error) {
 	return m.Status(), err
 }
 
-// RegeneratePairingCode invalidates the displayed pairing code immediately.
 func (m *Manager) RegeneratePairingCode() (Status, error) {
 	m.mu.Lock()
 	m.state.PairingCode = pairingCode()
@@ -301,11 +282,10 @@ func (m *Manager) RegeneratePairingCode() (Status, error) {
 	return m.Status(), err
 }
 
-// Unpair revokes one chat and its persisted session mapping.
 func (m *Manager) Unpair(chatID string) (Status, error) {
 	chatID = strings.TrimSpace(chatID)
 	if chatID == "" {
-		//lint:ignore ST1005 user-facing Vietnamese sentence keeps its capital.
+
 		return Status{}, errors.New("Thiếu chat_id cần hủy ghép cặp")
 	}
 	m.mu.Lock()
@@ -323,7 +303,6 @@ func (m *Manager) Unpair(chatID string) (Status, error) {
 	return m.Status(), err
 }
 
-// Start launches the long-poll worker when a token is configured.
 func (m *Manager) Start() {
 	m.mu.Lock()
 	if m.running || m.state.Token == "" {
@@ -337,7 +316,6 @@ func (m *Manager) Start() {
 	go m.run(ctx)
 }
 
-// Stop cancels the owned long-poll worker.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	cancel := m.cancel
@@ -349,16 +327,12 @@ func (m *Manager) Stop() {
 	}
 }
 
-// SetRuntime installs the desktop agent hooks. May be called after the manager
-// is created to break the import cycle.
 func (m *Manager) SetRuntime(runtime Runtime) {
 	m.mu.Lock()
 	m.runtime = runtime
 	m.mu.Unlock()
 }
 
-// ResetSessions clears all chat-to-session mappings, used when the host
-// switches workspaces.
 func (m *Manager) ResetSessions() error {
 	m.mu.Lock()
 	m.state.ChatSessions = make(map[string]string)
