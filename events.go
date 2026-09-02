@@ -13,8 +13,8 @@ import "github.com/wailsapp/wails/v2/pkg/runtime"
 // emit is the Emitter handed to the forwarder and terminal service. It stays a
 // branch-free wrapper on purpose: every session:delta and every terminal:data
 // chunk passes through here, so this is the wrong place for feature logic.
-// Permission pairing now lives in the forwarder, the only code that decodes the
-// typed request; see uievents.PermissionSink.
+// Permission bookkeeping is attached through the forwarder's host callbacks;
+// this hot path contains no feature logic.
 func (a *App) emit(name string, data any) {
 	if a.ctx == nil {
 		return

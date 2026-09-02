@@ -36,7 +36,7 @@ PowerPoint files, and (4) clean, English-only, dead-code-free sources.
    now carry real context windows and costs.
 2. **Zalo bridge**: `internal/zalo` (Bot API client + polling bridge with
    allow-list, message dedupe, per-chat single-flight, chat-to-session
-   mapping, reply on run completion), a `DoneSink` on the UI event forwarder,
+   mapping, reply on run completion), a host callback on the UI event forwarder,
    binds `GetZaloConfig` / `SaveZaloConfig` / `ZaloStatus` (token is
    write-only), and a Zalo section in Settings.
 3. **Office MCP**: `internal/office` (xlsx via excelize; docx/pptx via minimal

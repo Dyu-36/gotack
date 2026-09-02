@@ -848,7 +848,7 @@ Phase 5 — scheduling:
       Evidence: a firing is create session → mark unattended → send prompt
       over the same `internal/session` path the UI uses
       (`TestFireMarksUnattendedBeforeSend`); outcomes arrive from
-      `run_complete` via `App.RunDone` → `Scheduler.RecordOutcome`
+      `run_complete` via the host-only `App.runDone` callback → `Scheduler.RecordOutcome`
       (`TestRunOutcomesFromSSE`) — no polling anywhere in the package.
 - [x] Failure-nudge threshold and preflight guard.
       Evidence: 3 consecutive failures (launch failures or run errors)
@@ -873,7 +873,7 @@ Phase 5 — scheduling:
 Phase 6 — learning loop:
 
 - [x] Reflection triggered from `run_complete`, gated, with a recursion guard.
-      Evidence: `App.RunDone` feeds `internal/reflection.Tracker.SessionDone`
+      Evidence: the host-only `App.runDone` callback feeds `internal/reflection.Tracker.RunDone`
       (turn-threshold gate, errored/cancelled runs never count) and
       `DeleteSession` feeds the session-end gate; firings run create →
       unattended mark → send over the REST seam

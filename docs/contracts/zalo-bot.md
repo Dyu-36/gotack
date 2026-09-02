@@ -7,7 +7,7 @@ rule 7); the implementation lives in `internal/zalo` with the UI surface in
 
 The channel is a transport only: inbound chat text becomes one Crush agent
 run submitted over the same REST path the UI uses, and the answer returns
-over the same SSE `run_complete` event through the host's `DoneSink`. The
+over the same SSE `run_complete` event through the forwarder's host callback. The
 desktop never executes agent logic itself (ADR 0001).
 
 ## External API surface
@@ -88,7 +88,8 @@ One chat runs at most one turn at a time. A normal message:
    mark fails the turn.
 3. Submits the text over the engine REST path and remembers the session id.
 
-Answers flow back through `App.RunDone` into `Manager.Done`, which matches
+Answers flow back through the unexported host completion callback into
+`Manager.Done`, which matches
 the session id to its chat and delivers the reply. `/new` forgets the chat's
 mapping (next message creates a fresh session), and switching workspaces in
 the UI calls `ResetSessions` because sessions belong to one workspace.

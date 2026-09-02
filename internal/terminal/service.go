@@ -123,14 +123,9 @@ func (s *Service) Open(cwd string) (string, error) {
 	return id, nil
 }
 
-// readChunk is the pty read size. 32 KiB rather than 4 KiB because every chunk
-// costs a string allocation, a JSON encode and one IPC crossing into the
-// WebView, so cat-ing a large file at 4 KiB pegs a weak CPU on event overhead
-// alone. Bulk output now needs eight times fewer events for the same bytes.
-//
-// This bounds chunk size, not event rate: terminal output still has no
-// time-based coalescing, unlike the message path in internal/uievents. That
-// coalescing should land before the terminal ships.
+// readChunk balances IPC overhead against terminal responsiveness. It bounds
+// each read, not event rate; terminal output intentionally emits one event per
+// successful PTY read.
 const readChunk = 32 * 1024
 
 // pumpOutput reads from the pty and forwards each chunk as a TerminalData
