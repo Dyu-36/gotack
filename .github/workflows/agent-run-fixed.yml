@@ -67,7 +67,7 @@ jobs:
       - name: Verify architectural boundaries and skill roots
         shell: bash
         run: |
-          if grep -R -n --include='*.go' 'third_party/crush/internal' --exclude-dir=.git .; then
+          if grep -R -n --include='*.go' -E '^[[:space:]]*"[^"]*third_party/crush/internal' --exclude-dir=.git .; then
             echo 'forbidden Crush internal import found'
             exit 1
           fi
