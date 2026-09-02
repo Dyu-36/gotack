@@ -82,7 +82,7 @@ try {
         throw "runtime assembly failed: bundled Python cannot import openpyxl and ortools"
     }
 
-    Write-Host "Gotack built: $(Join-Path $binDir 'gotack.exe')"
+    Write-Host "Tack built: $(Join-Path $binDir 'tack.exe')"
     Write-Host "Runtime resources: $resourceDir"
 }
 finally {
