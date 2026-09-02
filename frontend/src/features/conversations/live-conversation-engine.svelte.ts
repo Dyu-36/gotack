@@ -168,7 +168,7 @@ export function createEngineState(deps: EngineDeps) {
           let content = ''
           try {
             const raw = typeof event.input === 'string' ? event.input : JSON.stringify(event.input)
-            content = raw.length > 180 ? `${raw.slice(0, 180)}…` : raw
+            content = raw.length > 4000 ? `${raw.slice(0, 4000)}…` : raw
           } catch { content = '' }
           if (m) {
             m.content = content

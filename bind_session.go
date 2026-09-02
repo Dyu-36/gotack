@@ -285,8 +285,8 @@ func (a *App) CancelPrompt(id string) error {
 }
 
 // maxToolInputPreview bounds replayed tool arguments; the UI renders them as a
-// single truncated line.
-const maxToolInputPreview = 240
+// collapsible preview in tool cards.
+const maxToolInputPreview = 4096
 
 func toMessageInfo(m crushapi.Message) MessageInfo {
 	// File payloads travel as <gotack-attachment> markers inside the prompt, so
