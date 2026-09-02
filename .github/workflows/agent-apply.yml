@@ -1,0 +1,536 @@
+name: Apply Hermes parity patch
+
+on:
+  push:
+    branches:
+      - agent/hermes-learning-loop-parity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: agent/hermes-learning-loop-parity
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Apply source, tests, and CI wiring
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if text.count(old) != 1:
+                  raise SystemExit(f"{label}: expected one match, found {text.count(old)}")
+              return text.replace(old, new, 1)
+
+          prompt_path = Path("internal/reflection/prompt.go")
+          prompt = prompt_path.read_text()
+          const_start = prompt.index("const (\n\tdigestTail")
+          const_end_marker = "\n)\n\ntype Message"
+          const_end = prompt.index(const_end_marker, const_start) + len("\n)")
+          new_constants = '''const (
+          \tdigestTail             = 24
+          \tmessagePreviewRunes    = 300
+          \ttoolResultPreviewRunes = 200
+          )'''
+          prompt = prompt[:const_start] + new_constants + prompt[const_end:]
+          tail_start = prompt.index("// Digest is Hermes'")
+          new_tail = r'''// Digest projects only the newest transcript items into a detached review.
+          // Unlike Hermes' same-process warm-cache fork, Gotack creates a fresh REST
+          // session, so every retained item must be explicitly bounded.
+          func Digest(messages []Message) string {
+          \tif len(messages) == 0 {
+          \t\treturn "[Conversation snapshot is empty.]"
+          \t}
+          \tif len(messages) > digestTail {
+          \t\tmessages = messages[len(messages)-digestTail:]
+          \t}
+
+          \tvar out strings.Builder
+          \tfmt.Fprintf(&out, "[Recent conversation: %d items]\n", len(messages))
+          \tfor _, message := range messages {
+          \t\twriteDigestMessage(&out, message)
+          \t}
+          \treturn strings.TrimSpace(out.String())
+          }
+
+          func writeDigestMessage(out *strings.Builder, message Message) {
+          \trole := strings.ToUpper(strings.TrimSpace(message.Role))
+          \tif role == "" {
+          \t\trole = "UNKNOWN"
+          \t}
+          \tfmt.Fprintf(out, "[%s]\n", role)
+
+          \tpreviewLimit := messagePreviewRunes
+          \tif strings.EqualFold(role, "TOOL") {
+          \t\tpreviewLimit = toolResultPreviewRunes
+          \t}
+          \tif text := oneLine(message.Text); text != "" {
+          \t\tout.WriteString(truncateRunes(text, previewLimit))
+          \t\tout.WriteByte('\n')
+          \t}
+          \twriteTools(out, message.Tools)
+          \twriteResults(out, message.Results)
+          }
+
+          func writeTools(out *strings.Builder, tools []string) {
+          \tclean := make([]string, 0, len(tools))
+          \tfor _, tool := range tools {
+          \t\tif tool = strings.TrimSpace(tool); tool != "" {
+          \t\t\tclean = append(clean, tool)
+          \t\t}
+          \t}
+          \tif len(clean) > 0 {
+          \t\tjoined := truncateRunes(strings.Join(clean, ", "), messagePreviewRunes)
+          \t\tfmt.Fprintf(out, "ASSISTANT[tools: %s]\n", joined)
+          \t}
+          }
+
+          func writeResults(out *strings.Builder, results []ToolResult) {
+          \tfor _, result := range results {
+          \t\tname := strings.TrimSpace(result.Name)
+          \t\tif name == "" {
+          \t\t\tname = "unknown"
+          \t\t}
+          \t\tstatus := ""
+          \t\tif result.IsError {
+          \t\t\tstatus = " error"
+          \t\t}
+          \t\tcontent := truncateRunes(oneLine(result.Content), toolResultPreviewRunes)
+          \t\tfmt.Fprintf(out, "TOOL[%s%s]:", name, status)
+          \t\tif content != "" {
+          \t\t\tfmt.Fprintf(out, " %s", content)
+          \t\t}
+          \t\tout.WriteByte('\n')
+          \t}
+          }
+
+          func oneLine(text string) string { return strings.Join(strings.Fields(text), " ") }
+
+          const truncationMarker = "…[truncated]"
+
+          func truncateRunes(text string, limit int) string {
+          \tif limit <= 0 {
+          \t\treturn ""
+          \t}
+          \trunes := []rune(text)
+          \tif len(runes) <= limit {
+          \t\treturn text
+          \t}
+          \tmarker := []rune(truncationMarker)
+          \tif limit <= len(marker) {
+          \t\treturn string(runes[:limit])
+          \t}
+          \treturn string(runes[:limit-len(marker)]) + truncationMarker
+          }
+
+          func runeLen(text string) int { return len([]rune(text)) }
+          '''
+          prompt_path.write_text(prompt[:tail_start] + new_tail)
+
+          reflection_test_path = Path("internal/reflection/reflection_test.go")
+          reflection_test = reflection_test_path.read_text()
+          reflection_test = replace_once(
+              reflection_test,
+              '\t"testing"\n)',
+              '\t"testing"\n\t"unicode/utf8"\n)',
+              "reflection test import",
+          )
+          digest_start = reflection_test.index("func TestDigestBoundsOldTextAndKeepsRecentToolPair")
+          digest_end = reflection_test.index("func TestCombinedPromptDoesNotStopBeforeSkillOrMemoryReview", digest_start)
+          new_digest_tests = r'''func TestDigestKeepsOnlyLatestTwentyFourItems(t *testing.T) {
+          \tmessages := make([]Message, digestTail+2)
+          \tfor index := range messages {
+          \t\tmessages[index] = Message{Role: "user", Text: fmt.Sprintf("message-%02d", index)}
+          \t}
+
+          \tdigest := Digest(messages)
+          \tif strings.Contains(digest, "message-00") || strings.Contains(digest, "message-01") {
+          \t\tt.Fatalf("digest retained items older than the latest %d: %s", digestTail, digest)
+          \t}
+          \tif !strings.Contains(digest, "message-02") || !strings.Contains(digest, "message-25") {
+          \t\tt.Fatalf("digest dropped a retained boundary item: %s", digest)
+          \t}
+          \tif got := strings.Count(digest, "[USER]\n"); got != digestTail {
+          \t\tt.Fatalf("digest item count = %d, want %d", got, digestTail)
+          \t}
+          }
+
+          func TestDigestBoundsMessageAndToolPreviewsByRunes(t *testing.T) {
+          \tdigest := Digest([]Message{
+          \t\t{Role: "user", Text: strings.Repeat("界", messagePreviewRunes+25) + "USER-END"},
+          \t\t{Role: "assistant", Text: strings.Repeat("答", messagePreviewRunes+25) + "ASSISTANT-END", Tools: []string{"read"}},
+          \t\t{Role: "tool", Results: []ToolResult{{Name: "read", Content: strings.Repeat("工", toolResultPreviewRunes+25) + "TOOL-END"}}},
+          \t})
+
+          \tuserPreview := digestLineAfter(t, digest, "[USER]")
+          \tassistantPreview := digestLineAfter(t, digest, "[ASSISTANT]")
+          \ttoolPreview := strings.TrimPrefix(digestLineWithPrefix(t, digest, "TOOL[read]: "), "TOOL[read]: ")
+          \tfor label, value := range map[string]string{
+          \t\t"user": userPreview, "assistant": assistantPreview,
+          \t} {
+          \t\tif got := runeLen(value); got != messagePreviewRunes {
+          \t\t\tt.Fatalf("%s preview runes = %d, want %d", label, got, messagePreviewRunes)
+          \t\t}
+          \t}
+          \tif got := runeLen(toolPreview); got != toolResultPreviewRunes {
+          \t\tt.Fatalf("tool preview runes = %d, want %d", got, toolResultPreviewRunes)
+          \t}
+          \tif strings.Contains(digest, "USER-END") || strings.Contains(digest, "ASSISTANT-END") || strings.Contains(digest, "TOOL-END") {
+          \t\tt.Fatalf("digest leaked content beyond a preview boundary: %s", digest)
+          \t}
+          \tif strings.Count(digest, truncationMarker) != 3 || !utf8.ValidString(digest) {
+          \t\tt.Fatalf("digest truncation was not explicit and rune-safe: %s", digest)
+          \t}
+          }
+
+          func digestLineAfter(t *testing.T, digest, header string) string {
+          \tt.Helper()
+          \tlines := strings.Split(digest, "\n")
+          \tfor index, line := range lines {
+          \t\tif line == header && index+1 < len(lines) {
+          \t\t\treturn lines[index+1]
+          \t\t}
+          \t}
+          \tt.Fatalf("missing digest header %q in %s", header, digest)
+          \treturn ""
+          }
+
+          func digestLineWithPrefix(t *testing.T, digest, prefix string) string {
+          \tt.Helper()
+          \tfor _, line := range strings.Split(digest, "\n") {
+          \t\tif strings.HasPrefix(line, prefix) {
+          \t\t\treturn line
+          \t\t}
+          \t}
+          \tt.Fatalf("missing digest line prefix %q in %s", prefix, digest)
+          \treturn ""
+          }
+
+          '''
+          reflection_test_path.write_text(
+              reflection_test[:digest_start] + new_digest_tests + reflection_test[digest_end:]
+          )
+
+          filesystem_path = Path("internal/skillmanage/filesystem.go")
+          filesystem = filesystem_path.read_text()
+          filesystem = replace_once(
+              filesystem,
+              '\townershipFileName = ".gotack-agent-skills.json"\n\townershipVersion  = 1',
+              '\townershipFileName       = ".ownership.json"\n\tlegacyOwnershipFileName = ".gotack-agent-skills.json"\n\townershipVersion        = 1',
+              "ownership manifest constants",
+          )
+          ownership_start = filesystem.index("func (m *Manager) loadOwnership()")
+          ownership_end = filesystem.index("func (m *Manager) saveOwnership", ownership_start)
+          new_ownership_loader = r'''func (m *Manager) loadOwnership() (map[string]bool, error) {
+          \tdata, err := m.readOwnershipManifest()
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif data == nil {
+          \t\treturn make(map[string]bool), nil
+          \t}
+          \tvar manifest ownershipManifest
+          \tdecoder := json.NewDecoder(bytes.NewReader(data))
+          \tdecoder.DisallowUnknownFields()
+          \tif err := decoder.Decode(&manifest); err != nil {
+          \t\treturn nil, fmt.Errorf("decode skill ownership: %w", err)
+          \t}
+          \tif manifest.Version != ownershipVersion {
+          \t\treturn nil, fmt.Errorf("unsupported skill ownership version %d", manifest.Version)
+          \t}
+          \towned := make(map[string]bool, len(manifest.AgentOwned))
+          \tfor _, name := range manifest.AgentOwned {
+          \t\tif err := validateName(name); err != nil {
+          \t\t\treturn nil, fmt.Errorf("invalid skill ownership entry: %w", err)
+          \t\t}
+          \t\towned[name] = true
+          \t}
+          \treturn owned, nil
+          }
+
+          // readOwnershipManifest prefers the current protected filename. The
+          // legacy filename is consulted only when the current file is absent,
+          // so a corrupt or redirected current manifest always fails closed.
+          func (m *Manager) readOwnershipManifest() ([]byte, error) {
+          \tfor _, fileName := range []string{ownershipFileName, legacyOwnershipFileName} {
+          \t\tpath := filepath.Join(m.root, fileName)
+          \t\tdata, err := m.readRegularFile(path)
+          \t\tif errors.Is(rootCause(err), fs.ErrNotExist) {
+          \t\t\tcontinue
+          \t\t}
+          \t\tif err != nil {
+          \t\t\treturn nil, fmt.Errorf("read skill ownership %s: %w", fileName, err)
+          \t\t}
+          \t\treturn data, nil
+          \t}
+          \treturn nil, nil
+          }
+
+          '''
+          filesystem_path.write_text(
+              filesystem[:ownership_start] + new_ownership_loader + filesystem[ownership_end:]
+          )
+
+          manager_test_path = Path("internal/skillmanage/manager_test.go")
+          manager_test = manager_test_path.read_text()
+          test_insert = manager_test.index("func TestUnreadableOwnershipFailsClosed")
+          migration_test = r'''func TestLegacyOwnershipManifestMigratesOnNextOwnershipWrite(t *testing.T) {
+          \tmanager := newTestManager(t)
+          \tmustApply(t, manager, Operation{
+          \t\tAction: actionCreate, Name: "legacy-owned",
+          \t\tContent: skillText("legacy-owned", "Use when testing legacy ownership.", "Original."),
+          \t})
+          \tlegacy := "{\"version\":1,\"agent_owned\":[\"legacy-owned\"]}\n"
+          \tif err := os.WriteFile(filepath.Join(manager.Root(), legacyOwnershipFileName), []byte(legacy), 0o644); err != nil {
+          \t\tt.Fatal(err)
+          \t}
+
+          \treview := RequestMeta{SessionID: "review-migrate", BackgroundReview: true}
+          \tmustView(t, manager, "legacy-owned", "", review)
+          \treplacement := "Updated."
+          \tif result := manager.ApplyWithMeta(context.Background(), []Operation{{
+          \t\tAction: actionPatch, Name: "legacy-owned", OldString: "Original.", NewString: &replacement,
+          \t}}, review); !result.Success {
+          \t\tt.Fatalf("legacy ownership was not honored: %+v", result)
+          \t}
+          \tif result := manager.ApplyWithMeta(context.Background(), []Operation{{
+          \t\tAction: actionCreate, Name: "new-owned",
+          \t\tContent: skillText("new-owned", "Use when testing ownership migration.", "Run it."),
+          \t}}, review); !result.Success {
+          \t\tt.Fatalf("ownership migration write failed: %+v", result)
+          \t}
+          \tif _, err := os.Stat(filepath.Join(manager.Root(), ownershipFileName)); err != nil {
+          \t\tt.Fatalf("new ownership manifest missing: %v", err)
+          \t}
+          \towned, err := manager.loadOwnership()
+          \tif err != nil {
+          \t\tt.Fatal(err)
+          \t}
+          \tif !owned["legacy-owned"] || !owned["new-owned"] {
+          \t\tt.Fatalf("migrated ownership = %v", owned)
+          \t}
+          }
+
+          '''
+          manager_test_path.write_text(
+              manager_test[:test_insert] + migration_test + manager_test[test_insert:]
+          )
+
+          ci = r'''name: CI
+
+          on:
+            push:
+              branches: [main]
+            pull_request:
+              branches: [main]
+
+          permissions:
+            contents: read
+
+          env:
+            WAILS_VERSION: v2.15.0
+            PNPM_VERSION: 11.20.0
+
+          jobs:
+            go:
+              name: Go test and vet
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v5
+                - name: Set up Go
+                  uses: actions/setup-go@v6
+                  with:
+                    go-version-file: go.mod
+                    cache: true
+                - name: Set up pnpm
+                  uses: pnpm/action-setup@v4
+                  with:
+                    version: ${{ env.PNPM_VERSION }}
+                    run_install: false
+                - name: Set up Node.js
+                  uses: actions/setup-node@v5
+                  with:
+                    node-version: 24
+                    cache: pnpm
+                    cache-dependency-path: pnpm-lock.yaml
+                - name: Install frontend dependencies
+                  run: pnpm --dir frontend install --frozen-lockfile
+                - name: Prepare Wails binding generation
+                  run: |
+                    mkdir -p frontend/dist
+                    printf '%s\n' '<!doctype html><html><body></body></html>' > frontend/dist/index.html
+                - name: Generate Wails bindings
+                  run: go run github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }} generate module
+                - name: Build frontend assets for Go embed
+                  run: pnpm --dir frontend build
+                - name: Test learning-loop internals
+                  run: go test ./internal/memory ./internal/skillmanage ./internal/recall ./internal/reflection ./internal/guard
+                - name: Test learning-loop helper binaries
+                  run: go test ./cmd/memory ./cmd/skills ./cmd/recall ./cmd/guard
+                - name: Test all Go packages
+                  run: go test ./...
+                - name: Vet
+                  run: go vet ./...
+                - name: Check repository invariants
+                  run: node scripts/check-repository-invariants.mjs
+                - name: Check gofmt
+                  run: |
+                    unformatted="$(gofmt -l $(git ls-files '*.go'))"
+                    if [ -n "$unformatted" ]; then
+                      echo "These files need gofmt:"
+                      echo "$unformatted"
+                      exit 1
+                    fi
+                - name: Check generated event names are in sync
+                  run: |
+                    go run ./internal/uievents/gen/main.go
+                    git diff --exit-code -- frontend/src/platform/events.generated.ts
+
+            frontend:
+              name: Frontend check and build
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v5
+                - name: Set up Go
+                  uses: actions/setup-go@v6
+                  with:
+                    go-version-file: go.mod
+                    cache: true
+                - name: Set up pnpm
+                  uses: pnpm/action-setup@v4
+                  with:
+                    version: ${{ env.PNPM_VERSION }}
+                    run_install: false
+                - name: Set up Node.js
+                  uses: actions/setup-node@v5
+                  with:
+                    node-version: 24
+                    cache: pnpm
+                    cache-dependency-path: pnpm-lock.yaml
+                - name: Install dependencies
+                  run: pnpm --dir frontend install --frozen-lockfile
+                - name: Prepare Wails binding generation
+                  run: |
+                    mkdir -p frontend/dist
+                    printf '%s\n' '<!doctype html><html><body></body></html>' > frontend/dist/index.html
+                - name: Generate Wails bindings
+                  run: go run github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }} generate module
+                - name: Check frontend
+                  run: pnpm --dir frontend check
+                - name: Test frontend
+                  run: pnpm --dir frontend test
+                - name: Build frontend
+                  run: pnpm --dir frontend build
+
+            windows:
+              name: Windows Wails portable build
+              runs-on: windows-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v5
+                - name: Set up Go
+                  uses: actions/setup-go@v6
+                  with:
+                    go-version-file: go.mod
+                    cache: true
+                - name: Set up pnpm
+                  uses: pnpm/action-setup@v4
+                  with:
+                    version: ${{ env.PNPM_VERSION }}
+                    run_install: false
+                - name: Set up Node.js
+                  uses: actions/setup-node@v5
+                  with:
+                    node-version: 24
+                    cache: pnpm
+                    cache-dependency-path: pnpm-lock.yaml
+                - name: Install frontend dependencies
+                  run: pnpm --dir frontend install --frozen-lockfile
+                - name: Install Wails CLI
+                  shell: pwsh
+                  run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+                - name: Build Gotack
+                  shell: pwsh
+                  run: wails build -platform windows/amd64 -clean
+                - name: Load Crush pin
+                  shell: pwsh
+                  run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .crush-pin -Raw).Trim())
+                - name: Build pinned Crush
+                  shell: pwsh
+                  run: |
+                    git clone --filter=blob:none https://github.com/charmbracelet/crush.git "$env:RUNNER_TEMP\crush"
+                    git -C "$env:RUNNER_TEMP\crush" checkout $env:CRUSH_COMMIT
+                    ./scripts/apply-crush-patches.ps1 -CrushDir "$env:RUNNER_TEMP\crush"
+                    New-Item -ItemType Directory -Force build\bin\resources | Out-Null
+                    Push-Location "$env:RUNNER_TEMP\crush"
+                    go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\crush.exe" .
+                    Pop-Location
+                - name: Build office MCP server
+                  shell: pwsh
+                  run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\office.exe" ./cmd/office
+                - name: Build guard approval hook
+                  shell: pwsh
+                  run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\guard.exe" ./cmd/guard
+                - name: Build memory MCP server
+                  shell: pwsh
+                  run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\memory.exe" ./cmd/memory
+                - name: Build skills MCP server
+                  shell: pwsh
+                  run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\skills.exe" ./cmd/skills
+                - name: Build recall MCP server
+                  shell: pwsh
+                  run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\recall.exe" ./cmd/recall
+                - name: Assemble portable directory
+                  shell: pwsh
+                  run: |
+                    $out = 'artifacts\gotack-windows-amd64'
+                    New-Item -ItemType Directory -Force "$out\resources" | Out-Null
+                    Copy-Item build\bin\gotack.exe "$out\gotack.exe"
+                    Copy-Item build\bin\resources\crush.exe "$out\resources\crush.exe"
+                    Copy-Item build\bin\resources\office.exe "$out\resources\office.exe"
+                    Copy-Item build\bin\resources\guard.exe "$out\resources\guard.exe"
+                    Copy-Item build\bin\resources\memory.exe "$out\resources\memory.exe"
+                    Copy-Item build\bin\resources\skills.exe "$out\resources\skills.exe"
+                    Copy-Item build\bin\resources\recall.exe "$out\resources\recall.exe"
+                    Copy-Item build\windows\README.md "$out\README.txt"
+                - name: Upload Windows artifact
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: gotack-windows-amd64
+                    path: artifacts/gotack-windows-amd64
+                    if-no-files-found: error
+          '''
+          Path(".github/workflows/ci.yml").write_text(ci)
+          PY
+      - name: Format and verify focused packages
+        shell: bash
+        run: |
+          gofmt -w internal/reflection/prompt.go internal/reflection/reflection_test.go internal/skillmanage/filesystem.go internal/skillmanage/manager_test.go
+          go test ./internal/reflection ./internal/skillmanage
+      - name: Inspect skill root wiring
+        shell: bash
+        run: |
+          grep -R -n --include='*.go' -E 'func userSkillsDir|userSkillsDir|global.*skill|skill.*path' --exclude-dir=third_party . || true
+      - name: Commit patch
+        shell: bash
+        run: |
+          rm .github/workflows/agent-apply.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(hermes): bound detached review context'
+          git push origin HEAD:agent/hermes-learning-loop-parity
