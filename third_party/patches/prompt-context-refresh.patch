@@ -1,0 +1,101 @@
+diff --git a/internal/agent/coordinator.go b/internal/agent/coordinator.go
+--- a/internal/agent/coordinator.go
++++ b/internal/agent/coordinator.go
+@@ -1273,4 +1273,27 @@ func (c *coordinator) refreshSkills(ctx context.Context, provider, model string) error {
+ 	return nil
+ }
+ 
++// RefreshPrompt rebuilds the current coder prompt from the live workspace
++// configuration without replacing the coordinator or its session state.
++func (c *coordinator) RefreshPrompt(ctx context.Context) error {
++	if err := c.readyWg.Wait(); err != nil {
++		return err
++	}
++
++	c.skillsRefreshMu.Lock()
++	defer c.skillsRefreshMu.Unlock()
++
++	model := c.currentAgent.Model()
++	p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
++	if err != nil {
++		return err
++	}
++	systemPrompt, err := p.Build(context.WithoutCancel(ctx), model.Model.Provider(), model.Model.Model(), c.cfg)
++	if err != nil {
++		return err
++	}
++	c.currentAgent.SetSystemPrompt(systemPrompt)
++	return nil
++}
++
+ func (c *coordinator) skillSnapshot() (allSkills, activeSkills []*skills.Skill) {
+diff --git a/internal/backend/agent.go b/internal/backend/agent.go
+--- a/internal/backend/agent.go
++++ b/internal/backend/agent.go
+@@ -13,4 +13,8 @@ import (
+ 	"github.com/charmbracelet/crush/internal/shell"
+ )
+ 
++type promptRefresher interface {
++	RefreshPrompt(context.Context) error
++}
++
+ // SendMessage validates and accepts a prompt for the workspace's agent,
+@@ -164,4 +168,22 @@ func (b *Backend) UpdateAgent(ctx context.Context, workspaceID string) error {
+ 	return ws.UpdateAgentModel(ctx)
+ }
+ 
++// RefreshAgentPrompt rebuilds the current coder prompt after live workspace
++// context settings change, without resetting sessions or queued work.
++func (b *Backend) RefreshAgentPrompt(ctx context.Context, workspaceID string) error {
++	ws, err := b.GetWorkspace(workspaceID)
++	if err != nil {
++		return err
++	}
++	if ws.AgentCoordinator == nil {
++		return ErrAgentNotInitialized
++	}
++
++	refresher, ok := ws.AgentCoordinator.(promptRefresher)
++	if !ok {
++		return errors.New("agent prompt refresh is unavailable")
++	}
++	return refresher.RefreshPrompt(ctx)
++}
++
+ // CancelSession cancels an ongoing agent operation for the given
+diff --git a/internal/server/proto.go b/internal/server/proto.go
+--- a/internal/server/proto.go
++++ b/internal/server/proto.go
+@@ -845,4 +845,23 @@ func (c *controllerV1) handlePostWorkspaceAgentUpdate(w http.ResponseWriter, r *http.Request) {
+ 	w.WriteHeader(http.StatusOK)
+ }
+ 
++// handlePostWorkspaceAgentRefreshPrompt rebuilds the current coder prompt.
++//
++//	@Summary		Refresh agent prompt
++//	@Tags			agent
++//	@Param			id	path	string	true	"Workspace ID"
++//	@Success		200
++//	@Failure		400	{object}	proto.Error
++//	@Failure		404	{object}	proto.Error
++//	@Failure		500	{object}	proto.Error
++//	@Router			/workspaces/{id}/agent/refresh-prompt [post]
++func (c *controllerV1) handlePostWorkspaceAgentRefreshPrompt(w http.ResponseWriter, r *http.Request) {
++	id := r.PathValue("id")
++	if err := c.backend.RefreshAgentPrompt(r.Context(), id); err != nil {
++		c.handleError(w, r, err)
++		return
++	}
++	w.WriteHeader(http.StatusOK)
++}
++
+ // handleGetWorkspaceAgentSession returns a specific agent session.
+diff --git a/internal/server/server.go b/internal/server/server.go
+--- a/internal/server/server.go
++++ b/internal/server/server.go
+@@ -194,3 +194,4 @@ func (s *Server) installHandler() {
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/agent/init", c.handlePostWorkspaceAgentInit)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/agent/update", c.handlePostWorkspaceAgentUpdate)
++	mux.HandleFunc("POST /v1/workspaces/{id}/agent/refresh-prompt", c.handlePostWorkspaceAgentRefreshPrompt)
+ 	mux.HandleFunc("GET /v1/workspaces/{id}/agent/sessions/{sid}", c.handleGetWorkspaceAgentSession)
