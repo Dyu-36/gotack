@@ -7,6 +7,7 @@ import type { ReasoningEffort } from './types.svelte'
 
 export const REASONING_EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; short: string }> = [
   { id: 'none', label: 'None (Không suy luận)', short: 'None' },
+  { id: 'minimal', label: 'Minimal (Tối thiểu)', short: 'Min' },
   { id: 'low', label: 'Low (Thấp)', short: 'Low' },
   { id: 'medium', label: 'Medium (Vừa)', short: 'Med' },
   { id: 'high', label: 'High (Sâu)', short: 'High' },
