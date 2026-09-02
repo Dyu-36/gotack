@@ -25,10 +25,37 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Test
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install frontend dependencies
+        run: pnpm --dir frontend install --frozen-lockfile
+      - name: Prepare Wails binding generation
+        run: |
+          mkdir -p frontend/dist
+          printf '%s\n' '<!doctype html><html><body></body></html>' > frontend/dist/index.html
+      - name: Generate Wails bindings
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }} generate module
+      - name: Build frontend assets for Go embed
+        run: pnpm --dir frontend build
+      - name: Test learning-loop internals
+        run: go test ./internal/memory ./internal/skillmanage ./internal/recall ./internal/reflection ./internal/guard
+      - name: Test learning-loop helper binaries
+        run: go test ./cmd/memory ./cmd/skills ./cmd/recall ./cmd/guard
+      - name: Test all Go packages
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      - name: Check repository invariants
+        run: node scripts/check-repository-invariants.mjs
       # CI ran only test and vet, so two real kinds of drift could merge without
       # anything failing: a gofmt regression, and a stale events.generated.ts
       # after internal/uievents/names.go changes. Both are gates now.
@@ -51,6 +78,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -64,6 +96,12 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
+      - name: Prepare Wails binding generation
+        run: |
+          mkdir -p frontend/dist
+          printf '%s\n' '<!doctype html><html><body></body></html>' > frontend/dist/index.html
+      - name: Generate Wails bindings
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }} generate module
       - name: Check repository invariants
         run: node scripts/check-repository-invariants.mjs
       - name: Check frontend
