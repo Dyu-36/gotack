@@ -32,6 +32,88 @@ export function renderMarkdown(content: string): string {
   }
 }
 
+type MarkedTokens = ReturnType<typeof marked.lexer>
+type MarkedToken = MarkedTokens[number]
+
+export type RenderedMarkdownBlock = {
+  id: string
+  type: string
+  raw: string
+  linksKey: string
+  html: string
+}
+
+let fallbackBlockSequence = 0
+
+function renderToken(token: MarkedToken, links: MarkedTokens['links']): string {
+  try {
+    const singleTokenList = [token] as unknown as MarkedTokens
+    singleTokenList.links = links
+    return sanitize(marked.parser(singleTokenList))
+  } catch {
+    return sanitize(escapeFallback(token.raw ?? ''))
+  }
+}
+
+/**
+ * Renders top-level Markdown tokens independently so settled blocks keep their
+ * DOM identity while only the live tail is reparsed. The full lexer still sees
+ * the whole document, preserving reference-link definitions and Markdown block
+ * boundaries; cached blocks skip both HTML generation and sanitization.
+ */
+export function renderMarkdownBlocks(
+  content: string,
+  previous: readonly RenderedMarkdownBlock[] = [],
+  createId: () => string = () => `markdown-block-${++fallbackBlockSequence}`,
+): RenderedMarkdownBlock[] {
+  if (!content) return []
+
+  let tokens: MarkedTokens
+  try {
+    tokens = marked.lexer(content)
+  } catch {
+    const prior = previous[0]
+    const raw = content
+    if (prior?.type === 'fallback' && prior.raw === raw) return [prior]
+    return [{
+      id: prior?.id ?? createId(),
+      type: 'fallback',
+      raw,
+      linksKey: '',
+      html: sanitize(escapeFallback(raw)),
+    }]
+  }
+
+  const links = tokens.links ?? {}
+  const linksKey = JSON.stringify(links)
+  const visibleTokens = tokens.filter((token) =>
+    token.type !== 'space' &&
+    token.type !== 'def' &&
+    typeof token.raw === 'string' &&
+    token.raw.length > 0,
+  )
+
+  return visibleTokens.map((token, index) => {
+    const prior = previous[index]
+    if (
+      prior &&
+      prior.type === token.type &&
+      prior.raw === token.raw &&
+      prior.linksKey === linksKey
+    ) {
+      return prior
+    }
+
+    return {
+      id: prior?.id ?? createId(),
+      type: token.type,
+      raw: token.raw,
+      linksKey,
+      html: renderToken(token, links),
+    }
+  })
+}
+
 export function openChatLink(href: string): void {
   if (!href || href.startsWith('#')) return
 
