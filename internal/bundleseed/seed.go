@@ -1,6 +1,8 @@
 package bundleseed
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +16,6 @@ type ExistingFilePolicy uint8
 
 const (
 	ManagedFiles ExistingFilePolicy = iota
-
 	UserEditableFiles
 )
 
@@ -31,7 +32,8 @@ type Options struct {
 }
 
 type report struct {
-	Files map[string]int64 `json:"files"`
+	Files  map[string]int64  `json:"files"`
+	Hashes map[string]string `json:"hashes,omitempty"`
 }
 
 func CopyIfChanged(source, destination string, options Options) error {
@@ -59,11 +61,25 @@ func CopyIfChanged(source, destination string, options Options) error {
 		if err != nil {
 			return err
 		}
+		sourceHash, err := fileHash(path)
+		if err != nil {
+			return fmt.Errorf("bundleseed: hash %s: %w", path, err)
+		}
 		previous, tracked := state.Files[rel]
+		previousHash := state.Hashes[rel]
 		targetInfo, targetErr := os.Stat(target)
 		if targetErr != nil && !os.IsNotExist(targetErr) {
 			return fmt.Errorf("bundleseed: stat %s: %w", target, targetErr)
 		}
+
+		var targetHash string
+		if targetErr == nil {
+			targetHash, err = fileHash(target)
+			if err != nil {
+				return fmt.Errorf("bundleseed: hash %s: %w", target, err)
+			}
+		}
+
 		if targetErr == nil && options.ExistingFiles == UserEditableFiles {
 			switch {
 			case !tracked:
@@ -76,15 +92,32 @@ func CopyIfChanged(source, destination string, options Options) error {
 					options.OnPreserve(rel, ModifiedFile)
 				}
 				return nil
+			case previousHash != "" && previousHash != targetHash:
+				if options.OnPreserve != nil {
+					options.OnPreserve(rel, ModifiedFile)
+				}
+				return nil
+			case previousHash == "" && targetHash != sourceHash:
+				if options.OnPreserve != nil {
+					options.OnPreserve(rel, ModifiedFile)
+				}
+				return nil
 			}
 		}
-		if targetErr == nil && tracked && previous == info.Size() && previous == targetInfo.Size() {
+
+		if targetErr == nil && targetHash == sourceHash {
+			if previous != info.Size() || previousHash != sourceHash {
+				state.Files[rel] = info.Size()
+				state.Hashes[rel] = sourceHash
+				updated = true
+			}
 			return nil
 		}
 		if err := copyFile(path, target, info.Mode()); err != nil {
 			return err
 		}
 		state.Files[rel] = info.Size()
+		state.Hashes[rel] = sourceHash
 		updated = true
 		return nil
 	})
@@ -95,6 +128,19 @@ func CopyIfChanged(source, destination string, options Options) error {
 		return saveReport(destination, state)
 	}
 	return nil
+}
+
+func fileHash(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func copyFile(source, destination string, mode os.FileMode) error {
@@ -118,7 +164,7 @@ func copyFile(source, destination string, mode os.FileMode) error {
 }
 
 func loadReport(destination string) (report, error) {
-	state := report{Files: map[string]int64{}}
+	state := report{Files: map[string]int64{}, Hashes: map[string]string{}}
 	path := filepath.Join(destination, reportFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -135,6 +181,9 @@ func loadReport(destination string) (report, error) {
 	}
 	if state.Files == nil {
 		state.Files = map[string]int64{}
+	}
+	if state.Hashes == nil {
+		state.Hashes = map[string]string{}
 	}
 	return state, nil
 }
