@@ -47,19 +47,21 @@ the due targets need. Launch is bounded by 30 seconds. The review uses the
 currently configured engine model; no separate model-selection path is
 implemented.
 
-Because the detached session does not share the source prompt cache, its
-snapshot keeps the latest 24-message tail, extending backward rather than
-splitting a leading run of tool results. Recent tool calls and tool results
-remain intact. Older user messages are reduced to one-line 300-rune previews;
-older assistant messages to 200 runes plus tool names, and older tool results
-are omitted. The memory prompt asks only for durable user facts/preferences.
-The skill prompt
-actively prefers correcting a relevant loaded agent-owned skill, then an
-existing class-level skill, and creates a new umbrella only when no existing
-one fits. It excludes transient failures, unresolved attempts, and one-session
-narratives. When both cadences are due, a dedicated combined prompt evaluates
-both dimensions before allowing `Nothing to save.`; it cannot stop after the
-memory check without considering skills.
+Because the detached session cannot reuse the source process's warm prompt
+cache, its snapshot contains exactly the latest 24 transcript items. User and
+assistant text are normalized to one-line previews capped at 300 Unicode
+runes. Tool-role text and every hydrated tool result are capped at 200 runes;
+tool names remain in bounded assistant metadata. Truncation is explicit and
+rune-safe. The adapter does not extend the tail or pass an unbounded recent
+message merely because it is near the review boundary.
+
+The memory prompt asks only for durable user facts/preferences. The skill
+prompt actively prefers correcting a relevant loaded agent-owned skill, then
+an existing class-level skill, and creates a new umbrella only when no
+existing one fits. It excludes transient failures, unresolved attempts, and
+one-session narratives. When both cadences are due, a dedicated combined
+prompt evaluates both dimensions before allowing `Nothing to save.`; it cannot
+stop after the memory check without considering skills.
 
 The review is cancelled at 16 assistant iterations only when the 16th message
 still requests tools. A normal final response at that boundary is allowed to

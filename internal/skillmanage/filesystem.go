@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	ownershipFileName = ".gotack-agent-skills.json"
-	ownershipVersion  = 1
-	archiveDirName    = ".archive"
+	ownershipFileName       = ".ownership.json"
+	legacyOwnershipFileName = ".gotack-agent-skills.json"
+	ownershipVersion        = 1
+	archiveDirName          = ".archive"
 )
 
 type skillSnapshot struct {
@@ -427,13 +428,12 @@ func copyDirectory(source, destination string) error {
 }
 
 func (m *Manager) loadOwnership() (map[string]bool, error) {
-	path := filepath.Join(m.root, ownershipFileName)
-	data, err := m.readRegularFile(path)
-	if errors.Is(rootCause(err), fs.ErrNotExist) {
-		return make(map[string]bool), nil
-	}
+	data, err := m.readOwnershipManifest()
 	if err != nil {
-		return nil, fmt.Errorf("read skill ownership: %w", err)
+		return nil, err
+	}
+	if data == nil {
+		return make(map[string]bool), nil
 	}
 	var manifest ownershipManifest
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -452,6 +452,24 @@ func (m *Manager) loadOwnership() (map[string]bool, error) {
 		owned[name] = true
 	}
 	return owned, nil
+}
+
+// readOwnershipManifest prefers the current protected filename. The legacy
+// filename is consulted only when the current file is absent, so a corrupt or
+// redirected current manifest always fails closed.
+func (m *Manager) readOwnershipManifest() ([]byte, error) {
+	for _, fileName := range []string{ownershipFileName, legacyOwnershipFileName} {
+		path := filepath.Join(m.root, fileName)
+		data, err := m.readRegularFile(path)
+		if errors.Is(rootCause(err), fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read skill ownership %s: %w", fileName, err)
+		}
+		return data, nil
+	}
+	return nil, nil
 }
 
 func (m *Manager) saveOwnership(owned map[string]bool) error {

@@ -24,14 +24,14 @@ The advertised action enum is exactly:
 | --- | --- | --- |
 | `create` | `name`, complete `content`; optional `category` | Publishes a new skill directory. |
 | `patch` | `name`, unique `old_string`, `new_string`; optional `file_path` | Replaces one exact occurrence in `SKILL.md` or a support file. An empty `new_string` deletes the occurrence. |
-| `delete` | `name` | Removes the complete managed skill tree; it must be the only operation in the call. |
+| `delete` | `name`; background reviews also require non-empty `absorbed_into` | Foreground calls hard-delete the complete managed tree. A background review may only consolidate an agent-owned skill into an existing agent-owned umbrella and moves the source to the recovery archive. It must be the sole operation in the call. |
 | `write_file` | `name`, `file_path`, `file_content` | Creates or replaces one support file. |
 | `remove_file` | `name`, `file_path` | Removes one support file. |
 
 `old_text`/`new_text` are not skill fields, and there is no advertised `edit`,
-`list`, or archive action. Results contain success, applied operation count,
-action/name/path, or a bounded error; mutation results never echo skill
-content.
+`list`, `archive`, `restore`, or rollback action. Results contain success,
+applied operation count, action/name/path, or a bounded error; mutation results
+never echo skill content.
 
 ## Layout and validation
 
@@ -39,7 +39,8 @@ The server receives only the per-user root:
 
 ```text
 <appconfig.Dir()>/skills/
-  .gotack-agent-skills.json
+  .ownership.json
+  .archive/<name>[-<UTC timestamp>]/**
   [<category>/]<name>/SKILL.md
   [<category>/]<name>/references/**
   [<category>/]<name>/templates/**
@@ -47,7 +48,9 @@ The server receives only the per-user root:
   [<category>/]<name>/assets/**
 ```
 
-There is no `learned/` or archive layer. A bare skill name must be unique
+There is no separate `learned/` layer. `.archive` is a recovery-only location
+for verified background consolidations, not an independently advertised tool
+action or a skill-catalog source. A bare active skill name must be unique
 across the root and one optional category level. Workspace and bundled skill
 roots remain engine-readable but are never passed to this writer.
 
@@ -77,7 +80,14 @@ The PreToolUse hook overwrites `_session_id` and `_background_review` on every
 skills call; these fields are host context, not model authority. Foreground
 calls use normal validation. A background review may modify or delete only a
 skill it previously created during a background review, recorded in
-`.gotack-agent-skills.json`.
+`.ownership.json`.
+
+Existing installations are migrated without weakening this boundary. The
+legacy `.gotack-agent-skills.json` file is read only when `.ownership.json` is
+absent; the next ownership-changing write publishes the current filename. If
+the current manifest exists but is corrupt, unreadable, redirected, or has an
+unsupported version, loading fails closed and never falls back to the legacy
+file.
 
 Before changing an existing `SKILL.md` or support file, the same review must
 call `skill_view` for that exact file. `skill_view` records the file's digest;
@@ -85,6 +95,13 @@ call `skill_view` for that exact file. `skill_view` records the file's digest;
 before mutation. A changed or missing mark fails closed. New skills and new
 support files need no prior read, and mutations created earlier in the same
 atomic batch are tracked without a redundant read.
+
+A background delete additionally requires `absorbed_into` to name a different,
+existing agent-owned umbrella that received the source material. The source
+`SKILL.md` must have a fresh read mark. The operation moves the source tree to
+`.archive` instead of permanently deleting it and retains its ownership
+provenance for manual recovery. Foreground delete keeps its hard-delete
+semantics and removes stale ownership when applicable.
 
 This handshake is intentionally retained even though Crush has a canonical
 `view`: the canonical view runs in the Crush process, while `skill_manage`

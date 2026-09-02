@@ -7,15 +7,8 @@ import (
 
 const (
 	digestTail             = 24
-	olderUserPreviewRunes  = 300
-	olderAgentPreviewRunes = 200
-	// These are Hermes' tool-result persistence budgets. The detached review
-	// has no writable spillover channel, so oversized results keep the same
-	// 1,500-rune preview while the full engine history remains untouched.
-	maxToolResultRunes     = 100_000
-	maxMCPResultRunes      = 50_000
-	maxTurnToolResultRunes = 200_000
-	toolResultPreviewRunes = 1_500
+	messagePreviewRunes    = 300
+	toolResultPreviewRunes = 200
 )
 
 type Message struct {
@@ -91,126 +84,43 @@ func Prompt(messages []Message, review Review) string {
 		"This is a background review. Use only memory, skill_view, skill_manage, ls, glob, grep, and Crush view on paths from the injected skill catalog. Do not edit workspace files, run commands, fetch network content, delegate work, or ask the user questions."
 }
 
-// Digest is Hermes' cold routed-model shape: retain 24 recent messages and
-// condense only older user/assistant text to 300/200-rune previews.
+// Digest projects only the newest transcript items into a detached review.
+// Unlike Hermes' same-process warm-cache fork, Gotack creates a fresh REST
+// session, so every retained item must be explicitly bounded.
 func Digest(messages []Message) string {
 	if len(messages) == 0 {
 		return "[Conversation snapshot is empty.]"
 	}
-	messages = boundToolResults(messages)
-	cut := len(messages) - digestTail
-	if cut < 0 {
-		cut = 0
+	if len(messages) > digestTail {
+		messages = messages[len(messages)-digestTail:]
 	}
-	for cut > 0 && strings.EqualFold(strings.TrimSpace(messages[cut].Role), "tool") {
-		cut--
-	}
+
 	var out strings.Builder
-	if cut > 0 {
-		out.WriteString("[Earlier conversation digest]\n")
-		for _, message := range messages[:cut] {
-			text := oneLine(message.Text)
-			switch strings.ToLower(strings.TrimSpace(message.Role)) {
-			case "user":
-				if text != "" {
-					fmt.Fprintf(&out, "USER: %s\n", truncateRunes(text, olderUserPreviewRunes))
-				}
-			case "assistant":
-				writeTools(&out, message.Tools)
-				if text != "" {
-					fmt.Fprintf(&out, "ASSISTANT: %s\n", truncateRunes(text, olderAgentPreviewRunes))
-				}
-			}
-		}
-		out.WriteString("[Recent messages]\n")
-	}
-	for _, message := range messages[cut:] {
-		role := strings.ToUpper(strings.TrimSpace(message.Role))
-		if role == "" {
-			role = "UNKNOWN"
-		}
-		fmt.Fprintf(&out, "\n[%s]\n", role)
-		if strings.TrimSpace(message.Text) != "" {
-			out.WriteString(message.Text)
-			if !strings.HasSuffix(message.Text, "\n") {
-				out.WriteByte('\n')
-			}
-		}
-		writeTools(&out, message.Tools)
-		writeResults(&out, message.Results)
+	fmt.Fprintf(&out, "[Recent conversation: %d items]\n", len(messages))
+	for _, message := range messages {
+		writeDigestMessage(&out, message)
 	}
 	return strings.TrimSpace(out.String())
 }
 
-// boundToolResults applies Hermes' per-result and per-assistant-turn limits to
-// the review projection. It returns a deep-enough copy so callers never alter
-// the read-only Crush transcript.
-func boundToolResults(messages []Message) []Message {
-	copyMessages := make([]Message, len(messages))
-	copy(copyMessages, messages)
-	for i := range copyMessages {
-		copyMessages[i].Tools = append([]string(nil), messages[i].Tools...)
-		copyMessages[i].Results = append([]ToolResult(nil), messages[i].Results...)
+func writeDigestMessage(out *strings.Builder, message Message) {
+	role := strings.ToUpper(strings.TrimSpace(message.Role))
+	if role == "" {
+		role = "UNKNOWN"
 	}
-	turnRunes := 0
-	trackTurn := false
-	for i := range copyMessages {
-		role := strings.ToLower(strings.TrimSpace(copyMessages[i].Role))
-		switch role {
-		case "assistant":
-			trackTurn = len(copyMessages[i].Tools) > 0
-			turnRunes = 0
-		case "tool":
-			for j := range copyMessages[i].Results {
-				result := &copyMessages[i].Results[j]
-				limit := maxToolResultRunes
-				if strings.HasPrefix(strings.ToLower(strings.TrimSpace(result.Name)), "mcp_") {
-					limit = maxMCPResultRunes
-				}
-				content := result.Content
-				if runeLen(content) > limit {
-					content = toolResultPreview(content)
-				}
-				if trackTurn && turnRunes+runeLen(content) > maxTurnToolResultRunes {
-					original := content
-					content = toolResultPreview(content)
-					remaining := maxTurnToolResultRunes - turnRunes
-					if remaining < runeLen(content) {
-						content = truncateRunes(content, remaining)
-					}
-					if content == "" && original != "" && remaining > 0 {
-						content = truncateRunes(original, remaining)
-					}
-					result.Content = content
-				}
-				if content != result.Content {
-					result.Content = content
-				}
-				if trackTurn {
-					turnRunes += runeLen(result.Content)
-				}
-			}
-		default:
-			// A user/system message terminates the assistant tool-result turn.
-			trackTurn = false
-			turnRunes = 0
-		}
-	}
-	return copyMessages
-}
+	fmt.Fprintf(out, "[%s]\n", role)
 
-func toolResultPreview(content string) string {
-	if content == "" {
-		return content
+	previewLimit := messagePreviewRunes
+	if strings.EqualFold(role, "TOOL") {
+		previewLimit = toolResultPreviewRunes
 	}
-	preview := truncateRunes(content, toolResultPreviewRunes)
-	if runeLen(preview) == runeLen(content) {
-		return content
+	if text := oneLine(message.Text); text != "" {
+		out.WriteString(truncateRunes(text, previewLimit))
+		out.WriteByte('\n')
 	}
-	return preview + fmt.Sprintf("\n[Tool result truncated; original %d runes.]", runeLen(content))
+	writeTools(out, message.Tools)
+	writeResults(out, message.Results)
 }
-
-func runeLen(text string) int { return len([]rune(text)) }
 
 func writeTools(out *strings.Builder, tools []string) {
 	clean := make([]string, 0, len(tools))
@@ -220,7 +130,8 @@ func writeTools(out *strings.Builder, tools []string) {
 		}
 	}
 	if len(clean) > 0 {
-		fmt.Fprintf(out, "ASSISTANT[tools: %s]\n", strings.Join(clean, ", "))
+		joined := truncateRunes(strings.Join(clean, ", "), messagePreviewRunes)
+		fmt.Fprintf(out, "ASSISTANT[tools: %s]\n", joined)
 	}
 }
 
@@ -234,22 +145,32 @@ func writeResults(out *strings.Builder, results []ToolResult) {
 		if result.IsError {
 			status = " error"
 		}
-		fmt.Fprintf(out, "TOOL[%s%s]:\n", name, status)
-		if strings.TrimSpace(result.Content) != "" {
-			out.WriteString(result.Content)
-			if !strings.HasSuffix(result.Content, "\n") {
-				out.WriteByte('\n')
-			}
+		content := truncateRunes(oneLine(result.Content), toolResultPreviewRunes)
+		fmt.Fprintf(out, "TOOL[%s%s]:", name, status)
+		if content != "" {
+			fmt.Fprintf(out, " %s", content)
 		}
+		out.WriteByte('\n')
 	}
 }
 
 func oneLine(text string) string { return strings.Join(strings.Fields(text), " ") }
 
+const truncationMarker = "…[truncated]"
+
 func truncateRunes(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
 	runes := []rune(text)
 	if len(runes) <= limit {
 		return text
 	}
-	return string(runes[:limit])
+	marker := []rune(truncationMarker)
+	if limit <= len(marker) {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-len(marker)]) + truncationMarker
 }
+
+func runeLen(text string) int { return len([]rune(text)) }
