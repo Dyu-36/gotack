@@ -11,6 +11,7 @@ func TestCrushReasoning(t *testing.T) {
 	}{
 		{name: "off", value: "none", wantEffort: "", wantThink: false},
 		{name: "blank", value: "", wantEffort: "", wantThink: false},
+		{name: "minimal", value: " Minimal ", wantEffort: "minimal", wantThink: true},
 		{name: "low", value: "low", wantEffort: "low", wantThink: true},
 		{name: "medium with whitespace", value: " Medium ", wantEffort: "medium", wantThink: true},
 		{name: "high", value: "high", wantEffort: "high", wantThink: true},
