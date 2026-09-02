@@ -1,238 +1,269 @@
-# gotack
+# Tack
 
-A lightweight general-purpose desktop AI assistant powered by [Crush](https://github.com/charmbracelet/crush), designed for fast startup, low memory usage, and smooth operation on low-resource machines.
+**A lightweight desktop AI assistant built for speed, low overhead, and real work.**
 
-## Goals
+Tack is a desktop AI assistant designed to help with files, documents, development, system tasks, research, and everyday automation without the footprint of a heavyweight desktop runtime.
 
-- Keep desktop memory usage low enough to remain practical on 6 GB RAM systems.
-- Reuse Crush as the local agent engine instead of duplicating agent logic.
-- Keep the desktop layer thin and independently replaceable.
-- Favor native/system components over bundled heavyweight runtimes.
-- Start fast and stay responsive while Crush, LSPs, shells, and build tools are running.
+Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's native WebView and keeps its desktop layer deliberately lean. The result is an assistant that starts quickly, stays responsive, and remains practical even on lower-resource machines.
 
-## Desktop-specific upgrades
+> **Fast. Lightweight. Local-first. Built to assist.**
 
-Beyond bringing Crush into a native desktop workflow, `gotack` ships a small set of capabilities designed specifically for day-to-day desktop use:
+## Why Tack?
 
-- **Tack-style local assistant** — the primary Crush prompt is aligned with Stack's Tack agent for general filesystem, Office, automation, system, research and software tasks. Its read-only sub-agent follows Stack's Sage research role, while Crush still injects Gotack's live skills and local context.
-- **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. Access is granted per chat by pairing: Settings shows a rotating six-digit code, and a chat joins by sending `/pair <code>`. Codes can be reissued (`RegenerateZaloPairingCode`) and individual chats revoked (`UnpairZaloChat`). The bridge long-polls `getUpdates`, forwards messages and image/document attachments from paired chats to the agent (one reusable session per chat), and sends the finished answer and referenced output files back, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI. Paired chats and their sessions persist in `<configDir>/zalo.json`. The older `zalo.allowed_chats` config key is imported once at startup for backwards compatibility and is never written again.
-- **Office integration** — the Stack-compatible `officecli` executable, Office skill set, timetable solver/exporter and a bundled `office` MCP server (built from `cmd/office`) are installed into Crush's runtime whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files without a separate Office CLI setup. Resource seeding resolves the platform executable name; release artifacts currently ship the Windows payload.
-- **Live model catalog** — the provider and model pickers are populated from the engine's `GET /v1/workspaces/{id}/providers` catalog (including per-model context windows and costs) instead of a bundled static list. Settings deliberately exposes a single model selector, and the host writes that one model ID into both `models.large` and `models.small` in the Crush config; there is no separate small-task model today.
-- **Bounded learning and recall** — the bundled memory, skills, and recall MCP
-  servers provide capped atomic context updates, managed procedural skills, and
-  read-only search over past Crush sessions. A host-owned background reviewer
-  runs only at bounded cadences and never replaces Crush's agent loop.
+Desktop AI tools should not need to consume a large portion of your system just to stay open.
 
-## Stack baseline
+Tack is built around a few core principles:
 
-Baseline as of **2026-09-02**. Rows marked *installed* are what the repo builds
-against today; the rest are target versions for features that have not landed.
-This table records intent, so it must be reconciled with `go.mod` and
-`frontend/package.json` whenever either changes.
+- **Lightweight by design** — no bundled Chromium or Electron runtime.
+- **Built in Go** — efficient process management, native system integration, and strong concurrency primitives.
+- **Fast startup** — minimal desktop overhead with heavyweight features loaded only when needed.
+- **Low memory usage** — designed to coexist comfortably with browsers, IDEs, terminals, Office applications, and development tools.
+- **Local-first** — files, tools, sessions, skills, and assistant context stay close to your machine.
+- **More than chat** — Tack is an assistant that can work with your environment, not just answer questions.
 
-| Layer | Version / choice | Status |
-| --- | --- | --- |
-| Go | **1.27.0** | installed, pinned in `go.mod` |
-| Wails | **v2.15.0** | installed, also pinned in both workflows |
-| Node.js | **24** | installed, set in `.github/workflows` |
-| pnpm | **11.20.0** | installed, pinned via `packageManager` |
-| Svelte | **5.56.10** | installed |
-| TypeScript | **~5.9.3** | installed |
-| Vite | **8.2.2** | installed |
-| Vitest | **4.1.11** | installed |
-| `@sveltejs/vite-plugin-svelte` | **7.3.0** | installed |
-| Tailwind CSS | **4.3.3** (`tailwindcss` + `@tailwindcss/vite`) | installed |
-| Desktop web runtime | **System WebView** | installed |
-| Crush integration | **REST + SSE API** | installed |
-| Crush pin | **`.crush-pin`** | installed; single tracked owner at the repository root, read by both workflows and `scripts/update-crush.ps1` |
-| Markdown rendering | **`marked` ^18.0.11** + **`dompurify` ^3.4.14** | installed |
-| Toasts | **`svelte-sonner` 1.2.1** | installed |
-| UI font | **`@fontsource-variable/inter` 5.3.0** | installed |
-| `@xterm/xterm` | **6.0.0**, lazy-loaded | installed |
-| `@xterm/addon-fit` | **0.11.0** | installed |
-| CodeMirror umbrella package | **6.0.2** | planned, not installed |
-| `@codemirror/view` | **6.43.9** | planned, not installed |
+## What Tack Can Do
 
-Go direct dependencies (`go.mod`), all installed:
+### General Assistant
 
-| Module | Version | Used for |
-| --- | --- | --- |
-| `github.com/wailsapp/wails/v2` | v2.15.0 | desktop shell and bindings |
-| `github.com/xuri/excelize/v2` | v2.11.0 | `.xlsx` read/write in `internal/office` |
-| `github.com/UserExistsError/conpty` | v0.1.4 | Windows PTY for `internal/terminal` |
-| `github.com/creack/pty` | v1.1.24 | POSIX PTY for `internal/terminal` |
-| `github.com/Microsoft/go-winio` | v0.6.2 | named-pipe transport to Crush |
-| `github.com/google/uuid` | v1.6.0 | request and session identifiers |
-| `golang.org/x/sys` | v0.47.0 | platform-specific process, file, and terminal primitives |
-| `gopkg.in/yaml.v3` | v3.0.1 | strict skill frontmatter parsing |
-| `modernc.org/sqlite` | v1.56.0 | read-only recall index storage |
+Use Tack for day-to-day work such as:
 
-Notes:
+- working with local files and folders;
+- researching and organizing information;
+- automating repetitive tasks;
+- inspecting and transforming data;
+- assisting with system operations;
+- creating and modifying documents;
+- helping with software development;
+- executing multi-step workflows with local tools.
 
-- Wails v3 is still pre-release, so `gotack` stays on the latest stable Wails v2 release.
-- TypeScript is held at 5.9.x deliberately: TS 7 fails `pnpm check` against the current Svelte tooling. Revisit when `svelte-check` supports it.
-- CodeMirror 6 is split across independently versioned packages. `codemirror@6.0.2` is the umbrella/basic-setup package, while core packages such as `@codemirror/view` have their own current versions.
-- xterm.js beta builds are intentionally excluded from the baseline.
-- The terminal panel lazy-loads `@xterm/xterm` only when opened; no editor package ships until the editor feature lands.
-- Open deviation: five direct dependencies are still declared as ranges rather than exact pins — `marked ^18.0.11` and `dompurify ^3.4.14` (runtime), `@types/dompurify ^3.2.0` and `svelte-check ^4.7.6` (dev), and `typescript ~5.9.3`. The remaining eleven entries in `frontend/package.json` are pinned exactly. Pin these five or relax the policy; leaving the two in conflict makes the policy unenforceable.
+### Office Work
 
-Version policy:
+Tack includes integrated tooling for common Office formats:
 
-- pin exact toolchain and direct dependency versions for reproducible builds;
-- stay on the Wails v2 stable line until Wails v3 reaches a production-stable release and migration is justified;
-- allow patch updates after CI/build verification;
-- do not upgrade major frontend/runtime dependencies automatically;
-- keep the Crush protocol boundary versioned independently from the desktop UI.
+- **Word** — `.docx`
+- **Excel** — `.xlsx`
+- **PowerPoint** — `.pptx`
 
-## Architecture
+The assistant can inspect, create, and edit Office documents directly without requiring a separate Office automation setup.
+
+### Developer Workflows
+
+Tack is designed to fit naturally into development workflows. It can work with:
+
+- source code and repositories;
+- shell commands;
+- project files;
+- diffs and changed files;
+- development tools;
+- terminals;
+- workspace-aware sessions.
+
+The optional terminal is lazy-loaded so it does not add unnecessary cost to the default application footprint.
+
+### Memory, Skills & Recall
+
+Tack includes local assistant infrastructure for longer-running workflows:
+
+- **Memory** stores bounded assistant context.
+- **Skills** provide reusable procedural knowledge and task-specific workflows.
+- **Recall** enables read-only retrieval from previous sessions.
+
+These capabilities are intentionally modular so long-term context remains controlled and predictable.
+
+### Remote Access with Zalo
+
+Tack can connect to an official Zalo Bot, allowing explicitly paired chats to interact with the desktop assistant remotely.
+
+Each paired chat receives its own reusable assistant session. Pairing is explicit and revocable, so remote access remains under user control.
+
+## Lightweight Architecture
+
+Tack deliberately avoids the architecture used by many heavyweight desktop applications.
 
 ```text
-┌───────────────────────────────────────┐
-│               gotack                  │
-│                                       │
-│  Svelte / TypeScript                  │
-│  ├── workspace                        │
-│  ├── sessions                         │
-│  ├── chat                             │
-│  ├── tool activity                    │
-│  ├── permissions                      │
-│  ├── diff / files                     │
-│  └── terminal                         │
-│             │                         │
-│         Wails bridge                  │
-│             │                         │
-│        thin Go client                 │
-└─────────────┬─────────────────────────┘
-              │ REST + SSE
-              │ Unix socket / named pipe
-              ▼
-┌───────────────────────────────────────┐
-│                Crush                  │
-│                                       │
-│  server → backend                     │
-│           ├── agent                   │
-│           ├── sessions                │
-│           ├── permissions             │
-│           ├── LSP                     │
-│           ├── MCP                     │
-│           ├── shell                   │
-│           └── SQLite                  │
-└───────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│                    Tack                    │
+│                                            │
+│  Svelte + TypeScript                       │
+│  ├── Chat                                  │
+│  ├── Sessions                              │
+│  ├── Workspaces                            │
+│  ├── Files & diffs                         │
+│  ├── Tool activity                         │
+│  ├── Permissions                           │
+│  └── Terminal                              │
+│                    │                       │
+│              Wails bridge                  │
+│                    │                       │
+│                 Go host                    │
+└────────────────────┬───────────────────────┘
+                     │
+              Local IPC / REST / SSE
+                     │
+                     ▼
+┌────────────────────────────────────────────┐
+│             Local Agent Runtime            │
+│                                            │
+│  ├── Assistant sessions                    │
+│  ├── Tools                                 │
+│  ├── Permissions                           │
+│  ├── Shell                                 │
+│  ├── MCP services                          │
+│  ├── Memory                                │
+│  ├── Skills                                │
+│  └── Recall                                │
+└────────────────────────────────────────────┘
 ```
 
-## Design principles
+The UI and assistant runtime are isolated from each other so UI lifecycle and active assistant work do not need to be tightly coupled.
 
-### Thin desktop layer
+## Why It Stays Lightweight
 
-`gotack` should not reimplement Crush internals. The desktop app owns presentation, local process lifecycle, and client-side state. Crush remains responsible for agent execution, sessions, tools, permissions, MCP, LSP integration, and persistence.
+Resource usage is a product constraint in Tack, not an afterthought.
 
-### Process isolation
+Tack keeps overhead low by:
 
-The preferred runtime model is two processes:
+- using the **system WebView** instead of shipping a full browser engine;
+- keeping the desktop host in **Go**;
+- lazy-loading terminal functionality;
+- avoiding heavyweight editor runtimes unless they are actually required;
+- avoiding duplicated long-running state between UI and backend;
+- using event streams instead of unnecessary polling;
+- keeping optional capabilities modular.
+
+The goal is not to turn Tack into another full IDE. It is to provide a capable assistant that can comfortably live beside the tools you already use.
+
+## Technology
+
+| Layer | Technology |
+| --- | --- |
+| Desktop host | Go |
+| Desktop framework | Wails v2 |
+| UI | Svelte 5 |
+| Language | TypeScript |
+| Styling | Tailwind CSS |
+| Build tooling | Vite |
+| Desktop runtime | System WebView / WebView2 |
+| Terminal | xterm.js |
+| Local storage | SQLite |
+| Communication | Local IPC, REST & SSE |
+
+## Security Model
+
+Tack is designed as a single-user local desktop assistant with explicit tool control.
+
+Permission prompts are enabled by default. A dedicated guard layer protects sensitive operations and blocks catastrophic commands. Automatic approval must be explicitly enabled rather than silently assumed.
+
+Remote Zalo access also requires explicit pairing and can be revoked per chat.
+
+> Powerful local tools should remain under user control.
+
+## Installation
+
+### Windows
+
+Tack is currently distributed as a **portable Windows x64 ZIP**.
+
+Download the latest release, extract it, and run:
 
 ```text
-gotack
-  └── crush
+tack.exe
 ```
 
-This keeps the UI lifecycle separate from active agent work. A UI restart should be able to reconnect to the running Crush server instead of terminating agent activity.
+The release bundle contains the required Tack runtime and supporting tools.
 
-### Low memory first
+You do **not** need to install Go, Node.js, pnpm, or Wails to run a release build.
 
-Features that can consume significant memory should be loaded only when required. In particular:
+### Requirements
 
-- do not bundle Chromium or Electron;
-- do not initialize a full editor until a file is opened;
-- lazy-load terminal support;
-- avoid Monaco in the initial version unless its capabilities are required;
-- keep long-running state in Crush rather than duplicating it in the UI;
-- avoid background polling where SSE events are available.
+- Windows 10 or Windows 11, x64
+- Microsoft Edge WebView2 Runtime
 
-### Single-user trust model
+WebView2 is already present on most maintained Windows installations.
 
-Gotack keeps Crush permission prompts enabled by default. The bundled
-`PreToolUse` guard always blocks catastrophic commands and protects the managed
-context directory; only an explicit `"auto_approve": true` opts into skipped
-prompts. The default assistant workspace is the drive root (`C:\` on Windows),
-so this approval posture is a security-relevant invariant when changing
-workspace handling.
+## Building from Source
 
-## Initial scope
-
-The first usable version focuses on a fast local-assistant workflow rather than becoming a full IDE:
-
-1. Discover or launch the local Crush server.
-2. Create and attach to a workspace.
-3. List and switch sessions.
-4. Send prompts for local files, Office work, system tasks or code and stream agent activity.
-5. Render messages, reasoning, and tool calls.
-6. Handle permission and question requests.
-7. Show changed files and lightweight diffs.
-8. Provide an optional, lazy-loaded terminal.
-9. Reconnect cleanly after UI restart or temporary transport loss.
-
-Full IDE functionality, complex editor integrations, and heavyweight extensions are intentionally out of scope for the first milestone.
-
-## Project status
-
-Release candidate. The desktop client, Zalo connection, and Office integration
-are implemented and covered by the Go unit and smoke suites.
-
-What automated validation proves today (`.github/workflows/ci.yml`):
-`go test ./...`, `go vet ./...`, `staticcheck`, unreachable-function analysis,
-`gofmt`, generated UI-event drift, repository invariants, `pnpm --dir frontend check`, `pnpm --dir frontend test`,
-`pnpm --dir frontend build`, and a Windows `wails build`. `release.yml` re-runs
-the source checks, including repository invariants and frontend tests, then
-builds the pinned Crush commit plus `cmd/office`, `cmd/guard`, `cmd/memory`,
-`cmd/skills`, and `cmd/recall`, bundles
-`officecli.exe` plus `resources/skills`, runs `scripts/prepare-resources.ps1`
-for the bundled Python runtime payloads (`resources/bin/`), copies the tracked
-`resources/context/` persona files, and publishes the portable ZIP.
-
-What is **not** covered by automated validation, and is therefore manually
-verified only:
-
-- the Zalo bridge against the live Bot API;
-- any UI end-to-end run.
-
-Report issues against the tagged releases.
-
-## Upstream
-
-Crush is developed by Charmbracelet:
-
-- https://github.com/charmbracelet/crush
-
-## Repository layout
+Requirements:
 
 ```text
-main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindings)
-office_seed.go  context_seed.go  guard_seed.go  memory_seed.go  skills_seed.go  recall_seed.go  schedule_host.go  reflection_host.go  settings_crush.go   package main helpers, not bound methods
-internal/                              host implementation, one package per role
-  appconfig  attachments  bundleseed  changes  contextseed  crushapi  engine
-  enginelink  guard  logging  mcp  memory  office  officecli  openaioauth
-  permission  recall
-  reflection  schedule  session  skillmanage
-  terminal  uievents  userstrings  workspace  zalo
-cmd/office/                            bundled Office MCP server (stdio), ships as office.exe
-cmd/guard/                             PreToolUse approval hook (blocklist/tiers), ships as guard.exe
-cmd/memory/                            persistent self-editing memory MCP server (stdio), ships as memory.exe
-cmd/skills/                            progressive procedural-skill MCP server (stdio), ships as skills.exe
-cmd/recall/                            cross-session recall MCP server (stdio), reads crush.db read-only, ships as recall.exe
-frontend/                              Svelte 5 UI (folder name required by Wails v2)
-third_party/crush/                     vendored Crush engine (own git history, ignored here)
-third_party/README.md                  tracked pin and patch documentation
-third_party/patches/                   tracked Gotack-owned engine patches
-resources/skills/                      skill tree bundled into release artifacts
-resources/context/                     tracked persona context files seeded into the data dir
-resources/bin/                         ignored runtime payloads, recreated by scripts/prepare-resources.ps1
-docs/                                  contracts, decisions, patterns, plans, templates
-build/                                 Wails packaging assets per platform
-scripts/                               Windows PowerShell build tooling plus the cross-platform Node invariant check
-.agents/skills/  .harness-core/        vendored repository-harness protocol and skills;
-                                       .harness-core/manifest.json pins upstream file hashes
-.github/workflows/                     ci.yml and release.yml
-.gitattributes                         normative LF end-of-line policy for the whole tree
+Go 1.27+
+Node.js 24+
+pnpm 11+
+Wails v2
 ```
 
-Folder-by-folder roles and the rules that keep the layers apart: `docs/README.md`.
+Install frontend dependencies:
+
+```bash
+pnpm --dir frontend install
+```
+
+Run the development application:
+
+```bash
+wails dev
+```
+
+Build Tack:
+
+```bash
+wails build
+```
+
+## Project Structure
+
+```text
+.
+├── cmd/                    # Bundled local services and tools
+│   ├── guard/
+│   ├── memory/
+│   ├── office/
+│   ├── recall/
+│   └── skills/
+├── internal/               # Go application implementation
+├── frontend/               # Svelte desktop UI
+├── resources/              # Bundled skills, context and runtime assets
+├── scripts/                # Build and repository tooling
+├── docs/                   # Architecture and engineering documentation
+└── .github/workflows/      # CI and release pipelines
+```
+
+## Project Status
+
+Tack is under active development.
+
+The desktop assistant, Office integration, local assistant services, terminal workflow, and Zalo connection are implemented. CI validates the Go and frontend codebases through formatting, static analysis, unit tests, type checking, frontend tests, production builds, repository invariants, and Windows application builds.
+
+Packaged releases currently target **Windows x64**.
+
+## Design Philosophy
+
+Tack is intentionally not trying to become a browser, an IDE, or an operating system inside an application.
+
+It focuses on the layer between **you** and **your computer**:
+
+```text
+You
+ ↓
+Tack
+ ↓
+Files · Documents · Code · Terminal · Tools · Automation
+```
+
+The assistant should be available when you need it and stay out of the way when you do not.
+
+That means keeping Tack:
+
+**small enough to leave running,  
+fast enough to open without thinking,  
+and capable enough to actually get work done.**
+
+## Contributing
+
+Issues, bug reports, and contributions are welcome.
+
+When making architectural changes, preserve Tack's core priorities: **performance, low resource usage, modularity, security, and a focused assistant experience.**
+
+## License
+
+See the repository license for details.
