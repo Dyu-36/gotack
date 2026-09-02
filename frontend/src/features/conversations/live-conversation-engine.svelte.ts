@@ -204,7 +204,7 @@ export function createEngineState(deps: EngineDeps) {
     )
   }
 
-  const reasoningEfforts = new Set<ReasoningEffort>(['none', 'low', 'medium', 'high', 'xhigh', 'max'])
+  const reasoningEfforts = new Set<ReasoningEffort>(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
 
   const normalizeThinkingForModel = (value: ReasoningEffort, providerID = deps.provider.value, modelID = deps.model.value): ReasoningEffort => {
     const selected = catalog.models.find((m) => m.id === modelID && (!providerID || m.providerId === providerID))
