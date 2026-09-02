@@ -39,7 +39,8 @@ if ($actual -ne $Commit) {
 
 # These markers intentionally fail loudly when upstream routes/events move.
 # A pin update is not accepted until internal/crushapi is reviewed against the
-# new server contract.
+# new server contract. The closing quote delimits prefixes such as model/models
+# and set/set-batch so one route cannot satisfy the other's assertion.
 $serverFiles = @(
     (Join-Path $crushDir 'internal/server/server.go'),
     (Join-Path $crushDir 'internal/server/proto.go'),
@@ -47,19 +48,19 @@ $serverFiles = @(
 )
 $serverText = ($serverFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
 $requiredMarkers = @(
-    '/v1/workspaces/{id}/sessions',
-    '/v1/workspaces/{id}/agent',
-    '/v1/workspaces/{id}/agent/refresh-prompt',
-    '/v1/workspaces/{id}/events',
-    '/v1/workspaces/{id}/config/model',
-    '/v1/workspaces/{id}/config/models',
-    '/v1/workspaces/{id}/config/set',
-    '/v1/workspaces/{id}/config/set-batch',
-    '/v1/workspaces/{id}/config/remove',
-    '/v1/workspaces/{id}/config/provider-key',
-    '/v1/workspaces/{id}/config/refresh-oauth',
-    '/v1/workspaces/{id}/permissions/grant',
-    '/v1/workspaces/{id}/questions/answer',
+    'POST /v1/workspaces/{id}/sessions"',
+    'GET /v1/workspaces/{id}/agent"',
+    'POST /v1/workspaces/{id}/agent/refresh-prompt"',
+    'GET /v1/workspaces/{id}/events"',
+    'POST /v1/workspaces/{id}/config/model"',
+    'POST /v1/workspaces/{id}/config/models"',
+    'POST /v1/workspaces/{id}/config/set"',
+    'POST /v1/workspaces/{id}/config/set-batch"',
+    'POST /v1/workspaces/{id}/config/remove"',
+    'POST /v1/workspaces/{id}/config/provider-key"',
+    'POST /v1/workspaces/{id}/config/refresh-oauth"',
+    'POST /v1/workspaces/{id}/permissions/grant"',
+    'POST /v1/workspaces/{id}/questions/answer"',
     'PayloadTypeFile',
     'PayloadTypeRunComplete'
 )
