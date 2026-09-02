@@ -1,7 +1,7 @@
 diff --git a/internal/agent/agent.go b/internal/agent/agent.go
 --- a/internal/agent/agent.go
 +++ b/internal/agent/agent.go
-@@ -54,10 +54,31 @@ const (
+@@ -54,9 +54,36 @@ const (
  	// Constants for auto-summarization thresholds
  	largeContextWindowThreshold = 200_000
  	largeContextWindowBuffer    = 20_000
@@ -38,7 +38,7 @@ diff --git a/internal/agent/agent.go b/internal/agent/agent.go
  var userAgent = fmt.Sprintf("Charm-Crush/%s (https://charm.land/crush)", version.Version)
  
  //go:embed templates/title.md
-@@ -1035,24 +1056,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1035,27 +1062,19 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  		StopWhen: []fantasy.StopCondition{
  			func(_ []fantasy.StepResult) bool {
  				cw := int64(largeModel.CatwalkCfg.ContextWindow)
