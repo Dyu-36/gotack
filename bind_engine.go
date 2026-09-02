@@ -109,6 +109,9 @@ func (a *App) connect(scope context.Context) {
 
 		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
 		a.link.MarkRunning()
+		if desc, ok := svc.ws.Current(); ok {
+			a.rebindWorkspaceRuntime(desc.WorkspaceID)
+		}
 		status := a.engineInfo()
 		if status.Error == "" {
 			status.Error = workspaceWarning
