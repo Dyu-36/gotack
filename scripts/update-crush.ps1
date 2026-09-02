@@ -35,66 +35,10 @@ if ($actual -ne $Commit) {
     throw "Crush checkout mismatch: expected $Commit, got $actual"
 }
 
+# This shared script owns both patch application and all reviewed server/schema
+# contract assertions. Keeping the markers in one place prevents CI, release,
+# and local update paths from drifting apart.
 & (Join-Path $PSScriptRoot 'apply-crush-patches.ps1') -CrushDir $crushDir
-
-# These markers intentionally fail loudly when upstream routes/events move.
-# A pin update is not accepted until internal/crushapi is reviewed against the
-# new server contract. The closing quote delimits prefixes such as model/models
-# and set/set-batch so one route cannot satisfy the other's assertion.
-$serverFiles = @(
-    (Join-Path $crushDir 'internal/server/server.go'),
-    (Join-Path $crushDir 'internal/server/proto.go'),
-    (Join-Path $crushDir 'internal/server/events.go')
-)
-$serverText = ($serverFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
-$requiredMarkers = @(
-    'POST /v1/workspaces/{id}/sessions"',
-    'GET /v1/workspaces/{id}/agent"',
-    'POST /v1/workspaces/{id}/agent/refresh-prompt"',
-    'GET /v1/workspaces/{id}/events"',
-    'POST /v1/workspaces/{id}/config/model"',
-    'POST /v1/workspaces/{id}/config/models"',
-    'POST /v1/workspaces/{id}/config/set"',
-    'POST /v1/workspaces/{id}/config/set-batch"',
-    'POST /v1/workspaces/{id}/config/remove"',
-    'POST /v1/workspaces/{id}/config/provider-key"',
-    'POST /v1/workspaces/{id}/config/refresh-oauth"',
-    'POST /v1/workspaces/{id}/permissions/grant"',
-    'POST /v1/workspaces/{id}/questions/answer"',
-    'PayloadTypeFile',
-    'PayloadTypeRunComplete'
-)
-
-foreach ($marker in $requiredMarkers) {
-    if (-not $serverText.Contains($marker)) {
-        throw "Crush contract marker missing at ${Commit}: $marker"
-    }
-}
-
-# Recall schema coupling (docs/contracts/gotack-recall-mcp.md): cmd/recall
-# reads the private crush.db sessions/messages schema. A pin bump that renames
-# these tables or columns must fail here loudly instead of silently returning
-# empty session_search results.
-$schemaFiles = @(
-    (Join-Path $crushDir 'internal/db/migrations/20250424200609_initial.sql'),
-    (Join-Path $crushDir 'internal/db/models.go')
-)
-$schemaText = ($schemaFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
-$requiredSchemaMarkers = @(
-    'CREATE TABLE IF NOT EXISTS sessions',
-    'CREATE TABLE IF NOT EXISTS messages',
-    'title TEXT',
-    'role TEXT',
-    'parts TEXT',
-    'session_id TEXT',
-    'updated_at INTEGER'
-)
-
-foreach ($marker in $requiredSchemaMarkers) {
-    if (-not $schemaText.Contains($marker)) {
-        throw "Crush recall schema marker missing at ${Commit}: $marker"
-    }
-}
 
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
 Push-Location $crushDir
@@ -105,6 +49,5 @@ finally {
     Pop-Location
 }
 
-Write-Host "Crush contract markers verified at $Commit"
-Write-Host "Crush recall schema markers verified at $Commit"
+Write-Host "Crush patch and contract verification completed at $Commit"
 Write-Host "Bundled binary: $bundleExe"
