@@ -5,27 +5,19 @@
 
   type Props = {
     message: Message
+    nested?: boolean
   }
 
-  let { message }: Props = $props()
+  let { message, nested = false }: Props = $props()
 
   let isRunning = $derived(!message.toolFinished)
   let displayInfo = $derived(parseToolDisplay(message.toolName, message.content, message.toolFinished))
 
-  let userToggled = $state(false)
   let expanded = $state(false)
   let copied = $state(false)
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Auto-expand when tool starts running unless user explicitly toggled it closed
-  $effect(() => {
-    if (isRunning && !userToggled) {
-      expanded = true
-    }
-  })
-
   function toggle() {
-    userToggled = true
     expanded = !expanded
   }
 
@@ -46,7 +38,11 @@
 </script>
 
 <div
-  class="tool-card animate-tool-in mb-3 mr-8 sm:mr-20"
+  class="tool-card animate-tool-in"
+  class:mb-3={!nested}
+  class:mr-8={!nested}
+  class:sm:mr-20={!nested}
+  class:is-nested={nested}
   class:is-running={isRunning}
   class:is-expanded={expanded}
   role="region"
@@ -178,6 +174,12 @@
     border-radius: 9px;
     background: var(--mm-panel);
     transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .tool-card.is-nested {
+    margin-left: 0;
+    background: var(--mm-bg);
+    border-color: var(--mm-border);
   }
 
   .tool-card:hover {
