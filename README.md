@@ -1,84 +1,88 @@
+<div align="center">
+
 # Tack
 
-**A lightweight desktop AI assistant built for speed, low overhead, and real work.**
+### A lightweight desktop AI assistant built for speed, low overhead, and real work.
 
-Tack is a desktop AI assistant designed to help with files, documents, development, system tasks, research, and everyday automation without the footprint of a heavyweight desktop runtime.
+[![CI](https://img.shields.io/github/actions/workflow/status/Dyu-36/gotack/ci.yml?branch=main&style=for-the-badge&label=Build)](https://github.com/Dyu-36/gotack/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Dyu-36/gotack?style=for-the-badge&sort=semver&label=Release)](https://github.com/Dyu-36/gotack/releases)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Wails](https://img.shields.io/badge/Wails-v2.15-DF0000?style=for-the-badge)](https://wails.io/)
+[![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://svelte.dev/)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/Dyu-36/gotack/releases)
+[![License](https://img.shields.io/badge/License-TBD-lightgrey?style=for-the-badge)](#-license)
 
-Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's native WebView and keeps its desktop layer deliberately lean. The result is an assistant that starts quickly, stays responsive, and remains practical even on lower-resource machines.
+**Fast · Lightweight · Local-first · Built to assist**
 
-> **Fast. Lightweight. Local-first. Built to assist.**
+[Download](https://github.com/Dyu-36/gotack/releases) · [Report an issue](https://github.com/Dyu-36/gotack/issues) · [Build from source](#-building-from-source)
 
-## Why Tack?
+</div>
 
-Desktop AI tools should not need to consume a large portion of your system just to stay open.
+---
 
-Tack is built around a few core principles:
+<!--
+📸 SCREENSHOT / GIF SLOT
 
-- **Lightweight by design** — no bundled Chromium or Electron runtime.
-- **Built in Go** — efficient process management, native system integration, and strong concurrency primitives.
-- **Fast startup** — minimal desktop overhead with heavyweight features loaded only when needed.
-- **Low memory usage** — designed to coexist comfortably with browsers, IDEs, terminals, Office applications, and development tools.
-- **Local-first** — files, tools, sessions, skills, and assistant context stay close to your machine.
-- **More than chat** — Tack is an assistant that can work with your environment, not just answer questions.
+Replace the path below once an image is added to the repository, for example:
 
-## What Tack Can Do
+<p align="center">
+  <img src="docs/images/tack-preview.png" alt="Tack desktop assistant" width="960" />
+</p>
 
-### General Assistant
+For an animated demo:
 
-Use Tack for day-to-day work such as:
+<p align="center">
+  <img src="docs/images/tack-demo.gif" alt="Tack demo" width="960" />
+</p>
+-->
 
-- working with local files and folders;
-- researching and organizing information;
-- automating repetitive tasks;
-- inspecting and transforming data;
-- assisting with system operations;
-- creating and modifying documents;
-- helping with software development;
-- executing multi-step workflows with local tools.
+> 📸 **Preview slot:** add a product screenshot or short GIF here when ready. Recommended path: `docs/images/tack-preview.png`.
 
-### Office Work
+## ✨ Why Tack?
 
-Tack includes integrated tooling for common Office formats:
+Tack is a desktop AI assistant designed for files, documents, development, system tasks, research, and everyday automation — without the footprint of a heavyweight desktop runtime.
 
-- **Word** — `.docx`
-- **Excel** — `.xlsx`
-- **PowerPoint** — `.pptx`
+Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's native WebView and keeps the desktop layer deliberately lean. It is designed to start quickly, stay responsive, and remain practical even on lower-resource machines.
 
-The assistant can inspect, create, and edit Office documents directly without requiring a separate Office automation setup.
+| Principle | What it means |
+| --- | --- |
+| ⚡ **Fast startup** | Minimal desktop overhead and lazy-loaded heavyweight features. |
+| 🪶 **Lightweight** | No bundled Chromium or Electron runtime. |
+| 🧠 **Assistant-first** | Works with your environment instead of acting as a chat-only UI. |
+| 💻 **Built in Go** | Efficient process management, native system integration, and concurrency. |
+| 🏠 **Local-first** | Files, tools, sessions, skills, and assistant context stay close to your machine. |
+| 🧩 **Modular** | Optional capabilities are kept separate so Tack stays focused and maintainable. |
 
-### Developer Workflows
+## 🚀 Features
 
-Tack is designed to fit naturally into development workflows. It can work with:
+| Capability | Highlights |
+| --- | --- |
+| 🤖 **General assistant** | Files, folders, research, system tasks, data transformation, and multi-step automation. |
+| 📝 **Office workflows** | Inspect, create, and edit Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`) files. |
+| 👨‍💻 **Developer workflows** | Source code, repositories, shell commands, diffs, project files, and workspace-aware sessions. |
+| 🖥️ **Integrated terminal** | Optional xterm.js terminal, loaded only when needed. |
+| 🧠 **Memory** | Bounded assistant context for longer-running workflows. |
+| 🧰 **Skills** | Reusable procedural knowledge and task-specific workflows. |
+| 🔎 **Recall** | Read-only retrieval from previous sessions. |
+| 📱 **Zalo access** | Explicitly paired chats can interact with the desktop assistant remotely. |
+| 🛡️ **Permission control** | Tool execution remains user-controlled with guarded sensitive operations. |
 
-- source code and repositories;
-- shell commands;
-- project files;
-- diffs and changed files;
-- development tools;
-- terminals;
-- workspace-aware sessions.
+## 🪶 Lightweight by Design
 
-The optional terminal is lazy-loaded so it does not add unnecessary cost to the default application footprint.
+Resource usage is a product constraint in Tack, not an afterthought.
 
-### Memory, Skills & Recall
+| Tack does | Tack avoids |
+| --- | --- |
+| Uses the **system WebView / WebView2** | Bundling a full Chromium runtime |
+| Keeps the desktop host in **Go** | Heavy desktop-process overhead |
+| Lazy-loads terminal functionality | Initializing optional components at startup |
+| Uses event streams where appropriate | Unnecessary background polling |
+| Keeps long-running responsibilities modular | Duplicating state across layers |
+| Focuses on assistant workflows | Becoming another heavyweight IDE |
 
-Tack includes local assistant infrastructure for longer-running workflows:
+The goal is simple: **small enough to leave running, fast enough to open without thinking, and capable enough to get real work done.**
 
-- **Memory** stores bounded assistant context.
-- **Skills** provide reusable procedural knowledge and task-specific workflows.
-- **Recall** enables read-only retrieval from previous sessions.
-
-These capabilities are intentionally modular so long-term context remains controlled and predictable.
-
-### Remote Access with Zalo
-
-Tack can connect to an official Zalo Bot, allowing explicitly paired chats to interact with the desktop assistant remotely.
-
-Each paired chat receives its own reusable assistant session. Pairing is explicit and revocable, so remote access remains under user control.
-
-## Lightweight Architecture
-
-Tack deliberately avoids the architecture used by many heavyweight desktop applications.
+## 🏗️ Architecture
 
 ```text
 ┌────────────────────────────────────────────┐
@@ -115,102 +119,101 @@ Tack deliberately avoids the architecture used by many heavyweight desktop appli
 └────────────────────────────────────────────┘
 ```
 
-The UI and assistant runtime are isolated from each other so UI lifecycle and active assistant work do not need to be tightly coupled.
+The UI and assistant runtime are isolated so the desktop lifecycle does not need to be tightly coupled to active assistant work.
 
-## Why It Stays Lightweight
-
-Resource usage is a product constraint in Tack, not an afterthought.
-
-Tack keeps overhead low by:
-
-- using the **system WebView** instead of shipping a full browser engine;
-- keeping the desktop host in **Go**;
-- lazy-loading terminal functionality;
-- avoiding heavyweight editor runtimes unless they are actually required;
-- avoiding duplicated long-running state between UI and backend;
-- using event streams instead of unnecessary polling;
-- keeping optional capabilities modular.
-
-The goal is not to turn Tack into another full IDE. It is to provide a capable assistant that can comfortably live beside the tools you already use.
-
-## Technology
+## 🧱 Technology Stack
 
 | Layer | Technology |
 | --- | --- |
-| Desktop host | Go |
-| Desktop framework | Wails v2 |
-| UI | Svelte 5 |
-| Language | TypeScript |
-| Styling | Tailwind CSS |
-| Build tooling | Vite |
-| Desktop runtime | System WebView / WebView2 |
-| Terminal | xterm.js |
-| Local storage | SQLite |
-| Communication | Local IPC, REST & SSE |
+| Desktop host | **Go 1.27** |
+| Desktop framework | **Wails v2.15** |
+| UI | **Svelte 5** |
+| Language | **TypeScript** |
+| Styling | **Tailwind CSS** |
+| Build tooling | **Vite** |
+| Desktop runtime | **System WebView / WebView2** |
+| Terminal | **xterm.js** |
+| Local storage | **SQLite** |
+| Communication | **Local IPC, REST & SSE** |
+| Current packaged target | **Windows x64** |
 
-## Security Model
+## 📦 Installation
 
-Tack is designed as a single-user local desktop assistant with explicit tool control.
+### Windows portable release
 
-Permission prompts are enabled by default. A dedicated guard layer protects sensitive operations and blocks catastrophic commands. Automatic approval must be explicitly enabled rather than silently assumed.
+1. Download the latest ZIP from [GitHub Releases](https://github.com/Dyu-36/gotack/releases).
+2. Extract it to a folder of your choice.
+3. Launch Tack:
 
-Remote Zalo access also requires explicit pairing and can be revoked per chat.
-
-> Powerful local tools should remain under user control.
-
-## Installation
-
-### Windows
-
-Tack is currently distributed as a **portable Windows x64 ZIP**.
-
-Download the latest release, extract it, and run:
-
-```text
-tack.exe
+```powershell
+.\tack.exe
 ```
 
-The release bundle contains the required Tack runtime and supporting tools.
-
-You do **not** need to install Go, Node.js, pnpm, or Wails to run a release build.
+The release bundle includes the Tack runtime and supporting tools. You do **not** need a system installation of Go, Node.js, pnpm, or Wails to run a packaged release.
 
 ### Requirements
 
-- Windows 10 or Windows 11, x64
-- Microsoft Edge WebView2 Runtime
+```text
+Windows 10/11 x64
+Microsoft Edge WebView2 Runtime
+```
 
-WebView2 is already present on most maintained Windows installations.
+WebView2 is already available on most maintained Windows installations.
 
-## Building from Source
+## 🛠️ Building from Source
 
-Requirements:
+### Prerequisites
 
 ```text
 Go 1.27+
 Node.js 24+
 pnpm 11+
-Wails v2
+Wails v2.15+
 ```
 
-Install frontend dependencies:
+Clone the repository:
 
-```bash
-pnpm --dir frontend install
+```powershell
+git clone https://github.com/Dyu-36/gotack.git
+cd gotack
 ```
 
-Run the development application:
+Install the Wails CLI and frontend dependencies:
 
-```bash
+```powershell
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+pnpm --dir frontend install --frozen-lockfile
+```
+
+Run Tack in development mode:
+
+```powershell
 wails dev
 ```
 
-Build Tack:
+Build a Windows x64 binary:
 
-```bash
-wails build
+```powershell
+wails build -platform windows/amd64 -clean
 ```
 
-## Project Structure
+## 🔐 Security Model
+
+Tack is designed as a single-user local desktop assistant with explicit tool control.
+
+| Protection | Behavior |
+| --- | --- |
+| 🛡️ Permission prompts | Enabled by default. |
+| ⛔ Guard layer | Protects sensitive operations and blocks catastrophic commands. |
+| ✅ Auto approval | Must be explicitly enabled; it is never silently assumed. |
+| 📱 Zalo pairing | Remote chats require explicit pairing and can be revoked individually. |
+
+> **Powerful local tools should remain under user control.**
+
+## 📂 Project Structure
+
+<details>
+<summary><strong>Expand repository layout</strong></summary>
 
 ```text
 .
@@ -228,19 +231,19 @@ wails build
 └── .github/workflows/      # CI and release pipelines
 ```
 
-## Project Status
+</details>
+
+## ✅ Project Status
 
 Tack is under active development.
 
-The desktop assistant, Office integration, local assistant services, terminal workflow, and Zalo connection are implemented. CI validates the Go and frontend codebases through formatting, static analysis, unit tests, type checking, frontend tests, production builds, repository invariants, and Windows application builds.
+The desktop assistant, Office integration, local assistant services, terminal workflow, and Zalo connection are implemented. CI covers Go tests and analysis, frontend validation and tests, production builds, repository invariants, and a Windows portable build.
 
-Packaged releases currently target **Windows x64**.
+**Current packaged target:** Windows x64.
 
-## Design Philosophy
+## 🧭 Design Philosophy
 
 Tack is intentionally not trying to become a browser, an IDE, or an operating system inside an application.
-
-It focuses on the layer between **you** and **your computer**:
 
 ```text
 You
@@ -252,18 +255,16 @@ Files · Documents · Code · Terminal · Tools · Automation
 
 The assistant should be available when you need it and stay out of the way when you do not.
 
-That means keeping Tack:
-
-**small enough to leave running,  
-fast enough to open without thinking,  
-and capable enough to actually get work done.**
-
-## Contributing
+## 🤝 Contributing
 
 Issues, bug reports, and contributions are welcome.
 
-When making architectural changes, preserve Tack's core priorities: **performance, low resource usage, modularity, security, and a focused assistant experience.**
+When making architectural changes, preserve Tack's core priorities:
 
-## License
+**performance · low resource usage · modularity · security · focused assistant experience**
 
-See the repository license for details.
+## 📄 License
+
+A project license has **not yet been published** in this repository.
+
+Until a license is added, normal copyright restrictions apply. If you plan to distribute or accept external contributions, add an explicit license first.
