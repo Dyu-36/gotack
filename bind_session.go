@@ -262,7 +262,7 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 	for _, path := range tagged {
 		item, prepErr := attachments.PrepareFile(path, supportsVision)
 		if prepErr != nil {
-			prepared = append(prepared, attachments.Failed(filepath.Base(path), prepErr.Error()))
+			prepared = append(prepared, attachments.Failed(portableAttachmentBase(path), prepErr.Error()))
 			continue
 		}
 		prepared = append(prepared, item)
@@ -320,7 +320,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 			size = int(stat.Size())
 		}
 		info.Attachments = append(info.Attachments, AttachmentInfo{
-			FileName: filepath.Base(attachment.FileName),
+			FileName: portableAttachmentBase(attachment.FileName),
 			MimeType: attachment.MimeType,
 			Size:     size,
 			Content:  content,
@@ -342,13 +342,24 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 	return info
 }
 
+// portableAttachmentBase strips either slash style before applying the host
+// platform's final clean-up. Composer payloads can retain a source-platform
+// path even when tests or remote clients run on another operating system.
+func portableAttachmentBase(name string) string {
+	name = strings.TrimSpace(name)
+	if index := strings.LastIndexAny(name, `/\`); index >= 0 {
+		name = name[index+1:]
+	}
+	return filepath.Base(name)
+}
+
 // decodePromptAttachments turns composer uploads into prepared attachments.
 // A file that cannot be decoded or extracted degrades into a warning carried
 // inside the prompt, so one unreadable file never drops the rest of the turn.
 func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
 	out := make([]attachments.Prepared, 0, len(input))
 	for i, item := range input {
-		name := filepath.Base(strings.TrimSpace(item.FileName))
+		name := portableAttachmentBase(item.FileName)
 		if name == "" || name == "." {
 			name = fmt.Sprintf("attachment-%d.bin", i+1)
 		}
