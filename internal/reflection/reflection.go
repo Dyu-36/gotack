@@ -1,23 +1,5 @@
 package reflection
 
-// reflection.go -- role: the Phase 6 learning-loop gate and bounded-run
-// launcher.
-//
-// Semantics (plan 6.1-6.2, contract docs/contracts/gotack-reflection.md):
-//   - The only post-run signal is the run_complete SSE payload; Crush exposes
-//     no post-run hook. The host feeds those completions here through
-//     SessionDone, and session deletions through SessionEnded.
-//   - Not every turn deserves reflection: the turn-count gate and the
-//     session-end gate decide, and a per-hour budget is the second stop.
-//   - Recursion guard: reflection sessions are tagged at creation and their
-//     own completions are never counted, so the loop cannot feed itself.
-//   - Proposals route through decision 0003: the fired prompt allows memory
-//     writes only through the gotack-memory MCP tool, and the guard denies
-//     every other write path into the context directory.
-//   - One firing submits ONE bounded agent run through the Runtime seam, the
-//     same shape internal/schedule fires through (ADR 0001): the host never
-//     runs agent logic itself.
-
 import (
 	"context"
 	"errors"
@@ -29,134 +11,235 @@ import (
 )
 
 const (
-	// TitlePrefix tags every reflection session by title. The tracker also
-	// remembers the ids it launched, but the prefix keeps reflection runs
-	// recognisable to humans in the session list.
-	TitlePrefix = "Reflection: "
-
-	// DefaultTurnThreshold is how many successful completed turns a session
-	// needs before it becomes eligible for reflection. Unconditional
-	// reflection per run would double token cost (plan 6.2), so the gate
-	// opens only every N turns.
-	DefaultTurnThreshold = 8
-
-	// DefaultHourlyBudget is the second stop: at most this many reflection
-	// runs per sliding one-hour window, regardless of how many gates open.
-	DefaultHourlyBudget = 1
-
-	// budgetWindow is the sliding window the hourly budget counts inside.
-	budgetWindow = time.Hour
-
-	// defaultFireTimeout bounds one launch sequence (create, mark, send).
-	defaultFireTimeout = 30 * time.Second
+	MemoryInterval      = 10
+	SkillInterval       = 10
+	MaxReviewIterations = 16
+	// MaxReviewInputTokens is Hermes' aggregate uncached input-token ceiling
+	// for one detached background review. Ordinary user turns never use it.
+	MaxReviewInputTokens int64 = 600_000
+	defaultFireTimeout         = 30 * time.Second
 )
 
-// Runtime is the desktop seam the tracker fires through. The host supplies
-// implementations over internal/crushapi and the guard roster; Crush stays
-// the only executor of agent logic.
-type Runtime struct {
-	CreateSession  func(ctx context.Context, title string) (sessionID string, err error)
-	MarkUnattended func(ctx context.Context, sessionID string) error
-	SendPrompt     func(ctx context.Context, sessionID, prompt string) (runID string, err error)
-	// Preflight skips a firing instead of burning a failed run (for example
-	// when no provider/model is configured). Its error is surfaced, never
-	// counted against the budget.
-	Preflight func(ctx context.Context) error
+type Review struct {
+	Memory bool
+	Skills bool
 }
 
-// Tracker owns the reflection gates, the hourly budget and the recursion
-// guard. All state is in-memory by design: the loop persists nothing, so
-// removing the feature leaves no state behind.
+func (r Review) Any() bool { return r.Memory || r.Skills }
+
+// Runtime preserves Crush as the sole agent-turn executor. The tracker owns
+// only Hermes cadence and detached review lifecycle.
+type Runtime struct {
+	LoadTranscript func(context.Context, string) ([]Message, error)
+	CreateSession  func(context.Context, string) (string, error)
+	MarkReview     func(context.Context, string) error
+	SendPrompt     func(context.Context, string, string) (string, error)
+	// SendPromptWithBudget is used only for the detached review. Keeping this
+	// callback separate prevents the review ceiling from leaking into normal
+	// foreground turns.
+	SendPromptWithBudget func(context.Context, string, string, int64) (string, error)
+	CancelSession        func(context.Context, string) error
+	CleanupSession       func(context.Context, string) error
+	Preflight            func(context.Context, Review) error
+}
+
+type sessionState struct {
+	hydrated             bool
+	turnsSinceMemory     int
+	iterationsSinceSkill int
+	memoryDue            bool
+}
+
+type iterationSeen struct {
+	hasTools bool
+}
+
 type Tracker struct {
 	rt  Runtime
 	log *slog.Logger
 
-	now           func() time.Time
-	turnThreshold int
-	hourlyBudget  int
-	fireTimeout   time.Duration
-
-	mu                 sync.Mutex
-	turns              map[string]int  // successful completed turns per source session
-	reflected          map[string]bool // session-end trigger fires once per session
-	reflectionSessions map[string]bool // recursion guard: sessions this tracker launched
-	fires              []time.Time     // launch timestamps inside the budget window
-	inflight           bool
+	mu               sync.Mutex
+	sessions         map[string]*sessionState
+	seenIterations   map[string]iterationSeen
+	seenLearningCall map[string]struct{}
+	inflight         bool
+	reviewSessionID  string
+	reviewIterations int
+	launchCancel     context.CancelFunc
+	fireTimeout      time.Duration
 }
 
-// New builds a Tracker over the Runtime seam. Constructing performs no I/O
-// and starts no goroutine; the host calls Fire when a gate opens.
 func New(rt Runtime, log *slog.Logger) *Tracker {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Tracker{
-		rt:                 rt,
-		log:                log,
-		now:                time.Now,
-		turnThreshold:      DefaultTurnThreshold,
-		hourlyBudget:       DefaultHourlyBudget,
-		fireTimeout:        defaultFireTimeout,
-		turns:              make(map[string]int),
-		reflected:          make(map[string]bool),
-		reflectionSessions: make(map[string]bool),
+		rt: rt, log: log,
+		sessions:         make(map[string]*sessionState),
+		seenIterations:   make(map[string]iterationSeen),
+		seenLearningCall: make(map[string]struct{}),
+		fireTimeout:      defaultFireTimeout,
 	}
 }
 
-// SessionDone consumes one run_complete payload. It returns whether the
-// session just crossed the turn-count gate and a reflection run should be
-// started. Completions of tagged reflection sessions are the recursion
-// guard: they are never counted, and they release the in-flight claim so
-// the loop never feeds itself. Errored and cancelled runs never count.
-func (t *Tracker) SessionDone(sessionID, runErr string, cancelled bool) bool {
+func (t *Tracker) NeedsHydration(sessionID string) bool {
 	if sessionID == "" {
 		return false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.reflectionSessions[sessionID] {
-		t.inflight = false
-		return false
-	}
-	if runErr != "" || cancelled {
-		return false
-	}
-	t.turns[sessionID]++
-	return t.turns[sessionID] >= t.turnThreshold
+	state := t.sessions[sessionID]
+	return state == nil || !state.hydrated
 }
 
-// SessionEnded is the session-end gate: it opens once per session, and only
-// when the session saw at least one successful turn under this host run.
-// The host calls it before deleting the session so the reflection run still
-// finds the source conversation.
-func (t *Tracker) SessionEnded(sessionID string) bool {
+// Hydrate restores only the memory cadence, which Hermes derives from stored
+// user turns. Skill cadence intentionally remains process-local.
+func (t *Tracker) Hydrate(sessionID string, priorUserTurns int) {
 	if sessionID == "" {
-		return false
+		return
+	}
+	if priorUserTurns < 0 {
+		priorUserTurns = 0
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.reflectionSessions[sessionID] || t.reflected[sessionID] {
-		return false
+	state := t.sessions[sessionID]
+	if state == nil {
+		state = &sessionState{}
+		t.sessions[sessionID] = state
 	}
-	if t.turns[sessionID] < 1 {
-		return false
+	if state.hydrated {
+		return
 	}
-	t.reflected[sessionID] = true
-	return true
+	state.turnsSinceMemory = priorUserTurns % MemoryInterval
+	state.hydrated = true
 }
 
-// Fire launches one bounded reflection run about sourceSessionID. The call
-// order is pinned by tests: preflight, create session, mark it unattended,
-// then submit the prompt. A failed mark aborts the firing: an unmarked
-// unattended session could hang on an approval prompt nobody can answer
-// (ADR 0002). A failed launch releases the in-flight claim and consumes no
-// budget, so a later gate decision can try again.
-func (t *Tracker) Fire(ctx context.Context, sourceSessionID string) error {
+func (t *Tracker) UserTurnAccepted(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	state := t.sessions[sessionID]
+	if state == nil {
+		state = &sessionState{hydrated: true}
+		t.sessions[sessionID] = state
+	}
+	state.hydrated = true
+	state.turnsSinceMemory++
+	if state.turnsSinceMemory >= MemoryInterval {
+		state.turnsSinceMemory = 0
+		state.memoryDue = true
+	}
+}
+
+// AssistantIteration counts each assistant message once. Repeated SSE
+// snapshots may reveal tool metadata later, so flags can upgrade without a
+// second increment.
+func (t *Tracker) AssistantIteration(sessionID, messageID string, hasTools bool) bool {
+	if sessionID == "" || messageID == "" {
+		return false
+	}
+	key := sessionID + "\x00" + messageID
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	seen, duplicate := t.seenIterations[key]
+	if duplicate {
+		newTools := hasTools && !seen.hasTools
+		seen.hasTools = seen.hasTools || hasTools
+		t.seenIterations[key] = seen
+		if sessionID == t.reviewSessionID {
+			return newTools && t.reviewIterations >= MaxReviewIterations
+		}
+		return false
+	}
+
+	t.seenIterations[key] = iterationSeen{hasTools: hasTools}
+	if sessionID == t.reviewSessionID {
+		t.reviewIterations++
+		return t.reviewIterations >= MaxReviewIterations && hasTools
+	}
+	state := t.sessions[sessionID]
+	if state == nil {
+		state = &sessionState{}
+		t.sessions[sessionID] = state
+	}
+	state.iterationsSinceSkill++
+	return false
+}
+
+// LearningToolExecuted mirrors Hermes' post-guard cadence reset. A memory
+// write restarts the user-turn counter without clearing a review already due
+// for this turn; skill_manage restarts the model-iteration counter. Tool-call
+// IDs make repeated SSE snapshots idempotent.
+func (t *Tracker) LearningToolExecuted(sessionID, toolCallID, toolName string) {
+	if sessionID == "" || toolCallID == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if sessionID == t.reviewSessionID {
+		return
+	}
+	key := sessionID + "\x00" + toolCallID
+	if _, duplicate := t.seenLearningCall[key]; duplicate {
+		return
+	}
+	t.seenLearningCall[key] = struct{}{}
+	state := t.sessions[sessionID]
+	if state == nil {
+		state = &sessionState{}
+		t.sessions[sessionID] = state
+	}
+	switch toolName {
+	case "memory", "mcp_gotack-memory_memory":
+		state.turnsSinceMemory = 0
+	case "skill_manage", "mcp_gotack-skills_skill_manage":
+		state.iterationsSinceSkill = 0
+	}
+}
+
+// RunDone consumes cadence at the post-final gate. Failed, cancelled, or
+// empty-final runs do not review, and due state never leaks to a later turn.
+func (t *Tracker) RunDone(sessionID, finalText, runErr string, cancelled bool) (Review, string) {
+	if sessionID == "" {
+		return Review{}, ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if sessionID == t.reviewSessionID {
+		cleanupID := t.reviewSessionID
+		t.clearReviewLocked()
+		return Review{}, cleanupID
+	}
+	t.clearSeenSessionLocked(sessionID)
+	state := t.sessions[sessionID]
+	if state == nil {
+		return Review{}, ""
+	}
+	review := Review{Memory: state.hydrated && state.memoryDue}
+	state.memoryDue = false
+	if state.iterationsSinceSkill >= SkillInterval {
+		review.Skills = true
+		state.iterationsSinceSkill = 0
+	}
+	if runErr != "" || cancelled || strings.TrimSpace(finalText) == "" {
+		return Review{}, ""
+	}
+	return review, ""
+}
+
+func (t *Tracker) Fire(ctx context.Context, sourceSessionID string, review Review) error {
 	if strings.TrimSpace(sourceSessionID) == "" {
 		return errors.New("reflection: source session id is required")
 	}
+	if !review.Any() {
+		return errors.New("reflection: review target is required")
+	}
 	if t.rt.Preflight != nil {
-		if err := t.rt.Preflight(ctx); err != nil {
+		if err := t.rt.Preflight(ctx, review); err != nil {
 			return fmt.Errorf("reflection preflight: %w", err)
 		}
 	}
@@ -164,95 +247,136 @@ func (t *Tracker) Fire(ctx context.Context, sourceSessionID string) error {
 	t.mu.Lock()
 	if t.inflight {
 		t.mu.Unlock()
-		return errors.New("reflection: a run is already in flight")
+		return errors.New("reflection: a review is already in flight")
 	}
-	now := t.now()
-	if !t.budgetAllowsLocked(now) {
-		t.mu.Unlock()
-		return errors.New("reflection: hourly budget exhausted")
-	}
+	fireCtx, cancel := context.WithTimeout(ctx, t.fireTimeout)
 	t.inflight = true
+	t.launchCancel = cancel
 	t.mu.Unlock()
 
-	fctx, cancel := context.WithTimeout(ctx, t.fireTimeout)
-	defer cancel()
-
-	sessionID, err := t.rt.CreateSession(fctx, TitlePrefix+sourceSessionID)
-	if err == nil {
-		err = t.rt.MarkUnattended(fctx, sessionID)
-	}
-	if err == nil {
-		_, err = t.rt.SendPrompt(fctx, sessionID, PromptFor(sourceSessionID))
-	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err != nil {
-		t.inflight = false
+	var reviewSessionID string
+	fail := func(err error) error {
+		cancel()
+		t.mu.Lock()
+		t.clearReviewLocked()
+		t.mu.Unlock()
+		if reviewSessionID != "" && t.rt.CleanupSession != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = t.rt.CleanupSession(cleanupCtx, reviewSessionID)
+			cleanupCancel()
+		}
 		t.log.Warn("reflection: launch failed", "source", sourceSessionID, "err", err)
 		return fmt.Errorf("reflection launch: %w", err)
 	}
-	t.reflectionSessions[sessionID] = true
-	t.fires = append(pruneFires(t.fires, now), now)
-	delete(t.turns, sourceSessionID)
+	if t.rt.LoadTranscript == nil || t.rt.CreateSession == nil || t.rt.MarkReview == nil ||
+		(t.rt.SendPrompt == nil && t.rt.SendPromptWithBudget == nil) {
+		return fail(errors.New("runtime is incomplete"))
+	}
+	messages, err := t.rt.LoadTranscript(fireCtx, sourceSessionID)
+	if err != nil {
+		return fail(err)
+	}
+	reviewSessionID, err = t.rt.CreateSession(fireCtx, "Background review")
+	if err != nil {
+		return fail(err)
+	}
+	if err = t.rt.MarkReview(fireCtx, reviewSessionID); err != nil {
+		return fail(err)
+	}
+	t.mu.Lock()
+	if fireCtx.Err() != nil {
+		t.mu.Unlock()
+		return fail(fireCtx.Err())
+	}
+	t.reviewSessionID = reviewSessionID
+	t.reviewIterations = 0
+	t.mu.Unlock()
+	var sendErr error
+	if t.rt.SendPromptWithBudget != nil {
+		_, sendErr = t.rt.SendPromptWithBudget(fireCtx, reviewSessionID, Prompt(messages, review), MaxReviewInputTokens)
+	} else {
+		_, sendErr = t.rt.SendPrompt(fireCtx, reviewSessionID, Prompt(messages, review))
+	}
+	if sendErr != nil {
+		return fail(sendErr)
+	}
 	return nil
 }
 
-// PromptFor builds the reflection prompt. Decision 0003: memory entries may
-// only be proposed through the gotack-memory tool; every other write path
-// into the context directory is forbidden here and denied by the guard.
-func PromptFor(sourceSessionID string) string {
-	return "You are running an automated Gotack reflection pass about session " + sourceSessionID + ".\n\n" +
-		"Goal: decide whether that session revealed durable, reusable knowledge worth keeping, and store it if so.\n\n" +
-		"Steps:\n" +
-		"1. Review what happened in session " + sourceSessionID + ". If the session_search tool is available, use it to look up that session's messages.\n" +
-		"2. Identify durable facts only: stable user preferences, project constraints, and decisions that will matter in future sessions. Skip transient task details and anything already stored.\n" +
-		"3. Read the current memory through the gotack-memory `memory tool` (action \"view\"), then propose entries only through that same memory tool (action \"add\" or \"replace\"), one short self-contained section per fact.\n" +
-		"4. If nothing durable emerged, store nothing and finish with one sentence.\n\n" +
-		"Hard rules for this run:\n" +
-		"- Never write context files directly and never use write, edit, or shell tools to touch MEMORY.md or USER.md; the gotack-memory memory tool is the only permitted write path.\n" +
-		"- Do not perform any other work: no file edits, no commands, no installs.\n" +
-		"- Keep entries short; the memory tool enforces size caps and rejects oversized entries."
-}
-
-// budgetAllowsLocked reports whether one more reflection run may launch now.
-// Callers hold t.mu.
-func (t *Tracker) budgetAllowsLocked(now time.Time) bool {
-	since := now.Add(-budgetWindow)
-	count := 0
-	for _, f := range t.fires {
-		if f.After(since) {
-			count++
-		}
+func (t *Tracker) CancelForLiveTurn(ctx context.Context, liveSessionID string) error {
+	t.mu.Lock()
+	if liveSessionID != "" && liveSessionID == t.reviewSessionID {
+		t.mu.Unlock()
+		return nil
 	}
-	return count < t.hourlyBudget
-}
-
-// pruneFires drops fire records outside the budget window. Reuses the
-// backing array: callers must treat the input as consumed.
-func pruneFires(fires []time.Time, now time.Time) []time.Time {
-	since := now.Add(-budgetWindow)
-	out := fires[:0]
-	for _, f := range fires {
-		if f.After(since) {
-			out = append(out, f)
-		}
+	if t.launchCancel != nil {
+		t.launchCancel()
 	}
-	return out
+	reviewSessionID := t.reviewSessionID
+	t.mu.Unlock()
+	if reviewSessionID == "" || t.rt.CancelSession == nil {
+		return nil
+	}
+	return t.rt.CancelSession(ctx, reviewSessionID)
 }
 
-// turnCount reports the recorded completed-turn count for sessionID. Test
-// seam only.
-func (t *Tracker) turnCount(sessionID string) int {
+func (t *Tracker) CancelReview(ctx context.Context) error {
+	t.mu.Lock()
+	reviewSessionID := t.reviewSessionID
+	t.mu.Unlock()
+	if reviewSessionID == "" || t.rt.CancelSession == nil {
+		return nil
+	}
+	return t.rt.CancelSession(ctx, reviewSessionID)
+}
+
+// Stop cancels the launch/review and releases its claim during host shutdown.
+// The returned session id lets the host remove the detached Crush session even
+// though its run_complete stream is about to be disconnected.
+func (t *Tracker) Stop(ctx context.Context) (string, error) {
+	t.mu.Lock()
+	reviewSessionID := t.reviewSessionID
+	t.clearReviewLocked()
+	t.mu.Unlock()
+	if reviewSessionID == "" || t.rt.CancelSession == nil {
+		return reviewSessionID, nil
+	}
+	return reviewSessionID, t.rt.CancelSession(ctx, reviewSessionID)
+}
+
+func (t *Tracker) Forget(sessionID string) {
+	if sessionID == "" {
+		return
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.turns[sessionID]
+	delete(t.sessions, sessionID)
+	t.clearSeenSessionLocked(sessionID)
 }
 
-// tagReflectionSession marks sessionID as a reflection session the way Fire
-// does after a successful launch. Test seam only.
-func (t *Tracker) tagReflectionSession(sessionID string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.reflectionSessions[sessionID] = true
+func (t *Tracker) clearSeenSessionLocked(sessionID string) {
+	prefix := sessionID + "\x00"
+	for key := range t.seenIterations {
+		if strings.HasPrefix(key, prefix) {
+			delete(t.seenIterations, key)
+		}
+	}
+	for key := range t.seenLearningCall {
+		if strings.HasPrefix(key, prefix) {
+			delete(t.seenLearningCall, key)
+		}
+	}
+}
+
+func (t *Tracker) clearReviewLocked() {
+	if t.launchCancel != nil {
+		t.launchCancel()
+	}
+	if t.reviewSessionID != "" {
+		t.clearSeenSessionLocked(t.reviewSessionID)
+	}
+	t.inflight = false
+	t.reviewSessionID = ""
+	t.reviewIterations = 0
+	t.launchCancel = nil
 }

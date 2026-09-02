@@ -42,7 +42,7 @@ import (
 
 // conn holds the dynamic connection state. The host reads it with
 // a.conn.Load() and mutates it through a.swapConn(...), so read paths need no
-// mutex; see docs/plans/completed/d1-conn-pointer.md for the rationale.
+// mutex.
 type conn struct {
 	api   *crushapi.Client
 	fwd   *uievents.Forwarder
@@ -69,13 +69,11 @@ type App struct {
 	zalo          *zalo.Manager
 	officeSeeder  *officeSeeder
 	contextSeeder *contextseed.Seeder
-	// scheduler runs the Phase 5 scheduled autonomous runs. It is host
-	// internal (no UI surface this phase) and outlives engine reconnects:
-	// readiness is pushed to it from the connection flow.
+	// scheduler runs scheduled autonomous sessions. It is host-internal and
+	// outlives engine reconnects: readiness is pushed from the connection flow.
 	scheduler *schedule.Scheduler
-	// reflection is the Phase 6 learning-loop gate (internal/reflection). It
-	// is host internal (no UI surface this phase): gates open on run_complete
-	// and session deletion, and the tracker fires one bounded engine run.
+	// reflection is the Hermes-compatible background-review gate. It has no UI
+	// surface and consumes only existing prompt/message/run SSE boundaries.
 	reflection *reflection.Tracker
 
 	conn atomic.Pointer[conn]
@@ -114,7 +112,7 @@ func NewApp() *App {
 	a := &App{}
 	a.link = enginelink.NewLink(nil)
 	a.conn.Store(&conn{
-		perms: permission.NewRelay(permissionTTL),
+		perms: permission.NewRelay(permission.DefaultTTL),
 	})
 	return a
 }
@@ -195,6 +193,9 @@ func (a *App) shutdown(ctx context.Context) {
 		// was already cleared.
 		return
 	}
+	// Remove a detached review while the REST connection and completion stream
+	// are still available; otherwise shutdown could strand its hidden session.
+	a.stopReflection(ctx)
 	// The link owns the live attach/stream scope; cancelling it disconnects
 	// the UI event stream while the engine process itself keeps running.
 	a.link.CancelScope()
@@ -251,9 +252,11 @@ func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text s
 		filepath.Join(appconfig.Dir(), guard.UnattendedRosterFileName), sessionID); err != nil {
 		return "", err
 	}
+	cadenceReady := a.prepareReflectionTurn(sessionID)
 	if _, err := svc.sess.Send(ctx, sessionID, text); err != nil {
 		return "", err
 	}
+	a.reflectionTurnAccepted(sessionID, cadenceReady)
 	return sessionID, nil
 }
 
@@ -313,17 +316,31 @@ func (a *App) workspacePath() string {
 // RunDone implements uievents.DoneSink: completed agent runs are routed to
 // the Zalo manager, which decides which chat (if any) receives the answer,
 // to the scheduler, which books the outcome of scheduled runs from the
-// run_complete SSE event (never by polling), and to the reflection tracker,
-// which applies the Phase 6 turn gate and recursion guard to the same event.
+// run_complete SSE event (never by polling), and to the reflection tracker.
 func (a *App) RunDone(done uievents.SessionDonePayload) {
 	if a.zalo != nil {
 		a.zalo.Done(done.SessionID, done.Text)
 	}
+	scheduled := false
 	if a.scheduler != nil {
-		a.scheduler.RecordOutcome(done.SessionID, done.Error, done.Cancelled)
+		scheduled = a.scheduler.RecordOutcome(done.SessionID, done.Error, done.Cancelled)
 	}
-	if a.reflection != nil && a.reflection.SessionDone(done.SessionID, done.Error, done.Cancelled) {
-		a.triggerReflection(done.SessionID)
+	if a.reflection != nil {
+		// Hermes disables background review for cron jobs: they have no
+		// human-in-the-loop learning signal and a review would spend tokens on
+		// autonomous output. Drop any assistant-iteration state accumulated
+		// from this scheduled run instead.
+		if scheduled {
+			a.reflection.Forget(done.SessionID)
+			return
+		}
+		review, cleanupID := a.reflection.RunDone(done.SessionID, done.Text, done.Error, done.Cancelled)
+		if cleanupID != "" {
+			a.cleanupReflection(cleanupID)
+		}
+		if review.Any() {
+			a.triggerReflection(done.SessionID, review)
+		}
 	}
 }
 

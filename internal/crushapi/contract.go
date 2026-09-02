@@ -92,11 +92,6 @@ type TextPart struct {
 	Text string `json:"text"`
 }
 
-// ReasoningPart is the unwrapped data of a "reasoning" content part.
-type ReasoningPart struct {
-	Thinking string `json:"thinking"`
-}
-
 // ToolCall is the unwrapped data of a "tool_call" content part. Input is the
 // raw JSON the model emitted; callers that need typed access can decode it.
 type ToolCall struct {
@@ -104,6 +99,18 @@ type ToolCall struct {
 	Name     string          `json:"name"`
 	Input    json.RawMessage `json:"input"`
 	Finished bool            `json:"finished,omitempty"`
+}
+
+// ToolResult is the consumed portion of a completed tool response. Callers
+// that build prompts use only Name, Content, and IsError; ToolCallID and
+// Metadata let host-side integrations correlate a successful result without
+// importing Crush internals.
+type ToolResult struct {
+	ToolCallID string `json:"tool_call_id"`
+	Name       string `json:"name"`
+	Content    string `json:"content"`
+	Metadata   string `json:"metadata"`
+	IsError    bool   `json:"is_error"`
 }
 
 // BinaryPart is the unwrapped data of a "binary" content part in message
@@ -219,35 +226,25 @@ type RunComplete struct {
 	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
-// AgentEvent mirrors the minimal subset of proto.AgentEvent that the bridge
-// forwards. The full proto.AgentEvent carries a Message and a Go error
-// which the UI does not need here.
-type AgentEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id,omitempty"`
-	Progress  string `json:"progress,omitempty"`
-	Done      bool   `json:"done,omitempty"`
-}
-
 // partWrapper is the on-the-wire shape of a single entry in Message.Parts.
 // The Crush server marshals ContentPart values into
 //
 //	{"type": "text|reasoning|tool_call|...", "data": {...}}
 //
-// so the bridge decodes the same shape to reach TextPart, ReasoningPart and
-// ToolCall.
+// The bridge decodes only the variants it consumes.
 type partWrapper struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data"`
 }
 
-// Parts is the UI-relevant content of a Message.Parts blob: concatenated text,
-// tool calls, and binary attachments. It exists so the SSE forwarder can
+// Parts is the consumed content of a Message.Parts blob: concatenated text,
+// tool calls and results, and binary attachments. It exists so consumers can
 // decode the blob once per event instead of repeatedly, which matters because
 // every token delta re-sends the whole parts array.
 type Parts struct {
 	Text        string
 	ToolCalls   []ToolCall
+	ToolResults []ToolResult
 	Attachments []Attachment
 }
 
@@ -283,6 +280,12 @@ func ExtractParts(parts json.RawMessage) Parts {
 				continue
 			}
 			out.ToolCalls = append(out.ToolCalls, tc)
+		case "tool_result":
+			var tr ToolResult
+			if err := json.Unmarshal(w.Data, &tr); err != nil {
+				continue
+			}
+			out.ToolResults = append(out.ToolResults, tr)
 		case "binary":
 			var binary BinaryPart
 			if err := json.Unmarshal(w.Data, &binary); err != nil {

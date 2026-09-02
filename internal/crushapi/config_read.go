@@ -11,7 +11,9 @@ import (
 // include credentials resolved from global/workspace config and environment.
 type WorkspaceConfig struct {
 	Providers map[string]ProviderConfig `json:"providers,omitempty"`
+	Models    map[string]SelectedModel  `json:"models,omitempty"`
 	Options   *WorkspaceOptions         `json:"options,omitempty"`
+	Env       map[string]string         `json:"env,omitempty"`
 	// Hooks mirrors the `hooks` map (event name -> hook list). Gotack reads it
 	// before registering its own PreToolUse hook so it can merge instead of
 	// clobbering user-defined hooks on the same event.

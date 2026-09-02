@@ -3,358 +3,277 @@ package reflection
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 )
 
-// fakeRuntime records every Runtime seam call so the firing sequence and its
-// guards can be asserted end to end, the way internal/schedule tests do it.
 type fakeRuntime struct {
-	nextSessionID string
-	createErr     error
-	markErr       error
-	sendErr       error
-	preflightErr  error
-
-	createdTitles  []string
-	createdIDs     []string
-	marked         []string
-	sent           map[string]string // sessionID -> prompt
-	createCalls    int
-	markCalls      int
-	sendCalls      int
-	preflightCalls int
+	mu        sync.Mutex
+	calls     []string
+	messages  []Message
+	markErr   error
+	budget    int64
+	useBudget bool
 }
 
-func (f *fakeRuntime) CreateSession(_ context.Context, title string) (string, error) {
-	f.createCalls++
-	if f.createErr != nil {
-		return "", f.createErr
-	}
-	id := f.nextSessionID
-	if id == "" {
-		id = "reflection-session"
-	}
-	f.createdTitles = append(f.createdTitles, title)
-	f.createdIDs = append(f.createdIDs, id)
-	return id, nil
-}
-
-func (f *fakeRuntime) MarkUnattended(_ context.Context, sessionID string) error {
-	f.markCalls++
-	if f.markErr != nil {
-		return f.markErr
-	}
-	f.marked = append(f.marked, sessionID)
-	return nil
-}
-
-func (f *fakeRuntime) SendPrompt(_ context.Context, sessionID, prompt string) (string, error) {
-	f.sendCalls++
-	if f.sendErr != nil {
-		return "", f.sendErr
-	}
-	if f.sent == nil {
-		f.sent = map[string]string{}
-	}
-	f.sent[sessionID] = prompt
-	return "run-1", nil
-}
-
-func (f *fakeRuntime) Preflight(context.Context) error {
-	f.preflightCalls++
-	return f.preflightErr
-}
-
-func newTestTracker(rt *fakeRuntime) *Tracker {
-	tr := New(Runtime{
-		CreateSession:  rt.CreateSession,
-		MarkUnattended: rt.MarkUnattended,
-		SendPrompt:     rt.SendPrompt,
-		Preflight:      rt.Preflight,
-	}, nil)
-	tr.now = func() time.Time { return time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC) }
-	return tr
-}
-
-func TestSessionDoneTurnGate(t *testing.T) {
-	tests := []struct {
-		name      string
-		completed int
-		wantFire  bool
-	}{
-		{name: "one turn below threshold does not trigger", completed: 1, wantFire: false},
-		{name: "one turn short of threshold does not trigger", completed: DefaultTurnThreshold - 1, wantFire: false},
-		{name: "threshold turn triggers", completed: DefaultTurnThreshold, wantFire: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			tr := newTestTracker(&fakeRuntime{})
-			got := false
-			for i := 0; i < test.completed; i++ {
-				got = tr.SessionDone("sess-1", "", false)
+func (f *fakeRuntime) runtime() Runtime {
+	rt := Runtime{
+		LoadTranscript: func(_ context.Context, source string) ([]Message, error) {
+			f.record("load:" + source)
+			return f.messages, nil
+		},
+		CreateSession: func(context.Context, string) (string, error) {
+			f.record("create")
+			return "review-1", nil
+		},
+		MarkReview: func(context.Context, string) error {
+			f.record("mark")
+			return f.markErr
+		},
+		SendPrompt: func(_ context.Context, id, prompt string) (string, error) {
+			f.record("send:" + id)
+			if !strings.Contains(prompt, "Review the conversation") {
+				return "", errors.New("missing instructions")
 			}
-			if got != test.wantFire {
-				t.Fatalf("SessionDone after %d turns = %v, want %v", test.completed, got, test.wantFire)
-			}
-		})
-	}
-}
-
-func TestSessionDoneIgnoresFailedAndCancelledRuns(t *testing.T) {
-	tr := newTestTracker(&fakeRuntime{})
-	for i := 0; i < DefaultTurnThreshold*2; i++ {
-		if tr.SessionDone("sess-1", "provider error", false) {
-			t.Fatal("errored run must never count toward the turn gate")
-		}
-		if tr.SessionDone("sess-1", "", true) {
-			t.Fatal("cancelled run must never count toward the turn gate")
-		}
-	}
-	if tr.SessionDone("sess-1", "", false) {
-		t.Fatal("one successful turn is below the threshold and must not trigger")
-	}
-	if got := tr.turnCount("sess-1"); got != 1 {
-		t.Fatalf("turn count = %d, want 1", got)
-	}
-}
-
-func TestSessionEndGate(t *testing.T) {
-	tests := []struct {
-		name     string
-		prepare  func(tr *Tracker)
-		session  string
-		wantFire bool
-	}{
-		{
-			name:     "session with no turns does not trigger",
-			prepare:  func(*Tracker) {},
-			wantFire: false,
+			return "run-1", nil
 		},
-		{
-			name:     "session with completed turns triggers",
-			prepare:  func(tr *Tracker) { tr.SessionDone("sess-1", "", false) },
-			wantFire: true,
+		CancelSession: func(_ context.Context, id string) error {
+			f.record("cancel:" + id)
+			return nil
 		},
-		{
-			name: "session end fires only once",
-			prepare: func(tr *Tracker) {
-				tr.SessionDone("sess-1", "", false)
-				if !tr.SessionEnded("sess-1") {
-					t.Fatal("first SessionEnded must trigger")
-				}
-			},
-			wantFire: false,
-		},
-		{
-			name:     "reflection session never triggers on end",
-			prepare:  func(tr *Tracker) { tr.tagReflectionSession("reflection-session") },
-			session:  "reflection-session",
-			wantFire: false,
+		CleanupSession: func(_ context.Context, id string) error {
+			f.record("cleanup:" + id)
+			return nil
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			tr := newTestTracker(&fakeRuntime{})
-			test.prepare(tr)
-			session := test.session
-			if session == "" {
-				session = "sess-1"
+	if f.useBudget {
+		rt.SendPromptWithBudget = func(_ context.Context, id, prompt string, budget int64) (string, error) {
+			f.record("send-budget:" + id)
+			f.budget = budget
+			if !strings.Contains(prompt, "Review the conversation") {
+				return "", errors.New("missing instructions")
 			}
-			if got := tr.SessionEnded(session); got != test.wantFire {
-				t.Fatalf("SessionEnded(%q) = %v, want %v", session, got, test.wantFire)
-			}
-		})
-	}
-}
-
-func TestFireSequenceIsCreateMarkSend(t *testing.T) {
-	rt := &fakeRuntime{}
-	tr := newTestTracker(rt)
-	tr.turnThreshold = 1
-	if !tr.SessionDone("sess-source", "", false) {
-		t.Fatal("gate must open after one turn with threshold 1")
-	}
-
-	if err := tr.Fire(context.Background(), "sess-source"); err != nil {
-		t.Fatalf("Fire() error = %v", err)
-	}
-	if rt.createCalls != 1 || rt.markCalls != 1 || rt.sendCalls != 1 {
-		t.Fatalf("call counts = create %d mark %d send %d, want 1/1/1", rt.createCalls, rt.markCalls, rt.sendCalls)
-	}
-	if !strings.HasPrefix(rt.createdTitles[0], TitlePrefix) {
-		t.Fatalf("reflection session title = %q, want %q prefix", rt.createdTitles[0], TitlePrefix)
-	}
-	if len(rt.marked) != 1 || rt.marked[0] != rt.createdIDs[0] {
-		t.Fatalf("marked sessions = %v, want exactly the created session %v", rt.marked, rt.createdIDs)
-	}
-	if _, ok := rt.sent[rt.createdIDs[0]]; !ok {
-		t.Fatalf("prompt never sent to the created session %q", rt.createdIDs[0])
-	}
-}
-
-func TestFailedMarkAbortsSend(t *testing.T) {
-	rt := &fakeRuntime{markErr: errors.New("roster unavailable")}
-	tr := newTestTracker(rt)
-
-	err := tr.Fire(context.Background(), "sess-source")
-	if err == nil {
-		t.Fatal("Fire() must fail when the unattended mark fails")
-	}
-	if rt.sendCalls != 0 {
-		t.Fatalf("send ran %d times after a failed mark; the firing must abort before the prompt", rt.sendCalls)
-	}
-}
-
-func TestLaunchFailureReleasesClaim(t *testing.T) {
-	rt := &fakeRuntime{createErr: errors.New("engine down")}
-	tr := newTestTracker(rt)
-
-	if err := tr.Fire(context.Background(), "sess-source"); err == nil {
-		t.Fatal("Fire() must surface a failed launch")
-	}
-	// The failed launch must not consume budget or hold the in-flight claim.
-	rt.createErr = nil
-	if err := tr.Fire(context.Background(), "sess-source"); err != nil {
-		t.Fatalf("Fire() after a rolled-back failure error = %v, want success", err)
-	}
-}
-
-func TestRecursionGuardIgnoresReflectionCompletions(t *testing.T) {
-	rt := &fakeRuntime{}
-	tr := newTestTracker(rt)
-	tr.hourlyBudget = 2 // keep the budget out of this recursion-guard proof
-	if err := tr.Fire(context.Background(), "sess-source"); err != nil {
-		t.Fatalf("Fire() error = %v", err)
-	}
-	reflectionID := rt.createdIDs[0]
-
-	for i := 0; i < DefaultTurnThreshold*2; i++ {
-		if tr.SessionDone(reflectionID, "", false) {
-			t.Fatal("completion of a tagged reflection session must never trigger another reflection")
+			return "run-1", nil
 		}
 	}
-	if got := tr.turnCount(reflectionID); got != 0 {
-		t.Fatalf("reflection session counted %d turns, want 0", got)
+	return rt
+}
+
+func TestFireUsesHermesReviewInputBudget(t *testing.T) {
+	fake := &fakeRuntime{useBudget: true}
+	if err := newTracker(fake.runtime()).Fire(t.Context(), "source", Review{Memory: true}); err != nil {
+		t.Fatal(err)
 	}
-	// The reflection run's completion also releases the in-flight claim, so a
-	// later gate decision can fire again.
-	if err := tr.Fire(context.Background(), "sess-other"); err != nil {
-		t.Fatalf("Fire() after the reflection completion error = %v, want success", err)
+	if fake.budget != MaxReviewInputTokens || !strings.Contains(fmt.Sprint(fake.snapshot()), "send-budget:review-1") {
+		t.Fatalf("review budget = %d, calls = %v", fake.budget, fake.snapshot())
 	}
 }
 
-func TestInflightBlocksConcurrentReflection(t *testing.T) {
-	rt := &fakeRuntime{}
-	tr := newTestTracker(rt)
-	if err := tr.Fire(context.Background(), "sess-1"); err != nil {
-		t.Fatalf("first Fire() error = %v", err)
+func (f *fakeRuntime) record(call string) {
+	f.mu.Lock()
+	f.calls = append(f.calls, call)
+	f.mu.Unlock()
+}
+
+func (f *fakeRuntime) snapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+func newTracker(rt Runtime) *Tracker { return New(rt, slog.New(slog.DiscardHandler)) }
+
+func TestHermesCadenceAndFailureGate(t *testing.T) {
+	tracker := newTracker(Runtime{})
+	tracker.Hydrate("s", 9)
+	tracker.UserTurnAccepted("s")
+	for i := 0; i < SkillInterval; i++ {
+		tracker.AssistantIteration("s", fmt.Sprintf("m-%d", i), true)
 	}
-	err := tr.Fire(context.Background(), "sess-2")
-	if err == nil {
-		t.Fatal("second Fire() while a reflection run is in flight must be refused")
+	if review, _ := tracker.RunDone("s", "partial", "", true); review.Any() {
+		t.Fatalf("cancelled run reviewed: %+v", review)
 	}
-	if rt.createCalls != 1 {
-		t.Fatalf("create called %d times, want exactly 1", rt.createCalls)
+	if review, _ := tracker.RunDone("s", "next", "", false); review.Any() {
+		t.Fatalf("consumed cadence leaked: %+v", review)
 	}
 }
 
-func TestHourlyBudgetCapsReflections(t *testing.T) {
-	rt := &fakeRuntime{}
-	tr := newTestTracker(rt)
-	base := tr.now()
-
-	if err := tr.Fire(context.Background(), "sess-1"); err != nil {
-		t.Fatalf("first Fire() error = %v", err)
+func TestLateSkillManageSnapshotResetsWithoutDoubleCount(t *testing.T) {
+	tracker := newTracker(Runtime{})
+	tracker.Hydrate("s", 0)
+	for i := 0; i < 9; i++ {
+		tracker.AssistantIteration("s", fmt.Sprintf("before-%d", i), true)
 	}
-	// The first reflection run completes: its own run_complete releases the
-	// in-flight claim through the recursion guard.
-	tr.SessionDone(rt.createdIDs[0], "", false)
-	if err := tr.Fire(context.Background(), "sess-2"); err == nil {
-		t.Fatal("second Fire() inside the budget window must be refused")
+	tracker.AssistantIteration("s", "manage", false)
+	tracker.AssistantIteration("s", "manage", true)
+	tracker.LearningToolExecuted("s", "call-1", "skill_manage")
+	for i := 0; i < 9; i++ {
+		tracker.AssistantIteration("s", fmt.Sprintf("after-%d", i), true)
 	}
-
-	tr.now = func() time.Time { return base.Add(time.Hour + time.Minute) }
-	if err := tr.Fire(context.Background(), "sess-3"); err != nil {
-		t.Fatalf("Fire() after the window slides error = %v, want success", err)
-	}
-	if len(rt.createdIDs) != 2 {
-		t.Fatalf("reflection runs launched = %d, want 2", len(rt.createdIDs))
+	if review, _ := tracker.RunDone("s", "ok", "", false); review.Any() {
+		t.Fatalf("skill cadence was not reset: %+v", review)
 	}
 }
 
-func TestPreflightSkipConsumesNothing(t *testing.T) {
-	rt := &fakeRuntime{preflightErr: errors.New("no model configured")}
-	tr := newTestTracker(rt)
-
-	err := tr.Fire(context.Background(), "sess-source")
-	if err == nil {
-		t.Fatal("Fire() must surface a preflight skip")
+func TestSkillCadenceDoesNotDependOnMemoryHydration(t *testing.T) {
+	tracker := newTracker(Runtime{})
+	for i := 0; i < SkillInterval; i++ {
+		tracker.AssistantIteration("s", fmt.Sprintf("m-%d", i), true)
 	}
-	if rt.createCalls != 0 {
-		t.Fatalf("preflight skip still created %d sessions", rt.createCalls)
-	}
-	rt.preflightErr = nil
-	if err := tr.Fire(context.Background(), "sess-source"); err != nil {
-		t.Fatalf("Fire() after a preflight skip error = %v, want success", err)
+	review, _ := tracker.RunDone("s", "ok", "", false)
+	if !review.Skills || review.Memory {
+		t.Fatalf("review = %+v", review)
 	}
 }
 
-func TestFireResetsTurnCounterForTheSourceSession(t *testing.T) {
-	rt := &fakeRuntime{}
-	tr := newTestTracker(rt)
-	tr.turnThreshold = 2
-	tr.SessionDone("sess-1", "", false)
-	tr.SessionDone("sess-1", "", false)
-	if err := tr.Fire(context.Background(), "sess-1"); err != nil {
-		t.Fatalf("Fire() error = %v", err)
+func TestLearningToolResetsOnlyAdmittedCadenceAndDeduplicates(t *testing.T) {
+	tracker := newTracker(Runtime{})
+	tracker.Hydrate("s", 0)
+	tracker.UserTurnAccepted("s")
+	tracker.AssistantIteration("s", "m-1", true)
+	tracker.LearningToolExecuted("s", "memory-1", "memory")
+	tracker.LearningToolExecuted("s", "memory-1", "memory")
+	for i := 1; i < MemoryInterval; i++ {
+		tracker.UserTurnAccepted("s")
 	}
-	if got := tr.turnCount("sess-1"); got != 0 {
-		t.Fatalf("turn count after reflection = %d, want 0", got)
+	if review, _ := tracker.RunDone("s", "ok", "", false); review.Memory {
+		t.Fatalf("duplicate memory result reset cadence incorrectly: %+v", review)
 	}
-	// One fresh turn is below the threshold again.
-	if tr.SessionDone("sess-1", "", false) {
-		t.Fatal("gate must reopen only after a full fresh threshold")
+
+	for i := 0; i < SkillInterval; i++ {
+		tracker.AssistantIteration("s", fmt.Sprintf("skill-%d", i), true)
+	}
+	tracker.LearningToolExecuted("s", "skill-1", "skill_manage")
+	tracker.LearningToolExecuted("s", "skill-1", "skill_manage")
+	for i := 0; i < SkillInterval-1; i++ {
+		tracker.AssistantIteration("s", fmt.Sprintf("after-%d", i), true)
+	}
+	if review, _ := tracker.RunDone("s", "ok", "", false); review.Skills {
+		t.Fatalf("duplicate skill result reset cadence incorrectly: %+v", review)
 	}
 }
 
-func TestFireRequiresSourceSession(t *testing.T) {
-	tr := newTestTracker(&fakeRuntime{})
-	if err := tr.Fire(context.Background(), ""); err == nil {
-		t.Fatal("Fire() with an empty source session must fail")
+func TestMemoryResultDoesNotClearAlreadyDueReview(t *testing.T) {
+	tracker := newTracker(Runtime{})
+	tracker.Hydrate("s", 9)
+	tracker.UserTurnAccepted("s")
+	tracker.LearningToolExecuted("s", "memory-1", "memory")
+	if review, _ := tracker.RunDone("s", "ok", "", false); !review.Memory {
+		t.Fatal("admitted memory call cleared the review due for this turn")
 	}
 }
 
-// TestPromptRoutesMemoryThroughD3 pins the D3 routing of the reflection
-// prompt: memory entries may only be proposed through the gotack-memory tool,
-// every other write path is named and forbidden.
-func TestPromptRoutesMemoryThroughD3(t *testing.T) {
-	prompt := PromptFor("sess-source")
-	for _, required := range []string{
-		"sess-source",
-		"memory tool",
-		"gotack-memory",
-	} {
-		if !strings.Contains(prompt, required) {
-			t.Fatalf("reflection prompt missing %q; got:\n%s", required, prompt)
+func TestFireOrderFailureCleanupAndSingleInflight(t *testing.T) {
+	fake := &fakeRuntime{messages: []Message{{Role: "user", Text: "preference"}}}
+	tracker := newTracker(fake.runtime())
+	if err := tracker.Fire(t.Context(), "source", Review{Memory: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(fake.snapshot()); got != "[load:source create mark send:review-1]" {
+		t.Fatalf("launch order = %s", got)
+	}
+	if err := tracker.Fire(t.Context(), "other", Review{Skills: true}); err == nil {
+		t.Fatal("second review launched")
+	}
+	if _, cleanup := tracker.RunDone("review-1", "done", "", false); cleanup != "review-1" {
+		t.Fatalf("cleanup id = %q", cleanup)
+	}
+
+	failed := &fakeRuntime{markErr: errors.New("roster")}
+	if err := newTracker(failed.runtime()).Fire(t.Context(), "source", Review{Skills: true}); err == nil {
+		t.Fatal("mark failure was ignored")
+	}
+	if !strings.Contains(fmt.Sprint(failed.snapshot()), "cleanup:review-1") {
+		t.Fatalf("failed launch not cleaned: %v", failed.snapshot())
+	}
+}
+
+func TestReviewCeilingAcceptsLateToolMetadata(t *testing.T) {
+	fake := &fakeRuntime{}
+	tracker := newTracker(fake.runtime())
+	if err := tracker.Fire(t.Context(), "source", Review{Skills: true}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= MaxReviewIterations; i++ {
+		if tracker.AssistantIteration("review-1", fmt.Sprintf("m-%d", i), false) {
+			t.Fatalf("text-only iteration %d cancelled", i)
 		}
 	}
-	for _, forbidden := range []string{
-		"write context files",
-	} {
-		if !strings.Contains(prompt, forbidden) {
-			t.Fatalf("reflection prompt must forbid direct context writes (%q); got:\n%s", forbidden, prompt)
-		}
+	if !tracker.AssistantIteration("review-1", "m-16", true) {
+		t.Fatal("late tool metadata did not enforce ceiling")
 	}
 }
 
-func TestSessionDoneEmptySessionIDIsIgnored(t *testing.T) {
-	tr := newTestTracker(&fakeRuntime{})
-	if tr.SessionDone("", "", false) {
-		t.Fatal("empty session id must never trigger")
+func TestStopCancelsAndReturnsDetachedSession(t *testing.T) {
+	fake := &fakeRuntime{}
+	tracker := newTracker(fake.runtime())
+	if err := tracker.Fire(t.Context(), "source", Review{Memory: true}); err != nil {
+		t.Fatal(err)
 	}
-	if tr.SessionEnded("") {
-		t.Fatal("empty session id must never trigger on session end")
+	id, err := tracker.Stop(t.Context())
+	if err != nil || id != "review-1" || !strings.Contains(fmt.Sprint(fake.snapshot()), "cancel:review-1") {
+		t.Fatalf("Stop = id %q err %v calls %v", id, err, fake.snapshot())
+	}
+	if err := tracker.Fire(t.Context(), "other", Review{Skills: true}); err != nil {
+		t.Fatalf("stop left review claim: %v", err)
+	}
+}
+
+func TestDigestBoundsOldTextAndKeepsRecentToolPair(t *testing.T) {
+	messages := make([]Message, 26)
+	messages[0] = Message{Role: "user", Text: strings.Repeat("u", 301)}
+	messages[1] = Message{Role: "assistant", Tools: []string{"read"}}
+	messages[2] = Message{Role: "tool", Results: []ToolResult{{Name: "read", Content: "file body"}}}
+	for i := 3; i < len(messages); i++ {
+		messages[i] = Message{Role: "user", Text: fmt.Sprintf("recent-%d", i)}
+	}
+	digest := Digest(messages)
+	if strings.Contains(digest, strings.Repeat("u", 301)) ||
+		!strings.Contains(digest, strings.Repeat("u", 300)) ||
+		!strings.Contains(digest, "ASSISTANT[tools: read]") ||
+		!strings.Contains(digest, "TOOL[read]:\nfile body") {
+		t.Fatalf("digest drifted: %s", digest)
+	}
+}
+
+func TestDigestAppliesHermesToolResultBudgets(t *testing.T) {
+	large := strings.Repeat("x", maxToolResultRunes+1)
+	mcp := strings.Repeat("m", maxMCPResultRunes+1)
+	messages := []Message{
+		{Role: "assistant", Tools: []string{"read"}},
+		{Role: "tool", Results: []ToolResult{{Name: "read", Content: large}}},
+		{Role: "tool", Results: []ToolResult{{Name: "mcp_gotack-recall_session_search", Content: mcp}}},
+	}
+	digest := Digest(messages)
+	if strings.Contains(digest, large) || strings.Contains(digest, mcp) ||
+		!strings.Contains(digest, "Tool result truncated") {
+		t.Fatal("oversized tool result was not reduced to a preview")
+	}
+
+	tooMany := []Message{{Role: "assistant", Tools: []string{"a"}}}
+	for i := 0; i < 3; i++ {
+		tooMany = append(tooMany, Message{Role: "tool", Results: []ToolResult{{Name: "read", Content: strings.Repeat("z", 100_000)}}})
+	}
+	bounded := boundToolResults(tooMany)
+	total := 0
+	for _, message := range bounded {
+		for _, result := range message.Results {
+			total += runeLen(result.Content)
+		}
+	}
+	if total > maxTurnToolResultRunes {
+		t.Fatalf("tool turn budget = %d, want <= %d", total, maxTurnToolResultRunes)
+	}
+}
+
+func TestCombinedPromptDoesNotStopBeforeSkillOrMemoryReview(t *testing.T) {
+	prompt := Prompt([]Message{{Role: "user", Text: "Remember that I prefer CSV."}}, Review{Memory: true, Skills: true})
+	if !strings.Contains(prompt, "Act on either dimension that has a real signal") ||
+		strings.Contains(prompt, "If nothing is worth saving, just say") ||
+		strings.Contains(prompt, "no correction or reusable technique") {
+		t.Fatalf("combined prompt has an early single-dimension stop: %s", prompt)
 	}
 }

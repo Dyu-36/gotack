@@ -154,17 +154,17 @@ func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 }
 
 // DeleteSession removes the session from Crush. If it was current, the UI
-// selects another session and calls SwitchSession afterwards. Session
-// deletion is also the Phase 6 session-end reflection trigger; the gate
-// runs BEFORE the delete so the reflection run can still read the source
-// conversation, and a refused gate never blocks the delete.
+// selects another session and calls SwitchSession afterwards.
 func (a *App) DeleteSession(id string) error {
 	svc, err := a.services()
 	if err != nil {
 		return err
 	}
-	a.sessionEnded(id)
-	return svc.sess.Delete(a.ctx, id)
+	if err := svc.sess.Delete(a.ctx, id); err != nil {
+		return err
+	}
+	a.forgetReflection(id)
+	return nil
 }
 
 // SwitchSession sets the active session in the engine and guarantees the
@@ -267,7 +267,13 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 		}
 		prepared = append(prepared, item)
 	}
-	return svc.sess.SendWithAttachments(a.ctx, id, prompt, prepared)
+	cadenceReady := a.prepareReflectionTurn(id)
+	runID, err := svc.sess.SendWithAttachments(a.ctx, id, prompt, prepared)
+	if err != nil {
+		return "", err
+	}
+	a.reflectionTurnAccepted(id, cadenceReady)
+	return runID, nil
 }
 
 // CancelPrompt interrupts the running turn.

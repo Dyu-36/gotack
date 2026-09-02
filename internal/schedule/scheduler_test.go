@@ -59,16 +59,16 @@ func (f *fakeRuntime) MarkUnattended(_ context.Context, sessionID string) error 
 	return f.markErr
 }
 
-func (f *fakeRuntime) SendPrompt(_ context.Context, sessionID, prompt string) (string, error) {
+func (f *fakeRuntime) SendPrompt(_ context.Context, sessionID, prompt string) error {
 	f.record("send:" + sessionID)
 	if f.sendErr != nil {
-		return "", f.sendErr
+		return f.sendErr
 	}
 	if f.sentPrompts == nil {
 		f.sentPrompts = make(map[string]string)
 	}
 	f.sentPrompts[sessionID] = prompt
-	return "run-" + sessionID, nil
+	return nil
 }
 
 func (f *fakeRuntime) Preflight(context.Context) error {
@@ -81,6 +81,10 @@ func newTestScheduler(t *testing.T, rt Runtime, now time.Time) *Scheduler {
 	path := filepath.Join(t.TempDir(), FileName)
 	s := New(path, rt, slog.New(slog.DiscardHandler))
 	s.now = func() time.Time { return now }
+	// Direct evaluate calls below model an already-running scheduler without
+	// paying for a ticker goroutine in every unit test. Start-based tests reset
+	// this flag before exercising the real lifecycle.
+	s.started = true
 	return s
 }
 
@@ -187,6 +191,95 @@ func TestFailedSendCountsFailure(t *testing.T) {
 	}
 }
 
+func TestClaimPersistenceFailureAbortsBeforeNetwork(t *testing.T) {
+	rt := &fakeRuntime{}
+	// An existing directory cannot be replaced by schedule.json, forcing the
+	// claim save to fail without relying on platform-specific permissions.
+	s := New(t.TempDir(), Runtime{
+		CreateSession:  rt.CreateSession,
+		MarkUnattended: rt.MarkUnattended,
+		SendPrompt:     rt.SendPrompt,
+		Preflight:      rt.Preflight,
+	}, slog.New(slog.DiscardHandler))
+	s.now = base2026
+	s.file = File{Jobs: []*Job{testJob()}}
+	s.engineReady = true
+	s.started = true
+
+	s.evaluate(context.Background())
+
+	if calls := rt.callNames(); len(calls) != 1 || calls[0] != "preflight" {
+		t.Fatalf("network calls after failed claim save: %v", calls)
+	}
+	job := s.file.Jobs[0]
+	if job.LastRun != nil || job.LastOutcome != "" || s.inflightCount() != 0 {
+		t.Fatalf("failed claim was not rolled back: job=%+v inflight=%d", job, s.inflightCount())
+	}
+}
+
+func TestOutcomeBeforeSendReturnsDoesNotResurrectFlight(t *testing.T) {
+	var s *Scheduler
+	s = newTestScheduler(t, Runtime{
+		CreateSession:  func(context.Context, string) (string, error) { return "fast-session", nil },
+		MarkUnattended: func(context.Context, string) error { return nil },
+		SendPrompt: func(_ context.Context, sessionID, _ string) error {
+			if !s.RecordOutcome(sessionID, "", false) {
+				t.Error("early run_complete did not find the scheduled session")
+			}
+			return nil
+		},
+	}, base2026())
+	s.file = File{Jobs: []*Job{testJob()}}
+	s.engineReady = true
+
+	s.evaluate(context.Background())
+
+	job := s.file.Jobs[0]
+	if s.inflightCount() != 0 || job.LastOutcome != "complete" || len(job.RecentFires) != 1 {
+		t.Fatalf("early outcome lost or flight resurrected: job=%+v inflight=%d", job, s.inflightCount())
+	}
+}
+
+func TestIndependentDueJobsLaunchConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	rt := Runtime{
+		CreateSession:  func(_ context.Context, title string) (string, error) { return title, nil },
+		MarkUnattended: func(context.Context, string) error { return nil },
+		SendPrompt: func(_ context.Context, sessionID, _ string) error {
+			started <- sessionID
+			<-release
+			return nil
+		},
+	}
+	s := newTestScheduler(t, rt, base2026())
+	second := testJob()
+	second.ID = "job2"
+	second.Name = "Second"
+	s.file = File{Jobs: []*Job{testJob(), second}}
+	s.engineReady = true
+
+	done := make(chan struct{})
+	go func() {
+		s.evaluate(context.Background())
+		close(done)
+	}()
+	for count := 0; count < 2; count++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("due jobs were serialized behind one blocked launch")
+		}
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("parallel launch evaluation did not finish")
+	}
+}
+
 func TestSameJobNeverFiresConcurrently(t *testing.T) {
 	rt := &fakeRuntime{}
 	s := newTestScheduler(t, Runtime{
@@ -226,7 +319,9 @@ func TestIntervalWindowBlocksRefire(t *testing.T) {
 	s.engineReady = true
 
 	s.evaluate(context.Background())
-	s.RecordOutcome("sess-1", "", false)
+	if !s.RecordOutcome("sess-1", "", false) {
+		t.Fatal("scheduled session was not recognized")
+	}
 	// Still inside the 10m interval: nothing may fire.
 	s.evaluate(context.Background())
 
@@ -238,6 +333,13 @@ func TestIntervalWindowBlocksRefire(t *testing.T) {
 	}
 	if sends != 1 {
 		t.Fatalf("refire inside the interval window, sends = %d", sends)
+	}
+}
+
+func TestRecordOutcomeRejectsUnknownSession(t *testing.T) {
+	s := newTestScheduler(t, Runtime{}, base2026())
+	if s.RecordOutcome("ordinary-session", "", false) {
+		t.Fatal("ordinary session was classified as scheduled")
 	}
 }
 
@@ -435,15 +537,54 @@ func TestEngineNotReadyDefersWithoutFailures(t *testing.T) {
 	}
 
 	// Readiness is pushed (SetEngineReady), and the overdue job fires then.
+	if err := SaveFile(s.path, &s.file, base2026()); err != nil {
+		t.Fatal(err)
+	}
+	s.started = false
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Stop)
 	s.SetEngineReady(true)
 	sent := false
-	for _, call := range rt.callNames() {
-		if strings.HasPrefix(call, "send") {
-			sent = true
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !sent {
+		for _, call := range rt.callNames() {
+			if strings.HasPrefix(call, "send") {
+				sent = true
+				break
+			}
+		}
+		if !sent {
+			time.Sleep(time.Millisecond)
 		}
 	}
 	if !sent {
 		t.Fatalf("engine becoming ready must re-evaluate due jobs: %v", rt.callNames())
+	}
+}
+
+func TestReadinessAfterStopCannotLaunch(t *testing.T) {
+	rt := &fakeRuntime{}
+	s := newTestScheduler(t, Runtime{
+		CreateSession:  rt.CreateSession,
+		MarkUnattended: rt.MarkUnattended,
+		SendPrompt:     rt.SendPrompt,
+		Preflight:      rt.Preflight,
+	}, base2026())
+	file := &File{Jobs: []*Job{testJob()}}
+	if err := SaveFile(s.path, file, base2026()); err != nil {
+		t.Fatal(err)
+	}
+	s.started = false
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s.Stop()
+	s.SetEngineReady(true)
+	time.Sleep(20 * time.Millisecond)
+	if calls := rt.callNames(); len(calls) != 0 {
+		t.Fatalf("late readiness after Stop must not launch jobs: %v", calls)
 	}
 }
 

@@ -51,13 +51,14 @@ func run() error {
 
 // optionsFor derives the per-session policy options. The write-safe root is
 // the session's own working directory (the workspace path), the memory
-// context dir is the fixed appconfig location, and the unattended roster
-// records which sessions have no human to answer prompts.
+// context dir is the fixed appconfig location, and the two rosters record
+// which sessions are unattended and which are detached background reviews.
 func optionsFor(in guard.Input) guard.Options {
 	dir := appconfig.Dir()
 	return guard.Options{
 		WriteSafeRoot: in.CWD,
 		ContextDir:    filepath.Join(dir, "context"),
 		Unattended:    guard.RosterContains(filepath.Join(dir, guard.UnattendedRosterFileName), in.SessionID),
+		Review:        guard.ReviewRosterContains(filepath.Join(dir, guard.ReviewRosterFileName), in.SessionID),
 	}
 }

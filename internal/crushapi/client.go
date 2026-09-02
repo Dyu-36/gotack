@@ -29,6 +29,7 @@ const (
 	questionsAnswerPath = "/v1/workspaces/{id}/questions/answer"
 	agentPath           = "/v1/workspaces/{id}/agent"
 	agentInitPath       = "/v1/workspaces/{id}/agent/init"
+	agentRefreshPath    = "/v1/workspaces/{id}/agent/refresh-prompt"
 	cancelPath          = "/v1/workspaces/{id}/agent/sessions/{sid}/cancel"
 	currentSessionPath  = "/v1/workspaces/{id}/current-session"
 	sessionsPath        = "/v1/workspaces/{id}/sessions"
@@ -166,24 +167,28 @@ func (c *Client) History(ctx context.Context, wsID, sessionID string) ([]File, e
 	return fs, nil
 }
 
-// SendPrompt posts an AgentMessage to /v1/workspaces/{id}/agent. The Crush
-// server replies 202 once the prompt is queued; runID is echoed back in the
-// RunComplete event so callers can correlate. An empty runID omits the
-// field, which the server treats as "best effort" matching.
-func (c *Client) SendPrompt(ctx context.Context, wsID, sessionID, text, runID string) error {
-	return c.SendPromptWithAttachments(ctx, wsID, sessionID, text, runID, nil)
-}
-
 // SendPromptWithAttachments posts an AgentMessage with optional inline file
 // data. Crush persists these attachments with the user message and supplies
 // text/image content to the selected model according to its capabilities.
 func (c *Client) SendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment) error {
+	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, 0)
+}
+
+// SendPromptWithAttachmentsAndBudget is the narrow review-only variant of
+// SendPromptWithAttachments. maxInputTokens is forwarded to Crush as an
+// aggregate per-run input ceiling; a non-positive value is treated as unset.
+func (c *Client) SendPromptWithAttachmentsAndBudget(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment, maxInputTokens int64) error {
+	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, maxInputTokens)
+}
+
+func (c *Client) sendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment, maxInputTokens int64) error {
 	body, _ := json.Marshal(struct {
-		SessionID   string       `json:"session_id"`
-		RunID       string       `json:"run_id,omitempty"`
-		Prompt      string       `json:"prompt"`
-		Attachments []Attachment `json:"attachments,omitempty"`
-	}{SessionID: sessionID, RunID: runID, Prompt: text, Attachments: attachments})
+		SessionID      string       `json:"session_id"`
+		RunID          string       `json:"run_id,omitempty"`
+		Prompt         string       `json:"prompt"`
+		Attachments    []Attachment `json:"attachments,omitempty"`
+		MaxInputTokens int64        `json:"max_input_tokens,omitempty"`
+	}{SessionID: sessionID, RunID: runID, Prompt: text, Attachments: attachments, MaxInputTokens: maxInputTokens})
 	resp, err := c.do(ctx, http.MethodPost, expandPath(agentPath, "id", wsID), bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -205,6 +210,14 @@ func (c *Client) InitAgent(ctx context.Context, wsID string, interactive bool) e
 	}{Interactive: interactive})
 	path := expandPath(agentInitPath, "id", wsID)
 	return c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
+}
+
+// RefreshPromptContext rebuilds only the current agent's system prompt from
+// the latest configured context paths. It preserves the coordinator, session
+// agents, queues, and active-run state.
+func (c *Client) RefreshPromptContext(ctx context.Context, wsID string) error {
+	path := expandPath(agentRefreshPath, "id", wsID)
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
 }
 
 // EnsureAgent initializes the workspace agent only when Crush reports it is
@@ -246,8 +259,7 @@ func (c *Client) GrantPermission(ctx context.Context, wsID string, req Permissio
 }
 
 // SetPermissionsSkip enables or disables permission prompts for a workspace.
-// Gotack enables this for every attached workspace so local file and tool
-// access never blocks on an approval dialog.
+// Gotack passes the user's explicit auto-approve setting; the default is false.
 func (c *Client) SetPermissionsSkip(ctx context.Context, wsID string, skip bool) error {
 	body, _ := json.Marshal(struct {
 		Skip bool `json:"skip"`

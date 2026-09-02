@@ -1,0 +1,772 @@
+diff --git a/internal/agent/coordinator.go b/internal/agent/coordinator.go
+index e8e72ab..dec97b8 100644
+--- a/internal/agent/coordinator.go
++++ b/internal/agent/coordinator.go
+@@ -15,6 +15,7 @@ import (
+ 	"path/filepath"
+ 	"slices"
+ 	"strings"
++	"sync"
+ 	"time"
+ 
+ 	"charm.land/catwalk/pkg/catwalk"
+@@ -127,10 +128,10 @@ type coordinator struct {
+ 	currentAgent SessionAgent
+ 	agents       map[string]SessionAgent
+ 
+-	// Skills discovery results (session-start snapshot).
+-	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
+-	activeSkills []*skills.Skill // Post-filter: active skills only.
+-	skillTracker *skills.Tracker
++	skills            *skills.Manager
++	skillTracker      *skills.Tracker
++	skillsRefreshMu   sync.Mutex
++	skillsPromptDirty bool
+ 
+ 	readyWg errgroup.Group
+ }
+@@ -158,13 +159,17 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator,
+ 	// backend.CreateWorkspace) and passed in via the manager. If no
+ 	// manager was provided (legacy callers), fall back to an in-line
+ 	// discovery so the coordinator still works.
+-	var allSkills, activeSkills []*skills.Skill
+-	if opts.Skills != nil {
+-		allSkills = opts.Skills.AllSkills()
+-		activeSkills = opts.Skills.ActiveSkills()
+-	} else {
+-		allSkills, activeSkills = discoverSkills(opts.Config)
++	skillsMgr := opts.Skills
++	if skillsMgr == nil {
++		allSkills, activeSkills, states := discoverSkills(opts.Config)
++		discoveryCfg := skillsDiscoveryConfig(opts.Config)
++		skillsMgr = skills.NewManager(
++			allSkills, activeSkills, states,
++			skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
++			skills.WithWorkingDir(discoveryCfg.WorkingDir),
++		)
+ 	}
++	activeSkills := skillsMgr.ActiveSkills()
+ 	skillTracker := skills.NewTracker(activeSkills)
+ 
+ 	c := &coordinator{
+@@ -179,8 +184,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator,
+ 		notify:       opts.Notify,
+ 		runComplete:  opts.RunComplete,
+ 		agents:       make(map[string]SessionAgent),
+-		allSkills:    allSkills,
+-		activeSkills: activeSkills,
++		skills:       skillsMgr,
+ 		skillTracker: skillTracker,
+ 		interactive:  opts.Interactive,
+ 	}
+@@ -294,11 +298,13 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+ 	// same correlator.
+ 	runID := RunIDFromContext(ctx)
++	maxInputTokens := MaxInputTokensFromContext(ctx)
+ 	run := func() (*fantasy.AgentResult, error) {
+ 		return c.currentAgent.Run(ctx, SessionAgentCall{
+ 			SessionID:        sessionID,
+ 			RunID:            runID,
+ 			Prompt:           prompt,
+ 			Attachments:      attachments,
++			MaxInputTokens:   maxInputTokens,
+ 			MaxOutputTokens:  maxTokens,
+ 			ProviderOptions:  mergedOptions,
+ 			Temperature:      temp,
+@@ -313,7 +317,8 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 	}
+ 	beforeLoaded := c.skillTracker.LoadedNames()
+ 	result, originalErr := run()
+-	logTurnSkillUsage(sessionID, prompt, c.activeSkills, c.skillTracker, beforeLoaded)
++	_, activeSkills := c.skillSnapshot()
++	logTurnSkillUsage(sessionID, prompt, activeSkills, c.skillTracker, beforeLoaded)
+ 
+ 	// Notify only if still unauthorized after retry — a successful
+ 	// retry means the user doesn't need to re-authenticate. AWS SSO is
+@@ -677,6 +682,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
+ }
+ 
+ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubAgent bool) ([]fantasy.AgentTool, error) {
++	allSkills, activeSkills := c.skillSnapshot()
+ 	var allTools []fantasy.AgentTool
+ 	if slices.Contains(agent.AllowedTools, AgentToolName) {
+ 		agentTool, err := c.agentTool(ctx)
+@@ -713,7 +719,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
+ 	allTools = append(
+ 		allTools,
+ 		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelID),
+-		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
++		tools.NewCrushInfoTool(c.cfg, c.lspManager, allSkills, activeSkills, c.skillTracker),
+ 		tools.NewCrushLogsTool(logFile),
+ 		tools.NewJobOutputTool(),
+ 		tools.NewJobKillTool(),
+@@ -1218,6 +1224,9 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
+ 		return err
+ 	}
+ 	c.currentAgent.SetModels(large, small)
++	if err := c.refreshSkills(ctx, large.Model.Provider(), large.Model.Model()); err != nil {
++		return fmt.Errorf("failed to refresh skills: %w", err)
++	}
+ 
+ 	agentCfg, ok := c.cfg.Config().Agents[config.AgentCoder]
+ 	if !ok {
+@@ -1232,6 +1241,45 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
+ 	return nil
+ }
+ 
++// refreshSkills runs once at the existing pre-run update boundary. The
++// filesystem scan is bounded to configured skill roots; there is no watcher or
++// polling loop. Prompt rendering happens only when the snapshot changed (or a
++// prior render failed), so newly created skills appear in the next turn's
++// progressive-disclosure index without paying prompt work on unchanged turns.
++func (c *coordinator) refreshSkills(ctx context.Context, provider, model string) error {
++	if c.skills == nil {
++		return nil
++	}
++	c.skillsRefreshMu.Lock()
++	defer c.skillsRefreshMu.Unlock()
++
++	changed := c.skills.Refresh(skillsDiscoveryConfig(c.cfg))
++	if !changed && !c.skillsPromptDirty {
++		return nil
++	}
++	c.skillsPromptDirty = true
++	c.skillTracker.SetActiveSkills(c.skills.ActiveSkills())
++
++	p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
++	if err != nil {
++		return err
++	}
++	systemPrompt, err := p.Build(ctx, provider, model, c.cfg)
++	if err != nil {
++		return err
++	}
++	c.currentAgent.SetSystemPrompt(systemPrompt)
++	c.skillsPromptDirty = false
++	return nil
++}
++
++func (c *coordinator) skillSnapshot() (allSkills, activeSkills []*skills.Skill) {
++	if c.skills == nil {
++		return nil, nil
++	}
++	return c.skills.AllSkills(), c.skills.ActiveSkills()
++}
++
+ func (c *coordinator) QueuedPrompts(sessionID string) int {
+ 	return c.currentAgent.QueuedPrompts(sessionID)
+ }
+@@ -1514,7 +1562,14 @@ func (c *coordinator) updateParentSessionCost(ctx context.Context, childSessionI
+ // NOT publish to the package-level broker — there are no subscribers in
+ // that case, so doing so would be misleading without delivering the
+ // snapshot anywhere useful.
+-func discoverSkills(cfg *config.ConfigStore) (allSkills, activeSkills []*skills.Skill) {
++func discoverSkills(cfg *config.ConfigStore) (allSkills, activeSkills []*skills.Skill, states []*skills.SkillState) {
++	discoveryCfg := skillsDiscoveryConfig(cfg)
++	allSkills, activeSkills, states = skills.DiscoverFromConfig(discoveryCfg)
++	logDiscoveryStats(states, discoveryCfg.SkillsPaths, allSkills, activeSkills, discoveryCfg.DisabledSkills)
++	return allSkills, activeSkills, states
++}
++
++func skillsDiscoveryConfig(cfg *config.ConfigStore) skills.DiscoveryConfig {
+ 	opts := cfg.Config().Options
+ 	var paths, disabled []string
+ 	if opts != nil {
+@@ -1525,13 +1580,12 @@ func discoverSkills(cfg *config.ConfigStore) (allSkills, activeSkills []*skills.
+ 	if r := cfg.Resolver(); r != nil {
+ 		resolver = r.ResolveValue
+ 	}
+-	allSkills, activeSkills, states := skills.DiscoverFromConfig(skills.DiscoveryConfig{
++	return skills.DiscoveryConfig{
+ 		SkillsPaths:    paths,
+ 		DisabledSkills: disabled,
++		WorkingDir:     cfg.WorkingDir(),
+ 		Resolver:       resolver,
+-	})
+-	logDiscoveryStats(states, paths, allSkills, activeSkills, disabled)
+-	return allSkills, activeSkills
++	}
+ }
+ 
+ // logTurnSkillUsage emits a per-turn diagnostic line showing which skills
+diff --git a/internal/agent/coordinator_test.go b/internal/agent/coordinator_test.go
+index 4b2b44c..9d0681c 100644
+--- a/internal/agent/coordinator_test.go
++++ b/internal/agent/coordinator_test.go
+@@ -5,6 +5,8 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"net/http"
++	"os"
++	"path/filepath"
+ 	"testing"
+ 
+ 	"charm.land/catwalk/pkg/catwalk"
+@@ -13,15 +15,17 @@ import (
+ 	"charm.land/fantasy/providers/bedrock"
+ 	"charm.land/fantasy/providers/openaicompat"
+ 	"github.com/charmbracelet/crush/internal/config"
++	"github.com/charmbracelet/crush/internal/skills"
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+ // mockSessionAgent is a minimal mock for the SessionAgent interface.
+ type mockSessionAgent struct {
+-	model     Model
+-	runFunc   func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error)
+-	cancelled []string
++	model         Model
++	runFunc       func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error)
++	cancelled     []string
++	systemPrompts []string
+ }
+ 
+ func (m *mockSessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+@@ -32,10 +36,12 @@ func (m *mockSessionAgent) BeginAccepted(sessionID string) *AcceptedRun {
+ 	return &AcceptedRun{sessionID: sessionID}
+ }
+ 
+-func (m *mockSessionAgent) Model() Model                        { return m.model }
+-func (m *mockSessionAgent) SetModels(large, small Model)        {}
+-func (m *mockSessionAgent) SetTools(tools []fantasy.AgentTool)  {}
+-func (m *mockSessionAgent) SetSystemPrompt(systemPrompt string) {}
++func (m *mockSessionAgent) Model() Model                       { return m.model }
++func (m *mockSessionAgent) SetModels(large, small Model)       {}
++func (m *mockSessionAgent) SetTools(tools []fantasy.AgentTool) {}
++func (m *mockSessionAgent) SetSystemPrompt(systemPrompt string) {
++	m.systemPrompts = append(m.systemPrompts, systemPrompt)
++}
+ func (m *mockSessionAgent) Cancel(sessionID string) {
+ 	m.cancelled = append(m.cancelled, sessionID)
+ }
+@@ -88,6 +94,61 @@ func agentResultWithText(text string) *fantasy.AgentResult {
+ 	}
+ }
+ 
++func TestRefreshSkillsUpdatesNextTurnPromptIndex(t *testing.T) {
++	t.Parallel()
++
++	workingDir := t.TempDir()
++	skillsRoot := filepath.Join(workingDir, "learned-skills")
++	require.NoError(t, os.MkdirAll(skillsRoot, 0o755))
++	cfg, err := config.Init(workingDir, t.TempDir(), false)
++	require.NoError(t, err)
++	cfg.Config().Options.SkillsPaths = []string{skillsRoot}
++
++	discoveryCfg := skillsDiscoveryConfig(cfg)
++	all, active, states := skills.DiscoverFromConfig(discoveryCfg)
++	mgr := skills.NewManager(
++		all, active, states,
++		skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
++		skills.WithWorkingDir(discoveryCfg.WorkingDir),
++	)
++	t.Cleanup(mgr.Shutdown)
++	mock := &mockSessionAgent{}
++	coord := &coordinator{
++		cfg:          cfg,
++		currentAgent: mock,
++		skills:       mgr,
++		skillTracker: skills.NewTracker(active),
++	}
++
++	skillDir := filepath.Join(skillsRoot, "learned-skill")
++	require.NoError(t, os.MkdirAll(skillDir, 0o755))
++	require.NoError(t, os.WriteFile(
++		filepath.Join(skillDir, skills.SkillFileName),
++		[]byte("---\nname: learned-skill\ndescription: First description.\n---\nFULL-INSTRUCTIONS-MUST-STAY-OUT-OF-INDEX\n"),
++		0o644,
++	))
++
++	require.NoError(t, coord.refreshSkills(t.Context(), "test-provider", "test-model"))
++	require.Len(t, mock.systemPrompts, 1)
++	require.Contains(t, mock.systemPrompts[0], "<name>learned-skill</name>")
++	require.Contains(t, mock.systemPrompts[0], "<description>First description.</description>")
++	require.NotContains(t, mock.systemPrompts[0], "FULL-INSTRUCTIONS-MUST-STAY-OUT-OF-INDEX")
++	coord.skillTracker.MarkLoaded("learned-skill")
++	require.True(t, coord.skillTracker.IsLoaded("learned-skill"))
++
++	require.NoError(t, coord.refreshSkills(t.Context(), "test-provider", "test-model"))
++	require.Len(t, mock.systemPrompts, 1, "unchanged turns must reuse the existing prompt")
++
++	require.NoError(t, os.WriteFile(
++		filepath.Join(skillDir, skills.SkillFileName),
++		[]byte("---\nname: learned-skill\ndescription: Updated description.\n---\nUpdated instructions.\n"),
++		0o644,
++	))
++	require.NoError(t, coord.refreshSkills(t.Context(), "test-provider", "test-model"))
++	require.Len(t, mock.systemPrompts, 2)
++	require.Contains(t, mock.systemPrompts[1], "<description>Updated description.</description>")
++}
++
+ func TestRunSubAgent(t *testing.T) {
+ 	const providerID = "test-provider"
+ 	providerCfg := config.ProviderConfig{ID: providerID}
+diff --git a/internal/skills/manager.go b/internal/skills/manager.go
+index 33e808a..5be2352 100644
+--- a/internal/skills/manager.go
++++ b/internal/skills/manager.go
+@@ -2,6 +2,7 @@ package skills
+ 
+ import (
+ 	"context"
++	"reflect"
+ 	"slices"
+ 	"strings"
+ 	"sync"
+@@ -101,15 +102,56 @@ func (m *Manager) ActiveSkills() []*Skill {
+ 	return m.activeSkills
+ }
+ 
++// Refresh re-runs discovery and atomically replaces this workspace's skill
++// snapshot. It returns true only when an observable discovery input or result
++// changed. Callers can use that signal to rebuild prompt metadata without
++// doing extra prompt work on unchanged turns.
++func (m *Manager) Refresh(cfg DiscoveryConfig) bool {
++	allSkills, activeSkills, states := DiscoverFromConfig(cfg)
++	resolvedPaths := cfg.ResolvePaths()
++
++	m.mu.Lock()
++	changed := !reflect.DeepEqual(m.allSkills, allSkills) ||
++		!reflect.DeepEqual(m.activeSkills, activeSkills) ||
++		!reflect.DeepEqual(m.states, states) ||
++		!reflect.DeepEqual(m.resolvedPaths, resolvedPaths) ||
++		m.workingDir != cfg.WorkingDir
++	if changed {
++		m.allSkills = allSkills
++		m.activeSkills = activeSkills
++		m.states = cloneStates(states)
++		m.resolvedPaths = append([]string(nil), resolvedPaths...)
++		m.workingDir = cfg.WorkingDir
++	}
++	globalMirror := m.globalMirror
++	m.mu.Unlock()
++
++	if !changed {
++		return false
++	}
++	if globalMirror {
++		SetLatestStates(states)
++	}
++	m.broker.Publish(pubsub.UpdatedEvent, Event{States: cloneStates(states)})
++	if globalMirror {
++		PublishStates(states)
++	}
++	return true
++}
++
+ // ResolvedPaths returns the expanded skills directory paths stored at
+ // construction time.
+ func (m *Manager) ResolvedPaths() []string {
+-	return m.resolvedPaths
++	m.mu.RLock()
++	defer m.mu.RUnlock()
++	return append([]string(nil), m.resolvedPaths...)
+ }
+ 
+ // WorkingDir returns the workspace working directory stored at
+ // construction time.
+ func (m *Manager) WorkingDir() string {
++	m.mu.RLock()
++	defer m.mu.RUnlock()
+ 	return m.workingDir
+ }
+ 
+diff --git a/internal/skills/manager_test.go b/internal/skills/manager_test.go
+index 49af295..8b74332 100644
+--- a/internal/skills/manager_test.go
++++ b/internal/skills/manager_test.go
+@@ -130,6 +130,51 @@ func TestManager_ConcurrentWorkspacesAreIsolated(t *testing.T) {
+ 	}
+ }
+ 
++func TestManagerRefreshDetectsCreateUpdateAndDelete(t *testing.T) {
++	t.Parallel()
++
++	root := t.TempDir()
++	cfg := DiscoveryConfig{SkillsPaths: []string{root}, WorkingDir: t.TempDir()}
++	all, active, states := DiscoverFromConfig(cfg)
++	mgr := NewManager(
++		all, active, states,
++		WithResolvedPaths(cfg.ResolvePaths()),
++		WithWorkingDir(cfg.WorkingDir),
++	)
++	t.Cleanup(mgr.Shutdown)
++
++	skillDir := filepath.Join(root, "learned-skill")
++	require.NoError(t, os.MkdirAll(skillDir, 0o755))
++	skillFile := filepath.Join(skillDir, SkillFileName)
++	require.NoError(t, os.WriteFile(skillFile, []byte("---\nname: learned-skill\ndescription: First description.\n---\nFirst instructions.\n"), 0o644))
++
++	require.True(t, mgr.Refresh(cfg), "creating a skill must change the snapshot")
++	require.Contains(t, skillNames(mgr.ActiveSkills()), "learned-skill")
++	require.False(t, mgr.Refresh(cfg), "an unchanged tree must not trigger prompt work")
++
++	require.NoError(t, os.WriteFile(skillFile, []byte("---\nname: learned-skill\ndescription: Updated description.\n---\nUpdated instructions.\n"), 0o644))
++	require.True(t, mgr.Refresh(cfg), "editing skill content must change the snapshot")
++	var description string
++	for _, skill := range mgr.ActiveSkills() {
++		if skill.Name == "learned-skill" {
++			description = skill.Description
++		}
++	}
++	require.Equal(t, "Updated description.", description)
++
++	require.NoError(t, os.RemoveAll(skillDir))
++	require.True(t, mgr.Refresh(cfg), "deleting a skill must change the snapshot")
++	require.NotContains(t, skillNames(mgr.ActiveSkills()), "learned-skill")
++}
++
++func skillNames(all []*Skill) []string {
++	names := make([]string, 0, len(all))
++	for _, skill := range all {
++		names = append(names, skill.Name)
++	}
++	return names
++}
++
+ func TestDiscoverFromConfig(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/skills/skills.go b/internal/skills/skills.go
+index 9b43121..8c6af5b 100644
+--- a/internal/skills/skills.go
++++ b/internal/skills/skills.go
+@@ -249,6 +249,12 @@ func DiscoverWithStates(paths []string) ([]*Skill, []*SkillState) {
+ 				addState("", path, StateError, err)
+ 				return nil
+ 			}
++			// Archived background-review skills are retained for provenance but
++			// must not be rediscovered as active skills. Hermes treats .archive
++			// as an excluded skill directory; keep this exact exclusion narrow.
++			if d.IsDir() && d.Name() == ".archive" {
++				return fastwalk.SkipDir
++			}
+ 			if d.IsDir() || d.Name() != SkillFileName {
+ 				return nil
+ 			}
+diff --git a/internal/skills/skills_test.go b/internal/skills/skills_test.go
+index fc78b8d..e505607 100644
+--- a/internal/skills/skills_test.go
++++ b/internal/skills/skills_test.go
+@@ -279,0 +280,23 @@
++func TestDiscoverExcludesArchive(t *testing.T) {
++	t.Parallel()
++
++	tmpDir := t.TempDir()
++	writeSkill := func(dir, name string) {
++		require.NoError(t, os.MkdirAll(filepath.Join(dir, name), 0o755))
++		require.NoError(t, os.WriteFile(filepath.Join(dir, name, SkillFileName), []byte(`---
++name: `+name+`
++description: Test skill.
++---
++`), 0o644))
++	}
++
++	writeSkill(tmpDir, "active-skill")
++	writeSkill(filepath.Join(tmpDir, ".archive"), "archived-skill")
++
++	skills, states := DiscoverWithStates([]string{tmpDir})
++	require.Len(t, skills, 1)
++	require.Equal(t, "active-skill", skills[0].Name)
++	for _, state := range states {
++		require.NotContains(t, filepath.ToSlash(state.Path), "/.archive/")
++	}
++}
+diff --git a/internal/skills/tracker.go b/internal/skills/tracker.go
+index 659688d..2f1cd9d 100644
+--- a/internal/skills/tracker.go
++++ b/internal/skills/tracker.go
+@@ -31,6 +31,27 @@ func NewTracker(activeSkills []*Skill) *Tracker {
+ 	}
+ }
+ 
++// SetActiveSkills replaces the set of names that may be marked loaded while
++// preserving loaded state for skills that remain active.
++func (t *Tracker) SetActiveSkills(activeSkills []*Skill) {
++	if t == nil {
++		return
++	}
++	activeNames := make(map[string]bool, len(activeSkills))
++	for _, skill := range activeSkills {
++		activeNames[skill.Name] = true
++	}
++
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	t.activeNames = activeNames
++	for name := range t.loaded {
++		if !activeNames[name] {
++			delete(t.loaded, name)
++		}
++	}
++}
++
+ // MarkLoaded marks a skill as having been loaded.
+ // Only marks as loaded if the skill is in the active set (not overridden/disabled).
+ func (t *Tracker) MarkLoaded(name string) {
+diff --git a/internal/skills/tracker_test.go b/internal/skills/tracker_test.go
+index 4919a73..ac48de4 100644
+--- a/internal/skills/tracker_test.go
++++ b/internal/skills/tracker_test.go
+@@ -47,6 +47,21 @@ func TestTracker_NonActiveSkillCannotBeMarkedLoaded(t *testing.T) {
+ 	require.True(t, tracker.IsLoaded("go-doc"))
+ }
+ 
++func TestTrackerSetActiveSkillsPreservesRemainingLoadedState(t *testing.T) {
++	t.Parallel()
++
++	tracker := NewTracker([]*Skill{{Name: "keep"}, {Name: "remove"}})
++	tracker.MarkLoaded("keep")
++	tracker.MarkLoaded("remove")
++
++	tracker.SetActiveSkills([]*Skill{{Name: "keep"}, {Name: "new"}})
++
++	require.True(t, tracker.IsLoaded("keep"))
++	require.False(t, tracker.IsLoaded("remove"))
++	tracker.MarkLoaded("new")
++	require.True(t, tracker.IsLoaded("new"))
++}
++
+ func TestTracker_NilSafety(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/proto/proto.go b/internal/proto/proto.go
+--- a/internal/proto/proto.go
++++ b/internal/proto/proto.go
+@@ -144,5 +144,9 @@ type AgentMessage struct {
+ 	SessionID   string       `json:"session_id"`
+ 	RunID       string       `json:"run_id,omitempty"`
+ 	Prompt      string       `json:"prompt"`
+ 	Attachments []Attachment `json:"attachments,omitempty"`
++	// MaxInputTokens is an optional per-run aggregate input budget. A zero
++	// value leaves ordinary runs unlimited; the desktop review path is the
++	// only caller that sets it.
++	MaxInputTokens int64 `json:"max_input_tokens,omitempty"`
+ }
+diff --git a/internal/agent/runid.go b/internal/agent/runid.go
+--- a/internal/agent/runid.go
++++ b/internal/agent/runid.go
+@@ -11,5 +11,10 @@ import "context"
+ // originating caller.
+ type runIDContextKey struct{}
+ 
++// maxInputTokensContextKey carries an optional aggregate input budget from
++// the HTTP request into the queued SessionAgentCall without changing the
++// Coordinator.Run signature.
++type maxInputTokensContextKey struct{}
++
+ // WithRunID returns ctx tagged with a per-request RunID. It is the
+ // boundary helper for callers that need their SendMessage→Run
+@@ -31,3 +36,22 @@ func RunIDFromContext(ctx context.Context) string {
+ 	}
+ 	return ""
+ }
++
++// WithMaxInputTokens tags ctx with a positive per-run aggregate input budget.
++// Non-positive values are treated as unset, matching the review budget's
++// disabled semantics and preserving ordinary runs.
++func WithMaxInputTokens(ctx context.Context, tokens int64) context.Context {
++	if tokens <= 0 {
++		return ctx
++	}
++	return context.WithValue(ctx, maxInputTokensContextKey{}, tokens)
++}
++
++// MaxInputTokensFromContext returns the positive budget set by
++// WithMaxInputTokens, or zero when no budget is present.
++func MaxInputTokensFromContext(ctx context.Context) int64 {
++	if v, ok := ctx.Value(maxInputTokensContextKey{}).(int64); ok && v > 0 {
++		return v
++	}
++	return 0
++}
+diff --git a/internal/backend/agent.go b/internal/backend/agent.go
+--- a/internal/backend/agent.go
++++ b/internal/backend/agent.go
+@@ -92,6 +92,7 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.AcceptedRun) {
+ 	if msg.RunID != "" {
+ 		ctx = agent.WithRunID(ctx, msg.RunID)
+ 	}
++	ctx = agent.WithMaxInputTokens(ctx, msg.MaxInputTokens)
+ 	ctx = agent.WithRunCompleteMarker(ctx)
+ 
+ 	_, err := ws.AgentCoordinator.RunAccepted(ctx, accept, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
+diff --git a/internal/agent/agent.go b/internal/agent/agent.go
+--- a/internal/agent/agent.go
++++ b/internal/agent/agent.go
+@@ -73,6 +73,11 @@ var (
+ 	orphanThinkTagRegex = regexp.MustCompile(`</?think>`)
+ )
+ 
++func reviewInputBudgetReached(used, budget int64) bool {
++	return budget > 0 && used >= budget
++}
++
++// MaxInputTokens is an optional aggregate input budget for a single run.
+ type SessionAgentCall struct {
+ 	SessionID string
+ 	// RunID, when non-empty, is the caller-supplied correlator that
+@@ -87,6 +92,7 @@ type SessionAgentCall struct {
+ 	Prompt           string
+ 	ProviderOptions  fantasy.ProviderOptions
+ 	Attachments      []message.Attachment
++	MaxInputTokens   int64
+ 	MaxOutputTokens  int64
+ 	Temperature      *float64
+ 	TopP             *float64
+@@ -787,4 +793,5 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *fantasy.AgentResult, retErr error) {
+ 
+ 	var stepMessages []fantasy.Message
+ 	var shouldSummarize bool
++	var aggregateInputTokens int64
+ 	sanitizedToolCalls := make(map[string]bool)
+@@ -1025,4 +1032,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *fantasy.AgentResult, retErr error) {
+ 				return getSessionErr
+ 			}
+ 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
++			if call.MaxInputTokens > 0 && !estimated && usage.InputTokens > 0 {
++				aggregateInputTokens += usage.InputTokens
++			}
+ 			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+@@ -1059,5 +1069,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *fantasy.AgentResult, retErr error) {
+ 			func(steps []fantasy.StepResult) bool {
+ 				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
+ 			},
++			func(_ []fantasy.StepResult) bool {
++				return reviewInputBudgetReached(aggregateInputTokens, call.MaxInputTokens)
++			},
+ 		},
+ 	})
+diff --git a/internal/agent/usage_fallback_test.go b/internal/agent/usage_fallback_test.go
+--- a/internal/agent/usage_fallback_test.go
++++ b/internal/agent/usage_fallback_test.go
+@@ -23,6 +23,30 @@ func TestUsageIsZero(t *testing.T) {
+ 	require.False(t, usageIsZero(fantasy.Usage{CacheReadTokens: 1}))
+ }
+ 
++func TestReviewInputBudgetReached(t *testing.T) {
++	t.Parallel()
++
++	for _, tc := range []struct {
++		name   string
++		used   int64
++		budget int64
++		want   bool
++	}{
++		{name: "below", used: 99, budget: 100, want: false},
++		{name: "equal", used: 100, budget: 100, want: true},
++		{name: "over", used: 101, budget: 100, want: true},
++		{name: "disabled", used: 999, budget: 0, want: false},
++		{name: "negative disabled", used: 999, budget: -1, want: false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			t.Parallel()
++			if got := reviewInputBudgetReached(tc.used, tc.budget); got != tc.want {
++				t.Fatalf("reviewInputBudgetReached(%d, %d) = %v, want %v", tc.used, tc.budget, got, tc.want)
++			}
++		})
++	}
++}
++
+ func TestFallbackStepUsageKeepsProviderUsage(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/agent/tools/mcp-tools.go b/internal/agent/tools/mcp-tools.go
+index 8921dae..b52fdd9 100644
+--- a/internal/agent/tools/mcp-tools.go
++++ b/internal/agent/tools/mcp-tools.go
+@@ -2,6 +2,7 @@ package tools
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"fmt"
+ 	"slices"
+ 
+@@ -20,6 +21,11 @@ var whitelistDockerTools = []string{
+ 	"mcp_docker_code-mode",
+ }
+ 
++const (
++	recallMCPName        = "gotack-recall"
++	recallSearchToolName = "session_search"
++)
++
+ // GetMCPTools gets all the currently available MCP tools.
+ func GetMCPTools(permissions permission.Service, cfg *config.ConfigStore, wd string) []*Tool {
+ 	var result []*Tool
+@@ -125,7 +131,11 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
+ 		}
+ 	}
+ 
+-	result, err := mcp.RunTool(ctx, m.cfg, m.mcpName, m.tool.Name, params.Input)
++	input, err := injectCurrentSessionID(m.mcpName, m.tool.Name, params.Input, sessionID)
++	if err != nil {
++		return fantasy.NewTextErrorResponse(err.Error()), nil
++	}
++	result, err := mcp.RunTool(ctx, m.cfg, m.mcpName, m.tool.Name, input)
+ 	if err != nil {
+ 		return fantasy.NewTextErrorResponse(err.Error()), nil
+ 	}
+@@ -149,3 +159,26 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
+ 		return fantasy.NewTextResponse(result.Content), nil
+ 	}
+ }
++
++// injectCurrentSessionID adds the trusted engine session to recall discovery
++// arguments. The field is intentionally hidden from the model-facing schema;
++// overriding any model-supplied value prevents a review from rediscovering
++// the session whose transcript is already in its prompt.
++func injectCurrentSessionID(mcpName, toolName, input, sessionID string) (string, error) {
++	if mcpName != recallMCPName || toolName != recallSearchToolName {
++		return input, nil
++	}
++	var args map[string]any
++	if err := json.Unmarshal([]byte(input), &args); err != nil {
++		return "", fmt.Errorf("error parsing parameters: %s", err)
++	}
++	if args == nil {
++		args = make(map[string]any)
++	}
++	args["current_session_id"] = sessionID
++	out, err := json.Marshal(args)
++	if err != nil {
++		return "", fmt.Errorf("error encoding parameters: %s", err)
++	}
++	return string(out), nil
++}
+diff --git a/internal/agent/tools/mcp-tools_test.go b/internal/agent/tools/mcp-tools_test.go
+new file mode 100644
+index 0000000..ac5b210
+--- /dev/null
++++ b/internal/agent/tools/mcp-tools_test.go
+@@ -0,0 +1,28 @@
++package tools
++
++import (
++	"encoding/json"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestInjectCurrentSessionIDIsScopedAndTrusted(t *testing.T) {
++	t.Parallel()
++
++	input, err := injectCurrentSessionID(
++		recallMCPName,
++		recallSearchToolName,
++		`{"query":"memory","current_session_id":"spoofed"}`,
++		"trusted-session",
++	)
++	require.NoError(t, err)
++	var args map[string]any
++	require.NoError(t, json.Unmarshal([]byte(input), &args))
++	require.Equal(t, "trusted-session", args["current_session_id"])
++	require.Equal(t, "memory", args["query"])
++
++	untouched, err := injectCurrentSessionID("other-mcp", recallSearchToolName, "not-json", "trusted-session")
++	require.NoError(t, err)
++	require.Equal(t, "not-json", untouched)
++}

@@ -32,8 +32,32 @@ var writeTools = map[string]bool{
 	"multiedit": true,
 }
 
+// backgroundReviewReadTools are the local tools permitted to a detached
+// review. Sourcegraph is intentionally excluded because it is network-backed.
+var backgroundReviewReadTools = map[string]bool{
+	"ls":   true,
+	"glob": true,
+	"grep": true,
+	"view": true,
+}
+
 func isReadTool(name string) bool  { return readTools[name] }
 func isWriteTool(name string) bool { return writeTools[name] }
+
+func isSkillTool(name string) bool {
+	switch name {
+	case "skill_view", "mcp_gotack-skills_skill_view", "skill_manage", "mcp_gotack-skills_skill_manage":
+		return true
+	default:
+		return false
+	}
+}
+
+func isBackgroundReviewTool(name string) bool {
+	return backgroundReviewReadTools[name] ||
+		name == "memory" || name == "mcp_gotack-memory_memory" ||
+		isSkillTool(name)
+}
 
 // resolvePath turns the tool input's file_path into an absolute path. Crush
 // passes workspace-relative paths for the file tools, so a relative target

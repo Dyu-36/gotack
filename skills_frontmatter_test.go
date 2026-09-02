@@ -1,8 +1,8 @@
 package main
 
 // skills_frontmatter_test.go -- role: regression test pinning the bundled
-// skills' frontmatter to the contract the vendored engine actually parses
-// (plan 6.4). Crush's skill loader requires a YAML frontmatter block with a
+// skills' frontmatter to the contract the vendored engine actually parses.
+// Crush's skill loader requires a YAML frontmatter block with a
 // valid `name` (<= 64 chars, ^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$, equal to the
 // skill directory's base name) and a `description` (<= 1024 chars). The
 // check is line-based on purpose: no new YAML dependency is allowed, and the

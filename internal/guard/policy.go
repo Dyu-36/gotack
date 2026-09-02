@@ -1,12 +1,13 @@
 package guard
 
 import (
+	"encoding/json"
 	"fmt"
 )
 
 // policy.go -- role: evaluate one tool call and return the hook decision.
 //
-// The guard applies the graduated posture of ADR 0002 and plan Phase 4:
+// The guard applies the graduated posture of ADR 0002:
 //
 //   - deny — the unrecoverable-command blocklist is never overridable in any
 //     posture; writes outside the write-safe root and writes into the memory
@@ -16,7 +17,9 @@ import (
 //   - ask — everything else carries no opinion, so Crush's own permission
 //     relay asks the user. An unattended session has nobody to answer, so the
 //     same operations are denied with a legible reason instead: a prompt that
-//     can never be answered must fail the run, not hang it (plan 5.4).
+//     can never be answered must fail the run, not hang it.
+//   - review — detached review sessions have their own smaller tool
+//     whitelist and never reach the general auto or ask tiers.
 
 // Rule names for the write-boundary denials. They appear verbatim in the
 // refusal reason, matching the blocklist convention (outcome 4).
@@ -24,6 +27,7 @@ const (
 	ruleContextWrite       = "memory-context-write"
 	ruleWriteOutsideRoot   = "write-outside-safe-root"
 	ruleUnattendedApproval = "unattended-approval"
+	ruleReviewWhitelist    = "background-review-tool-whitelist"
 )
 
 // Options parameterises one Evaluate call for the session being guarded.
@@ -39,12 +43,15 @@ type Options struct {
 	// Unattended marks a session with no human at the UI (Zalo-originated or
 	// scheduled). Operations that would normally ask are denied instead.
 	Unattended bool
+	// Review marks a detached Hermes background-review session. It applies a
+	// smaller tool whitelist than the general unattended posture.
+	Review bool
 }
 
 // Evaluate applies the approval policy to one hook payload and returns the
 // decision the hook should emit. The tier order is fixed: the blocklist beats
-// every other rule in every posture, the write boundary beats posture, and
-// posture decides the rest.
+// every other rule, the review whitelist precedes general tiers, the write
+// boundary precedes unattended posture, and posture decides the rest.
 func Evaluate(in Input, o Options) Output {
 	// 1. Security floor: never overridable, interactive or not.
 	if command := in.Command(); command != "" {
@@ -53,20 +60,34 @@ func Evaluate(in Input, o Options) Output {
 		}
 	}
 
+	// Background review is a stricter posture than ordinary unattended work.
+	// Only the memory/skill maintenance tools and local read/search equivalents
+	// may run; every other tool is denied before the normal tier
+	// matrix can auto-approve it.
+	if o.Review {
+		if isBackgroundReviewTool(in.ToolName) {
+			return injectSkillContext(in, o, Allow())
+		}
+		reason := fmt.Sprintf(
+			"gotack-guard: denied by rule %q — background review may only use memory, skill_view, skill_manage, and local read/search tools (%s)",
+			ruleReviewWhitelist, in.ToolName)
+		return Deny(reason, false)
+	}
+
 	// 2. File-writing tools are bounded by the write-safe root and the
 	// memory context dir, independent of posture. A write call with no
 	// file_path carries nothing to bound, so it falls through to the
 	// posture decision below.
 	if isWriteTool(in.ToolName) {
 		if out, decided := decideWrite(in, o); decided {
-			return out
+			return injectSkillContext(in, o, out)
 		}
 	}
 
 	// 3. Read-only tools are pre-approved in every posture: they cannot
 	// mutate state, so prompting for them buys nothing.
 	if isReadTool(in.ToolName) {
-		return Allow()
+		return injectSkillContext(in, o, Allow())
 	}
 
 	// 4. Shell commands, network fetches, delegation and unknown tools all
@@ -76,9 +97,26 @@ func Evaluate(in Input, o Options) Output {
 		reason := fmt.Sprintf(
 			"gotack-guard: denied by rule %q — an unattended session cannot answer an approval prompt (%s)",
 			ruleUnattendedApproval, in.ToolName)
-		return Deny(reason, false)
+		return injectSkillContext(in, o, Deny(reason, false))
 	}
-	return None()
+	return injectSkillContext(in, o, None())
+}
+
+// injectSkillContext attaches host-owned fields to every skills MCP call.
+// Both values overwrite model input when Crush shallow-merges updated_input;
+// explicitly writing false prevents a foreground model from forging review
+// ownership.
+func injectSkillContext(in Input, o Options, out Output) Output {
+	if !isSkillTool(in.ToolName) {
+		return out
+	}
+	patch, _ := json.Marshal(map[string]any{
+		"_session_id":        in.SessionID,
+		"_background_review": o.Review,
+	})
+	out.Version = outputVersion
+	out.UpdatedInput = patch
+	return out
 }
 
 // decideWrite enforces the write boundary for one write-tool call. The bool

@@ -24,7 +24,7 @@ const (
 	serverName    = "gotack-recall"
 	serverVersion = "0.1.0"
 	// dataDirEnv lets the host pass the workspace's Crush data directory at
-	// registration time, per Phase 3.3, instead of re-deriving it here.
+	// registration time instead of re-deriving it here.
 	dataDirEnv = "GOTACK_CRUSH_DATA_DIR"
 )
 

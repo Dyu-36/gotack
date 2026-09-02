@@ -33,16 +33,9 @@ func isDefaultWorkspace(path string) bool {
 	return filepath.Clean(path) == filepath.Clean(defaultWorkspacePath())
 }
 
-// permissionsSkip reports whether Crush should skip interactive permission
-// prompts for attached workspaces. Gotack runs in auto-approve mode
-// (equivalent to --yolo or --dangerously-skip-permissions) by default so
-// tool execution does not repeatedly prompt the user; the guard's deny rules
-// still apply because the hook decides before Crush's permission system ever runs.
+// permissionsSkip enables ADR 0002's auto posture only when the user opted in.
 func (a *App) permissionsSkip() bool {
-	if a.cfg == nil {
-		return true
-	}
-	return a.cfg.AutoApprove
+	return a.cfg != nil && a.cfg.AutoApprove
 }
 
 // ListRecentWorkspaces returns remembered project roots, most recent first.
@@ -58,8 +51,8 @@ func (a *App) ListRecentWorkspaces() []string {
 // rebindWorkspaceRuntime re-points every workspace-scoped runtime at
 // workspaceID: it swaps the SSE attach scope (cancelling the previous one),
 // drops the Zalo chat-to-session mappings that belonged to the old workspace,
-// re-registers the bundled Office and memory MCP servers, and re-points the
-// seeded global context directory.
+// re-registers the bundled MCP servers, and re-points the seeded global
+// context directory.
 //
 // Every activation path runs exactly this sequence through activateCurrent,
 // which is how it stays aligned with replaceWorkspaceStream in
@@ -78,6 +71,8 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	a.resetZaloSessions()
 	a.registerOfficeTools(workspaceID)
 	a.registerMemoryTools(workspaceID)
+	a.registerSkillsTools(workspaceID)
+	a.registerRecallTools(workspaceID)
 	a.registerContextPaths(workspaceID)
 	a.registerGuardHook(workspaceID)
 }

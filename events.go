@@ -1,10 +1,6 @@
 package main
 
-import (
-	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-)
+import "github.com/wailsapp/wails/v2/pkg/runtime"
 
 // events.go -- role: the single place where the host emits events to the UI.
 //
@@ -13,8 +9,6 @@ import (
 // Event names are declared once in internal/uievents/names.go.
 //
 // Rule: no polling loops here. Every UI update originates from an engine event.
-
-const permissionTTL = 5 * time.Minute
 
 // emit is the Emitter handed to the forwarder and terminal service. It stays a
 // branch-free wrapper on purpose: every session:delta and every terminal:data

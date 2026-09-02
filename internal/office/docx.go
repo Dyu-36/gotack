@@ -1,7 +1,6 @@
 package office
 
 import (
-	"encoding/xml"
 	"fmt"
 	"regexp"
 	"strings"
@@ -18,7 +17,6 @@ var textElementPattern = regexp.MustCompile(`(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)`)
 // docxParagraphs walks the document body and returns one text line per
 // paragraph; table rows are joined with " | ".
 func docxParagraphs(documentXML string) ([]string, error) {
-	decoder := xml.NewDecoder(strings.NewReader(documentXML))
 	var bodyLines []string
 
 	var (
@@ -39,27 +37,19 @@ func docxParagraphs(documentXML string) ([]string, error) {
 		}
 	}
 
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			break
-		}
-		switch element := token.(type) {
-		case xml.StartElement:
-			switch element.Name.Local {
+	err := walkXMLText(documentXML,
+		func(name string) {
+			switch name {
 			case "tc":
 				inCell = true
 				cellText = nil
-			case "t":
-				var text string
-				if err := decoder.DecodeElement(&text, &element); err == nil {
-					lineText.WriteString(text)
-				}
 			case "br":
 				lineText.WriteString(" ")
 			}
-		case xml.EndElement:
-			switch element.Name.Local {
+		},
+		func(text string) { lineText.WriteString(text) },
+		func(name string) {
+			switch name {
 			case "p":
 				flushLine()
 			case "tc":
@@ -73,7 +63,10 @@ func docxParagraphs(documentXML string) ([]string, error) {
 					rowCells = nil
 				}
 			}
-		}
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 	return bodyLines, nil
 }
@@ -99,7 +92,7 @@ func docxInfo(path string) (string, error) {
 	}
 	lines, err := docxParagraphs(raw)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("office: parse %s: %w", path, err)
 	}
 	tableRows := 0
 	for _, line := range lines {

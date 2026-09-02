@@ -9,12 +9,9 @@ import (
 //
 // Every rule names a class of destructive shell command that is never allowed,
 // regardless of posture or approval mode. A match produces a deny whose reason
-// names the rule, because outcome 4 of the hermes-parity plan requires the
-// refusal to be legible. The rules are the concrete list derived from Phase 4
-// of docs/plans/completed/hermes-parity-harness.md and decision 0002: recursive
-// force delete, disk format/wipe, mass permission changes, shutdown, history
-// and credential-store destruction, and credential exfiltration to network
-// sinks.
+// names the rule so the refusal is legible. The rules cover recursive force
+// delete, disk format/wipe, mass permission changes, shutdown, history and
+// credential-store destruction, and credential exfiltration to network sinks.
 //
 // The patterns are intentionally high precision rather than high recall: a false
 // deny is disruptive, so each rule targets the canonical catastrophic form and

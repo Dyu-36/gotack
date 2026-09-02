@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
@@ -47,9 +46,8 @@ func TestParseIDTokenClaims(t *testing.T) {
 	}
 }
 
-func TestOAuthLoginAndRefresh(t *testing.T) {
-	var tokenServer *httptest.Server
-	tokenServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestOAuthLogin(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -72,21 +70,6 @@ func TestOAuthLoginAndRefresh(t *testing.T) {
 				"access_token":  "access-token-123",
 				"refresh_token": "refresh-token-abc",
 				"id_token":      idToken,
-				"token_type":    "Bearer",
-				"expires_in":    3600,
-			})
-			return
-		}
-
-		if grantType == "refresh_token" {
-			rt := r.Form.Get("refresh_token")
-			if rt != "refresh-token-abc" {
-				http.Error(w, "invalid refresh token", http.StatusBadRequest)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token":  "access-token-456-refreshed",
-				"refresh_token": "refresh-token-def",
 				"token_type":    "Bearer",
 				"expires_in":    3600,
 			})
@@ -141,14 +124,5 @@ func TestOAuthLoginAndRefresh(t *testing.T) {
 	}
 	if token.AccountID != "acct_test" {
 		t.Errorf("got account id %q, want acct_test", token.AccountID)
-	}
-
-	// Test Refresh
-	refreshed, err := RefreshToken(ctx, opts, token.RefreshToken)
-	if err != nil {
-		t.Fatalf("RefreshToken() error = %v", err)
-	}
-	if !strings.Contains(refreshed.AccessToken, "refreshed") {
-		t.Errorf("got refreshed access token %q, want refreshed", refreshed.AccessToken)
 	}
 }

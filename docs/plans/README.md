@@ -30,7 +30,9 @@ decision into `docs/decisions/`; keep task-local choices in the plan.
 
 ## Active Plans
 
-None.
+- [`hermes-learning-loop.md`](active/hermes-learning-loop.md)
+  — finish and validate the bounded Hermes memory, procedural-skill, review,
+  and recall loop against current code and the pinned upstream source.
 
 ## Recently Completed
 

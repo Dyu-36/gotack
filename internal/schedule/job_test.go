@@ -72,6 +72,13 @@ func TestValidateFileRejectsDuplicateIDs(t *testing.T) {
 	}
 }
 
+func TestValidateFileRejectsNullJob(t *testing.T) {
+	err := ValidateFile(&File{Jobs: []*Job{nil}})
+	if err == nil || !strings.Contains(err.Error(), "must not be null") {
+		t.Fatalf("expected null job error, got %v", err)
+	}
+}
+
 func TestNextDue(t *testing.T) {
 	base := mustTime(t, "2026-09-01T12:00:00+07:00")
 	at830 := time.Date(base.Year(), base.Month(), base.Day(), 8, 30, 0, 0, base.Location())
@@ -225,6 +232,16 @@ func TestSaveFileIsAtomicAndClean(t *testing.T) {
 		t.Fatal(err)
 	} else if err := json.Unmarshal(data2, &parsed); err != nil {
 		t.Fatalf("overwritten file is not valid JSON: %v", err)
+	}
+}
+
+func TestSaveFileRejectsNullInputs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := SaveFile(path, nil, base2026()); err == nil {
+		t.Fatal("nil file must be rejected")
+	}
+	if err := SaveFile(path, &File{Jobs: []*Job{nil}}, base2026()); err == nil {
+		t.Fatal("nil job must be rejected")
 	}
 }
 

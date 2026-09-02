@@ -52,9 +52,26 @@ try {
         Copy-Item $skills $skillsTarget -Recurse -Force
     }
 
+    $helperLDFlags = '-H windowsgui -s -w'
+    $learningHelpers = @('guard', 'memory', 'skills', 'recall')
+    foreach ($helper in $learningHelpers) {
+        $helperOutput = Join-Path $resourceDir "$helper.exe"
+        Write-Host "Building $helper helper (windowsgui) -> $helperOutput"
+        go build -trimpath -ldflags $helperLDFlags -o $helperOutput "./cmd/$helper"
+        if ($LASTEXITCODE -ne 0) {
+            throw "$helper build failed with exit code $LASTEXITCODE"
+        }
+    }
+
     $crush = Join-Path $resourceDir 'crush.exe'
     if (-not (Test-Path $crush)) {
         throw "runtime assembly failed: missing $crush"
+    }
+    foreach ($helper in $learningHelpers) {
+        $helperBinary = Join-Path $resourceDir "$helper.exe"
+        if (-not (Test-Path $helperBinary)) {
+            throw "runtime assembly failed: missing $helperBinary"
+        }
     }
     $python = Join-Path $resourceDir 'python.exe'
     if (-not (Test-Path $python)) {

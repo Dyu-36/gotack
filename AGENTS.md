@@ -31,22 +31,24 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | --- | --- |
 | main.go | Wails entry point: window options, embeds frontend/dist |
 | app.go | App object bound to the UI, lifecycle and service wiring |
-| bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
+| bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, files, OAuth, and Zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
 | events.go | Host to UI event emission, single place |
-| office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, schedule_host.go, reflection_host.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
-| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, permission, recall, reflection, schedule, session, terminal, uievents, workspace, zalo |
+| office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, skills_seed.go, recall_seed.go, schedule_host.go, reflection_host.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, bundleseed, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, openaioauth, permission, recall, reflection, schedule, session, skillmanage, terminal, uievents, userstrings, workspace, zalo |
 | cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | cmd/guard/ | PreToolUse approval hook (destructive-command blocklist, graduated tiers); ships as guard.exe |
 | cmd/memory/ | Persistent self-editing memory MCP server over stdio; curates MEMORY.md / USER.md in the seeded context dir; ships as memory.exe |
-| cmd/recall/ | Cross-session recall MCP server over stdio; reads crush.db read-only, index in recall.db |
+| cmd/skills/ | Progressive procedural-skill MCP server over stdio; ships as skills.exe |
+| cmd/recall/ | Cross-session recall MCP server over stdio; reads crush.db read-only, index in recall.db; ships as recall.exe |
 | frontend/ | Svelte 5 UI. Folder name fixed by Wails v2 |
-| third_party/crush/ | Vendored Crush engine, own git history, ignored by this repo; only third_party/README.md is tracked |
+| third_party/crush/ | Vendored Crush engine with its own git history; ignored by this repo |
+| third_party/README.md, third_party/patches/ | Tracked pin/patch documentation and Gotack-owned patches applied to the vendored engine |
 | resources/skills/ | Skill tree bundled into release artifacts |
 | resources/context/ | Tracked persona context files seeded into the user data dir and shipped in release artifacts |
 | resources/bin/ | Ignored runtime payloads; `scripts/prepare-resources.ps1` recreates them before packaging |
-| docs/ | Contracts, decisions, patterns, plans, product docs and templates |
+| docs/ | Contracts, decisions, patterns, plans and templates |
 | build/ | Wails packaging assets per platform |
-| scripts/ | Developer entry points, PowerShell and Windows only |
+| scripts/ | Developer/build entry points: Windows PowerShell tooling plus the cross-platform Node repository-invariant check |
 | .agents/skills/, .harness-core/ | Vendored repository-harness protocol and skills; .harness-core/manifest.json pins the upstream file hashes |
 | .github/workflows/ | ci.yml and release.yml |
 | .gitattributes | Normative end-of-line policy: the whole tree is stored and checked out as LF (see docs/patterns/encoding-invariants.md) |

@@ -1,0 +1,27 @@
+{
+  "frame": {
+    "days": [
+      {
+        "day": 2,
+        "sessions": [
+          { "name": "Sáng", "periods": 1 }
+        ]
+      }
+    ]
+  },
+  "assignments": [
+    {
+      "teacher": "Nguyễn Văn A",
+      "class": "6A",
+      "subject": "Toán",
+      "periods": 1
+    }
+  ],
+  "requirements": [
+    {
+      "id": "TYPO",
+      "type": "pin_somewhere"
+    }
+  ],
+  "preferences": []
+}

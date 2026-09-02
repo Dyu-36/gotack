@@ -50,51 +50,41 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 	if credentialProvider == "" {
 		credentialProvider = provider // backwards compatibility with older UI payloads
 	}
-	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
-	seededLocalProvider := false
-	if credentialProvider != "" {
-		seededLocalProvider, err = prepareLocalProviderConfig(a.ctx, svc.api, ws, scope, credentialProvider)
-		if err != nil {
-			return err
-		}
-	}
+	modelID := strings.TrimSpace(s.Model)
+	endpoint := strings.TrimSpace(s.CustomURL)
 	if apiKey != "" && credentialProvider == "" {
 		return errors.New("provider is required before storing an API key")
 	}
 	if apiKey != "" && credentialProvider == codexProviderID {
-		// Codex authenticates through the ChatGPT browser sign-in only. Storing a
-		// key here would overwrite the OAuth credential with a value the
-		// subscription backend rejects.
 		return errors.New("codex signs in with ChatGPT, not an API key; use the openai provider for an API key")
 	}
-	if credentialProvider != "" && s.ProviderOnly {
-		if !safeProviderID.MatchString(credentialProvider) {
-			return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
+	if (s.ProviderOnly || endpoint != "") && !safeProviderID.MatchString(credentialProvider) {
+		return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
+	}
+
+	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
+	if endpoint != "" {
+		oauthBacked, oauthErr := providerUsesOAuth(a.ctx, svc.api, ws, credentialProvider)
+		if oauthErr != nil {
+			return oauthErr
 		}
-		if err := svc.api.SetConfigField(a.ctx, ws, scope, "providers."+credentialProvider+".disable", false); err != nil {
-			return fmt.Errorf("enable provider: %w", err)
+		if oauthBacked {
+			return fmt.Errorf("provider %q signs in with OAuth and does not accept a custom endpoint", credentialProvider)
 		}
 	}
 
-	if !s.ProviderOnly {
-		setModel := func(modelType, modelID string, effort string, think bool) error {
-			model := crushapi.SelectedModel{Provider: provider, Model: modelID, ReasoningEffort: effort, Think: think}
-			if err := svc.api.SetPreferredModel(a.ctx, ws, scope, modelType, model); err != nil {
-				return fmt.Errorf("apply Crush %s model: %w", modelType, err)
-			}
-			return nil
+	// Everything above is read-only. From this point onward the REST API does
+	// not offer a transaction, so keep mutations in their dependency order.
+	managedLocalProvider := false
+	if credentialProvider != "" {
+		managedLocalProvider, err = prepareLocalProviderConfig(a.ctx, svc.api, ws, scope, credentialProvider)
+		if err != nil {
+			return err
 		}
-		if modelID := strings.TrimSpace(s.Model); provider != "" && modelID != "" {
-			effort, think := crushReasoning(s.Thinking)
-			if err := setModel("large", modelID, effort, think); err != nil {
-				return err
-			}
-			// Gotack intentionally exposes one model selector. Crush still requires
-			// separate large/small preferences internally, so keep both pinned to
-			// the same provider/model selection.
-			if err := setModel("small", modelID, effort, think); err != nil {
-				return err
-			}
+	}
+	if credentialProvider != "" && s.ProviderOnly {
+		if err := svc.api.SetConfigField(a.ctx, ws, scope, "providers."+credentialProvider+".disable", false); err != nil {
+			return fmt.Errorf("enable provider: %w", err)
 		}
 	}
 
@@ -104,36 +94,32 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 		}
 	}
 
-	if endpoint := strings.TrimSpace(s.CustomURL); endpoint != "" {
-		if !safeProviderID.MatchString(credentialProvider) {
-			return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
-		}
-		// A custom endpoint must never land on a provider whose credential is a
-		// browser sign-in. Such a token is only valid against the backend the
-		// engine picked for it, so an endpoint carried over from another provider
-		// would break a working login. Refuse instead of writing or dropping it.
-		oauthBacked, oauthErr := providerUsesOAuth(a.ctx, svc.api, ws, credentialProvider)
-		if oauthErr != nil {
-			return oauthErr
-		}
-		if oauthBacked {
-			return fmt.Errorf("provider %q signs in with OAuth and does not accept a custom endpoint", credentialProvider)
-		}
+	if endpoint != "" {
 		key := "providers." + credentialProvider + ".base_url"
 		if err := svc.api.SetConfigField(a.ctx, ws, scope, key, endpoint); err != nil {
 			return fmt.Errorf("apply Crush provider endpoint: %w", err)
 		}
 	}
-	if seededLocalProvider {
+	if managedLocalProvider {
 		if err := finalizeLocalProviderConfig(a.ctx, svc.api, ws, scope, credentialProvider); err != nil {
 			return err
+		}
+	}
+
+	// Select the provider only after its credential, endpoint and discovery
+	// state are ready. A failed setup must leave the previous model usable.
+	if !s.ProviderOnly && provider != "" && modelID != "" {
+		effort, think := crushReasoning(s.Thinking)
+		selected := crushapi.SelectedModel{Provider: provider, Model: modelID, ReasoningEffort: effort, Think: think}
+		if err := svc.api.SetPreferredModelPair(a.ctx, ws, scope, selected); err != nil {
+			return fmt.Errorf("apply Crush model selection: %w", err)
 		}
 	}
 
 	// Crush keeps a workspace agent uninitialized until /agent/init is called.
 	// Ensure it exists after the effective provider/model configuration is ready;
 	// already-ready coordinators are preserved and refresh models per run.
-	if provider != "" && strings.TrimSpace(s.Model) != "" {
+	if provider != "" && modelID != "" {
 		if err := svc.api.EnsureAgent(a.ctx, ws, true); err != nil {
 			return fmt.Errorf("initialize Crush agent: %w", err)
 		}

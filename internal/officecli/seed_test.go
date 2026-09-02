@@ -12,10 +12,14 @@ func TestSeedCopiesBinariesAndSkills(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "src")
 	dst := filepath.Join(root, "dst")
+	binaryName := "officecli"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
 	if err := os.MkdirAll(filepath.Join(src, "skills", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "officecli.exe"), []byte("officecli"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(src, binaryName), []byte("officecli"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(src, "skills", "demo", "SKILL.md"), []byte("# demo"), 0o644); err != nil {
@@ -25,10 +29,6 @@ func TestSeedCopiesBinariesAndSkills(t *testing.T) {
 	seeder := New(dst, nil)
 	if err := seeder.Seed(src); err != nil {
 		t.Fatalf("Seed: %v", err)
-	}
-	binaryName := "officecli"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
 	}
 	if _, err := os.Stat(filepath.Join(seeder.BinDir(), binaryName)); err != nil {
 		t.Fatalf("binary not copied: %v", err)
@@ -65,5 +65,36 @@ func TestCrushEnvAndSkillsPath(t *testing.T) {
 	}
 	if seeder.SkillsPathArg() != seeder.SkillsDir() {
 		t.Fatalf("SkillsPathArg should match SkillsDir")
+	}
+}
+
+func TestSeedRejectsMalformedReportBeforeReplacingRuntime(t *testing.T) {
+	source := t.TempDir()
+	seeder := New(t.TempDir(), nil)
+	if err := os.WriteFile(filepath.Join(source, "officecli.exe"), []byte("bundled replacement"), 0o755); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.MkdirAll(seeder.BinDir(), 0o755); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	runtimePath := filepath.Join(seeder.BinDir(), "officecli.exe")
+	if err := os.WriteFile(runtimePath, []byte("keep installed runtime"), 0o755); err != nil {
+		t.Fatalf("write installed runtime: %v", err)
+	}
+	reportPath := filepath.Join(seeder.BinDir(), ".seed-report.json")
+	if err := os.WriteFile(reportPath, []byte(`{"files":`), 0o644); err != nil {
+		t.Fatalf("write malformed report: %v", err)
+	}
+
+	err := seeder.Seed(source)
+	if err == nil || !strings.Contains(err.Error(), "parse "+reportPath) {
+		t.Fatalf("Seed error = %v, want malformed report diagnostic", err)
+	}
+	data, readErr := os.ReadFile(runtimePath)
+	if readErr != nil {
+		t.Fatalf("read runtime: %v", readErr)
+	}
+	if string(data) != "keep installed runtime" {
+		t.Fatalf("runtime changed after malformed report: %q", data)
 	}
 }

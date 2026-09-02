@@ -1,5 +1,5 @@
 diff --git a/internal/agent/agent.go b/internal/agent/agent.go
-index ffd7165..dc12876 100644
+index ffd7165719ddde85090559750390c6f72a2109ed..dc128768be9b4e129e575a2b282bf8dc1c7dc796 100644
 --- a/internal/agent/agent.go
 +++ b/internal/agent/agent.go
 @@ -151,10 +151,11 @@ type SessionAgent interface {
@@ -65,7 +65,7 @@ index ffd7165..dc12876 100644
  		if err == nil && resp.Response.FinishReason != fantasy.FinishReasonLength {
  			model = attempt.model
 diff --git a/internal/agent/coordinator.go b/internal/agent/coordinator.go
-index 5a7b3f8..e8e72ab 100644
+index 5a7b3f8f30ba767f744920b997cbc471ad3aa8e7..e8e72abdff55ecf893be7adc886632356a6e9dce 100644
 --- a/internal/agent/coordinator.go
 +++ b/internal/agent/coordinator.go
 @@ -876,15 +876,17 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
@@ -107,7 +107,7 @@ index 5a7b3f8..e8e72ab 100644
  	case string(catwalk.InferenceProviderOpenCodeGo), string(catwalk.InferenceProviderOpenCodeZen):
 diff --git a/internal/agent/openai_oauth.go b/internal/agent/openai_oauth.go
 new file mode 100644
-index 0000000..6b71249
+index 0000000000000000000000000000000000000000..410e7d043baddd89b633e99cade7dd9dd75aa57f
 --- /dev/null
 +++ b/internal/agent/openai_oauth.go
 @@ -0,0 +1,54 @@
@@ -130,7 +130,7 @@ index 0000000..6b71249
 +// written before the two were split; an "openai" provider holding an API key
 +// has no OAuth token and still talks to the public OpenAI API.
 +func applyOpenAIOAuthRouting(provider config.ProviderConfig, baseURL string, headers map[string]string) (string, error) {
-+	if provider.OAuthToken == nil || !openaioauth.IsSubscriptionProvider(provider.ID) {
++	if !openaioauth.HasSubscriptionCredential(provider.ID, provider.OAuthToken) {
 +		return baseURL, nil
 +	}
 +	if provider.OAuthToken.AccessToken == "" {
@@ -153,7 +153,7 @@ index 0000000..6b71249
 +// subscription-backed Codex endpoint. Unlike the public Responses API, that
 +// endpoint rejects the max_output_tokens request field outright.
 +func omitMaxOutputTokens(provider config.ProviderConfig) bool {
-+	return provider.OAuthToken != nil && openaioauth.IsSubscriptionProvider(provider.ID)
++	return openaioauth.HasSubscriptionCredential(provider.ID, provider.OAuthToken)
 +}
 +
 +// maxOutputTokensForModel preserves explicit/default output limits everywhere
@@ -167,7 +167,7 @@ index 0000000..6b71249
 +}
 diff --git a/internal/agent/openai_oauth_test.go b/internal/agent/openai_oauth_test.go
 new file mode 100644
-index 0000000..25ed696
+index 0000000000000000000000000000000000000000..b80ec59ff3871d311eae646cb17f27c269e95cf1
 --- /dev/null
 +++ b/internal/agent/openai_oauth_test.go
 @@ -0,0 +1,134 @@
@@ -305,45 +305,184 @@ index 0000000..25ed696
 +		})
 +	}
 +}
+diff --git a/internal/backend/config.go b/internal/backend/config.go
+index 301bee9bb48ee7506bd39b134a14499401fb866e..18b2c78a7489884c61f3cd6f5f2cb5eeca8494e9 100644
+--- a/internal/backend/config.go
++++ b/internal/backend/config.go
+@@ -49,11 +49,16 @@ type MCPResourceContents struct {
+ // SetConfigField sets a key/value pair in the config file for the
+ // given scope.
+ func (b *Backend) SetConfigField(workspaceID string, scope config.Scope, key string, value any) error {
++	return b.SetConfigFields(workspaceID, scope, map[string]any{key: value})
++}
++
++// SetConfigFields sets multiple config fields in one file mutation.
++func (b *Backend) SetConfigFields(workspaceID string, scope config.Scope, fields map[string]any) error {
+ 	ws, err := b.GetWorkspace(workspaceID)
+ 	if err != nil {
+ 		return err
+ 	}
+-	if err := ws.Cfg.SetConfigField(scope, key, value); err != nil {
++	if err := ws.Cfg.SetConfigFields(scope, fields); err != nil {
+ 		return err
+ 	}
+ 	publishConfigChanged(ws)
+@@ -77,11 +82,16 @@ func (b *Backend) RemoveConfigField(workspaceID string, scope config.Scope, key
+ // UpdatePreferredModel updates the preferred model for the given type
+ // and persists it to the config file at the given scope.
+ func (b *Backend) UpdatePreferredModel(workspaceID string, scope config.Scope, modelType config.SelectedModelType, model config.SelectedModel) error {
++	return b.UpdatePreferredModels(workspaceID, scope, map[config.SelectedModelType]*config.SelectedModel{modelType: &model})
++}
++
++// UpdatePreferredModels atomically sets or removes multiple preferred models.
++func (b *Backend) UpdatePreferredModels(workspaceID string, scope config.Scope, models map[config.SelectedModelType]*config.SelectedModel) error {
+ 	ws, err := b.GetWorkspace(workspaceID)
+ 	if err != nil {
+ 		return err
+ 	}
+-	if err := ws.Cfg.UpdatePreferredModel(scope, modelType, model); err != nil {
++	if err := ws.Cfg.UpdatePreferredModels(scope, models); err != nil {
+ 		return err
+ 	}
+ 	publishConfigChanged(ws)
+diff --git a/internal/backend/config_test.go b/internal/backend/config_test.go
+index 858df6dabbe6d318dfa76e4593de314da9c779ce..882793634885697db51f6f9dd907c7b345906cc8 100644
+--- a/internal/backend/config_test.go
++++ b/internal/backend/config_test.go
+@@ -67,6 +67,16 @@ func TestSetConfigField_PublishesConfigChanged(t *testing.T) {
+ 	awaitConfigChanged(t, evc, ws.ID)
+ }
+ 
++func TestSetConfigFields_PublishesConfigChanged(t *testing.T) {
++	b, ws, evc := newPublishingWorkspace(t)
++
++	require.NoError(t, b.SetConfigFields(ws.ID, config.ScopeGlobal, map[string]any{
++		"options.debug":  true,
++		"options.custom": "value",
++	}))
++	awaitConfigChanged(t, evc, ws.ID)
++}
++
+ func TestRemoveConfigField_PublishesConfigChanged(t *testing.T) {
+ 	b, ws, evc := newPublishingWorkspace(t)
+ 
+@@ -98,6 +108,21 @@ func TestUpdatePreferredModel_PublishesConfigChanged(t *testing.T) {
+ 	awaitConfigChanged(t, evc, ws.ID)
+ }
+ 
++func TestUpdatePreferredModels_PublishesConfigChanged(t *testing.T) {
++	if raceEnabled {
++		t.Skip("skipped under -race: pre-existing race between ConfigStore writes and agent coordinator startup")
++	}
++	b, ws, evc := newPublishingWorkspace(t)
++
++	large := config.SelectedModel{Provider: "openai", Model: "gpt-5"}
++	small := config.SelectedModel{Provider: "openai", Model: "gpt-5-mini"}
++	require.NoError(t, b.UpdatePreferredModels(ws.ID, config.ScopeGlobal, map[config.SelectedModelType]*config.SelectedModel{
++		config.SelectedModelTypeLarge: &large,
++		config.SelectedModelTypeSmall: &small,
++	}))
++	awaitConfigChanged(t, evc, ws.ID)
++}
++
+ func TestSetCompactMode_PublishesConfigChanged(t *testing.T) {
+ 	b, ws, evc := newPublishingWorkspace(t)
+ 
 diff --git a/internal/backend/events.go b/internal/backend/events.go
-index bf20fbc..40f8870 100644
+index bf20fbc0f1cc5670384034e5b59a44f375c3efbf..cca0b0575f0dbfec5c5f55ef57a443860aa9b593 100644
 --- a/internal/backend/events.go
 +++ b/internal/backend/events.go
-@@ -4,6 +4,7 @@ import (
- 	"context"
- 
- 	tea "charm.land/bubbletea/v2"
-+	"charm.land/catwalk/pkg/catwalk"
- 
- 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
- 	"github.com/charmbracelet/crush/internal/app"
-@@ -67,7 +68,20 @@ func (b *Backend) GetWorkspaceProviders(workspaceID string) (any, error) {
+@@ -67,8 +67,9 @@ func (b *Backend) GetWorkspaceProviders(workspaceID string) (any, error) {
  		return nil, err
  	}
  
 -	providers, _ := config.Providers(ws.Cfg.Config())
+-	return providers, nil
 +	cfg := ws.Cfg.Config()
 +	providers, _ := config.Providers(cfg)
-+	if openAI, ok := cfg.Providers.Get(string(catwalk.InferenceProviderOpenAI)); ok && openAI.OAuthToken != nil && len(openAI.Models) > 0 {
-+		for i := range providers {
-+			if providers[i].ID != catwalk.InferenceProviderOpenAI {
-+				continue
-+			}
-+			providers[i].APIEndpoint = openAI.BaseURL
-+			providers[i].Models = openAI.Models
-+			providers[i].DefaultLargeModelID = openAI.Models[0].ID
-+			providers[i].DefaultSmallModelID = openAI.Models[0].ID
-+			break
-+		}
-+	}
- 	return providers, nil
++	return config.ProjectOpenAISubscriptionProviders(cfg, providers), nil
  }
  
+ // LSPStart starts an LSP server for the given path.
+diff --git a/internal/backend/events_test.go b/internal/backend/events_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9e78c3552dc84ee2562f493f2bae3043b7be230
+--- /dev/null
++++ b/internal/backend/events_test.go
+@@ -0,0 +1,44 @@
++package backend
++
++import (
++	"testing"
++
++	"charm.land/catwalk/pkg/catwalk"
++	"github.com/charmbracelet/crush/internal/config"
++	"github.com/charmbracelet/crush/internal/csync"
++	"github.com/charmbracelet/crush/internal/oauth"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
++	"github.com/stretchr/testify/require"
++)
++
++func TestGetWorkspaceProvidersProjectsConfiguredCodexCatalog(t *testing.T) {
++	b, _ := newTestBackend(t)
++	ws, _ := insertTestWorkspace(t, b, "/tmp/codex-catalog")
++	ws.Cfg = config.NewTestStore(&config.Config{
++		Providers: csync.NewMapFrom(map[string]config.ProviderConfig{
++			openaioauth.ProviderID: {
++				Name:       "ChatGPT (Codex)",
++				BaseURL:    openaioauth.CodexBackendURL,
++				OAuthToken: &oauth.Token{AccessToken: "access"},
++				Models:     []catwalk.Model{{ID: "gpt-live", Name: "Live"}},
++			},
++		}),
++		Options: &config.Options{DisableDefaultProviders: true},
++	})
++
++	value, err := b.GetWorkspaceProviders(ws.ID)
++	require.NoError(t, err)
++	providers, ok := value.([]catwalk.Provider)
++	require.True(t, ok)
++
++	for _, provider := range providers {
++		if provider.ID != catwalk.InferenceProvider(openaioauth.ProviderID) {
++			continue
++		}
++		require.Equal(t, openaioauth.CodexBackendURL, provider.APIEndpoint)
++		require.Equal(t, "gpt-live", provider.DefaultLargeModelID)
++		require.Equal(t, []catwalk.Model{{ID: "gpt-live", Name: "Live"}}, provider.Models)
++		return
++	}
++	t.Fatal("configured Codex provider is missing from the /providers projection")
++}
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 8befcfd917d9da6088a164ccd7559d8709783418..7f8eff54d4b9c452fe6199403db9b243e87a4b4c 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -51,6 +51,11 @@ func (s SelectedModelType) String() string {
+ 	return string(s)
+ }
+ 
++// Valid reports whether s names a supported preferred-model slot.
++func (s SelectedModelType) Valid() bool {
++	return s == SelectedModelTypeLarge || s == SelectedModelTypeSmall
++}
++
+ const (
+ 	SelectedModelTypeLarge SelectedModelType = "large"
+ 	SelectedModelTypeSmall SelectedModelType = "small"
 diff --git a/internal/config/load.go b/internal/config/load.go
-index b6ac00b..b4d1cb0 100644
+index b6ac00bdd2ae245b554399988af3f0adc6325d90..ef2ba2a3b73e6dbc0a14efac0b5e840c5ea7efb7 100644
 --- a/internal/config/load.go
 +++ b/internal/config/load.go
-@@ -248,15 +248,20 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
+@@ -27,6 +27,7 @@ import (
+ 	"github.com/charmbracelet/crush/internal/filepathext"
+ 	"github.com/charmbracelet/crush/internal/fsext"
+ 	"github.com/charmbracelet/crush/internal/home"
++	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+ 	"github.com/charmbracelet/crush/internal/shellconfig"
+ 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
+ 	"github.com/qjebbs/go-jsons"
+@@ -248,15 +249,20 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
  					}
  					models = append(models, model)
  				}
@@ -353,7 +492,7 @@ index b6ac00b..b4d1cb0 100644
 +				// A ChatGPT OAuth catalog is already account-scoped. Appending the
 +				// public OpenAI catalog would expose models the subscription cannot
 +				// run, especially after an app restart and config reload.
-+				if p.ID != catwalk.InferenceProviderOpenAI || config.OAuthToken == nil {
++				if !openaioauth.HasSubscriptionCredential(string(p.ID), config.OAuthToken) {
 +					for _, model := range p.Models {
 +						if seen[model.ID] {
 +							continue
@@ -373,7 +512,7 @@ index b6ac00b..b4d1cb0 100644
  
  				p.Models = models
 diff --git a/internal/config/load_test.go b/internal/config/load_test.go
-index 6cbe86c..560dc00 100644
+index 6cbe86c58a1f4d1a525d66a95f4b64688b8973c2..560dc002dd16923f03d0bbbec0364b95219c6304 100644
 --- a/internal/config/load_test.go
 +++ b/internal/config/load_test.go
 @@ -44,6 +44,34 @@ func TestConfig_LoadFromBytes(t *testing.T) {
@@ -411,16 +550,172 @@ index 6cbe86c..560dc00 100644
  func TestLookupConfigs_BoundedByProject(t *testing.T) {
  	// Force GlobalConfig and GlobalConfigData to point at locations we
  	// control so they can be present in the result without polluting
+diff --git a/internal/config/mutation.go b/internal/config/mutation.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb180355c8153a8f4c8c9e1fb3b5ba236d34ca8d
+--- /dev/null
++++ b/internal/config/mutation.go
+@@ -0,0 +1,149 @@
++package config
++
++import (
++	"errors"
++	"fmt"
++	"maps"
++	"slices"
++	"strings"
++
++	"github.com/tidwall/sjson"
++)
++
++// ErrInvalidConfigMutation marks a config mutation rejected before any state
++// is written. HTTP callers map this error to a 400 response.
++var ErrInvalidConfigMutation = errors.New("invalid config mutation")
++
++type configChanges struct {
++	set    map[string]any
++	remove []string
++}
++
++func (c configChanges) empty() bool {
++	return len(c.set) == 0 && len(c.remove) == 0
++}
++
++// writeConfigChanges applies sets and removals to one snapshot under one file
++// lock and persists the result with one atomic rename. Removals run first and
++// sets run second, so a set wins if a caller supplies overlapping paths.
++func (s *ConfigStore) writeConfigChanges(scope Scope, changes configChanges) error {
++	if changes.empty() {
++		return nil
++	}
++
++	setKeys := make([]string, 0, len(changes.set))
++	for key := range changes.set {
++		setKeys = append(setKeys, key)
++	}
++	slices.Sort(setKeys)
++
++	removeKeys := slices.Clone(changes.remove)
++	slices.Sort(removeKeys)
++
++	return s.atomicWrite(scope, func(data []byte) ([]byte, error) {
++		value := string(data)
++		for _, key := range removeKeys {
++			var err error
++			value, err = sjson.Delete(value, key)
++			if err != nil {
++				return nil, fmt.Errorf("failed to delete config field %s: %w", key, err)
++			}
++		}
++		for _, key := range setKeys {
++			var err error
++			value, err = sjson.Set(value, key, changes.set[key])
++			if err != nil {
++				return nil, fmt.Errorf("failed to set config field %s: %w", key, err)
++			}
++		}
++		return []byte(value), nil
++	})
++}
++
++func (s *ConfigStore) updateChanges(scope Scope, mutate func(*Config) configChanges) error {
++	s.writeMu.Lock()
++	defer s.writeMu.Unlock()
++	return s.updateChangesLocked(scope, mutate)
++}
++
++// updateChangesLocked is the shared transaction for typed config mutations.
++// The clone and per-instance model pins become visible only after the disk
++// mutation succeeds, so a failed write cannot leave memory ahead of disk.
++func (s *ConfigStore) updateChangesLocked(scope Scope, mutate func(*Config) configChanges) error {
++	next := s.Config().cloneForWrite()
++	previousModelPins := maps.Clone(s.overrides.Models)
++	changes := mutate(next)
++
++	if !changes.empty() {
++		if err := s.writeConfigChanges(scope, changes); err != nil {
++			s.overrides.Models = previousModelPins
++			return err
++		}
++	}
++
++	s.setConfig(next)
++	if !changes.empty() {
++		if path, err := s.configPath(scope); err == nil {
++			s.captureStalenessSnapshot(append(slices.Clone(s.loadedPaths), path))
++		}
++	}
++	return nil
++}
++
++func validateConfigFields(fields map[string]any) error {
++	if len(fields) == 0 {
++		return fmt.Errorf("%w: fields must not be empty", ErrInvalidConfigMutation)
++	}
++	for key := range fields {
++		if strings.TrimSpace(key) == "" {
++			return fmt.Errorf("%w: field paths must not be empty", ErrInvalidConfigMutation)
++		}
++	}
++	return nil
++}
++
++func validatePreferredModelUpdates(updates map[SelectedModelType]*SelectedModel) error {
++	if len(updates) == 0 {
++		return fmt.Errorf("%w: models must not be empty", ErrInvalidConfigMutation)
++	}
++	for modelType, model := range updates {
++		if !modelType.Valid() {
++			return fmt.Errorf("%w: unsupported model type %q", ErrInvalidConfigMutation, modelType)
++		}
++		if model == nil {
++			continue
++		}
++		if strings.TrimSpace(model.Provider) == "" || strings.TrimSpace(model.Model) == "" {
++			return fmt.Errorf("%w: model %q requires provider and model", ErrInvalidConfigMutation, modelType)
++		}
++	}
++	return nil
++}
++
++// UpdatePreferredModels atomically sets or removes multiple preferred-model
++// slots. A nil value removes that slot and its per-instance pin while leaving
++// recent-model history intact. Non-nil values use the same pin and recent-list
++// behavior as UpdatePreferredModel.
++func (s *ConfigStore) UpdatePreferredModels(scope Scope, updates map[SelectedModelType]*SelectedModel) error {
++	if err := validatePreferredModelUpdates(updates); err != nil {
++		return err
++	}
++
++	return s.updateChanges(scope, func(c *Config) configChanges {
++		changes := configChanges{set: make(map[string]any)}
++		for _, modelType := range []SelectedModelType{SelectedModelTypeLarge, SelectedModelTypeSmall} {
++			model, ok := updates[modelType]
++			if !ok {
++				continue
++			}
++			if model == nil {
++				delete(c.Models, modelType)
++				delete(s.overrides.Models, modelType)
++				changes.remove = append(changes.remove, fmt.Sprintf("models.%s", modelType))
++				continue
++			}
++			maps.Copy(changes.set, s.updatePreferredModelFields(c, modelType, *model))
++		}
++		return changes
++	})
++}
 diff --git a/internal/config/openai_oauth.go b/internal/config/openai_oauth.go
 new file mode 100644
-index 0000000..ef08a9c
+index 0000000000000000000000000000000000000000..964ee486cf830203fe968c262ee3fd5a5b443d1f
 --- /dev/null
 +++ b/internal/config/openai_oauth.go
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,105 @@
 +package config
 +
 +import (
 +	"context"
++	"slices"
 +	"time"
 +
 +	"charm.land/catwalk/pkg/catwalk"
@@ -429,6 +724,49 @@ index 0000000..ef08a9c
 +)
 +
 +func boolPtr(value bool) *bool { return &value }
++
++// ProjectOpenAISubscriptionProviders overlays the account-scoped catalog from
++// config onto the provider list exposed by the backend. Catwalk has no
++// canonical "codex" entry, while legacy configs may still store the same
++// credential under "openai", so both IDs follow the same credential policy.
++// The input slice is never mutated because Providers returns shared cached
++// data.
++func ProjectOpenAISubscriptionProviders(cfg *Config, providers []catwalk.Provider) []catwalk.Provider {
++	projected := slices.Clone(providers)
++	if cfg == nil || cfg.Providers == nil {
++		return projected
++	}
++
++	for _, providerID := range []string{openaioauth.ProviderID, openaioauth.LegacyProviderID} {
++		providerConfig, ok := cfg.Providers.Get(providerID)
++		if !ok || providerConfig.Disable || len(providerConfig.Models) == 0 ||
++			!openaioauth.HasSubscriptionCredential(providerID, providerConfig.OAuthToken) {
++			continue
++		}
++
++		catalogIndex := slices.IndexFunc(projected, func(provider catwalk.Provider) bool {
++			return string(provider.ID) == providerID
++		})
++		var provider catwalk.Provider
++		if catalogIndex >= 0 {
++			provider = projected[catalogIndex]
++		} else {
++			providerConfig.ID = providerID
++			provider = providerConfig.ToProvider()
++		}
++		provider.APIEndpoint = providerConfig.BaseURL
++		provider.Models = slices.Clone(providerConfig.Models)
++		provider.DefaultLargeModelID = providerConfig.Models[0].ID
++		provider.DefaultSmallModelID = providerConfig.Models[0].ID
++
++		if catalogIndex >= 0 {
++			projected[catalogIndex] = provider
++		} else {
++			projected = append(projected, provider)
++		}
++	}
++	return projected
++}
 +
 +func (s *ConfigStore) fetchOpenAIModels(ctx context.Context, token *oauth.Token) ([]catwalk.Model, error) {
 +	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -480,10 +818,10 @@ index 0000000..ef08a9c
 +}
 diff --git a/internal/config/openai_oauth_test.go b/internal/config/openai_oauth_test.go
 new file mode 100644
-index 0000000..5d8120a
+index 0000000000000000000000000000000000000000..9f29ac81495bd15ca4392d69e8e92e5ea38a82cd
 --- /dev/null
 +++ b/internal/config/openai_oauth_test.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,160 @@
 +package config
 +
 +import (
@@ -492,6 +830,7 @@ index 0000000..5d8120a
 +	"os"
 +	"path/filepath"
 +	"testing"
++	"time"
 +
 +	"charm.land/catwalk/pkg/catwalk"
 +	"github.com/charmbracelet/crush/internal/csync"
@@ -501,36 +840,136 @@ index 0000000..5d8120a
 +)
 +
 +func TestSetProviderAPIKeyPersistsChatGPTCatalog(t *testing.T) {
-+	t.Parallel()
-+	path := filepath.Join(t.TempDir(), "crush.json")
-+	require.NoError(t, os.WriteFile(path, []byte(`{}`), 0o600))
-+	store := &ConfigStore{
-+		config: &Config{Providers: csync.NewMapFrom(map[string]ProviderConfig{
-+			"openai": {ID: "openai", Name: "OpenAI", Type: catwalk.TypeOpenAI},
-+		})},
-+		globalDataPath: path,
-+		listOpenAIModels: func(_ context.Context, token *oauth.Token) ([]catwalk.Model, error) {
-+			require.Equal(t, "acct_123", token.AccountID)
-+			return []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}}, nil
++	for _, providerID := range []string{openaioauth.ProviderID, openaioauth.LegacyProviderID} {
++		t.Run(providerID, func(t *testing.T) {
++			path := filepath.Join(t.TempDir(), "crush.json")
++			require.NoError(t, os.WriteFile(path, []byte(`{}`), 0o600))
++			store := &ConfigStore{
++				config: &Config{Providers: csync.NewMapFrom(map[string]ProviderConfig{
++					providerID: {ID: providerID, Name: "ChatGPT", Type: catwalk.TypeOpenAI},
++				})},
++				globalDataPath: path,
++				listOpenAIModels: func(_ context.Context, token *oauth.Token) ([]catwalk.Model, error) {
++					require.Equal(t, "acct_123", token.AccountID)
++					return []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}}, nil
++				},
++			}
++			token := &oauth.Token{AccessToken: "access", RefreshToken: "refresh", AccountID: "acct_123"}
++			require.NoError(t, store.SetProviderAPIKey(ScopeGlobal, providerID, token))
++
++			provider, ok := store.Config().Providers.Get(providerID)
++			require.True(t, ok)
++			require.Equal(t, openaioauth.CodexBackendURL, provider.BaseURL)
++			require.Equal(t, []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}}, provider.Models)
++			require.True(t, provider.FlatRate)
++
++			var saved struct {
++				Providers map[string]ProviderConfig `json:"providers"`
++			}
++			data, err := os.ReadFile(path)
++			require.NoError(t, err)
++			require.NoError(t, json.Unmarshal(data, &saved))
++			require.Equal(t, "acct_123", saved.Providers[providerID].OAuthToken.AccountID)
++			require.Equal(t, "gpt-entitled", saved.Providers[providerID].Models[0].ID)
++		})
++	}
++}
++
++func TestRefreshOAuthTokenRoutesSubscriptionProviderIDs(t *testing.T) {
++	for _, providerID := range []string{openaioauth.ProviderID, openaioauth.LegacyProviderID} {
++		t.Run(providerID, func(t *testing.T) {
++			path := filepath.Join(t.TempDir(), "crush.json")
++			require.NoError(t, os.WriteFile(path, []byte(`{}`), 0o600))
++			expired := &oauth.Token{
++				AccessToken: "old-access", RefreshToken: "old-refresh",
++				ExpiresAt: time.Now().Add(-time.Hour).Unix(), AccountID: "acct_123",
++			}
++			store := &ConfigStore{
++				config: &Config{Providers: csync.NewMapFrom(map[string]ProviderConfig{
++					providerID: {ID: providerID, OAuthToken: expired},
++				})},
++				globalDataPath: path,
++				exchangeToken: func(_ context.Context, gotProviderID, refreshToken string) (*oauth.Token, error) {
++					require.Equal(t, providerID, gotProviderID)
++					require.Equal(t, "old-refresh", refreshToken)
++					return &oauth.Token{AccessToken: "new-access", ExpiresAt: time.Now().Add(time.Hour).Unix()}, nil
++				},
++				listOpenAIModels: func(_ context.Context, token *oauth.Token) ([]catwalk.Model, error) {
++					require.Equal(t, "acct_123", token.AccountID)
++					return []catwalk.Model{{ID: "gpt-live"}}, nil
++				},
++			}
++
++			require.NoError(t, store.RefreshOAuthToken(context.Background(), ScopeGlobal, providerID))
++			provider, ok := store.Config().Providers.Get(providerID)
++			require.True(t, ok)
++			require.Equal(t, openaioauth.CodexBackendURL, provider.BaseURL)
++			require.Equal(t, "gpt-live", provider.Models[0].ID)
++			require.Equal(t, "old-refresh", provider.OAuthToken.RefreshToken)
++		})
++	}
++}
++
++func TestProjectOpenAISubscriptionProviders(t *testing.T) {
++	token := &oauth.Token{AccessToken: "access"}
++	for _, tc := range []struct {
++		name      string
++		providers map[string]ProviderConfig
++		catalog   []catwalk.Provider
++		wantIDs   []catwalk.InferenceProvider
++		wantModel string
++	}{
++		{
++			name: "canonical Codex is appended",
++			providers: map[string]ProviderConfig{
++				openaioauth.ProviderID: {Name: "ChatGPT (Codex)", BaseURL: openaioauth.CodexBackendURL, OAuthToken: token, Models: []catwalk.Model{{ID: "gpt-live"}}},
++			},
++			catalog:   []catwalk.Provider{{ID: "anthropic", Models: []catwalk.Model{{ID: "public-model"}}}},
++			wantIDs:   []catwalk.InferenceProvider{"anthropic", catwalk.InferenceProvider(openaioauth.ProviderID)},
++			wantModel: "gpt-live",
 +		},
++		{
++			name: "legacy OpenAI is replaced",
++			providers: map[string]ProviderConfig{
++				openaioauth.LegacyProviderID: {BaseURL: openaioauth.CodexBackendURL, OAuthToken: token, Models: []catwalk.Model{{ID: "gpt-live"}}},
++			},
++			catalog:   []catwalk.Provider{{ID: catwalk.InferenceProviderOpenAI, Models: []catwalk.Model{{ID: "public-model"}}}},
++			wantIDs:   []catwalk.InferenceProvider{catwalk.InferenceProviderOpenAI},
++			wantModel: "gpt-live",
++		},
++		{
++			name: "public OpenAI API key is untouched",
++			providers: map[string]ProviderConfig{
++				openaioauth.LegacyProviderID: {APIKey: "key", Models: []catwalk.Model{{ID: "configured"}}},
++			},
++			catalog:   []catwalk.Provider{{ID: catwalk.InferenceProviderOpenAI, Models: []catwalk.Model{{ID: "public-model"}}}},
++			wantIDs:   []catwalk.InferenceProvider{catwalk.InferenceProviderOpenAI},
++			wantModel: "public-model",
++		},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			cfg := &Config{Providers: csync.NewMapFrom(tc.providers)}
++			got := ProjectOpenAISubscriptionProviders(cfg, tc.catalog)
++			require.Equal(t, tc.wantIDs, providerIDs(got))
++			require.Equal(t, tc.wantModel, got[len(got)-1].Models[0].ID)
++			require.Equal(t, "public-model", firstModelID(tc.catalog), "input catalog must remain unchanged")
++		})
 +	}
-+	token := &oauth.Token{AccessToken: "access", RefreshToken: "refresh", AccountID: "acct_123"}
-+	require.NoError(t, store.SetProviderAPIKey(ScopeGlobal, "openai", token))
++}
 +
-+	provider, ok := store.Config().Providers.Get("openai")
-+	require.True(t, ok)
-+	require.Equal(t, openaioauth.CodexBackendURL, provider.BaseURL)
-+	require.Equal(t, []catwalk.Model{{ID: "gpt-entitled", Name: "Entitled"}}, provider.Models)
-+	require.True(t, provider.FlatRate)
-+
-+	var saved struct {
-+		Providers map[string]ProviderConfig `json:"providers"`
++func providerIDs(providers []catwalk.Provider) []catwalk.InferenceProvider {
++	ids := make([]catwalk.InferenceProvider, len(providers))
++	for i := range providers {
++		ids[i] = providers[i].ID
 +	}
-+	data, err := os.ReadFile(path)
-+	require.NoError(t, err)
-+	require.NoError(t, json.Unmarshal(data, &saved))
-+	require.Equal(t, "acct_123", saved.Providers["openai"].OAuthToken.AccountID)
-+	require.Equal(t, "gpt-entitled", saved.Providers["openai"].Models[0].ID)
++	return ids
++}
++
++func firstModelID(providers []catwalk.Provider) string {
++	if len(providers) == 0 || len(providers[0].Models) == 0 {
++		return ""
++	}
++	return providers[0].Models[0].ID
 +}
 +
 +func TestMergeOAuthTokenMetadata(t *testing.T) {
@@ -543,8 +982,111 @@ index 0000000..5d8120a
 +	require.Equal(t, "plus", fresh.AccountPlan)
 +	require.True(t, fresh.AccountFedRAMP)
 +}
+diff --git a/internal/config/recent_models_test.go b/internal/config/recent_models_test.go
+index 4506cd336f3b1e130f844e46614ede3d23cdb112..9e56054d0464458261810f88a7ad1fb926ad40d5 100644
+--- a/internal/config/recent_models_test.go
++++ b/internal/config/recent_models_test.go
+@@ -156,3 +156,98 @@ func TestUpdatePreferredModel_TypeIsolation(t *testing.T) {
+ 	require.Len(t, store.Config().RecentModels[SelectedModelTypeSmall], 1)
+ 	require.Equal(t, smallModel, store.Config().RecentModels[SelectedModelTypeSmall][0])
+ }
++
++func TestUpdatePreferredModels_SetsPairWithRecentsAndPins(t *testing.T) {
++	t.Parallel()
++
++	dir := t.TempDir()
++	cfg := &Config{}
++	cfg.setDefaults(dir, "")
++	store := testStoreWithPath(cfg, dir)
++
++	large := SelectedModel{Provider: "openai", Model: "gpt-5"}
++	small := SelectedModel{Provider: "openai", Model: "gpt-5-mini"}
++	require.NoError(t, store.UpdatePreferredModels(ScopeGlobal, map[SelectedModelType]*SelectedModel{
++		SelectedModelTypeLarge: &large,
++		SelectedModelTypeSmall: &small,
++	}))
++
++	require.Equal(t, large, store.Config().Models[SelectedModelTypeLarge])
++	require.Equal(t, small, store.Config().Models[SelectedModelTypeSmall])
++	require.Equal(t, large, store.overrides.Models[SelectedModelTypeLarge])
++	require.Equal(t, small, store.overrides.Models[SelectedModelTypeSmall])
++	require.Equal(t, large, store.Config().RecentModels[SelectedModelTypeLarge][0])
++	require.Equal(t, small, store.Config().RecentModels[SelectedModelTypeSmall][0])
++
++	persisted := readConfigJSON(t, store.globalDataPath)
++	models := persisted["models"].(map[string]any)
++	require.Equal(t, "gpt-5", models["large"].(map[string]any)["model"])
++	require.Equal(t, "gpt-5-mini", models["small"].(map[string]any)["model"])
++}
++
++func TestUpdatePreferredModels_RemovesPairButKeepsRecents(t *testing.T) {
++	t.Parallel()
++
++	dir := t.TempDir()
++	cfg := &Config{}
++	cfg.setDefaults(dir, "")
++	store := testStoreWithPath(cfg, dir)
++
++	large := SelectedModel{Provider: "openai", Model: "gpt-5"}
++	small := SelectedModel{Provider: "openai", Model: "gpt-5-mini"}
++	require.NoError(t, store.UpdatePreferredModels(ScopeGlobal, map[SelectedModelType]*SelectedModel{
++		SelectedModelTypeLarge: &large,
++		SelectedModelTypeSmall: &small,
++	}))
++	require.NoError(t, store.UpdatePreferredModels(ScopeGlobal, map[SelectedModelType]*SelectedModel{
++		SelectedModelTypeLarge: nil,
++		SelectedModelTypeSmall: nil,
++	}))
++
++	require.NotContains(t, store.Config().Models, SelectedModelTypeLarge)
++	require.NotContains(t, store.Config().Models, SelectedModelTypeSmall)
++	require.NotContains(t, store.overrides.Models, SelectedModelTypeLarge)
++	require.NotContains(t, store.overrides.Models, SelectedModelTypeSmall)
++	require.Equal(t, large, store.Config().RecentModels[SelectedModelTypeLarge][0])
++	require.Equal(t, small, store.Config().RecentModels[SelectedModelTypeSmall][0])
++
++	persisted := readConfigJSON(t, store.globalDataPath)
++	models := persisted["models"].(map[string]any)
++	require.NotContains(t, models, "large")
++	require.NotContains(t, models, "small")
++	require.Contains(t, persisted["recent_models"].(map[string]any), "large")
++	require.Contains(t, persisted["recent_models"].(map[string]any), "small")
++}
++
++func TestUpdatePreferredModels_RejectsInvalidInputWithoutPublishing(t *testing.T) {
++	t.Parallel()
++
++	valid := SelectedModel{Provider: "openai", Model: "gpt-5"}
++	incomplete := SelectedModel{Provider: "openai"}
++	tests := []struct {
++		name    string
++		scope   Scope
++		updates map[SelectedModelType]*SelectedModel
++	}{
++		{name: "empty map", scope: ScopeGlobal, updates: map[SelectedModelType]*SelectedModel{}},
++		{name: "unknown type", scope: ScopeGlobal, updates: map[SelectedModelType]*SelectedModel{"medium": &valid}},
++		{name: "incomplete model", scope: ScopeGlobal, updates: map[SelectedModelType]*SelectedModel{SelectedModelTypeLarge: &incomplete}},
++		{name: "unknown scope", scope: Scope(99), updates: map[SelectedModelType]*SelectedModel{SelectedModelTypeLarge: &valid}},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			t.Parallel()
++			dir := t.TempDir()
++			cfg := &Config{}
++			cfg.setDefaults(dir, "")
++			store := testStoreWithPath(cfg, dir)
++			before := store.Config()
++
++			err := store.UpdatePreferredModels(tt.scope, tt.updates)
++			require.ErrorIs(t, err, ErrInvalidConfigMutation)
++			require.Same(t, before, store.Config())
++			require.Empty(t, store.overrides.Models)
++		})
++	}
++}
 diff --git a/internal/config/store.go b/internal/config/store.go
-index aded5da..19fecd8 100644
+index aded5da67d1bf1d0ab4e66ef46ec84ad389d3ffa..6a9d52f26ed792d36c748583c493f71d3c677b15 100644
 --- a/internal/config/store.go
 +++ b/internal/config/store.go
 @@ -19,6 +19,7 @@ import (
@@ -565,7 +1107,98 @@ index aded5da..19fecd8 100644
  
  	// authSignalMu guards authSignals, which maps provider IDs to
  	// channels that WaitForTokenChange blocks on. SignalAuthComplete
-@@ -565,6 +567,7 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
+@@ -328,13 +330,15 @@ func (s *ConfigStore) atomicWrite(scope Scope, fn func(current []byte) ([]byte,
+ // configPath returns the file path for the given scope.
+ func (s *ConfigStore) configPath(scope Scope) (string, error) {
+ 	switch scope {
++	case ScopeGlobal:
++		return s.globalDataPath, nil
+ 	case ScopeWorkspace:
+ 		if s.workspacePath == "" {
+ 			return "", ErrNoWorkspaceConfig
+ 		}
+ 		return s.workspacePath, nil
+ 	default:
+-		return s.globalDataPath, nil
++		return "", fmt.Errorf("%w: unsupported scope %d", ErrInvalidConfigMutation, scope)
+ 	}
+ }
+ 
+@@ -369,6 +373,9 @@ func (s *ConfigStore) SetConfigField(scope Scope, key string, value any) error {
+ // The write is protected by an in-process mutex and a cross-process flock
+ // to prevent races between concurrent writers in different processes.
+ func (s *ConfigStore) SetConfigFields(scope Scope, kv map[string]any) error {
++	if err := validateConfigFields(kv); err != nil {
++		return err
++	}
+ 	if err := s.writeConfigFields(scope, kv); err != nil {
+ 		return err
+ 	}
+@@ -389,25 +396,7 @@ func (s *ConfigStore) SetConfigFields(scope Scope, kv map[string]any) error {
+ // (update). Both of those run under writeMu, which is what keeps the
+ // snapshot map free of concurrent writers.
+ func (s *ConfigStore) writeConfigFields(scope Scope, kv map[string]any) error {
+-	// Sort keys for deterministic output regardless of map iteration
+-	// order. This also ensures consistent results when callers pass
+-	// overlapping JSONPath keys (e.g. "a" and "a.b").
+-	keys := make([]string, 0, len(kv))
+-	for k := range kv {
+-		keys = append(keys, k)
+-	}
+-	slices.Sort(keys)
+-
+-	return s.atomicWrite(scope, func(data []byte) ([]byte, error) {
+-		v := string(data)
+-		for _, key := range keys {
+-			var sErr error
+-			if v, sErr = sjson.Set(v, key, kv[key]); sErr != nil {
+-				return nil, fmt.Errorf("failed to set config field %s: %w", key, sErr)
+-			}
+-		}
+-		return []byte(v), nil
+-	})
++	return s.writeConfigChanges(scope, configChanges{set: kv})
+ }
+ 
+ // mutateInMemory applies a copy-on-write change to the config without
+@@ -436,22 +425,9 @@ func (s *ConfigStore) update(scope Scope, mutate func(*Config) map[string]any) e
+ 
+ // updateLocked is the lock-free core of update. Caller must hold writeMu.
+ func (s *ConfigStore) updateLocked(scope Scope, mutate func(*Config) map[string]any) error {
+-	nc := s.Config().cloneForWrite()
+-	fields := mutate(nc)
+-	s.setConfig(nc)
+-	if len(fields) == 0 {
+-		return nil
+-	}
+-	if err := s.writeConfigFields(scope, fields); err != nil {
+-		return err
+-	}
+-	// Refresh the staleness snapshot so the file watcher does not treat
+-	// our own write as an external change. Safe to touch the snapshot map
+-	// here because we hold writeMu.
+-	if path, err := s.configPath(scope); err == nil {
+-		s.captureStalenessSnapshot(append(slices.Clone(s.loadedPaths), path))
+-	}
+-	return nil
++	return s.updateChangesLocked(scope, func(c *Config) configChanges {
++		return configChanges{set: mutate(c)}
++	})
+ }
+ 
+ // OverridePreferredModel sets the preferred model for the given type in
+@@ -516,9 +492,7 @@ func (s *ConfigStore) RemoveConfigField(scope Scope, key string) error {
+ // latency); agents are refreshed separately by the caller (see
+ // UpdateAgentModel).
+ func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelType, model SelectedModel) error {
+-	return s.update(scope, func(c *Config) map[string]any {
+-		return s.updatePreferredModelFields(c, modelType, model)
+-	})
++	return s.UpdatePreferredModels(scope, map[SelectedModelType]*SelectedModel{modelType: &model})
+ }
+ 
+ // updatePreferredModelFields builds the fields map for persisting a preferred
+@@ -565,6 +539,7 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
  	var providerConfig ProviderConfig
  	var exists bool
  	var setKeyOrToken func()
@@ -573,7 +1206,7 @@ index aded5da..19fecd8 100644
  
  	switch v := apiKey.(type) {
  	case string:
-@@ -573,24 +576,41 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
+@@ -573,24 +548,41 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
  		}
  		setKeyOrToken = func() { providerConfig.APIKey = v }
  	case *oauth.Token:
@@ -581,7 +1214,7 @@ index aded5da..19fecd8 100644
 +			fmt.Sprintf("providers.%s.api_key", providerID): v.AccessToken,
 +			fmt.Sprintf("providers.%s.oauth", providerID):   v,
 +		}
-+		if openaioauth.IsSubscriptionProvider(providerID) {
++		if openaioauth.HasSubscriptionCredential(providerID, v) {
 +			var err error
 +			oauthModels, err = s.fetchOpenAIModels(context.Background(), v)
 +			if err != nil {
@@ -613,7 +1246,7 @@ index aded5da..19fecd8 100644
 +			switch {
 +			case providerID == string(catwalk.InferenceProviderCopilot):
  				providerConfig.SetupGitHubCopilot()
-+			case openaioauth.IsSubscriptionProvider(providerID):
++			case openaioauth.HasSubscriptionCredential(providerID, v):
 +				providerConfig.BaseURL = openaioauth.CodexBackendURL
 +				providerConfig.Models = oauthModels
 +				providerConfig.AutoDiscoverModels = boolPtr(false)
@@ -621,7 +1254,7 @@ index aded5da..19fecd8 100644
  			}
  		}
  	}
-@@ -734,15 +754,32 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope,
+@@ -734,15 +726,32 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope,
  		return fmt.Errorf("failed to refresh OAuth token for provider %s: %w", providerID, refreshErr)
  	}
  
@@ -630,7 +1263,7 @@ index aded5da..19fecd8 100644
 +		fmt.Sprintf("providers.%s.api_key", providerID): refreshedToken.AccessToken,
 +		fmt.Sprintf("providers.%s.oauth", providerID):   refreshedToken,
 +	}
-+	if providerID == string(catwalk.InferenceProviderOpenAI) {
++	if openaioauth.HasSubscriptionCredential(providerID, refreshedToken) {
 +		providerConfig.BaseURL = openaioauth.CodexBackendURL
 +		providerConfig.AutoDiscoverModels = boolPtr(false)
 +		providerConfig.FlatRate = true
@@ -658,18 +1291,25 @@ index aded5da..19fecd8 100644
  		return fmt.Errorf("failed to persist refreshed token: %w", err)
  	}
  	return nil
-@@ -867,6 +904,8 @@ func (s *ConfigStore) exchange(ctx context.Context, providerID, refreshToken str
- 	switch providerID {
- 	case string(catwalk.InferenceProviderCopilot):
+@@ -864,10 +873,12 @@ func (s *ConfigStore) exchange(ctx context.Context, providerID, refreshToken str
+ 	if s.exchangeToken != nil {
+ 		return s.exchangeToken(ctx, providerID, refreshToken)
+ 	}
+-	switch providerID {
+-	case string(catwalk.InferenceProviderCopilot):
++	switch {
++	case providerID == string(catwalk.InferenceProviderCopilot):
  		return copilot.RefreshToken(ctx, refreshToken)
-+	case string(catwalk.InferenceProviderOpenAI):
+-	case hyperp.Name:
++	case openaioauth.IsSubscriptionProvider(providerID):
 +		return openaioauth.RefreshToken(ctx, refreshToken)
- 	case hyperp.Name:
++	case providerID == hyperp.Name:
  		return hyper.ExchangeToken(ctx, refreshToken)
  	default:
+ 		return nil, fmt.Errorf("OAuth refresh not supported for provider %s", providerID)
 diff --git a/internal/oauth/openai/claims.go b/internal/oauth/openai/claims.go
 new file mode 100644
-index 0000000..01e0e98
+index 0000000000000000000000000000000000000000..01e0e987e1dfb7256452f5b826e8b173912f2646
 --- /dev/null
 +++ b/internal/oauth/openai/claims.go
 @@ -0,0 +1,106 @@
@@ -781,7 +1421,7 @@ index 0000000..01e0e98
 +}
 diff --git a/internal/oauth/openai/claims_test.go b/internal/oauth/openai/claims_test.go
 new file mode 100644
-index 0000000..9c8eed4
+index 0000000000000000000000000000000000000000..9c8eed44af18bfe09191e317e2e2c0d373492aac
 --- /dev/null
 +++ b/internal/oauth/openai/claims_test.go
 @@ -0,0 +1,136 @@
@@ -923,7 +1563,7 @@ index 0000000..9c8eed4
 +}
 diff --git a/internal/oauth/openai/client.go b/internal/oauth/openai/client.go
 new file mode 100644
-index 0000000..2153193
+index 0000000000000000000000000000000000000000..2153193e1fb3ae34e2dbe01f68287d91c8e77d86
 --- /dev/null
 +++ b/internal/oauth/openai/client.go
 @@ -0,0 +1,227 @@
@@ -1156,7 +1796,7 @@ index 0000000..2153193
 +}
 diff --git a/internal/oauth/openai/client_test.go b/internal/oauth/openai/client_test.go
 new file mode 100644
-index 0000000..4832b27
+index 0000000000000000000000000000000000000000..4832b27a9d05b96981c868030595427f169f8b02
 --- /dev/null
 +++ b/internal/oauth/openai/client_test.go
 @@ -0,0 +1,77 @@
@@ -1239,11 +1879,13 @@ index 0000000..4832b27
 +}
 diff --git a/internal/oauth/openai/provider.go b/internal/oauth/openai/provider.go
 new file mode 100644
-index 0000000..02ba810
+index 0000000000000000000000000000000000000000..c0a5c263c2051e1a795f888b721c789a4a8ad152
 --- /dev/null
 +++ b/internal/oauth/openai/provider.go
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,32 @@
 +package openai
++
++import "github.com/charmbracelet/crush/internal/oauth"
 +
 +// ProviderID is the Crush provider id reserved for ChatGPT subscription
 +// authentication. Keeping it separate from the public "openai" provider lets a
@@ -1265,15 +1907,27 @@ index 0000000..02ba810
 +func IsSubscriptionProvider(providerID string) bool {
 +	return providerID == ProviderID || providerID == LegacyProviderID
 +}
++
++// HasSubscriptionCredential is the single routing policy for ChatGPT
++// subscription behavior. The legacy "openai" id only takes this path when it
++// actually contains an OAuth credential, so API-key configurations continue to
++// use the public OpenAI endpoint.
++func HasSubscriptionCredential(providerID string, token *oauth.Token) bool {
++	return token != nil && IsSubscriptionProvider(providerID)
++}
 diff --git a/internal/oauth/openai/provider_test.go b/internal/oauth/openai/provider_test.go
 new file mode 100644
-index 0000000..0c45226
+index 0000000000000000000000000000000000000000..63e86f7b83e770b31008eedbf8d212a3a89252e0
 --- /dev/null
 +++ b/internal/oauth/openai/provider_test.go
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,53 @@
 +package openai
 +
-+import "testing"
++import (
++	"testing"
++
++	"github.com/charmbracelet/crush/internal/oauth"
++)
 +
 +func TestIsSubscriptionProvider(t *testing.T) {
 +	t.Parallel()
@@ -1292,6 +1946,28 @@ index 0000000..0c45226
 +	}
 +}
 +
++func TestHasSubscriptionCredential(t *testing.T) {
++	t.Parallel()
++	token := &oauth.Token{AccessToken: "access"}
++	for _, tc := range []struct {
++		name       string
++		providerID string
++		token      *oauth.Token
++		want       bool
++	}{
++		{"codex OAuth", ProviderID, token, true},
++		{"legacy OpenAI OAuth", LegacyProviderID, token, true},
++		{"public OpenAI API key", LegacyProviderID, nil, false},
++		{"other OAuth provider", "anthropic", token, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			if got := HasSubscriptionCredential(tc.providerID, tc.token); got != tc.want {
++				t.Fatalf("HasSubscriptionCredential(%q, %v) = %v, want %v", tc.providerID, tc.token != nil, got, tc.want)
++			}
++		})
++	}
++}
++
 +func TestSubscriptionProviderIDIsNotThePublicOpenAIProvider(t *testing.T) {
 +	t.Parallel()
 +	if ProviderID == LegacyProviderID {
@@ -1299,7 +1975,7 @@ index 0000000..0c45226
 +	}
 +}
 diff --git a/internal/oauth/token.go b/internal/oauth/token.go
-index 72feadf..7df1129 100644
+index 72feadf6e56b4de89564dd561f61f3af56b05583..7df1129a28ba9c2caf6446869b663434bbe6f4df 100644
 --- a/internal/oauth/token.go
 +++ b/internal/oauth/token.go
 @@ -26,11 +26,18 @@ type OAuthClient struct {
@@ -1326,8 +2002,41 @@ index 72feadf..7df1129 100644
  }
  
  // SetExpiresAt calculates and sets the ExpiresAt field based on the
+diff --git a/internal/proto/requests.go b/internal/proto/requests.go
+index a5a1486eb7f0cb03a788aad584c6752445ca4861..11108d4885ff3678274e1c1a84334cc689a66dab 100644
+--- a/internal/proto/requests.go
++++ b/internal/proto/requests.go
+@@ -15,6 +15,13 @@ type ConfigSetRequest struct {
+ 	Value any          `json:"value"`
+ }
+ 
++// ConfigSetBatchRequest represents an atomic multi-field config mutation.
++type ConfigSetBatchRequest struct {
++	Scope config.Scope `json:"scope"`
++	// Fields maps JSON paths to values and must contain at least one entry.
++	Fields map[string]any `json:"fields" binding:"required"`
++}
++
+ // ConfigRemoveRequest represents a request to remove a config field.
+ type ConfigRemoveRequest struct {
+ 	Scope config.Scope `json:"scope"`
+@@ -28,6 +35,14 @@ type ConfigModelRequest struct {
+ 	Model     config.SelectedModel     `json:"model"`
+ }
+ 
++// ConfigModelsRequest represents an atomic preferred-model mutation. A null
++// map value removes that model slot.
++type ConfigModelsRequest struct {
++	Scope config.Scope `json:"scope"`
++	// Models maps large/small slots to selections; a null value deletes a slot.
++	Models map[config.SelectedModelType]*config.SelectedModel `json:"models" binding:"required"`
++}
++
+ // ConfigCompactRequest represents a request to set compact mode.
+ type ConfigCompactRequest struct {
+ 	Scope   config.Scope `json:"scope"`
 diff --git a/internal/proto/requests_test.go b/internal/proto/requests_test.go
-index 8ca7180..6585a93 100644
+index 8ca718004b90b374df26d7d91ef1900534de8d49..6585a93800ac1358186807403aff35830b835cda 100644
 --- a/internal/proto/requests_test.go
 +++ b/internal/proto/requests_test.go
 @@ -40,10 +40,15 @@ func TestConfigProviderKeyRequestOAuthRoundTrip(t *testing.T) {
@@ -1350,3 +2059,1528 @@ index 8ca7180..6585a93 100644
  	}
  	apiKey, err := json.Marshal(tok)
  	require.NoError(t, err)
+diff --git a/internal/server/config.go b/internal/server/config.go
+index ee4fb13cde00bbd0225b0890ced0dde3dd19e46b..9e77fe8b6a4d180fb1001ba7b2d27c8548c33303 100644
+--- a/internal/server/config.go
++++ b/internal/server/config.go
+@@ -36,6 +36,35 @@ func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *ht
+ 	w.WriteHeader(http.StatusOK)
+ }
+ 
++// handlePostWorkspaceConfigSetBatch sets multiple configuration fields.
++//
++//	@Summary		Set config fields atomically
++//	@Tags			config
++//	@Accept			json
++//	@Param			id		path	string						true	"Workspace ID"
++//	@Param			request	body	proto.ConfigSetBatchRequest	true	"Config batch request"
++//	@Success		200
++//	@Failure		400	{object}	proto.Error
++//	@Failure		404	{object}	proto.Error
++//	@Failure		500	{object}	proto.Error
++//	@Router			/workspaces/{id}/config/set-batch [post]
++func (c *controllerV1) handlePostWorkspaceConfigSetBatch(w http.ResponseWriter, r *http.Request) {
++	id := r.PathValue("id")
++
++	var req proto.ConfigSetBatchRequest
++	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
++		c.server.logError(r, "Failed to decode request", "error", err)
++		jsonError(w, http.StatusBadRequest, "failed to decode request")
++		return
++	}
++
++	if err := c.backend.SetConfigFields(id, req.Scope, req.Fields); err != nil {
++		c.handleError(w, r, err)
++		return
++	}
++	w.WriteHeader(http.StatusOK)
++}
++
+ // handlePostWorkspaceConfigRemove removes a configuration field.
+ //
+ //	@Summary		Remove a config field
+@@ -94,6 +123,35 @@ func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *
+ 	w.WriteHeader(http.StatusOK)
+ }
+ 
++// handlePostWorkspaceConfigModels updates multiple preferred-model slots.
++//
++//	@Summary		Update preferred models atomically
++//	@Tags			config
++//	@Accept			json
++//	@Param			id		path	string					true	"Workspace ID"
++//	@Param			request	body	proto.ConfigModelsRequest	true	"Config models request"
++//	@Success		200
++//	@Failure		400	{object}	proto.Error
++//	@Failure		404	{object}	proto.Error
++//	@Failure		500	{object}	proto.Error
++//	@Router			/workspaces/{id}/config/models [post]
++func (c *controllerV1) handlePostWorkspaceConfigModels(w http.ResponseWriter, r *http.Request) {
++	id := r.PathValue("id")
++
++	var req proto.ConfigModelsRequest
++	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
++		c.server.logError(r, "Failed to decode request", "error", err)
++		jsonError(w, http.StatusBadRequest, "failed to decode request")
++		return
++	}
++
++	if err := c.backend.UpdatePreferredModels(id, req.Scope, req.Models); err != nil {
++		c.handleError(w, r, err)
++		return
++	}
++	w.WriteHeader(http.StatusOK)
++}
++
+ // handlePostWorkspaceConfigCompact sets compact mode.
+ //
+ //	@Summary		Set compact mode
+diff --git a/internal/server/e2e_test.go b/internal/server/e2e_test.go
+index f538632217d41a64d6abed70c44da58ea790e8c5..d03f3379e04fd7a7fb0e0d39a5535895a90b6e9a 100644
+--- a/internal/server/e2e_test.go
++++ b/internal/server/e2e_test.go
+@@ -16,6 +16,7 @@ import (
+ 
+ 	"github.com/charmbracelet/crush/internal/app"
+ 	"github.com/charmbracelet/crush/internal/backend"
++	"github.com/charmbracelet/crush/internal/config"
+ 	"github.com/charmbracelet/crush/internal/db"
+ 	"github.com/charmbracelet/crush/internal/message"
+ 	"github.com/charmbracelet/crush/internal/permission"
+@@ -161,6 +162,22 @@ func (h *e2eHarness) postWorkspace(t *testing.T, args proto.Workspace) proto.Wor
+ 	return out
+ }
+ 
++func (h *e2eHarness) postJSON(t *testing.T, path string, value any) (int, []byte) {
++	t.Helper()
++	body, err := json.Marshal(value)
++	require.NoError(t, err)
++	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
++		h.httpSrv.URL+path, bytes.NewReader(body))
++	require.NoError(t, err)
++	req.Header.Set("Content-Type", "application/json")
++	resp, err := h.httpSrv.Client().Do(req)
++	require.NoError(t, err)
++	defer resp.Body.Close()
++	responseBody, err := io.ReadAll(resp.Body)
++	require.NoError(t, err)
++	return resp.StatusCode, responseBody
++}
++
+ // subscribeSSE opens an SSE stream against the test server for the
+ // given workspace and client ID. It returns a channel of decoded
+ // envelopes plus a cancel function that closes the stream. The
+@@ -424,6 +441,135 @@ func TestE2E_TwoClientsReceiveSameMessage(t *testing.T) {
+ 	require.Equal(t, sessionID, gotB.Payload.SessionID)
+ }
+ 
++func TestE2E_ConfigBatchRoutes(t *testing.T) {
++	h := newRealCreateHarness(t)
++	h.backend.SetCreateGrace(time.Hour)
++
++	clientID := uuid.New().String()
++	workspace := h.postWorkspace(t, proto.Workspace{
++		Path:     t.TempDir(),
++		DataDir:  t.TempDir(),
++		ClientID: clientID,
++	})
++	t.Cleanup(func() {
++		require.NoError(t, h.backend.DeleteWorkspace(workspace.ID, clientID))
++	})
++
++	basePath := "/v1/workspaces/" + workspace.ID + "/config/"
++	provider := map[string]any{
++		"id":              "atomic",
++		"name":            "Atomic Provider",
++		"type":            "openai",
++		"base_url":        "https://example.invalid/v1",
++		"api_key":         "test-key",
++		"discover_models": false,
++		"models": []map[string]any{
++			{"id": "large-model", "name": "Large Model"},
++			{"id": "small-model", "name": "Small Model"},
++		},
++	}
++	status, responseBody := h.postJSON(t, basePath+"set-batch", proto.ConfigSetBatchRequest{
++		Scope: config.ScopeGlobal,
++		Fields: map[string]any{
++			"providers.atomic": provider,
++		},
++	})
++	require.Equal(t, http.StatusOK, status)
++	require.Empty(t, bytes.TrimSpace(responseBody))
++
++	ws, err := h.backend.GetWorkspace(workspace.ID)
++	require.NoError(t, err)
++	configuredProvider, ok := ws.Cfg.Config().Providers.Get("atomic")
++	require.True(t, ok)
++	require.Equal(t, "Atomic Provider", configuredProvider.Name)
++	require.Len(t, configuredProvider.Models, 2)
++
++	large := config.SelectedModel{Provider: "atomic", Model: "large-model"}
++	small := config.SelectedModel{Provider: "atomic", Model: "small-model"}
++	status, responseBody = h.postJSON(t, basePath+"models", proto.ConfigModelsRequest{
++		Scope: config.ScopeGlobal,
++		Models: map[config.SelectedModelType]*config.SelectedModel{
++			config.SelectedModelTypeLarge: &large,
++			config.SelectedModelTypeSmall: &small,
++		},
++	})
++	require.Equal(t, http.StatusOK, status)
++	require.Empty(t, bytes.TrimSpace(responseBody))
++	require.Equal(t, large, ws.Cfg.Config().Models[config.SelectedModelTypeLarge])
++	require.Equal(t, small, ws.Cfg.Config().Models[config.SelectedModelTypeSmall])
++
++	status, responseBody = h.postJSON(t, basePath+"models", proto.ConfigModelsRequest{
++		Scope: config.ScopeGlobal,
++		Models: map[config.SelectedModelType]*config.SelectedModel{
++			config.SelectedModelTypeLarge: nil,
++			config.SelectedModelTypeSmall: nil,
++		},
++	})
++	require.Equal(t, http.StatusOK, status)
++	require.Empty(t, bytes.TrimSpace(responseBody))
++	require.NotContains(t, ws.Cfg.Config().Models, config.SelectedModelTypeLarge)
++	require.NotContains(t, ws.Cfg.Config().Models, config.SelectedModelTypeSmall)
++	require.Equal(t, large, ws.Cfg.Config().RecentModels[config.SelectedModelTypeLarge][0])
++	require.Equal(t, small, ws.Cfg.Config().RecentModels[config.SelectedModelTypeSmall][0])
++
++	invalidRequests := []struct {
++		name string
++		path string
++		body any
++	}{
++		{
++			name: "empty fields",
++			path: "set-batch",
++			body: proto.ConfigSetBatchRequest{Scope: config.ScopeGlobal, Fields: map[string]any{}},
++		},
++		{
++			name: "blank field",
++			path: "set-batch",
++			body: proto.ConfigSetBatchRequest{Scope: config.ScopeGlobal, Fields: map[string]any{" ": true}},
++		},
++		{
++			name: "empty models",
++			path: "models",
++			body: proto.ConfigModelsRequest{Scope: config.ScopeGlobal, Models: map[config.SelectedModelType]*config.SelectedModel{}},
++		},
++		{
++			name: "unknown model type",
++			path: "models",
++			body: proto.ConfigModelsRequest{
++				Scope:  config.ScopeGlobal,
++				Models: map[config.SelectedModelType]*config.SelectedModel{"medium": &large},
++			},
++		},
++		{
++			name: "incomplete model",
++			path: "models",
++			body: proto.ConfigModelsRequest{
++				Scope: config.ScopeGlobal,
++				Models: map[config.SelectedModelType]*config.SelectedModel{
++					config.SelectedModelTypeLarge: {Provider: "atomic"},
++				},
++			},
++		},
++		{
++			name: "unknown scope",
++			path: "models",
++			body: proto.ConfigModelsRequest{
++				Scope: config.Scope(99),
++				Models: map[config.SelectedModelType]*config.SelectedModel{
++					config.SelectedModelTypeLarge: &large,
++				},
++			},
++		},
++	}
++	for _, tt := range invalidRequests {
++		t.Run(tt.name, func(t *testing.T) {
++			status, body := h.postJSON(t, basePath+tt.path, tt.body)
++			require.Equal(t, http.StatusBadRequest, status)
++			require.NotEmpty(t, bytes.TrimSpace(body))
++		})
++	}
++}
++
+ // TestE2E_PermissionFlowCrossClient covers PLAN item 6 scenario 2:
+ // a tool-driven permission request is granted by client A; client B
+ // observes a PermissionNotification; a redundant grant from B
+diff --git a/internal/server/proto.go b/internal/server/proto.go
+index 7e0dced01797d5ee5b489a0f8aa90e4bbba1e90b..4d8b186d52a175ba5d2aec08b1dc331e8302f533 100644
+--- a/internal/server/proto.go
++++ b/internal/server/proto.go
+@@ -7,6 +7,7 @@ import (
+ 	"net/http"
+ 
+ 	"github.com/charmbracelet/crush/internal/backend"
++	"github.com/charmbracelet/crush/internal/config"
+ 	"github.com/charmbracelet/crush/internal/proto"
+ 	"github.com/charmbracelet/crush/internal/session"
+ 	"github.com/google/uuid"
+@@ -1184,6 +1185,8 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
+ 		status = http.StatusBadRequest
+ 	case errors.Is(err, backend.ErrInvalidClientID):
+ 		status = http.StatusBadRequest
++	case errors.Is(err, config.ErrInvalidConfigMutation):
++		status = http.StatusBadRequest
+ 	case errors.Is(err, backend.ErrClientNotAttached):
+ 		// 409, not 404: the workspace exists, the caller just has no live
+ 		// stream yet. A 404 here is indistinguishable from "workspace
+diff --git a/internal/server/server.go b/internal/server/server.go
+index a7b6b804d194f8197fcb7660e9e327cb7946f32d..9647c0152934058837a7705f391c83c3de80a20c 100644
+--- a/internal/server/server.go
++++ b/internal/server/server.go
+@@ -202,8 +202,10 @@ func (s *Server) installHandler() {
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/agent/sessions/{sid}/shell", c.handlePostWorkspaceAgentSessionShell)
+ 	mux.HandleFunc("GET /v1/workspaces/{id}/agent/default-small-model", c.handleGetWorkspaceAgentDefaultSmallModel)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/config/set", c.handlePostWorkspaceConfigSet)
++	mux.HandleFunc("POST /v1/workspaces/{id}/config/set-batch", c.handlePostWorkspaceConfigSetBatch)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/config/remove", c.handlePostWorkspaceConfigRemove)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/config/model", c.handlePostWorkspaceConfigModel)
++	mux.HandleFunc("POST /v1/workspaces/{id}/config/models", c.handlePostWorkspaceConfigModels)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/config/compact", c.handlePostWorkspaceConfigCompact)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/config/provider-key", c.handlePostWorkspaceConfigProviderKey)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/config/import-copilot", c.handlePostWorkspaceConfigImportCopilot)
+diff --git a/internal/swagger/docs.go b/internal/swagger/docs.go
+index 2ecfe52bbc355e9e4a2b9dd8346c8a114268ef12..8462d261734c56c0f0c7be77cb9299908700e80e 100644
+--- a/internal/swagger/docs.go
++++ b/internal/swagger/docs.go
+@@ -997,6 +997,58 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "/workspaces/{id}/config/models": {
++            "post": {
++                "consumes": [
++                    "application/json"
++                ],
++                "tags": [
++                    "config"
++                ],
++                "summary": "Update preferred models atomically",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "description": "Config models request",
++                        "name": "request",
++                        "in": "body",
++                        "required": true,
++                        "schema": {
++                            "$ref": "#/definitions/proto.ConfigModelsRequest"
++                        }
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK"
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/config/provider-key": {
+             "post": {
+                 "consumes": [
+@@ -1205,6 +1257,58 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "/workspaces/{id}/config/set-batch": {
++            "post": {
++                "consumes": [
++                    "application/json"
++                ],
++                "tags": [
++                    "config"
++                ],
++                "summary": "Set config fields atomically",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "description": "Config batch request",
++                        "name": "request",
++                        "in": "body",
++                        "required": true,
++                        "schema": {
++                            "$ref": "#/definitions/proto.ConfigSetBatchRequest"
++                        }
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK"
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/current-session": {
+             "post": {
+                 "consumes": [
+@@ -1579,6 +1683,105 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "/workspaces/{id}/mcp/auth": {
++            "post": {
++                "consumes": [
++                    "application/json"
++                ],
++                "produces": [
++                    "application/json"
++                ],
++                "tags": [
++                    "mcp"
++                ],
++                "summary": "Authenticate an MCP server",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "description": "MCP name request",
++                        "name": "request",
++                        "in": "body",
++                        "required": true,
++                        "schema": {
++                            "$ref": "#/definitions/proto.MCPNameRequest"
++                        }
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK",
++                        "schema": {
++                            "$ref": "#/definitions/proto.MCPAuthResponse"
++                        }
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
++        "/workspaces/{id}/mcp/auth-url": {
++            "get": {
++                "produces": [
++                    "application/json"
++                ],
++                "tags": [
++                    "mcp"
++                ],
++                "summary": "Get MCP OAuth authorization URL",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "type": "string",
++                        "description": "MCP server name",
++                        "name": "name",
++                        "in": "query",
++                        "required": true
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK",
++                        "schema": {
++                            "$ref": "#/definitions/proto.MCPAuthResponse"
++                        }
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/mcp/docker/disable": {
+             "post": {
+                 "tags": [
+@@ -1705,6 +1908,49 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "/workspaces/{id}/mcp/pending-auth": {
++            "get": {
++                "produces": [
++                    "application/json"
++                ],
++                "tags": [
++                    "mcp"
++                ],
++                "summary": "Get MCP servers pending OAuth",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK",
++                        "schema": {
++                            "type": "array",
++                            "items": {
++                                "$ref": "#/definitions/proto.MCPPendingAuthServer"
++                            }
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/mcp/prompts": {
+             "get": {
+                 "produces": [
+@@ -3092,6 +3338,19 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "config.ExitBanner": {
++            "type": "string",
++            "enum": [
++                "default",
++                "compact",
++                "none"
++            ],
++            "x-enum-varnames": [
++                "ExitBannerDefault",
++                "ExitBannerCompact",
++                "ExitBannerNone"
++            ]
++        },
+         "config.HookConfig": {
+             "type": "object",
+             "properties": {
+@@ -3229,6 +3488,10 @@ const docTemplate = `{
+                         }
+                     ]
+                 },
++                "sessionless": {
++                    "description": "Sessionless marks a server that does not maintain an MCP session (it\nnever issues a Mcp-Session-Id). When true, Crush omits the\ntools/prompts/resources list-changed handlers: the go-sdk opens a\nSEP-2575 \"subscriptions/listen\" stream whenever any of those handlers\nis set, and sessionless streamable-HTTP servers (e.g. GitHub MCP)\nanswer that POST with 404 (\"session not found\"), which the SDK treats\nas fatal. The cost is no live list-changed notifications from this\nserver.\n\nWhen nil, Crush auto-detects a set of known sessionless servers (see\nIsSessionless); set it explicitly to override that detection.",
++                    "type": "boolean"
++                },
+                 "timeout": {
+                     "type": "integer"
+                 },
+@@ -3338,6 +3601,9 @@ const docTemplate = `{
+                 "diff_mode": {
+                     "type": "string"
+                 },
++                "exit_banner": {
++                    "$ref": "#/definitions/config.ExitBanner"
++                },
+                 "scrollbar": {
+                     "type": "string"
+                 },
+@@ -3562,6 +3828,9 @@ const docTemplate = `{
+                 "id": {
+                     "type": "string"
+                 },
++                "is_summary_message": {
++                    "type": "boolean"
++                },
+                 "model": {
+                     "type": "string"
+                 },
+@@ -3628,6 +3897,21 @@ const docTemplate = `{
+                 "access_token": {
+                     "type": "string"
+                 },
++                "account_email": {
++                    "type": "string"
++                },
++                "account_id": {
++                    "type": "string"
++                },
++                "account_plan": {
++                    "type": "string"
++                },
++                "chatgpt_account_is_fedramp": {
++                    "type": "boolean"
++                },
++                "chatgpt_user_id": {
++                    "type": "string"
++                },
+                 "client": {
+                     "$ref": "#/definitions/oauth.OAuthClient"
+                 },
+@@ -3637,8 +3921,14 @@ const docTemplate = `{
+                 "expires_in": {
+                     "type": "integer"
+                 },
++                "id_token": {
++                    "type": "string"
++                },
+                 "refresh_token": {
+                     "type": "string"
++                },
++                "token_type": {
++                    "type": "string"
+                 }
+             }
+         },
+@@ -3782,6 +4072,24 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "proto.ConfigModelsRequest": {
++            "type": "object",
++            "required": [
++                "models"
++            ],
++            "properties": {
++                "models": {
++                    "description": "Models maps large/small slots to selections; a null value deletes a slot.",
++                    "type": "object",
++                    "additionalProperties": {
++                        "$ref": "#/definitions/config.SelectedModel"
++                    }
++                },
++                "scope": {
++                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
++                }
++            }
++        },
+         "proto.ConfigProviderKeyRequest": {
+             "type": "object",
+             "properties": {
+@@ -3824,6 +4132,22 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "proto.ConfigSetBatchRequest": {
++            "type": "object",
++            "required": [
++                "fields"
++            ],
++            "properties": {
++                "fields": {
++                    "description": "Fields maps JSON paths to values and must contain at least one entry.",
++                    "type": "object",
++                    "additionalProperties": {}
++                },
++                "scope": {
++                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
++                }
++            }
++        },
+         "proto.ConfigSetRequest": {
+             "type": "object",
+             "properties": {
+@@ -3924,6 +4248,15 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "proto.MCPAuthResponse": {
++            "type": "object",
++            "properties": {
++                "auth_url": {
++                    "description": "AuthURL is the OAuth authorization URL the user must visit, when\nthe flow is still in progress.",
++                    "type": "string"
++                }
++            }
++        },
+         "proto.MCPClientInfo": {
+             "type": "object",
+             "properties": {
+@@ -3981,6 +4314,17 @@ const docTemplate = `{
+                 }
+             }
+         },
++        "proto.MCPPendingAuthServer": {
++            "type": "object",
++            "properties": {
++                "name": {
++                    "type": "string"
++                },
++                "url": {
++                    "type": "string"
++                }
++            }
++        },
+         "proto.MCPPrompt": {
+             "type": "object",
+             "properties": {
+diff --git a/internal/swagger/swagger.json b/internal/swagger/swagger.json
+index 612f26a8613124cd5829544c3dd66ca424d6d918..5407db6cc4154ff1fbafd78563302325bb6ff1f4 100644
+--- a/internal/swagger/swagger.json
++++ b/internal/swagger/swagger.json
+@@ -990,6 +990,58 @@
+                 }
+             }
+         },
++        "/workspaces/{id}/config/models": {
++            "post": {
++                "consumes": [
++                    "application/json"
++                ],
++                "tags": [
++                    "config"
++                ],
++                "summary": "Update preferred models atomically",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "description": "Config models request",
++                        "name": "request",
++                        "in": "body",
++                        "required": true,
++                        "schema": {
++                            "$ref": "#/definitions/proto.ConfigModelsRequest"
++                        }
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK"
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/config/provider-key": {
+             "post": {
+                 "consumes": [
+@@ -1198,6 +1250,58 @@
+                 }
+             }
+         },
++        "/workspaces/{id}/config/set-batch": {
++            "post": {
++                "consumes": [
++                    "application/json"
++                ],
++                "tags": [
++                    "config"
++                ],
++                "summary": "Set config fields atomically",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "description": "Config batch request",
++                        "name": "request",
++                        "in": "body",
++                        "required": true,
++                        "schema": {
++                            "$ref": "#/definitions/proto.ConfigSetBatchRequest"
++                        }
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK"
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/current-session": {
+             "post": {
+                 "consumes": [
+@@ -1572,6 +1676,105 @@
+                 }
+             }
+         },
++        "/workspaces/{id}/mcp/auth": {
++            "post": {
++                "consumes": [
++                    "application/json"
++                ],
++                "produces": [
++                    "application/json"
++                ],
++                "tags": [
++                    "mcp"
++                ],
++                "summary": "Authenticate an MCP server",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "description": "MCP name request",
++                        "name": "request",
++                        "in": "body",
++                        "required": true,
++                        "schema": {
++                            "$ref": "#/definitions/proto.MCPNameRequest"
++                        }
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK",
++                        "schema": {
++                            "$ref": "#/definitions/proto.MCPAuthResponse"
++                        }
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
++        "/workspaces/{id}/mcp/auth-url": {
++            "get": {
++                "produces": [
++                    "application/json"
++                ],
++                "tags": [
++                    "mcp"
++                ],
++                "summary": "Get MCP OAuth authorization URL",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    },
++                    {
++                        "type": "string",
++                        "description": "MCP server name",
++                        "name": "name",
++                        "in": "query",
++                        "required": true
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK",
++                        "schema": {
++                            "$ref": "#/definitions/proto.MCPAuthResponse"
++                        }
++                    },
++                    "400": {
++                        "description": "Bad Request",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/mcp/docker/disable": {
+             "post": {
+                 "tags": [
+@@ -1698,6 +1901,49 @@
+                 }
+             }
+         },
++        "/workspaces/{id}/mcp/pending-auth": {
++            "get": {
++                "produces": [
++                    "application/json"
++                ],
++                "tags": [
++                    "mcp"
++                ],
++                "summary": "Get MCP servers pending OAuth",
++                "parameters": [
++                    {
++                        "type": "string",
++                        "description": "Workspace ID",
++                        "name": "id",
++                        "in": "path",
++                        "required": true
++                    }
++                ],
++                "responses": {
++                    "200": {
++                        "description": "OK",
++                        "schema": {
++                            "type": "array",
++                            "items": {
++                                "$ref": "#/definitions/proto.MCPPendingAuthServer"
++                            }
++                        }
++                    },
++                    "404": {
++                        "description": "Not Found",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    },
++                    "500": {
++                        "description": "Internal Server Error",
++                        "schema": {
++                            "$ref": "#/definitions/proto.Error"
++                        }
++                    }
++                }
++            }
++        },
+         "/workspaces/{id}/mcp/prompts": {
+             "get": {
+                 "produces": [
+@@ -3085,6 +3331,19 @@
+                 }
+             }
+         },
++        "config.ExitBanner": {
++            "type": "string",
++            "enum": [
++                "default",
++                "compact",
++                "none"
++            ],
++            "x-enum-varnames": [
++                "ExitBannerDefault",
++                "ExitBannerCompact",
++                "ExitBannerNone"
++            ]
++        },
+         "config.HookConfig": {
+             "type": "object",
+             "properties": {
+@@ -3222,6 +3481,10 @@
+                         }
+                     ]
+                 },
++                "sessionless": {
++                    "description": "Sessionless marks a server that does not maintain an MCP session (it\nnever issues a Mcp-Session-Id). When true, Crush omits the\ntools/prompts/resources list-changed handlers: the go-sdk opens a\nSEP-2575 \"subscriptions/listen\" stream whenever any of those handlers\nis set, and sessionless streamable-HTTP servers (e.g. GitHub MCP)\nanswer that POST with 404 (\"session not found\"), which the SDK treats\nas fatal. The cost is no live list-changed notifications from this\nserver.\n\nWhen nil, Crush auto-detects a set of known sessionless servers (see\nIsSessionless); set it explicitly to override that detection.",
++                    "type": "boolean"
++                },
+                 "timeout": {
+                     "type": "integer"
+                 },
+@@ -3331,6 +3594,9 @@
+                 "diff_mode": {
+                     "type": "string"
+                 },
++                "exit_banner": {
++                    "$ref": "#/definitions/config.ExitBanner"
++                },
+                 "scrollbar": {
+                     "type": "string"
+                 },
+@@ -3555,6 +3821,9 @@
+                 "id": {
+                     "type": "string"
+                 },
++                "is_summary_message": {
++                    "type": "boolean"
++                },
+                 "model": {
+                     "type": "string"
+                 },
+@@ -3621,6 +3890,21 @@
+                 "access_token": {
+                     "type": "string"
+                 },
++                "account_email": {
++                    "type": "string"
++                },
++                "account_id": {
++                    "type": "string"
++                },
++                "account_plan": {
++                    "type": "string"
++                },
++                "chatgpt_account_is_fedramp": {
++                    "type": "boolean"
++                },
++                "chatgpt_user_id": {
++                    "type": "string"
++                },
+                 "client": {
+                     "$ref": "#/definitions/oauth.OAuthClient"
+                 },
+@@ -3630,8 +3914,14 @@
+                 "expires_in": {
+                     "type": "integer"
+                 },
++                "id_token": {
++                    "type": "string"
++                },
+                 "refresh_token": {
+                     "type": "string"
++                },
++                "token_type": {
++                    "type": "string"
+                 }
+             }
+         },
+@@ -3775,6 +4065,24 @@
+                 }
+             }
+         },
++        "proto.ConfigModelsRequest": {
++            "type": "object",
++            "required": [
++                "models"
++            ],
++            "properties": {
++                "models": {
++                    "description": "Models maps large/small slots to selections; a null value deletes a slot.",
++                    "type": "object",
++                    "additionalProperties": {
++                        "$ref": "#/definitions/config.SelectedModel"
++                    }
++                },
++                "scope": {
++                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
++                }
++            }
++        },
+         "proto.ConfigProviderKeyRequest": {
+             "type": "object",
+             "properties": {
+@@ -3817,6 +4125,22 @@
+                 }
+             }
+         },
++        "proto.ConfigSetBatchRequest": {
++            "type": "object",
++            "required": [
++                "fields"
++            ],
++            "properties": {
++                "fields": {
++                    "description": "Fields maps JSON paths to values and must contain at least one entry.",
++                    "type": "object",
++                    "additionalProperties": {}
++                },
++                "scope": {
++                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
++                }
++            }
++        },
+         "proto.ConfigSetRequest": {
+             "type": "object",
+             "properties": {
+@@ -3917,6 +4241,15 @@
+                 }
+             }
+         },
++        "proto.MCPAuthResponse": {
++            "type": "object",
++            "properties": {
++                "auth_url": {
++                    "description": "AuthURL is the OAuth authorization URL the user must visit, when\nthe flow is still in progress.",
++                    "type": "string"
++                }
++            }
++        },
+         "proto.MCPClientInfo": {
+             "type": "object",
+             "properties": {
+@@ -3974,6 +4307,17 @@
+                 }
+             }
+         },
++        "proto.MCPPendingAuthServer": {
++            "type": "object",
++            "properties": {
++                "name": {
++                    "type": "string"
++                },
++                "url": {
++                    "type": "string"
++                }
++            }
++        },
+         "proto.MCPPrompt": {
+             "type": "object",
+             "properties": {
+diff --git a/internal/swagger/swagger.yaml b/internal/swagger/swagger.yaml
+index a041d2e48febd0beadaf0daff84328b6b338adf3..673690c37a3a1763c5d56aa3d802fd19c2dc00b9 100644
+--- a/internal/swagger/swagger.yaml
++++ b/internal/swagger/swagger.yaml
+@@ -63,6 +63,16 @@ definitions:
+       max_items:
+         type: integer
+     type: object
++  config.ExitBanner:
++    enum:
++    - default
++    - compact
++    - none
++    type: string
++    x-enum-varnames:
++    - ExitBannerDefault
++    - ExitBannerCompact
++    - ExitBannerNone
+   config.HookConfig:
+     properties:
+       command:
+@@ -182,6 +192,20 @@ definitions:
+         description: |-
+           OAuthToken is the persisted OAuth token for this server. It is
+           managed internally and stored in the global data config.
++      sessionless:
++        description: |-
++          Sessionless marks a server that does not maintain an MCP session (it
++          never issues a Mcp-Session-Id). When true, Crush omits the
++          tools/prompts/resources list-changed handlers: the go-sdk opens a
++          SEP-2575 "subscriptions/listen" stream whenever any of those handlers
++          is set, and sessionless streamable-HTTP servers (e.g. GitHub MCP)
++          answer that POST with 404 ("session not found"), which the SDK treats
++          as fatal. The cost is no live list-changed notifications from this
++          server.
++
++          When nil, Crush auto-detects a set of known sessionless servers (see
++          IsSessionless); set it explicitly to override that detection.
++        type: boolean
+       timeout:
+         type: integer
+       type:
+@@ -264,6 +288,8 @@ definitions:
+         $ref: '#/definitions/config.Completions'
+       diff_mode:
+         type: string
++      exit_banner:
++        $ref: '#/definitions/config.ExitBanner'
+       scrollbar:
+         type: string
+       transparent:
+@@ -417,6 +443,8 @@ definitions:
+         type: integer
+       id:
+         type: string
++      is_summary_message:
++        type: boolean
+       model:
+         type: string
+       parts:
+@@ -464,14 +492,28 @@ definitions:
+     properties:
+       access_token:
+         type: string
++      account_email:
++        type: string
++      account_id:
++        type: string
++      account_plan:
++        type: string
++      chatgpt_account_is_fedramp:
++        type: boolean
++      chatgpt_user_id:
++        type: string
+       client:
+         $ref: '#/definitions/oauth.OAuthClient'
+       expires_at:
+         type: integer
+       expires_in:
+         type: integer
++      id_token:
++        type: string
+       refresh_token:
+         type: string
++      token_type:
++        type: string
+     type: object
+   proto.APIKeyKind:
+     enum:
+@@ -565,6 +607,19 @@ definitions:
+       scope:
+         $ref: '#/definitions/github_com_charmbracelet_crush_internal_config.Scope'
+     type: object
++  proto.ConfigModelsRequest:
++    properties:
++      models:
++        additionalProperties:
++          $ref: '#/definitions/config.SelectedModel'
++        description: Models maps large/small slots to selections; a null value deletes
++          a slot.
++        type: object
++      scope:
++        $ref: '#/definitions/github_com_charmbracelet_crush_internal_config.Scope'
++    required:
++    - models
++    type: object
+   proto.ConfigProviderKeyRequest:
+     properties:
+       api_key:
+@@ -592,6 +647,18 @@ definitions:
+       scope:
+         $ref: '#/definitions/github_com_charmbracelet_crush_internal_config.Scope'
+     type: object
++  proto.ConfigSetBatchRequest:
++    properties:
++      fields:
++        additionalProperties: {}
++        description: Fields maps JSON paths to values and must contain at least one
++          entry.
++        type: object
++      scope:
++        $ref: '#/definitions/github_com_charmbracelet_crush_internal_config.Scope'
++    required:
++    - fields
++    type: object
+   proto.ConfigSetRequest:
+     properties:
+       key:
+@@ -657,6 +724,14 @@ definitions:
+       path:
+         type: string
+     type: object
++  proto.MCPAuthResponse:
++    properties:
++      auth_url:
++        description: |-
++          AuthURL is the OAuth authorization URL the user must visit, when
++          the flow is still in progress.
++        type: string
++    type: object
+   proto.MCPClientInfo:
+     properties:
+       connected_at:
+@@ -694,6 +769,13 @@ definitions:
+       name:
+         type: string
+     type: object
++  proto.MCPPendingAuthServer:
++    properties:
++      name:
++        type: string
++      url:
++        type: string
++    type: object
+   proto.MCPPrompt:
+     properties:
+       arguments:
+@@ -1682,6 +1764,40 @@ paths:
+       summary: Set the preferred model
+       tags:
+       - config
++  /workspaces/{id}/config/models:
++    post:
++      consumes:
++      - application/json
++      parameters:
++      - description: Workspace ID
++        in: path
++        name: id
++        required: true
++        type: string
++      - description: Config models request
++        in: body
++        name: request
++        required: true
++        schema:
++          $ref: '#/definitions/proto.ConfigModelsRequest'
++      responses:
++        "200":
++          description: OK
++        "400":
++          description: Bad Request
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "404":
++          description: Not Found
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "500":
++          description: Internal Server Error
++          schema:
++            $ref: '#/definitions/proto.Error'
++      summary: Update preferred models atomically
++      tags:
++      - config
+   /workspaces/{id}/config/provider-key:
+     post:
+       consumes:
+@@ -1818,6 +1934,40 @@ paths:
+       summary: Set a config field
+       tags:
+       - config
++  /workspaces/{id}/config/set-batch:
++    post:
++      consumes:
++      - application/json
++      parameters:
++      - description: Workspace ID
++        in: path
++        name: id
++        required: true
++        type: string
++      - description: Config batch request
++        in: body
++        name: request
++        required: true
++        schema:
++          $ref: '#/definitions/proto.ConfigSetBatchRequest'
++      responses:
++        "200":
++          description: OK
++        "400":
++          description: Bad Request
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "404":
++          description: Not Found
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "500":
++          description: Internal Server Error
++          schema:
++            $ref: '#/definitions/proto.Error'
++      summary: Set config fields atomically
++      tags:
++      - config
+   /workspaces/{id}/current-session:
+     post:
+       consumes:
+@@ -2063,6 +2213,71 @@ paths:
+       summary: Stop all LSP servers
+       tags:
+       - lsp
++  /workspaces/{id}/mcp/auth:
++    post:
++      consumes:
++      - application/json
++      parameters:
++      - description: Workspace ID
++        in: path
++        name: id
++        required: true
++        type: string
++      - description: MCP name request
++        in: body
++        name: request
++        required: true
++        schema:
++          $ref: '#/definitions/proto.MCPNameRequest'
++      produces:
++      - application/json
++      responses:
++        "200":
++          description: OK
++          schema:
++            $ref: '#/definitions/proto.MCPAuthResponse'
++        "400":
++          description: Bad Request
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "404":
++          description: Not Found
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "500":
++          description: Internal Server Error
++          schema:
++            $ref: '#/definitions/proto.Error'
++      summary: Authenticate an MCP server
++      tags:
++      - mcp
++  /workspaces/{id}/mcp/auth-url:
++    get:
++      parameters:
++      - description: Workspace ID
++        in: path
++        name: id
++        required: true
++        type: string
++      - description: MCP server name
++        in: query
++        name: name
++        required: true
++        type: string
++      produces:
++      - application/json
++      responses:
++        "200":
++          description: OK
++          schema:
++            $ref: '#/definitions/proto.MCPAuthResponse'
++        "400":
++          description: Bad Request
++          schema:
++            $ref: '#/definitions/proto.Error'
++      summary: Get MCP OAuth authorization URL
++      tags:
++      - mcp
+   /workspaces/{id}/mcp/docker/disable:
+     post:
+       parameters:
+@@ -2145,6 +2360,34 @@ paths:
+       summary: Get MCP prompt
+       tags:
+       - mcp
++  /workspaces/{id}/mcp/pending-auth:
++    get:
++      parameters:
++      - description: Workspace ID
++        in: path
++        name: id
++        required: true
++        type: string
++      produces:
++      - application/json
++      responses:
++        "200":
++          description: OK
++          schema:
++            items:
++              $ref: '#/definitions/proto.MCPPendingAuthServer'
++            type: array
++        "404":
++          description: Not Found
++          schema:
++            $ref: '#/definitions/proto.Error'
++        "500":
++          description: Internal Server Error
++          schema:
++            $ref: '#/definitions/proto.Error'
++      summary: Get MCP servers pending OAuth
++      tags:
++      - mcp
+   /workspaces/{id}/mcp/prompts:
+     get:
+       parameters:

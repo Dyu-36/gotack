@@ -1,7 +1,7 @@
 // contract_test.go -- role: focused unit tests for the wire-shape helpers.
 //
 // Crush's Message.Parts is a wrapped JSON array; the bridge uses
-// ExtractText and ExtractToolCalls to pull typed values out. These tests
+// ExtractParts to pull typed values out. These tests
 // pin the wire format we accept so future server changes are caught
 // here before they reach the UI.
 package crushapi
@@ -180,6 +180,27 @@ func TestExtractToolCalls(t *testing.T) {
 				t.Fatalf("ExtractToolCalls(%q) = %+v, want %+v", tt.parts, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExtractToolResults(t *testing.T) {
+	parts := json.RawMessage(`[
+		{"type":"tool_result","data":{"tool_call_id":"t1","name":"read","content":"file body","data":"ignored-base64","metadata":"{}","is_error":false}},
+		{"type":"tool_result","data":{"tool_call_id":"t2","name":"exec","content":"exit 1","is_error":true}}
+	]`)
+
+	got := ExtractParts(parts).ToolResults
+	want := []ToolResult{
+		{ToolCallID: "t1", Name: "read", Content: "file body", Metadata: "{}"},
+		{ToolCallID: "t2", Name: "exec", Content: "exit 1", IsError: true},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("ToolResults len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ToolResults[%d] = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 

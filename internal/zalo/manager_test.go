@@ -175,6 +175,41 @@ func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDispatchAttachmentOnlyUsesDefaultPrompt(t *testing.T) {
+	server := newFakeServer(t, nil)
+	var gotText string
+	manager := NewManager(tempPath(t), Runtime{
+		Start: func(_ context.Context, _, _, text string) (string, error) {
+			gotText = text
+			return "session-c1", nil
+		},
+	}, nil)
+	manager.mu.Lock()
+	manager.state.PairedChatIDs = []string{"c1"}
+	manager.mu.Unlock()
+
+	client, err := NewClient("token-1")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	client.base = server.server.URL
+	fileName := strings.ReplaceAll(t.Name(), "/", "-") + ".png"
+	downloadedPath := filepath.Join(os.TempDir(), "gotack-zalo-inbox", fileName)
+	t.Cleanup(func() { _ = os.Remove(downloadedPath) })
+
+	manager.dispatch(context.Background(), client, Update{
+		ChatID:        "c1",
+		AttachmentURL: server.server.URL + "/" + fileName,
+	})
+
+	if !strings.Contains(gotText, defaultFilePrompt) {
+		t.Fatalf("attachment-only prompt = %q, want default file prompt", gotText)
+	}
+	if !strings.Contains(gotText, downloadedPath) {
+		t.Fatalf("attachment-only prompt = %q, want downloaded path %q", gotText, downloadedPath)
+	}
+}
+
 func mustClient(t *testing.T, m *Manager, token string) *Client {
 	t.Helper()
 	client, err := m.newClient(token)

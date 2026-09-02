@@ -58,12 +58,6 @@ type PermissionRequestPayload struct {
 
 const coalesceDelay = 40 * time.Millisecond
 
-// defaultPermissionTTL is the deadline the forwarder hands to the UI for a
-// permission request. It mirrors the relay arming in internal/events so the
-// on-screen countdown matches the backend expiry. Kept duplicated to avoid a
-// uievents ↔ events import cycle; the values are expected to stay in sync.
-const defaultPermissionTTL = 5 * time.Minute
-
 type pendingMessage struct {
 	sessionID string
 	text      string
@@ -95,13 +89,21 @@ func (pm *pendingMessage) markToolStates(calls []crushapi.ToolCall) []crushapi.T
 }
 
 type PermissionSink interface {
-	Pending(req crushapi.PermissionRequest)
+	Pending(req crushapi.PermissionRequest) int64
 }
 
 // DoneSink receives completed agent runs. Like PermissionSink it is an
 // optional side channel: the UI event still goes out unchanged.
 type DoneSink interface {
 	RunDone(done SessionDonePayload)
+}
+
+// ToolSink receives assistant-message snapshots for Hermes' model-iteration
+// cadence plus admitted learning-tool results. Results arrive only after the
+// PreToolUse and user-permission gates, matching Hermes' reset point.
+type ToolSink interface {
+	AssistantIteration(sessionID, messageID string, hasToolCalls bool)
+	LearningToolExecuted(sessionID, toolCallID, toolName string)
 }
 
 type Forwarder struct {
@@ -113,16 +115,20 @@ type Forwarder struct {
 
 	mu      sync.Mutex
 	pending map[string]*pendingMessage
+	tools   ToolSink
 
 	stopOnce sync.Once
 	stopped  bool
 }
 
-func NewForwarder(log *slog.Logger, emit Emitter, perms PermissionSink, done DoneSink) *Forwarder {
+func NewForwarder(log *slog.Logger, emit Emitter, perms PermissionSink, done DoneSink, tools ToolSink) *Forwarder {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Forwarder{log: log, emit: emit, perms: perms, done: done, delay: coalesceDelay, pending: make(map[string]*pendingMessage)}
+	return &Forwarder{
+		log: log, emit: emit, perms: perms, done: done, tools: tools,
+		delay: coalesceDelay, pending: make(map[string]*pendingMessage),
+	}
 }
 
 func (f *Forwarder) setDelay(d time.Duration) {
@@ -211,7 +217,47 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 	if msg.ID == "" {
 		return
 	}
-	f.schedule(msg.SessionID, msg.ID, crushapi.ExtractParts(msg.Parts))
+	parts := crushapi.ExtractParts(msg.Parts)
+	if strings.EqualFold(msg.Role, "assistant") && f.tools != nil {
+		f.tools.AssistantIteration(msg.SessionID, msg.ID, len(parts.ToolCalls) > 0)
+	}
+	if f.tools != nil {
+		for _, result := range parts.ToolResults {
+			if learningResultAdmitted(result) {
+				f.tools.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
+			}
+		}
+	}
+	f.schedule(msg.SessionID, msg.ID, parts)
+}
+
+func learningResultAdmitted(result crushapi.ToolResult) bool {
+	// Hermes resets cadence once the call passes guard/permission, before the
+	// MCP handler runs. A legitimate execution error therefore still counts;
+	// only an uncorrelatable result or an explicit deny is excluded here.
+	if result.ToolCallID == "" {
+		return false
+	}
+	switch result.Name {
+	case "memory", "mcp_gotack-memory_memory", "skill_manage", "mcp_gotack-skills_skill_manage":
+	default:
+		return false
+	}
+	if strings.TrimSpace(result.Content) == "User denied permission" {
+		return false
+	}
+	var metadata struct {
+		Hook *struct {
+			Decision string `json:"decision"`
+			Halt     bool   `json:"halt"`
+		} `json:"hook"`
+	}
+	if json.Unmarshal([]byte(result.Metadata), &metadata) == nil && metadata.Hook != nil {
+		if metadata.Hook.Halt || strings.EqualFold(metadata.Hook.Decision, "deny") {
+			return false
+		}
+	}
+	return true
 }
 func (f *Forwarder) schedule(sessionID, messageID string, parts crushapi.Parts) {
 	f.mu.Lock()
@@ -288,9 +334,9 @@ func (f *Forwarder) handlePermission(payload json.RawMessage) {
 		}
 		return
 	}
-	expiresAt := time.Now().Add(defaultPermissionTTL).UnixMilli()
+	var expiresAt int64
 	if f.perms != nil {
-		f.perms.Pending(req)
+		expiresAt = f.perms.Pending(req)
 	}
 	f.send(PermissionRequest, PermissionRequestPayload{Request: req, ExpiresAt: expiresAt})
 }

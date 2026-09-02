@@ -59,23 +59,16 @@ func oauthCredentialPresent(pc crushapi.ProviderConfig) bool {
 
 // seedCodexProvider writes the identity fields Crush needs before a credential
 // can be stored: the engine rejects a provider that is neither in the Catwalk
-// catalog nor already present in config. Endpoint, model catalog and flat-rate
-// flags are written by the engine together with the token, so this
-// deliberately does not touch them.
+// catalog nor already present in config. Gotack pins the endpoint and disables
+// discovery; the engine writes the account-scoped model catalog and flat-rate
+// flags together with the token.
 func seedCodexProvider(ctx context.Context, api *crushapi.Client, wsID string, scope int) error {
 	spec := codexProviderSpec()
 	base := "providers." + codexProviderID
-	writes := []providerConfigWrite{
-		{base + ".name", spec.Provider.Name},
-		{base + ".type", spec.Provider.Type},
-		{base + ".base_url", spec.Provider.APIEndpoint},
-		{base + ".discover_models", false},
-		{base + ".disable", false},
-	}
-	for _, write := range writes {
-		if err := api.SetConfigField(ctx, wsID, scope, write.key, write.value); err != nil {
-			return fmt.Errorf("seed Codex provider: %w", err)
-		}
+	fields := localProviderConfigFields(spec)
+	fields[base+".disable"] = false
+	if err := api.SetConfigFields(ctx, wsID, scope, fields); err != nil {
+		return fmt.Errorf("seed Codex provider: %w", err)
 	}
 	return nil
 }
@@ -293,22 +286,19 @@ func (a *App) repointSavedModelAtCodex(svc *bridgeServices, workspaceID string) 
 	}
 	effort, think := crushReasoning(a.cfg.Thinking)
 	selected := crushapi.SelectedModel{Provider: codexProviderID, Model: modelID, ReasoningEffort: effort, Think: think}
-	for _, modelType := range []string{"large", "small"} {
-		if err := svc.api.SetPreferredModel(a.ctx, workspaceID, crushapi.ConfigScopeGlobal, modelType, selected); err != nil {
-			a.warnCodexMigration("could not repoint the saved model at the Codex provider", "model", modelType, "err", err)
-			return
-		}
+	if err := svc.api.SetPreferredModelPair(a.ctx, workspaceID, crushapi.ConfigScopeGlobal, selected); err != nil {
+		a.warnCodexMigration("could not repoint the saved model at the Codex provider", "err", err)
+		return
 	}
-	a.cfg.Provider = codexProviderID
-	a.cfg.Model = modelID
-	// Codex only answers on the endpoint the engine picked for the credential, so
-	// an endpoint carried over from the API-key provider would be rejected on the
-	// next settings replay.
-	a.cfg.CustomURL = ""
-	cfgCopy := *a.cfg
-	if err := appconfig.Save(&cfgCopy); err != nil {
+	next := *a.cfg
+	next.Provider = codexProviderID
+	next.Model = modelID
+	next.CustomURL = ""
+	if err := appconfig.Save(&next); err != nil {
 		a.warnCodexMigration("could not save the Codex provider selection", "err", err)
+		return
 	}
+	a.cfg = &next
 }
 
 // warnCodexMigration logs a best-effort migration problem. The logger is nil

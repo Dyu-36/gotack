@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -103,11 +104,33 @@ func TestDefaults(t *testing.T) {
 	if d.Provider != "" || d.Model != "" || d.Thinking != "" {
 		t.Errorf("agent settings must default empty so Crush catalog defaults apply, got provider=%q model=%q thinking=%q", d.Provider, d.Model, d.Thinking)
 	}
-	if !d.AutoApprove {
-		t.Errorf("AutoApprove=%v want true", d.AutoApprove)
+	if d.AutoApprove {
+		t.Errorf("AutoApprove=%v want false", d.AutoApprove)
 	}
 	if d.Zalo.Enabled || d.Zalo.Token != "" {
 		t.Errorf("Zalo must default disabled with no token, got %+v", d.Zalo)
+	}
+}
+
+func TestAutoApproveRequiresExplicitTrue(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want bool
+	}{
+		{name: "missing", data: `{}`, want: false},
+		{name: "explicit false", data: `{"auto_approve":false}`, want: false},
+		{name: "explicit true", data: `{"auto_approve":true}`, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults()
+			if err := json.Unmarshal([]byte(tc.data), cfg); err != nil {
+				t.Fatalf("unmarshal config: %v", err)
+			}
+			if cfg.AutoApprove != tc.want {
+				t.Fatalf("AutoApprove = %v, want %v", cfg.AutoApprove, tc.want)
+			}
+		})
 	}
 }
 

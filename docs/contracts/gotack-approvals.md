@@ -5,13 +5,7 @@ Gotack enforces its approval posture through Crush's single hook event,
 `internal/guard` package. This is an external boundary: Crush spawns `guard`
 before every tool call, and the two processes communicate over a pinned JSON
 wire contract. The authority is decision 0002 (approval posture) and decision
-0003 (memory write protection); the phased rollout is Phase 4 of
-`docs/plans/completed/hermes-parity-harness.md`.
-
-The posture ships in two stages. Stage 1 was the deny-only destructive-command
-blocklist with no new prompts (committed first, per risk R6). Stage 2 (this
-document's full scope) extends the same hook to the graduated allow/ask/deny
-tiers of decision 0002 and reverses the blanket permissions-skip.
+0003 (memory write protection).
 
 ## Hook wire contract
 
@@ -49,7 +43,7 @@ the call through.
 - `halt: true` additionally stops the whole turn; it is reserved for the
   unrecoverable rules (recursive root delete, disk format/wipe).
 - `decision: "allow"` pre-approves the call (skips any interactive prompt).
-  Stage 2 uses it for the auto tier.
+  The auto tier uses it for safe operations.
 - **No opinion** is expressed by writing nothing to stdout and exiting 0. Crush
   then applies its own permission system unchanged; with prompts enabled this
   is the ask tier (the request reaches the UI through `internal/permission`).
@@ -60,15 +54,15 @@ blocked). `guard` never prompts and never blocks waiting for input. Every deny
 is additionally written to stderr so refusals are logged even when nobody
 watches the UI.
 
-## Stage 2 — graduated tiers
+## Graduated tiers
 
 `guard` receives per-session options derived by `cmd/guard` from the hook
 payload and the Gotack config directory:
 
 - **Write-safe root** = the session's working directory (`cwd` in the hook
   payload), i.e. the workspace path.
-- **Context dir** = `<appconfig.Dir()>/context`, the memory directory owned by
-  the recall phase.
+- **Context dir** = `<appconfig.Dir()>/context`, the seeded context and memory
+  directory owned by the context/memory subsystems.
 - **Unattended flag** = membership of the session id in the unattended roster
   (below).
 
@@ -90,11 +84,11 @@ Unknown tools are never auto-approved: they land in the ask tier.
 
 An unattended session has no human to answer prompts, so an `ask` there can
 never be answered. The posture therefore fails such calls instead of letting
-them hang (plan 5.4):
+them hang:
 
 - The host records the session id of every Zalo-originated turn in the
   **unattended roster** before the prompt runs (`startZaloTurn` →
-  `guard.MarkUnattendedSession`). Phase 5's scheduler uses the same seam.
+  `guard.MarkUnattendedSession`). The scheduler uses the same seam.
   A failed mark fails the turn: running it unmarked could hang on a prompt.
 - Roster file: `<appconfig.Dir()>/unattended-sessions.json`, shape
   `{"sessions": ["<session id>", ...]}`, capped at 500 entries (oldest
@@ -108,16 +102,16 @@ them hang (plan 5.4):
 
 ## Permissions-skip reconciliation
 
-Workspace activation enables permissions-skip by default. `activateWorkspace`
-and `activateAssistantWorkspace` call `SetPermissionsSkip` with
-`permissionsSkip()`, which defaults to `true` (field `appconfig.Config.AutoApprove`,
-defaulting to `true` in `appconfig.Defaults()`). Gotack runs in auto-approve
-mode (equivalent to `--yolo` / `--dangerously-skip-permissions`) so interactive
-tool execution does not repeatedly prompt the user. Even with `auto_approve`,
-the guard's deny rules still apply because the hook decides before Crush's
-permission system ever runs.
+`activateWorkspace` and `activateAssistantWorkspace` call
+`SetPermissionsSkip` with `permissionsSkip()`. A missing config, a missing
+`auto_approve` key, and `"auto_approve": false` all keep Crush's interactive
+permission prompts enabled. Only explicit `"auto_approve": true` enables the
+auto posture (equivalent to `--yolo` / `--dangerously-skip-permissions`), as
+the escape hatch authorized by decision 0002. The guard's deny rules still
+apply in that posture because the hook decides before Crush's permission
+system runs.
 
-## Stage 1 — destructive-command blocklist
+## Destructive-command blocklist
 
 `guard` hard-denies any `tool_input.command` matching the blocklist and passes
 every other tool call through untouched. The blocklist is built in
@@ -167,5 +161,5 @@ To detach the approval posture entirely, remove the hook key for a workspace:
 (or just the `gotack-guard` entry to keep user hooks). To restore prompts-less
 behaviour without detaching the floor, set `"auto_approve": true` in
 `config.json`. The unattended roster (`unattended-sessions.json`) can be
-deleted freely; it is recreated on the next remote turn. Nothing else in
-Phases 1–5 modifies Crush state, so retreat requires no migration.
+deleted freely; it is recreated on the next remote turn. No other host state
+requires migration when the hook is removed.

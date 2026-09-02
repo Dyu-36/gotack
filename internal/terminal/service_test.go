@@ -2,7 +2,6 @@ package terminal
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -530,6 +529,3 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) 
 	}
 	t.Fatalf("timeout waiting for: %s", msg)
 }
-
-// silenceUnused keeps imports honest if a test is removed during refactor.
-var _ = fmt.Sprintf

@@ -1,13 +1,5 @@
 package main
 
-// schedule_host.go -- role: host wiring for the Phase 5 scheduler
-// (internal/schedule). This phase adds no UI surface, so there are no
-// Wails-bound methods here: hard rule 8 forbids bound methods nothing
-// consumes. The scheduler starts and stops with the app, fires only over
-// the existing REST session seam, learns engine readiness from the
-// connection flow (never by polling), and consumes run completions from
-// the run_complete SSE event via App.RunDone.
-
 import (
 	"context"
 	"errors"
@@ -69,10 +61,8 @@ func (a *App) scheduleCreateSession(ctx context.Context, title string) (string, 
 	return sess.ID, nil
 }
 
-// scheduleMarkUnattended records the session in the guard roster BEFORE the
-// prompt is submitted, exactly like startZaloTurn: the guard then denies
-// ask-tier operations with a legible reason instead of hanging on a prompt
-// nobody can answer (ADR 0002, plan 5.4). A failed mark aborts the firing.
+// scheduleMarkUnattended records the session before its prompt is submitted.
+// A failed mark aborts the firing rather than leaving approvals unattended.
 func (a *App) scheduleMarkUnattended(_ context.Context, sessionID string) error {
 	return guard.MarkUnattendedSession(
 		filepath.Join(appconfig.Dir(), guard.UnattendedRosterFileName), sessionID)
@@ -80,17 +70,17 @@ func (a *App) scheduleMarkUnattended(_ context.Context, sessionID string) error 
 
 // scheduleSendPrompt submits the job prompt through the same service the UI
 // uses; the returned run id belongs to the engine.
-func (a *App) scheduleSendPrompt(ctx context.Context, sessionID, prompt string) (string, error) {
+func (a *App) scheduleSendPrompt(ctx context.Context, sessionID, prompt string) error {
 	svc, err := a.services()
 	if err != nil {
-		return "", err
+		return err
 	}
-	return svc.sess.Send(ctx, sessionID, prompt)
+	_, err = svc.sess.Send(ctx, sessionID, prompt)
+	return err
 }
 
 // schedulePreflight skips a firing instead of burning a failed run when no
-// model is configured (plan 5.1), mirroring the requirement
-// zaloCurrentModel applies to remote turns.
+// model is configured.
 func (a *App) schedulePreflight(context.Context) error {
 	if a.cfg == nil || a.cfg.Model == "" {
 		return errors.New("no model configured")

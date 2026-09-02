@@ -151,17 +151,9 @@ func (a *App) registerOfficeTools(workspaceID string) {
 	}
 
 	env := a.officeSeeder.CrushEnv()
-	if len(env) > 0 {
-		if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "env", env); err != nil && a.log != nil {
-			a.log.Warn("office env registration failed", "err", err)
-		}
-	}
-
 	skillsPath := a.officeSeeder.SkillsPath()
-	// Phase 6 skills discovery (plan 6.4): the merged list gains the bundled
-	// skills (when seeded), the per-user skills dir and the current
-	// workspace's project skills dir. mergeSkillsPaths keeps every existing
-	// entry in order and appends each addition once.
+	// Merge bundled, user, and project skills without reordering existing
+	// entries or duplicating a path.
 	additions := make([]string, 0, 3)
 	if skillsPath != "" {
 		additions = append(additions, skillsPath)
@@ -170,38 +162,49 @@ func (a *App) registerOfficeTools(workspaceID string) {
 	if desc, ok := svc.ws.Current(); ok && desc.Path != "" {
 		additions = append(additions, projectSkillsDir(desc.Path))
 	}
-	if len(additions) == 0 {
+	if len(env) == 0 && len(additions) == 0 {
 		return
 	}
-	// Read the effective list first: writing only the bundled path would
-	// clobber skills directories the user configured outside Gotack. On a
-	// read failure the write is skipped too, because merging blindly is the
-	// same overwrite bug this guard exists to prevent.
+	// Read before writing so host-owned additions do not clobber user config.
 	current, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
 		if a.log != nil {
-			a.log.Warn("office skills path read failed; skipping merge", "err", err)
+			a.log.Warn("office runtime config read failed; skipping merge", "err", err)
 		}
 		return
 	}
-	merged := mergeSkillsPaths(current.SkillsPaths(), additions...)
-	if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "options.skills_paths", merged); err != nil && a.log != nil {
-		a.log.Warn("office skills path registration failed", "err", err)
+	fields := make(map[string]any, 2)
+	if len(env) > 0 {
+		fields["env"] = mergeConfigEnv(current.Env, env)
+	}
+	if len(additions) > 0 {
+		fields["options.skills_paths"] = mergeSkillsPaths(current.SkillsPaths(), additions...)
+	}
+	if err := svc.api.SetConfigFields(ctx, workspaceID, crushapi.ConfigScopeWorkspace, fields); err != nil && a.log != nil {
+		a.log.Warn("office runtime config registration failed", "err", err)
 	}
 }
 
-// userSkillsDir is the per-user skills directory (plan 6.4): skills dropped
-// here are visible in every workspace. It matches the officecli seeder's
-// skills destination, so the merge dedupes it against the bundled path when
-// both resolve to the same directory.
+// userSkillsDir is visible in every workspace. It matches the officecli
+// seeder's destination, so merging deduplicates the bundled path.
 func userSkillsDir() string {
 	return filepath.Join(appconfig.Dir(), "skills")
 }
 
-// projectSkillsDir is the per-project skills directory (plan 6.4):
-// <workspace>/.agents/skills travels with the working tree.
+// projectSkillsDir travels with the working tree.
 func projectSkillsDir(workspacePath string) string {
 	return filepath.Join(workspacePath, ".agents", "skills")
+}
+
+func mergeConfigEnv(existing, additions map[string]string) map[string]string {
+	merged := make(map[string]string, len(existing)+len(additions))
+	for key, value := range existing {
+		merged[key] = value
+	}
+	for key, value := range additions {
+		merged[key] = value
+	}
+	return merged
 }
 
 // mergeSkillsPaths returns existing with each addition appended once, in

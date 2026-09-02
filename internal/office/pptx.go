@@ -1,7 +1,6 @@
 package office
 
 import (
-	"encoding/xml"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -29,29 +28,21 @@ func pptxSlideTexts(path string) ([]string, error) {
 		}
 		var slideTexts []string
 		var current strings.Builder
-		decoder := xml.NewDecoder(strings.NewReader(raw))
-		for {
-			token, err := decoder.Token()
-			if err != nil {
-				break
-			}
-			switch element := token.(type) {
-			case xml.StartElement:
-				switch element.Name.Local {
-				case "p":
+		if err := walkXMLText(raw,
+			func(name string) {
+				if name == "p" {
 					current.Reset()
-				case "t":
-					var text string
-					if err := decoder.DecodeElement(&text, &element); err == nil {
-						current.WriteString(text)
-					}
 				}
-			case xml.EndElement:
-				if element.Name.Local == "p" && current.Len() > 0 {
+			},
+			func(text string) { current.WriteString(text) },
+			func(name string) {
+				if name == "p" && current.Len() > 0 {
 					slideTexts = append(slideTexts, current.String())
 					current.Reset()
 				}
-			}
+			},
+		); err != nil {
+			return nil, fmt.Errorf("office: parse %s in %s: %w", name, path, err)
 		}
 		slides = append(slides, strings.Join(slideTexts, "\n"))
 	}

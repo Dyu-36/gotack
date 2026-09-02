@@ -1,6 +1,9 @@
 package office
 
 import (
+	"encoding/xml"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -130,6 +133,44 @@ func TestPptxCreateWithoutHeading(t *testing.T) {
 
 	if _, err := Create(CreateRequest{Path: t.TempDir() + "/empty.pptx", Content: "  "}); err == nil {
 		t.Fatal("expected error for empty content")
+	}
+}
+
+func TestMalformedOOXMLReturnsError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ext   string
+		parts map[string]string
+	}{
+		{
+			name: "docx malformed text element",
+			ext:  ".docx",
+			parts: map[string]string{
+				documentXML: `<document><p><t>partial</p></document>`,
+			},
+		},
+		{
+			name: "pptx truncated slide",
+			ext:  ".pptx",
+			parts: map[string]string{
+				"ppt/slides/slide1.xml": `<slide><p><t>partial</t></p>`,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "broken"+tc.ext)
+			if err := writePackage(path, tc.parts); err != nil {
+				t.Fatalf("write malformed fixture: %v", err)
+			}
+			if _, err := Read(path, ""); err == nil {
+				t.Fatal("Read() accepted malformed XML")
+			} else {
+				var syntaxError *xml.SyntaxError
+				if !errors.As(err, &syntaxError) {
+					t.Fatalf("Read() error = %v, want *xml.SyntaxError", err)
+				}
+			}
+		})
 	}
 }
 

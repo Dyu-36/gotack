@@ -45,15 +45,16 @@ while the current host owns the process.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `ListRecentWorkspaces()` | `string[]` | Most recent first. |
-| `OpenWorkspace(path)` | `WorkspaceInfo` | Attaches in engine, switches event stream, reapplies saved settings, registers the office MCP server. |
+| `OpenWorkspace(path)` | `WorkspaceInfo` | Attaches in engine, switches event stream, reapplies saved settings, and registers the bundled MCP servers and skills. |
 | `EnsureAssistantWorkspace()` | `WorkspaceInfo` | Attaches the always-available default workspace (`C:\` on Windows) so startup chat has a real session context. |
 | `CurrentWorkspace()` | `WorkspaceInfo?` | Null when nothing is attached. |
 | `SelectWorkspace()` | `string` | Native directory picker; empty on cancel. |
 
-Security-relevant default: every workspace the host attaches is opened with
-Crush permission prompts skipped, and the default assistant workspace is the
-drive root. This is a deliberate single-user desktop trade-off. Any change to
-workspace attachment must keep this documented here and in `README.md`.
+Security-relevant default: every workspace keeps Crush permission prompts
+enabled. Only an explicit saved `"auto_approve": true` setting skips them. The
+default assistant workspace is the drive root, so changes to workspace
+attachment must preserve this opt-in posture and keep it documented here and
+in `README.md`.
 
 ### Sessions
 
@@ -236,15 +237,16 @@ endpoints. Crush can therefore invoke the Office MCP tools or execute the
 timetable solver/exporter with the bundled `python` command without separate
 user setup.
 
-Platform limit: the bundle is located by looking for `officecli.exe`, so
-seeding only resolves on Windows. On other platforms the Office MCP server is
-still registered but the bundled runtime and skills are not seeded.
+The seeder resolves the platform executable name. Current release artifacts
+ship the Windows payload; a non-Windows release must provide its matching
+runtime before the Office bundle can be seeded there.
 
 ## Host -> UI events
 
 | Event | Payload |
 | --- | --- |
 | `engine:status` | `EngineInfo` |
+| `prompt:files` | `PromptFilePick[]` |
 | `session:delta` | `{session_id, message_id, text, append, seq}` — `seq` starts at 1 per message; a gap forces a frontend resync from `text` |
 | `session:done` | `{session_id, text?, error?, cancelled}` |
 | `tool:activity` | `{session_id, name, input, finished, tool_call_id}` |

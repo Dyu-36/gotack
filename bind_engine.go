@@ -105,7 +105,7 @@ func (a *App) tryConnect() bool {
 // running.
 func (a *App) connect(scope context.Context) {
 	err := a.link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
-		fwd := uievents.NewForwarder(a.log, a.emit, a.permsFromConn(), a)
+		fwd := uievents.NewForwarder(a.log, a.emit, a.permsFromConn(), a, a)
 		ws := workspace.NewService(api)
 		sess := session.NewService(api, ws)
 		diffs := changes.NewService(api, ws)

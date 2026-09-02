@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -25,7 +26,10 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 
 	const migratedConfig = `{"providers":{"codex":{"id":"codex","name":"ChatGPT (Codex)","base_url":"https://chatgpt.com/backend-api/codex","models":[{"id":"gpt-subscription"},{"id":"gpt-other"}],"oauth":{"access_token":"tok","account_id":"acc-123"}},"openai":{"id":"openai","disable":true}}}`
 
-	var modelWrites []string
+	var (
+		modelRequests int
+		modelWrites   []string
+	)
 	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces":
@@ -38,18 +42,21 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 			// Crush never advertises Codex; the entry comes from the local overlay
 			// and the subscription models from provider config.
 			return jsonHTTPResponse(http.StatusOK, `[{"id":"openai","name":"OpenAI"}]`), nil
-		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/model":
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/models":
 			var payload struct {
-				ModelType string `json:"model_type"`
-				Model     struct {
+				Models map[string]struct {
 					Provider string `json:"provider"`
 					Model    string `json:"model"`
-				} `json:"model"`
+				} `json:"models"`
 			}
 			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode preferred model: %v", err)
+				t.Fatalf("decode preferred models: %v", err)
 			}
-			modelWrites = append(modelWrites, payload.ModelType+":"+payload.Model.Provider+"/"+payload.Model.Model)
+			modelRequests++
+			for _, modelType := range []string{"large", "small"} {
+				model := payload.Models[modelType]
+				modelWrites = append(modelWrites, modelType+":"+model.Provider+"/"+model.Model)
+			}
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
 		default:
 			// Provider seeding and agent initialisation are not what this test pins
@@ -103,8 +110,8 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 		t.Fatalf("effective endpoint = %q, want it cleared", effective.CustomURL)
 	}
 	wantModels := []string{"large:" + codexProviderID + "/gpt-subscription", "small:" + codexProviderID + "/gpt-subscription"}
-	if !slices.Equal(modelWrites, wantModels) {
-		t.Fatalf("model writes = %#v, want %#v", modelWrites, wantModels)
+	if modelRequests != 1 || !slices.Equal(modelWrites, wantModels) {
+		t.Fatalf("model requests = %d, writes = %#v, want %#v", modelRequests, modelWrites, wantModels)
 	}
 }
 
@@ -131,6 +138,205 @@ func TestChatGPTRedirectCandidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := chatGPTRedirectCandidate(tc.settings, tc.apiKey); got != tc.want {
 				t.Fatalf("chatGPTRedirectCandidate() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyCrushSettingsValidatesBeforeMutation(t *testing.T) {
+	cases := []struct {
+		name     string
+		settings SettingsInfo
+		apiKey   string
+	}{
+		{"Codex rejects API keys", SettingsInfo{Provider: codexProviderID}, "sk-test"},
+		{"OAuth rejects custom endpoints", SettingsInfo{Provider: codexProviderID, CustomURL: "https://example.invalid"}, ""},
+		{"config paths reject unsafe provider ids", SettingsInfo{Provider: "bad.id", ProviderOnly: true}, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workspacePath := t.TempDir()
+			var mutationPhaseRequests []string
+			opened := false
+			transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
+				if opened {
+					mutationPhaseRequests = append(mutationPhaseRequests, req.Method+" "+req.URL.Path)
+				}
+				switch {
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces":
+					return jsonHTTPResponse(http.StatusOK, `[]`), nil
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces":
+					return jsonHTTPResponse(http.StatusOK, `{"id":"ws-1","path":"`+filepath.ToSlash(workspacePath)+`"}`), nil
+				default:
+					return jsonHTTPResponse(http.StatusOK, `{}`), nil
+				}
+			})
+
+			api := crushapi.NewClient(&http.Client{Transport: transport})
+			ws := workspace.NewService(api)
+			app := NewApp()
+			app.ctx = context.Background()
+			app.swapConn(func(c *conn) *conn {
+				c.api = api
+				c.ws = ws
+				c.sess = session.NewService(api, ws)
+				return c
+			})
+			scope, started := app.link.BeginConnect(context.Background())
+			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+				t.Fatal("could not attach test engine")
+			}
+			app.link.MarkRunning()
+			if _, err := ws.Open(context.Background(), workspacePath); err != nil {
+				t.Fatalf("open workspace: %v", err)
+			}
+			opened = true
+
+			if err := app.applyCrushSettings(tc.settings, tc.apiKey); err == nil {
+				t.Fatal("applyCrushSettings() succeeded, want validation error")
+			}
+			if len(mutationPhaseRequests) != 0 {
+				t.Fatalf("validation performed engine requests: %#v", mutationPhaseRequests)
+			}
+		})
+	}
+}
+
+func TestApplyCrushSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) {
+	cases := []struct {
+		name          string
+		settings      SettingsInfo
+		apiKey        string
+		fail          string
+		wantMutations []string
+	}{
+		{
+			name:          "credential failure",
+			settings:      SettingsInfo{Provider: "anthropic", Model: "claude"},
+			apiKey:        "sk-test",
+			fail:          "credential",
+			wantMutations: []string{"credential"},
+		},
+		{
+			name:          "endpoint failure",
+			settings:      SettingsInfo{Provider: "anthropic", Model: "claude", CustomURL: "https://api.example/v1"},
+			fail:          "endpoint",
+			wantMutations: []string{"endpoint"},
+		},
+		{
+			name:          "discovery finalization failure",
+			settings:      SettingsInfo{Provider: mistralProviderID, Model: "mistral-medium-3-5"},
+			apiKey:        "mistral-key",
+			fail:          "finalize",
+			wantMutations: []string{"seed", "credential", "finalize"},
+		},
+		{
+			name:          "ready provider selected last",
+			settings:      SettingsInfo{Provider: "anthropic", Model: "claude", CustomURL: "https://api.example/v1"},
+			apiKey:        "sk-test",
+			wantMutations: []string{"credential", "endpoint", "models"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workspacePath := t.TempDir()
+			var (
+				mutations           []string
+				localProviderSeeded bool
+			)
+			fail := tc.fail
+			transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
+				switch {
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces":
+					return jsonHTTPResponse(http.StatusOK, `[]`), nil
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces":
+					return jsonHTTPResponse(http.StatusOK, `{"id":"ws-1","path":"`+filepath.ToSlash(workspacePath)+`"}`), nil
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws-1/providers":
+					return jsonHTTPResponse(http.StatusOK, `[{"id":"anthropic","name":"Anthropic"}]`), nil
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws-1/config":
+					if localProviderSeeded {
+						return jsonHTTPResponse(http.StatusOK, `{"providers":{"anthropic":{"api_key":"existing"},"mistral":{"name":"Mistral AI","type":"openai-compat","base_url":"https://api.mistral.ai/v1"}}}`), nil
+					}
+					return jsonHTTPResponse(http.StatusOK, `{"providers":{"anthropic":{"api_key":"existing"}}}`), nil
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/set-batch":
+					mutations = append(mutations, "seed")
+					localProviderSeeded = true
+					return jsonHTTPResponse(http.StatusOK, `{}`), nil
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/provider-key":
+					mutations = append(mutations, "credential")
+					if fail == "credential" {
+						return jsonHTTPResponse(http.StatusInternalServerError, `{"error":"credential failure"}`), nil
+					}
+					return jsonHTTPResponse(http.StatusOK, `{}`), nil
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/set":
+					var payload struct {
+						Key string `json:"key"`
+					}
+					if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+						t.Fatalf("decode config mutation: %v", err)
+					}
+					step := "endpoint"
+					if strings.HasSuffix(payload.Key, ".discover_models") {
+						step = "finalize"
+					}
+					mutations = append(mutations, step)
+					if fail == step {
+						return jsonHTTPResponse(http.StatusInternalServerError, `{"error":"config failure"}`), nil
+					}
+					return jsonHTTPResponse(http.StatusOK, `{}`), nil
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws-1/config/models":
+					mutations = append(mutations, "models")
+					return jsonHTTPResponse(http.StatusOK, `{}`), nil
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws-1/agent":
+					return jsonHTTPResponse(http.StatusOK, `{"is_ready":true}`), nil
+				default:
+					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+					return nil, nil
+				}
+			})
+
+			api := crushapi.NewClient(&http.Client{Transport: transport})
+			ws := workspace.NewService(api)
+			app := NewApp()
+			app.ctx = context.Background()
+			app.swapConn(func(c *conn) *conn {
+				c.api = api
+				c.ws = ws
+				c.sess = session.NewService(api, ws)
+				return c
+			})
+			scope, started := app.link.BeginConnect(context.Background())
+			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+				t.Fatal("could not attach test engine")
+			}
+			app.link.MarkRunning()
+			if _, err := ws.Open(context.Background(), workspacePath); err != nil {
+				t.Fatalf("open workspace: %v", err)
+			}
+
+			err := app.applyCrushSettings(tc.settings, tc.apiKey)
+			if tc.fail == "" {
+				if err != nil {
+					t.Fatalf("applyCrushSettings() error = %v", err)
+				}
+			} else if err == nil {
+				t.Fatal("applyCrushSettings() succeeded despite injected failure")
+			}
+			if !slices.Equal(mutations, tc.wantMutations) {
+				t.Fatalf("mutations = %#v, want %#v", mutations, tc.wantMutations)
+			}
+			if tc.fail == "finalize" {
+				fail = ""
+				mutations = nil
+				if err := app.applyCrushSettings(tc.settings, tc.apiKey); err != nil {
+					t.Fatalf("retry applyCrushSettings() error = %v", err)
+				}
+				wantRetry := []string{"credential", "finalize", "models"}
+				if !slices.Equal(mutations, wantRetry) {
+					t.Fatalf("retry mutations = %#v, want %#v", mutations, wantRetry)
+				}
 			}
 		})
 	}
