@@ -275,6 +275,43 @@ func TestFailedBackgroundCreateDoesNotPersistOwnership(t *testing.T) {
 	}
 }
 
+func TestLegacyOwnershipManifestMigratesOnNextOwnershipWrite(t *testing.T) {
+	manager := newTestManager(t)
+	mustApply(t, manager, Operation{
+		Action: actionCreate, Name: "legacy-owned",
+		Content: skillText("legacy-owned", "Use when testing legacy ownership.", "Original."),
+	})
+	legacy := "{\"version\":1,\"agent_owned\":[\"legacy-owned\"]}\n"
+	if err := os.WriteFile(filepath.Join(manager.Root(), legacyOwnershipFileName), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	review := RequestMeta{SessionID: "review-migrate", BackgroundReview: true}
+	mustView(t, manager, "legacy-owned", "", review)
+	replacement := "Updated."
+	if result := manager.ApplyWithMeta(context.Background(), []Operation{{
+		Action: actionPatch, Name: "legacy-owned", OldString: "Original.", NewString: &replacement,
+	}}, review); !result.Success {
+		t.Fatalf("legacy ownership was not honored: %+v", result)
+	}
+	if result := manager.ApplyWithMeta(context.Background(), []Operation{{
+		Action: actionCreate, Name: "new-owned",
+		Content: skillText("new-owned", "Use when testing ownership migration.", "Run it."),
+	}}, review); !result.Success {
+		t.Fatalf("ownership migration write failed: %+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(manager.Root(), ownershipFileName)); err != nil {
+		t.Fatalf("new ownership manifest missing: %v", err)
+	}
+	owned, err := manager.loadOwnership()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owned["legacy-owned"] || !owned["new-owned"] {
+		t.Fatalf("migrated ownership = %v", owned)
+	}
+}
+
 func TestUnreadableOwnershipFailsClosed(t *testing.T) {
 	manager := newTestManager(t)
 	if err := os.WriteFile(filepath.Join(manager.Root(), ownershipFileName), []byte("not json"), 0o644); err != nil {
