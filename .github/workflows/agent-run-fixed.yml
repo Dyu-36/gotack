@@ -72,18 +72,15 @@ jobs:
             exit 1
           fi
           grep -R -n --include='*.go' -E 'func userSkillsDir|userSkillsDir|global.*skill|skill.*path' --exclude-dir=third_party . || true
-      - name: Commit validated patch
+      - name: Commit validated source patch
         shell: bash
         run: |
-          rm -rf frontend/dist frontend/wailsjs
-          rm scripts/hermes_parity_patch.py scripts/hermes_parity_followup.py .github/workflows/agent-run-fixed.yml
+          git checkout -- .github/workflows/ci.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add bind_session.go
           git add internal/reflection/prompt.go internal/reflection/reflection_test.go
           git add internal/skillmanage/filesystem.go internal/skillmanage/manager_test.go
-          git add .github/workflows/ci.yml
-          git add -u scripts/hermes_parity_patch.py scripts/hermes_parity_followup.py .github/workflows/agent-run-fixed.yml
           git diff --cached --check
           git commit -m 'fix(hermes): complete detached learning-loop parity'
           git push origin HEAD:agent/hermes-learning-loop-parity
