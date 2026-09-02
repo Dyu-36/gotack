@@ -3,6 +3,7 @@
   import { createThemeState } from './app/theme.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import ChatArea from './components/ChatArea.svelte'
+  import ProviderUsageBadge from './components/ProviderUsageBadge.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
   import RequestModals from './components/RequestModals.svelte'
   import { createLiveConversationState } from './features/conversations/live-conversation-state.svelte'
@@ -47,7 +48,7 @@
     />
 
     <main class="min-w-0 flex overflow-hidden bg-mm-bg relative">
-      <div class="min-w-0 flex-1 h-full">
+      <div class="min-w-0 flex-1 h-full relative">
         <ChatArea
           sessionTitle={conversations.active?.title ?? 'Tack'}
           workspace={conversations.workspace}
@@ -77,6 +78,12 @@
           onSelectModel={(id, label, providerId) => conversations.setModel(id, label, providerId)}
           onSelectThinking={(value) => conversations.setThinking(value)}
         />
+        <div class="provider-usage-slot">
+          <ProviderUsageBadge
+            providerId={conversations.provider}
+            ready={conversations.backendReady}
+          />
+        </div>
       </div>
     </main>
   </div>
@@ -116,5 +123,11 @@
 <style>
   .app-shell { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--tack-app-bg); }
   .workspace-frame { display: grid; grid-template-columns: var(--sidebar-col) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; overflow: hidden; transition: grid-template-columns 140ms ease; }
+  .provider-usage-slot { position: absolute; top: 54px; right: 24px; z-index: 14; max-width: calc(100% - 48px); }
+  .provider-usage-slot :global(.usage-popover) { top: calc(100% + 8px); bottom: auto; }
   .status-error { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); max-width: min(680px, 90vw); padding: 9px 12px; border: 1px solid var(--mm-border); border-radius: 8px; background: var(--mm-bg); box-shadow: 0 8px 30px rgb(0 0 0 / 14%); font-size: 12px; z-index: 20; }
+
+  @media (max-width: 720px) {
+    .provider-usage-slot { top: 52px; right: 16px; max-width: calc(100% - 32px); }
+  }
 </style>

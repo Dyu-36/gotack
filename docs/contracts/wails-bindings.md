@@ -142,11 +142,25 @@ that metadata only; the bytes stay on disk until `SendPrompt` reads them.
 | `GetSettings()` | `SettingsInfo` | `api_key` is always empty (write-only). |
 | `SaveSettings(settings)` | `error` | Applies provider/model/thinking/credential through the Crush REST API. Rejects an API key or a custom endpoint for an OAuth-backed provider: `codex signs in with ChatGPT, not an API key; use the openai provider for an API key` and `provider "codex" signs in with OAuth and does not accept a custom endpoint`. |
 | `ListProviders()` | `Provider[]` | Live Catwalk catalog for the open workspace plus Gotack-local provider overlays that are omitted automatically once Catwalk publishes the same provider ID. The local overlays are Mistral (`openai-compat`, `https://api.mistral.ai/v1`) with curated model capabilities, and Codex (`openai`, Codex backend) with no models and no API-key field; configured custom-provider models from Crush are merged ahead of the fallback metadata. Without a workspace, the host uses a private catalog workspace and does not change `CurrentWorkspace()`. Requires the engine. |
+| `GetProviderUsage(providerID)` | `ProviderUsageInfo` | Returns provider-defined quota windows without exposing credentials. Codex reads the signed-in ChatGPT account's five-hour, weekly, and any additional windows; providers without an account-usage endpoint return `available: false` instead of an estimated balance. |
 | `RevealProviderAPIKey(providerID)` | `string`, `error` | Returns the stored key for one provider so Settings can reveal it on explicit user action. Deliberate exception to the write-only secret rule below. |
 | `DeleteProvider(providerID)` | `error` | Removes the provider's stored credential and configuration from the Crush config. |
 | `LoginChatGPTOAuth()` | `ChatGPTOAuthStatus`, `error` | Launches OpenAI's browser OAuth PKCE flow for ChatGPT accounts (Free/Go/Plus/Pro/Business/Edu/Enterprise), seeds the `codex` provider, stores the credential and account-routing metadata there, loads the models available to that account from the Codex backend, and selects the first available model when the previous selection is unavailable. |
 | `GetChatGPTOAuthStatus()` | `ChatGPTOAuthStatus`, `error` | Returns connection state, email, plan, and expiry for the `codex` provider. A malformed credential or one without a ChatGPT account ID is disconnected; an expired credential with a refresh token is refreshed through Crush before status is returned. A pre-split login stored on `openai` is moved to `codex` first (see below). |
 | `LogoutChatGPTOAuth()` | `error` | Removes the `codex` provider's credential and configuration from Crush. The `openai` provider and its API key are untouched. |
+
+`ProviderUsageInfo`:
+
+`{provider_id, provider_name, available, plan?, limit_reached, windows, updated_at, unavailable_reason?}`.
+
+Each `windows[]` entry is
+`{id, name?, used_percent, remaining_percent, window_seconds?, resets_at?}`.
+`resets_at` and `updated_at` are Unix milliseconds. The values are percentages
+because subscription providers do not expose a reliable absolute token balance.
+The host keeps the OAuth token and account-routing headers out of the webview.
+The badge refreshes when the selected provider changes, when `session:done`
+arrives, when the user opens or manually refreshes the popover, and never by a
+background polling loop.
 
 **Provider split.** ChatGPT subscription sign-in and the public OpenAI API are
 two separate providers, because one provider ID holds exactly one credential in
