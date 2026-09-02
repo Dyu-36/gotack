@@ -149,3 +149,28 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
     isCode,
   }
 }
+
+export function formatToolGroupSummary(tools: readonly { toolName?: string }[]): string {
+  if (!tools || tools.length === 0) return '0 công cụ'
+  const countStr = tools.length === 1 ? '1 công cụ' : `${tools.length} công cụ`
+  const labels: string[] = []
+  for (const t of tools) {
+    const cat = parseToolDisplay(t.toolName).category
+    let name = ''
+    switch (cat) {
+      case 'read': name = 'đọc tệp'; break
+      case 'edit': name = 'sửa tệp'; break
+      case 'terminal': name = 'chạy lệnh'; break
+      case 'search': name = 'tìm kiếm'; break
+      case 'list': name = 'duyệt thư mục'; break
+      case 'mcp': name = 'mcp'; break
+      default: name = t.toolName || 'công cụ'; break
+    }
+    if (!labels.includes(name)) labels.push(name)
+  }
+  if (labels.length > 0) {
+    return `${countStr} (${labels.slice(0, 3).join(', ')})`
+  }
+  return countStr
+}
+

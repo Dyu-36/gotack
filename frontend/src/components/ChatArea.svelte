@@ -4,6 +4,7 @@
   import MessageBubble from './MessageBubble.svelte'
   import AgentWorking from './AgentWorking.svelte'
   import ToolCard from './ToolCard.svelte'
+  import ThinkingCard from './ThinkingCard.svelte'
   import type { ChatAttachment, Message, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
@@ -84,6 +85,38 @@
   const streamingBubbleId = $derived(
     messages.filter((m) => m.role === 'assistant' && m.kind !== 'tool').at(-1)?.id ?? '',
   )
+
+  type DisplayItem =
+    | { type: 'message'; message: Message }
+    | { type: 'tool-group'; id: string; tools: Message[]; allFinished: boolean }
+
+  const displayItems = $derived.by(() => {
+    const items: DisplayItem[] = []
+    let currentTools: Message[] = []
+
+    function flushTools() {
+      if (currentTools.length === 0) return
+      const allFinished = currentTools.every((t) => t.toolFinished)
+      items.push({
+        type: 'tool-group',
+        id: currentTools[0].id,
+        tools: [...currentTools],
+        allFinished,
+      })
+      currentTools = []
+    }
+
+    for (const msg of messages) {
+      if (msg.kind === 'tool') {
+        currentTools.push(msg)
+      } else {
+        flushTools()
+        items.push({ type: 'message', message: msg })
+      }
+    }
+    flushTools()
+    return items
+  })
 
   const promptCards = [
     {
@@ -307,13 +340,19 @@
   {:else}
     <div bind:this={scroller} onscroll={handleScroll} class="messages relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại" aria-live="polite" aria-relevant="additions text" aria-busy={isStreaming}>
       <div bind:this={messageList} class="max-w-5xl mx-auto px-4 pt-6 pb-6">
-        {#each messages as message, idx (message.id)}
-          {#if message.kind === 'tool'}
-            <ToolCard {message} />
+        {#each displayItems as item, idx (item.type === 'tool-group' ? item.id : item.message.id)}
+          {#if item.type === 'tool-group'}
+            {#if item.allFinished}
+              <ThinkingCard tools={item.tools} />
+            {:else}
+              {#each item.tools as tool (tool.id)}
+                <ToolCard message={tool} />
+              {/each}
+            {/if}
           {:else}
             <MessageBubble
-              {message}
-              isStreaming={isStreaming && message.role === 'assistant' && message.id === streamingBubbleId}
+              message={item.message}
+              isStreaming={isStreaming && item.message.role === 'assistant' && item.message.id === streamingBubbleId}
             />
           {/if}
         {/each}

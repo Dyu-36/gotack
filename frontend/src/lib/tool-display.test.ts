@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractBasename, parseToolDisplay } from './tool-display'
+import { extractBasename, parseToolDisplay, formatToolGroupSummary } from './tool-display'
 
 describe('extractBasename', () => {
   it('extracts filename from windows path', () => {
@@ -72,5 +72,29 @@ describe('parseToolDisplay', () => {
     expect(res.category).toBe('generic')
     expect(res.actionLabel).toBe('Hoàn thành công cụ')
     expect(res.detailLabel).toBe('simple string info')
+  })
+})
+
+describe('formatToolGroupSummary', () => {
+  it('formats empty or single tool', () => {
+    expect(formatToolGroupSummary([])).toBe('0 công cụ')
+    expect(formatToolGroupSummary([{ toolName: 'run_command' }])).toBe('1 công cụ (chạy lệnh)')
+  })
+
+  it('formats multiple unique categories', () => {
+    const tools = [
+      { toolName: 'view_file' },
+      { toolName: 'write_to_file' },
+      { toolName: 'run_command' },
+    ]
+    expect(formatToolGroupSummary(tools)).toBe('3 công cụ (đọc tệp, sửa tệp, chạy lệnh)')
+  })
+
+  it('deduplicates repeating tool categories', () => {
+    const tools = [
+      { toolName: 'view_file' },
+      { toolName: 'read_resource' },
+    ]
+    expect(formatToolGroupSummary(tools)).toBe('2 công cụ (đọc tệp)')
   })
 })
