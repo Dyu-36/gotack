@@ -31,6 +31,7 @@ func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
 		"EnsureAssistantWorkspace",
 		"FileDiff",
 		"GetChatGPTOAuthStatus",
+		"GetProviderUsage",
 		"GetSettings",
 		"GetZaloConfig",
 		"ListProviders",
