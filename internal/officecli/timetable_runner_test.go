@@ -4,12 +4,42 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
+func timetableCoreRuntime(t *testing.T) (string, string) {
+	t.Helper()
+	root := filepath.Clean(filepath.Join("..", ".."))
+	resourceRoot := filepath.Join(root, "resources")
+	if packaged := os.Getenv("GOTACK_RESOURCE_ROOT"); packaged != "" {
+		resourceRoot = packaged
+	}
+	skillDir := filepath.Join(resourceRoot, "skills", "timetable")
+
+	python := filepath.Join(resourceRoot, "bin", "python.exe")
+	if os.Getenv("GOTACK_RESOURCE_ROOT") != "" {
+		python = filepath.Join(resourceRoot, "python.exe")
+	}
+	if runtime.GOOS != "windows" {
+		python = filepath.Join(resourceRoot, "bin", "python")
+		if os.Getenv("GOTACK_RESOURCE_ROOT") != "" {
+			python = filepath.Join(resourceRoot, "python")
+		}
+	}
+	if _, err := os.Stat(python); err != nil {
+		var lookupErr error
+		python, lookupErr = exec.LookPath("python")
+		if lookupErr != nil {
+			t.Skip("Python is unavailable")
+		}
+	}
+	return skillDir, python
+}
+
 func TestBundledTimetableCoreRunnerFilesExist(t *testing.T) {
-	skillDir, _ := timetableTestRuntime(t)
+	skillDir, _ := timetableCoreRuntime(t)
 	for _, relative := range []string{
 		filepath.Join("reference", "problem-schema-core.md"),
 		filepath.Join("runtime", "run.py"),
@@ -45,7 +75,7 @@ func TestBundledTimetableRunnerCreatesWorkbook(t *testing.T) {
 }
 
 func TestBundledTimetableRunnerRejectsResourceRequirements(t *testing.T) {
-	skillDir, python := timetableTestRuntime(t)
+	skillDir, python := timetableCoreRuntime(t)
 	workbook := filepath.Join(t.TempDir(), "thoi-khoa-bieu.xlsx")
 	problem := filepath.Join("testdata", "timetable-requirements-problem.json")
 
