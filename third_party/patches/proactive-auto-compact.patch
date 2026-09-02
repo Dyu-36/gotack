@@ -38,7 +38,7 @@ diff --git a/internal/agent/agent.go b/internal/agent/agent.go
  var userAgent = fmt.Sprintf("Charm-Crush/%s (https://charm.land/crush)", version.Version)
  
  //go:embed templates/title.md
-@@ -1035,27 +1062,19 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1035,22 +1062,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  		StopWhen: []fantasy.StopCondition{
  			func(_ []fantasy.StepResult) bool {
  				cw := int64(largeModel.CatwalkCfg.ContextWindow)
@@ -64,11 +64,6 @@ diff --git a/internal/agent/agent.go b/internal/agent/agent.go
  				}
  				return false
  			},
- 			func(steps []fantasy.StepResult) bool {
- 				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
- 			},
- 		},
- 	})
 diff --git a/internal/agent/auto_summarize_test.go b/internal/agent/auto_summarize_test.go
 new file mode 100644
 --- /dev/null
@@ -102,7 +97,7 @@ new file mode 100644
 +					"autoSummarizeTokenLimit(%d) = %d, want %d",
 +					test.contextWindow,
 +					got,
-+					test.want,
++					want,
 +				)
 +			}
 +		})
