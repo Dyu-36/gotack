@@ -4,10 +4,10 @@ import "testing"
 
 func TestCrushReasoning(t *testing.T) {
 	tests := []struct {
-		name      string
-		value     string
+		name       string
+		value      string
 		wantEffort string
-		wantThink bool
+		wantThink  bool
 	}{
 		{name: "off", value: "none", wantEffort: "", wantThink: false},
 		{name: "blank", value: "", wantEffort: "", wantThink: false},
