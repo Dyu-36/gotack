@@ -10,9 +10,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// forwarder.go -- role: engine stream in, runtime.EventsEmit out.
-// High-frequency token deltas are coalesced before reaching the webview.
-
 type Emitter func(name string, data any)
 
 type SessionDeltaPayload struct {
@@ -88,52 +85,40 @@ func (pm *pendingMessage) markToolStates(calls []crushapi.ToolCall) []crushapi.T
 	return out
 }
 
-type PermissionSink interface {
-	Pending(req crushapi.PermissionRequest) int64
-}
-
-// DoneSink receives completed agent runs. Like PermissionSink it is an
-// optional side channel: the UI event still goes out unchanged.
-type DoneSink interface {
-	RunDone(done SessionDonePayload)
-}
-
-// ToolSink receives assistant-message snapshots for Hermes' model-iteration
-// cadence plus admitted learning-tool results. Results arrive only after the
-// PreToolUse and user-permission gates, matching Hermes' reset point.
-type ToolSink interface {
-	AssistantIteration(sessionID, messageID string, hasToolCalls bool)
-	LearningToolExecuted(sessionID, toolCallID, toolName string)
+// Callbacks are optional host observers. Functions keep host-only concerns
+// out of the Wails-bound App method set while the UI events remain unchanged.
+type Callbacks struct {
+	PermissionPending    func(crushapi.PermissionRequest) int64
+	RunDone              func(SessionDonePayload)
+	AssistantIteration   func(sessionID, messageID string, hasToolCalls bool)
+	LearningToolExecuted func(sessionID, toolCallID, toolName string)
 }
 
 type Forwarder struct {
-	log   *slog.Logger
-	emit  Emitter
-	perms PermissionSink
-	done  DoneSink
-	delay time.Duration
+	log           *slog.Logger
+	emit          Emitter
+	callbacks     Callbacks
+	delayOverride time.Duration
 
-	mu      sync.Mutex
-	pending map[string]*pendingMessage
-	tools   ToolSink
-
+	mu       sync.Mutex
+	pending  map[string]*pendingMessage
 	stopOnce sync.Once
 	stopped  bool
 }
 
-func NewForwarder(log *slog.Logger, emit Emitter, perms PermissionSink, done DoneSink, tools ToolSink) *Forwarder {
+func NewForwarder(log *slog.Logger, emit Emitter, callbacks Callbacks) *Forwarder {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Forwarder{
-		log: log, emit: emit, perms: perms, done: done, tools: tools,
-		delay: coalesceDelay, pending: make(map[string]*pendingMessage),
+		log: log, emit: emit, callbacks: callbacks,
+		pending: make(map[string]*pendingMessage),
 	}
 }
 
 func (f *Forwarder) setDelay(d time.Duration) {
 	f.mu.Lock()
-	f.delay = d
+	f.delayOverride = d
 	f.mu.Unlock()
 }
 
@@ -143,6 +128,9 @@ func (f *Forwarder) setDelay(d time.Duration) {
 // the default 40ms; and slow drip feeds back off to 16ms so single-token
 // deltas feel snappy instead of waiting for a hard 40ms window.
 func (f *Forwarder) nextDelay(bytesSinceLastFlush int) time.Duration {
+	if f.delayOverride > 0 {
+		return f.delayOverride
+	}
 	switch {
 	case bytesSinceLastFlush > 4096:
 		return 80 * time.Millisecond
@@ -218,13 +206,13 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 		return
 	}
 	parts := crushapi.ExtractParts(msg.Parts)
-	if strings.EqualFold(msg.Role, "assistant") && f.tools != nil {
-		f.tools.AssistantIteration(msg.SessionID, msg.ID, len(parts.ToolCalls) > 0)
+	if strings.EqualFold(msg.Role, "assistant") && f.callbacks.AssistantIteration != nil {
+		f.callbacks.AssistantIteration(msg.SessionID, msg.ID, len(parts.ToolCalls) > 0)
 	}
-	if f.tools != nil {
+	if f.callbacks.LearningToolExecuted != nil {
 		for _, result := range parts.ToolResults {
 			if learningResultAdmitted(result) {
-				f.tools.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
+				f.callbacks.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
 			}
 		}
 	}
@@ -259,6 +247,7 @@ func learningResultAdmitted(result crushapi.ToolResult) bool {
 	}
 	return true
 }
+
 func (f *Forwarder) schedule(sessionID, messageID string, parts crushapi.Parts) {
 	f.mu.Lock()
 	pm, ok := f.pending[messageID]
@@ -320,8 +309,8 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 		f.emitDeltas(f.drain(rc.SessionID))
 	}
 	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
-	if f.done != nil {
-		f.done.RunDone(done)
+	if f.callbacks.RunDone != nil {
+		f.callbacks.RunDone(done)
 	}
 	f.send(SessionDone, done)
 }
@@ -335,8 +324,8 @@ func (f *Forwarder) handlePermission(payload json.RawMessage) {
 		return
 	}
 	var expiresAt int64
-	if f.perms != nil {
-		expiresAt = f.perms.Pending(req)
+	if f.callbacks.PermissionPending != nil {
+		expiresAt = f.callbacks.PermissionPending(req)
 	}
 	f.send(PermissionRequest, PermissionRequestPayload{Request: req, ExpiresAt: expiresAt})
 }

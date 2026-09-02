@@ -8,11 +8,17 @@ Pull request: #11
 
 ## Status
 
-Completed. The existing bounded learning loop was audited against pinned
+Completed. The bounded learning loop was audited against pinned
 `NousResearch/hermes-agent` revision
 `ab9866bc64df48281a2d929dfb1dfd1001973d24`, the detached-session parity gaps
 were fixed, contracts were reconciled with code, and clean-checkout Linux and
 Windows validation passed.
+
+The branch was also resolved on top of backend-hardening commit
+`b2cc47b7c0644c83dfa25ee5783e5ab67ae46291`. That resolution keeps the newer
+host callback boundary, centralized attachment filename handling,
+development/production asset split, static analysis, and dead-code gates while
+layering only the Hermes-specific changes described here.
 
 ## Outcome
 
@@ -42,8 +48,8 @@ learning rule, or staged approval queue was added.
 This plan uses the pinned upstream revision as the behavior authority and
 adapts only where the Gotack/Crush process boundary requires it.
 
-Two prompt assumptions conflicted with that source and were resolved in favor
-of the pin:
+Two requested assumptions conflicted with the pinned source and were resolved
+in favor of that source:
 
 1. the advertised upstream action enum is `create`, `patch`, `delete`,
    `write_file`, and `remove_file`; `revert` and `manage` are not actions in the
@@ -105,23 +111,28 @@ the newest 24 transcript items and bounds every carried preview.
   and disposable, source deletions reconcile, and hydrated response content is
   bounded to 24 KiB.
 
-### Host and package wiring
+### Host, skill roots, and clean-checkout wiring
 
 - Confirmed the single workspace activation sequence registers `memory`,
   `skills`, `recall`, and `guard` together with office/context wiring.
 - Confirmed Crush skill paths merge existing configured roots, bundled skills,
   the learned per-user root, and workspace `.agents/skills` with stable
   deduplication; the mutation server receives only the learned root.
-- Fixed portable attachment basename normalization so Windows-origin paths are
-  handled correctly by Linux tests and remote clients.
-- Updated CI so a clean checkout creates the minimal Wails embed directory,
-  generates `frontend/wailsjs`, builds `frontend/dist`, and only then executes
-  Go and frontend validation.
+- Kept the hardened centralized attachment basename helper from `main`, which
+  handles both slash styles before host-platform cleanup.
+- Kept the hardened asset split from `main`: ordinary Go tooling uses a small
+  non-production in-memory asset filesystem, production builds embed the real
+  `frontend/dist`, and frontend CI explicitly generates Wails bindings before
+  checking, testing, and building the Svelte application.
+- Added the focused learning-loop package and helper-binary commands to the
+  permanent Go CI lane while retaining `staticcheck`, unreachable-function
+  analysis, gofmt, generated-event drift, frontend checks, and Windows
+  packaging.
 
 ## Validation evidence
 
-The source publication run (`33582777220`) and permanent PR CI run
-(`33583000790`) completed the requested commands successfully:
+The source publication run (`33582777220`) and permanent PR CI runs, including
+`33583000790` and `33583261655`, completed the requested commands successfully:
 
 ```bash
 go test ./internal/memory ./internal/skillmanage ./internal/recall ./internal/reflection ./internal/guard
@@ -131,20 +142,22 @@ go vet ./...
 node scripts/check-repository-invariants.mjs
 ```
 
-Additional passing gates:
+Additional passing gates included:
 
 ```bash
+staticcheck ./...
+deadcode -test ./...
 pnpm --dir frontend check
 pnpm --dir frontend test
 pnpm --dir frontend build
 gofmt repository check
 generated UI-event drift check
-actual-import scan for third_party/crush/internal
+Go-parser enforcement against third_party/crush/internal imports
 ```
 
-Permanent PR CI also completed the Windows Wails portable build, compiled the
-pinned Crush revision and all packaged helpers, assembled the portable tree,
-and uploaded artifact `gotack-windows-amd64`.
+PR CI completed the Windows Wails portable build, compiled the pinned Crush
+revision and all packaged helpers, assembled the portable tree, and uploaded
+artifact `gotack-windows-amd64`.
 
 The downloaded artifact was inspected independently. Its SHA-256 was
 `fb14e41534bde7bddc383424ab059892ad4ba9814262be986660e5674663a10c`, matching
@@ -161,12 +174,15 @@ resources/skills.exe
 README.txt
 ```
 
+The final head was revalidated after incorporating the latest `main` commit
+before PR #11 was marked ready for review.
+
 Deterministic host/runtime tests cover accepted-turn cadence, iteration
 counting, cancellation, the final-response gate, the 16-iteration boundary,
 review roster cleanup, atomic mutations, ownership safety, and recall bounds.
 A live third-party-model turn is intentionally not part of credential-free CI;
 the deterministic integration tests and inspected packaged artifact provide
-the reproducible completion proof without external credentials or model spend.
+reproducible completion proof without external credentials or model spend.
 
 ## Documentation result
 

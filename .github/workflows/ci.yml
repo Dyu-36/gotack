@@ -12,10 +12,12 @@ permissions:
 env:
   WAILS_VERSION: v2.15.0
   PNPM_VERSION: 11.20.0
+  STATICCHECK_VERSION: v0.8.1
+  DEADCODE_VERSION: v0.49.0
 
 jobs:
   go:
-    name: Go test and vet
+    name: Go test and analysis
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,27 +27,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Install frontend dependencies
-        run: pnpm --dir frontend install --frozen-lockfile
-      - name: Prepare Wails binding generation
-        run: |
-          mkdir -p frontend/dist
-          printf '%s\n' '<!doctype html><html><body></body></html>' > frontend/dist/index.html
-      - name: Generate Wails bindings
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }} generate module
-      - name: Build frontend assets for Go embed
-        run: pnpm --dir frontend build
       - name: Test learning-loop internals
         run: go test ./internal/memory ./internal/skillmanage ./internal/recall ./internal/reflection ./internal/guard
       - name: Test learning-loop helper binaries
@@ -54,11 +35,18 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
-      - name: Check repository invariants
-        run: node scripts/check-repository-invariants.mjs
-      # CI ran only test and vet, so two real kinds of drift could merge without
-      # anything failing: a gofmt regression, and a stale events.generated.ts
-      # after internal/uievents/names.go changes. Both are gates now.
+      - name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }}
+          staticcheck ./...
+      - name: Check unreachable functions
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@${{ env.DEADCODE_VERSION }}
+          unreachable="$(deadcode -test ./...)"
+          if [ -n "$unreachable" ]; then
+            echo "$unreachable"
+            exit 1
+          fi
       - name: Check gofmt
         run: |
           unformatted="$(gofmt -l $(git ls-files '*.go'))"
@@ -96,12 +84,10 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
-      - name: Prepare Wails binding generation
-        run: |
-          mkdir -p frontend/dist
-          printf '%s\n' '<!doctype html><html><body></body></html>' > frontend/dist/index.html
       - name: Generate Wails bindings
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }} generate module
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+          wails generate module
       - name: Check repository invariants
         run: node scripts/check-repository-invariants.mjs
       - name: Check frontend
