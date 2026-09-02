@@ -135,9 +135,6 @@ func TestSelectChatGPTModelUsesLiveCatalog(t *testing.T) {
 	}
 }
 
-// A pre-split install keeps its ChatGPT login on the "openai" provider. Asking
-// for status must move that credential to Codex instead of reporting the user
-// as signed out and asking for a second sign-in.
 func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("AppData", configRoot)
@@ -226,8 +223,6 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 	}
 	app.link.MarkRunning()
 
-	// An upgraded install still names the pre-split provider, and its saved model
-	// id predates the account-scoped Codex catalog.
 	app.cfg = &appconfig.Config{
 		Provider:  openAIProviderID,
 		Model:     "gpt-retired",
@@ -255,8 +250,7 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 			t.Fatalf("removed keys = %#v, want %q", removedKeys, key)
 		}
 	}
-	// Without the repoint both preferences would keep pointing at a provider that
-	// no longer holds a credential, and the next settings replay would restore it.
+
 	wantModels := []string{"large:" + codexProviderID + "/gpt-5-codex", "small:" + codexProviderID + "/gpt-5-codex"}
 	if !slices.Equal(modelWrites, wantModels) {
 		t.Fatalf("model writes = %#v, want %#v", modelWrites, wantModels)
@@ -269,8 +263,6 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 	}
 }
 
-// A provider the user selected deliberately must survive the migration: only
-// the pre-split ChatGPT selection is taken over by Codex.
 func TestRepointSavedModelAtCodexKeepsDeliberateProvider(t *testing.T) {
 	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
@@ -289,9 +281,6 @@ func TestRepointSavedModelAtCodexKeepsDeliberateProvider(t *testing.T) {
 	}
 }
 
-// A build that moved the credential without repointing the selection leaves an
-// install the migration no longer sees. The repair gate must recognise exactly
-// that state and nothing else.
 func TestSelectionStrandedOnLegacyOpenAI(t *testing.T) {
 	credential := json.RawMessage(`{"access_token":"tok","account_id":"acc-123"}`)
 	withCodex := func(legacy crushapi.ProviderConfig) crushapi.WorkspaceConfig {

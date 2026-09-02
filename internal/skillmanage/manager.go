@@ -28,7 +28,6 @@ const (
 	actionRemoveFile = "remove_file"
 )
 
-// Operation is one ordered skill_manage mutation.
 type Operation struct {
 	Action       string  `json:"action"`
 	Name         string  `json:"name"`
@@ -47,7 +46,6 @@ type AppliedOperation struct {
 	Path   string `json:"path,omitempty"`
 }
 
-// Result is always JSON-encodable so model-facing failures stay actionable.
 type Result struct {
 	Success                bool               `json:"success"`
 	OperationsApplied      int                `json:"operations_applied,omitempty"`
@@ -57,21 +55,15 @@ type Result struct {
 	CompletedBeforeFailure int                `json:"completed_before_failure,omitempty"`
 }
 
-// Manager serializes changes beneath one profile-local skill root.
 type Manager struct {
 	root string
 	mu   sync.Mutex
 
-	// readMarks are deliberately process-local. The view and manage tools are
-	// served by the same long-lived skills MCP process, so a successful
-	// skill_view can authorize exactly one later mutation without trusting
-	// model-supplied content or a persisted authorization token.
 	readMarks        map[string]map[string]string
 	readMarkOrder    map[string][]string
 	readSessionOrder []string
 }
 
-// RequestMeta is trusted host context injected after the model selects a tool.
 type RequestMeta struct {
 	SessionID        string
 	BackgroundReview bool
@@ -268,9 +260,7 @@ func (m *Manager) applyOne(operation Operation, state *applyState) (AppliedOpera
 		path, err = m.patch(operation, state)
 	case actionDelete:
 		path, err = m.delete(operation.Name, operation, state)
-		// Foreground hard deletes retain their historical ownership cleanup.
-		// Background deletes are archived and keep provenance for a possible
-		// restore, matching Hermes' recoverable curator state.
+
 		if err == nil && !state.meta.BackgroundReview && state.owned[operation.Name] {
 			delete(state.owned, operation.Name)
 			state.ownershipDirty = true

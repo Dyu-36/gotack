@@ -65,8 +65,7 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 		c.sess = session.NewService(api, ws)
 		return c
 	})
-	// Drive the link through the same transitions connect() uses so the
-	// services above count as a live engine connection.
+
 	scope, started := app.link.BeginConnect(context.Background())
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
@@ -87,8 +86,7 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 	if mistral.APIEndpoint != mistralDefaultEndpoint || len(mistral.Models) == 0 {
 		t.Fatalf("Mistral overlay = %#v", mistral)
 	}
-	// Codex is listed without a credential so Settings can start the ChatGPT
-	// sign-in from the provider list.
+
 	codex := findProvider(t, providers, codexProviderID)
 	if codex.APIEndpoint != codexBackendURL || codex.CredentialKind != "" {
 		t.Fatalf("Codex overlay = %#v", codex)

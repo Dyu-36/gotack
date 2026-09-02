@@ -13,11 +13,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// bind_config.go -- role: Wails-bound API for user settings, theme, provider
-// and model configuration.
-
-// SettingsInfo is the settings payload exchanged with the UI. Every field must
-// be genuinely readable and writable (AGENTS.md hard rule 8).
 type SettingsInfo struct {
 	Theme              string `json:"theme"`
 	Provider           string `json:"provider"`
@@ -25,14 +20,11 @@ type SettingsInfo struct {
 	ProviderOnly       bool   `json:"provider_only,omitempty"`
 	Model              string `json:"model"`
 	Thinking           string `json:"thinking"`
-	// APIKey is write-only from the UI. GetSettings always returns an empty
-	// value so a credential is never round-tripped through Wails state.
+
 	APIKey    string `json:"api_key"`
 	CustomURL string `json:"custom_url"`
 }
 
-// GetSettings returns non-secret Gotack preferences. Provider credentials are
-// owned by Crush and deliberately never returned to the webview.
 func (a *App) GetSettings() SettingsInfo {
 	if a.cfg == nil {
 		return SettingsInfo{Theme: "system"}
@@ -49,10 +41,6 @@ func (a *App) GetSettings() SettingsInfo {
 
 var simpleEnvCredentialRef = regexp.MustCompile(`^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$`)
 
-// resolvedProviderCredential turns Crush's stored credential representation
-// into a usable credential signal. Crush keeps known-provider defaults such as
-// "$MINIMAX_API_KEY" in config even when the environment variable is absent;
-// those templates must not make a provider look configured in Gotack.
 func resolvedProviderCredential(pc crushapi.ProviderConfig) (kind, value string, ok bool) {
 	oauth := strings.TrimSpace(string(pc.OAuth))
 	if oauth != "" && oauth != "null" && oauth != "{}" {
@@ -74,19 +62,13 @@ func resolvedProviderCredential(pc crushapi.ProviderConfig) (kind, value string,
 		}
 		return "api_key", resolved, true
 	}
-	// Other leading-$ forms are shell templates supported by Crush. Gotack does
-	// not execute arbitrary command substitution merely to populate settings UI;
-	// treat them as unverified instead of exposing a false-positive provider.
+
 	if strings.HasPrefix(key, "$") {
 		return "", "", false
 	}
 	return "api_key", key, true
 }
 
-// configWorkspaceID returns a workspace ID usable for provider and config
-// reads. When the user has no workspace open it falls back to a private
-// catalog workspace under Gotack's config directory, without changing what the
-// user currently has open.
 func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
 	if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
 		return desc.WorkspaceID, nil
@@ -102,9 +84,6 @@ func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (strin
 	return ws.ID, nil
 }
 
-// ListProviders returns the live provider and model catalog from Crush. When
-// no user workspace is open, it uses a private workspace under Gotack's config
-// directory without changing the user's current workspace.
 func (a *App) ListProviders() ([]crushapi.Provider, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -158,8 +137,7 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 				m := &providers[i].Models[j]
 				if override, ok := a.cfg.ModelCapabilities[m.ID]; ok {
 					if override.SupportsVision != nil && !*override.SupportsVision {
-						// A desktop-only override may safely disable attachments,
-						// but cannot enable a capability Crush will reject or strip.
+
 						m.SupportsVision = false
 					}
 					if override.CanReason != nil {
@@ -172,9 +150,6 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 	return providers, nil
 }
 
-// RevealProviderAPIKey returns a configured provider API key only after an
-// explicit UI request (the eye button). It is never included in GetSettings or
-// ListProviders, keeping secrets out of normal webview state.
 func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -202,10 +177,6 @@ func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
 	return key, nil
 }
 
-// DeleteProvider removes stored credentials for a provider and disables it in
-// Crush's effective config. Disabling is necessary for providers whose
-// credential comes from an environment variable: deleting only api_key would
-// make Crush immediately pick the environment-backed default again.
 func (a *App) DeleteProvider(providerID string) error {
 	providerID = strings.TrimSpace(providerID)
 	if !safeProviderID.MatchString(providerID) {
@@ -241,8 +212,6 @@ func (a *App) DeleteProvider(providerID string) error {
 		a.cfg = &next
 	}
 
-	// Once disabled, every remaining cleanup step is idempotent and safe to
-	// retry without leaving an enabled provider with missing credentials.
 	if err := svc.api.SetConfigField(ctx, ws, scope, base+".disable", true); err != nil {
 		return fmt.Errorf("disable provider: %w", err)
 	}
@@ -269,14 +238,9 @@ func preferredModelsUseProvider(models map[string]crushapi.SelectedModel, provid
 	return false
 }
 
-// SaveSettings persists non-secret UI preferences and applies agent-affecting
-// settings through Crush's REST API. API keys are sent directly to Crush's
-// provider-key endpoint and are never written to Gotack's config.json.
 func (a *App) SaveSettings(s SettingsInfo) error {
 	apiKey := strings.TrimSpace(s.APIKey)
-	// The host repoints a selection stranded by the provider split while it
-	// applies it, so persist what the engine received instead of what the UI
-	// sent: the two differ exactly when the stale selection was corrected.
+
 	effective, err := a.applyEffectiveCrushSettings(s, apiKey)
 	if err != nil {
 		return err
@@ -292,10 +256,9 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 	}
 	next.Provider = strings.TrimSpace(effective.Provider)
 	next.Model = strings.TrimSpace(effective.Model)
-	// Gotack exposes one model selector. applyCrushSettings pins both
-	// models.large and models.small to it, so there is nothing extra to persist.
+
 	next.Thinking = strings.TrimSpace(effective.Thinking)
-	next.APIKey = "" // scrub any credential persisted by older builds
+	next.APIKey = ""
 	credentialProvider := strings.TrimSpace(effective.CredentialProvider)
 	if credentialProvider == "" || credentialProvider == next.Provider {
 		next.CustomURL = strings.TrimSpace(effective.CustomURL)

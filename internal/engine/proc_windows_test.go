@@ -8,7 +8,7 @@ import (
 )
 
 func TestConfigureProcAttrGivesEngineAHiddenConsole(t *testing.T) {
-	cmd := exec.Command("crush", "server")
+	cmd := exec.Command("tack-engine", "server")
 	configureProcAttr(cmd)
 
 	if cmd.SysProcAttr == nil {

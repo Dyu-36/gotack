@@ -9,14 +9,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
-// charset.go -- role: turn raw attachment bytes into UTF-8 text.
-//
-// Office exports on Vietnamese Windows are routinely UTF-16 (with BOM) or
-// single-byte Windows-1252/1258 text. utf8.Valid rejects those, so before this
-// decoder a CSV exported from Excel was classified as binary and the model only
-// ever received a file path instead of its content.
-
-// DecodeText converts content into UTF-8 text and names the source encoding.
 func DecodeText(content []byte) (string, string) {
 	switch {
 	case bytes.HasPrefix(content, []byte{0xEF, 0xBB, 0xBF}):
@@ -50,9 +42,6 @@ func decodeUTF16(content []byte, bigEndian bool) string {
 	return strings.ReplaceAll(string(utf16.Decode(units)), "\x00", "")
 }
 
-// looksLikeUTF16 detects BOM-less UTF-16 through the NUL padding byte that
-// every ASCII character carries: little-endian text pads odd offsets,
-// big-endian text pads even offsets.
 func looksLikeUTF16(content []byte) (little bool, ok bool) {
 	limit := min(2048, len(content))
 	if limit < 4 {
@@ -79,8 +68,6 @@ func looksLikeUTF16(content []byte) (little bool, ok bool) {
 	return false, false
 }
 
-// cp1252High maps the 0x80..0x9F range where Windows-1252 differs from
-// ISO-8859-1. A zero entry marks an undefined byte, which is dropped.
 var cp1252High = [32]rune{
 	'\u20AC', 0, '\u201A', '\u0192', '\u201E', '\u2026', '\u2020', '\u2021',
 	'\u02C6', '\u2030', '\u0160', '\u2039', '\u0152', 0, '\u017D', 0,

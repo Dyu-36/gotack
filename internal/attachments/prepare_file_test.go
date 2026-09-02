@@ -88,7 +88,6 @@ func TestPruneCacheEnforcesBudget(t *testing.T) {
 		}
 	}
 
-	// Both entries are fresh, so only the budget can trim them.
 	pruneCache(dir, 24*time.Hour, 512)
 
 	left, err := os.ReadDir(dir)

@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 )
 
-// Target selects one of Hermes' two bounded memory stores.
 type Target string
 
 const (
@@ -30,7 +29,6 @@ const (
 	actionRemove  = "remove"
 )
 
-// Operation is one item in an atomic memory update.
 type Operation struct {
 	Action  string `json:"action"`
 	Content string `json:"content,omitempty"`
@@ -38,8 +36,6 @@ type Operation struct {
 	OldText string `json:"old_text,omitempty"`
 }
 
-// Result intentionally omits memory content. Successful calls only confirm
-// completion and current budget, matching Hermes' anti-thrashing response.
 type Result struct {
 	Success    bool   `json:"success"`
 	Done       bool   `json:"done"`
@@ -50,7 +46,6 @@ type Result struct {
 	Note       string `json:"note"`
 }
 
-// Store owns the two memory files under dir.
 type Store struct {
 	dir     string
 	persist func(path string, data []byte) error
@@ -90,8 +85,6 @@ func (s *Store) Remove(ctx context.Context, target Target, oldText string) (Resu
 	return s.Apply(ctx, target, []Operation{{Action: actionRemove, OldText: oldText}})
 }
 
-// Apply evaluates operations against a copy and persists only the valid final
-// state. Intermediate overflow is allowed so one batch can consolidate and add.
 func (s *Store) Apply(ctx context.Context, target Target, operations []Operation) (Result, error) {
 	if target != TargetMemory && target != TargetUser {
 		return Result{}, ErrUnknownTarget
@@ -99,8 +92,7 @@ func (s *Store) Apply(ctx context.Context, target Target, operations []Operation
 	if len(operations) == 0 {
 		return Result{}, ErrEmptyBatch
 	}
-	// Scan every proposed entry before touching the filesystem. One blocked
-	// operation rejects the entire batch.
+
 	for index, operation := range operations {
 		action := strings.TrimSpace(operation.Action)
 		if action != actionAdd && action != actionReplace {
@@ -212,7 +204,7 @@ func applyOperation(entries *[]string, operation Operation) (bool, error) {
 		if (*entries)[index] == content {
 			return false, nil
 		}
-		// Hermes replaces the whole matched entry, not the matching substring.
+
 		(*entries)[index] = content
 		return true, nil
 

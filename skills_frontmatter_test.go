@@ -1,11 +1,5 @@
 package main
 
-// skills_frontmatter_test.go -- role: regression test pinning the bundled
-// skills' frontmatter to the contract the vendored engine actually parses.
-// Crush's skill loader requires YAML frontmatter with a valid `name`
-// (<= 64 bytes, ^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$, equal to the skill directory's
-// base name) and a `description` (<= 1024 bytes).
-
 import (
 	"fmt"
 	"os"
@@ -24,9 +18,6 @@ type bundledSkillFrontmatter struct {
 	Description string `yaml:"description"`
 }
 
-// parseSkillFrontmatter extracts and parses the same YAML block Crush reads.
-// Using yaml.v3 here is deliberate: a line-based key/value parser accepts
-// invalid YAML such as an unquoted colon inside a description.
 func parseSkillFrontmatter(content string) (map[string]string, error) {
 	content = strings.TrimPrefix(content, "\uFEFF")
 	content = strings.ReplaceAll(content, "\r\n", "\n")
@@ -84,9 +75,6 @@ func TestParseSkillFrontmatterAcceptsQuotedColon(t *testing.T) {
 	}
 }
 
-// TestBundledSkillsFrontmatterMatchesEngineContract walks every bundled
-// skill and asserts the fields the engine's skill loader requires. A skill
-// that fails this test is skipped by Crush at runtime.
 func TestBundledSkillsFrontmatterMatchesEngineContract(t *testing.T) {
 	dirs, err := filepath.Glob(filepath.Join("resources", "skills", "*"))
 	if err != nil {

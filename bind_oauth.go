@@ -16,10 +16,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// bind_oauth.go -- role: Wails-bound OAuth authentication methods for AI providers
-// (starting with ChatGPT / OpenAI Codex PKCE flow).
-
-// ChatGPTOAuthStatus represents the current OAuth connection status for ChatGPT.
 type ChatGPTOAuthStatus struct {
 	Connected bool   `json:"connected"`
 	Email     string `json:"email,omitempty"`
@@ -27,8 +23,6 @@ type ChatGPTOAuthStatus struct {
 	ExpiresAt int64  `json:"expires_at,omitempty"`
 }
 
-// LoginChatGPTOAuth launches the OAuth PKCE login flow for ChatGPT, opens the default
-// browser for authentication, and persists the resulting tokens in the Crush engine.
 func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -59,14 +53,10 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 
 	scope := crushapi.ConfigScopeGlobal
 
-	// Codex is not published by Catwalk, so the provider has to exist in config
-	// before the engine will accept a credential for it. Seeding also enables it.
 	if err := seedCodexProvider(a.ctx, svc.api, workspaceID, scope); err != nil {
 		return ChatGPTOAuthStatus{}, err
 	}
 
-	// Store the OAuth token into Crush. The engine points the provider at the
-	// Codex backend and stores the account-scoped model catalog alongside it.
 	if err := svc.api.SetProviderOAuthToken(a.ctx, workspaceID, scope, codexProviderID, token); err != nil {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("save oauth token to engine: %w", err)
 	}
@@ -75,9 +65,7 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 	if current == nil {
 		current = appconfig.Defaults()
 	}
-	// A ChatGPT login only takes over the active provider when the user is not
-	// deliberately on something else. "openai" counts as a previous ChatGPT
-	// selection because it is where this credential used to live.
+
 	if current.Provider == "" || current.Provider == openAIProviderID || current.Provider == codexProviderID {
 		next := *current
 		next.Provider = codexProviderID
@@ -109,7 +97,6 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 	}, nil
 }
 
-// GetChatGPTOAuthStatus checks whether ChatGPT OAuth credentials are active in Crush.
 func (a *App) GetChatGPTOAuthStatus() (ChatGPTOAuthStatus, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -124,16 +111,10 @@ func (a *App) GetChatGPTOAuthStatus() (ChatGPTOAuthStatus, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
 
-	// Credentials written before "codex" existed still sit under "openai". They
-	// are moved here so an upgraded install reports connected without the user
-	// opening Settings or signing in again. A failure is not fatal: status is
-	// still readable, and the next call retries.
 	if moved, err := migrateChatGPTOAuthToCodex(ctx, svc.api, workspaceID); err != nil {
 		a.warnCodexMigration("could not move the ChatGPT credential to the Codex provider", "err", err)
 	} else if moved {
-		// Whichever path moves the credential first owns the repoint. Without it
-		// the saved selection keeps naming the provider that no longer holds a
-		// credential, and the next settings replay restores the broken routing.
+
 		a.repointSavedModelAtCodex(svc, workspaceID)
 	}
 
@@ -200,8 +181,6 @@ func selectChatGPTModel(providers []crushapi.Provider, current string) (string, 
 	return "", fmt.Errorf("ChatGPT subscription returned no selectable models")
 }
 
-// LogoutChatGPTOAuth removes the ChatGPT OAuth credential and disables the
-// Codex provider. An OpenAI API key stored separately is untouched.
 func (a *App) LogoutChatGPTOAuth() error {
 	return a.DeleteProvider(codexProviderID)
 }

@@ -69,9 +69,6 @@ func TestMergeSkillsPaths(t *testing.T) {
 	}
 }
 
-// skillsPathsAPI is a fake Crush transport that remembers the skills_paths
-// value served by GET config and records every value written through config
-// set, so the registration flow can be asserted end to end.
 type skillsPathsAPI struct {
 	t             *testing.T
 	existing      []string
@@ -151,8 +148,7 @@ func (f *skillsPathsAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		return jsonHTTPResponse(http.StatusOK, `{}`), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/config/remove"):
-		// registerOfficeTools removes the office MCP entry when the binary
-		// is missing; the skills_paths assertion does not depend on it.
+
 		return jsonHTTPResponse(http.StatusOK, `{}`), nil
 	default:
 		f.t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
@@ -196,8 +192,7 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// The seeded and user skills directories intentionally coincide;
-			// production must keep only one entry.
+
 			appData := redirectAppData(t)
 			dataDir := filepath.Join(appData, "gotack")
 			bundled := filepath.Join(dataDir, "skills")
@@ -217,8 +212,7 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 				c.sess = session.NewService(api, c.ws)
 				return c
 			})
-			// Drive the link through the same transitions connect() uses so the
-			// services above count as a live engine connection.
+
 			scope, started := app.link.BeginConnect(context.Background())
 			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
 				t.Fatal("link rejected the test connect scope")

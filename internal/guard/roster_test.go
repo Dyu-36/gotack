@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// roster_test.go -- role: prove the unattended-session roster round-trip the
-// host writes and the spawned guard reads.
-
 func TestMarkAndContainsRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", UnattendedRosterFileName)
 	if RosterContains(path, "sess-zalo") {
@@ -83,8 +80,7 @@ func TestMarkCapsRosterSize(t *testing.T) {
 			t.Fatalf("mark %d: %v", i, err)
 		}
 	}
-	// The oldest entries were trimmed to keep the file bounded; the newest
-	// entry survives.
+
 	if !RosterContains(path, "sess-"+strconv.Itoa(rosterCap+9)) {
 		t.Fatal("newest session must survive the cap trim")
 	}

@@ -18,11 +18,6 @@ function escapeFallback(content: string): string {
     .replace(/\n/g, '<br/>')
 }
 
-/**
- * Parses markdown content into sanitized HTML.
- * Parses the entire content string to maintain structural integrity
- * for lists, tables, and code blocks.
- */
 export function renderMarkdown(content: string): string {
   if (!content) return ''
   try {
@@ -55,12 +50,6 @@ function renderToken(token: MarkedToken, links: MarkedTokens['links']): string {
   }
 }
 
-/**
- * Renders top-level Markdown tokens independently so settled blocks keep their
- * DOM identity while only the live tail is reparsed. The full lexer still sees
- * the whole document, preserving reference-link definitions and Markdown block
- * boundaries; cached blocks skip both HTML generation and sanitization.
- */
 export function renderMarkdownBlocks(
   content: string,
   previous: readonly RenderedMarkdownBlock[] = [],

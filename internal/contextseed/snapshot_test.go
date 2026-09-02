@@ -125,10 +125,6 @@ func TestBuildPromptSnapshotCopiesNestedContextAndMatchesWalkDirSymlinks(t *test
 		t.Fatal(err)
 	}
 
-	// Crush's context loader uses filepath.WalkDir: regular files below a
-	// configured directory are copied/read, while transient memory files are
-	// excluded by the projection above. Keep this assertion separate from the
-	// optional symlink checks because Windows may deny symlink creation.
 	outside := t.TempDir()
 	outsideFile := filepath.Join(outside, "outside.md")
 	if err := os.WriteFile(outsideFile, []byte("symlink context"), 0o644); err != nil {

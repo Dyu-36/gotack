@@ -193,7 +193,7 @@ func TestXlsxRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// Excel renders booleans uppercase; coercion must survive the round trip.
+
 	if !strings.Contains(content, "Name\tQty\nRice\t2\nTea\tTRUE") {
 		t.Fatalf("read output =\n%s", content)
 	}

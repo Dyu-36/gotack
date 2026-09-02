@@ -17,11 +17,7 @@ type SessionDeltaPayload struct {
 	MessageID string `json:"message_id"`
 	Text      string `json:"text"`
 	Append    string `json:"append"`
-	// Seq is a monotonically increasing counter scoped to MessageID. It
-	// starts at 1 for the first delta of a new message and increments by
-	// one for every subsequent flush. The frontend uses Seq to detect
-	// out-of-order, dropped, or restarted streams and rebuild from the
-	// full Text snapshot when the chain breaks.
+
 	Seq int64 `json:"seq"`
 }
 
@@ -45,9 +41,6 @@ type ChangesUpdatedPayload struct {
 	Path      string `json:"path"`
 }
 
-// PermissionRequestPayload wraps a permission request with the wall-clock
-// deadline the UI should show as a countdown. ExpiresAt is unix milliseconds;
-// zero means no TTL is armed.
 type PermissionRequestPayload struct {
 	Request   crushapi.PermissionRequest `json:"request"`
 	ExpiresAt int64                      `json:"expires_at_ms"`
@@ -61,10 +54,7 @@ type pendingMessage struct {
 	sent      string
 	timer     *time.Timer
 	tools     map[string]bool
-	// nextSeq is the Seq assigned to the *next* flush of this message.
-	// Initialized to 1 by schedule() so the first delta the wire sees
-	// carries Seq=1; subsequent flushes consume-and-increment under the
-	// Forwarder mutex.
+
 	nextSeq int64
 }
 
@@ -85,8 +75,6 @@ func (pm *pendingMessage) markToolStates(calls []crushapi.ToolCall) []crushapi.T
 	return out
 }
 
-// Callbacks are optional host observers. Functions keep host-only concerns
-// out of the Wails-bound App method set while the UI events remain unchanged.
 type Callbacks struct {
 	PermissionPending    func(crushapi.PermissionRequest) int64
 	RunDone              func(SessionDonePayload)
@@ -122,11 +110,6 @@ func (f *Forwarder) setDelay(d time.Duration) {
 	f.mu.Unlock()
 }
 
-// nextDelay picks a coalescing delay based on how many bytes have piled up
-// since the last flush. Heavy bursts (>4 KiB) get an 80ms tick to give the
-// UI a chance to catch up between large frames; medium streams (>512 B) use
-// the default 40ms; and slow drip feeds back off to 16ms so single-token
-// deltas feel snappy instead of waiting for a hard 40ms window.
 func (f *Forwarder) nextDelay(bytesSinceLastFlush int) time.Duration {
 	if f.delayOverride > 0 {
 		return f.delayOverride
@@ -220,9 +203,7 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 }
 
 func learningResultAdmitted(result crushapi.ToolResult) bool {
-	// Hermes resets cadence once the call passes guard/permission, before the
-	// MCP handler runs. A legitimate execution error therefore still counts;
-	// only an uncorrelatable result or an explicit deny is excluded here.
+
 	if result.ToolCallID == "" {
 		return false
 	}
@@ -275,8 +256,7 @@ func deltaSuffix(previous, current string) string {
 	if strings.HasPrefix(current, previous) {
 		return current[len(previous):]
 	}
-	// Some providers rewrite prior text while streaming. Returning the complete
-	// snapshot is safer than slicing with a stale length and panicking.
+
 	return current
 }
 

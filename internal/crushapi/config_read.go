@@ -6,29 +6,19 @@ import (
 	"errors"
 )
 
-// WorkspaceConfig is the UI-relevant subset of Crush's resolved workspace
-// configuration. The server returns the effective config, so provider entries
-// include credentials resolved from global/workspace config and environment.
 type WorkspaceConfig struct {
 	Providers map[string]ProviderConfig `json:"providers,omitempty"`
 	Models    map[string]SelectedModel  `json:"models,omitempty"`
 	Options   *WorkspaceOptions         `json:"options,omitempty"`
 	Env       map[string]string         `json:"env,omitempty"`
-	// Hooks mirrors the `hooks` map (event name -> hook list). Gotack reads it
-	// before registering its own PreToolUse hook so it can merge instead of
-	// clobbering user-defined hooks on the same event.
+
 	Hooks map[string][]HookEntry `json:"hooks,omitempty"`
 }
 
-// WorkspaceOptions carries the options fields Gotack must read back before
-// writing list-valued keys, so registration merges instead of clobbering
-// values the user configured outside the app.
 type WorkspaceOptions struct {
 	SkillsPaths []string `json:"skills_paths,omitempty"`
 }
 
-// SkillsPaths returns options.skills_paths, or nil when the server omitted
-// the options object or the field.
 func (c WorkspaceConfig) SkillsPaths() []string {
 	if c.Options == nil {
 		return nil
@@ -36,9 +26,6 @@ func (c WorkspaceConfig) SkillsPaths() []string {
 	return c.Options.SkillsPaths
 }
 
-// HookEntry is the wire shape of one entry in Crush's `hooks.<event>` list
-// (config.HookConfig). Command is the only required field; an empty Matcher
-// matches every tool.
 type HookEntry struct {
 	Name    string `json:"name,omitempty"`
 	Matcher string `json:"matcher,omitempty"`
@@ -46,9 +33,6 @@ type HookEntry struct {
 	Timeout int    `json:"timeout,omitempty"`
 }
 
-// ProviderConfig mirrors the provider fields needed by Gotack to decide which
-// providers are actually configured and to reveal a credential on explicit
-// user request. OAuth is kept raw because Gotack only needs presence here.
 type ProviderConfig struct {
 	ID      string          `json:"id,omitempty"`
 	Name    string          `json:"name,omitempty"`
@@ -60,7 +44,6 @@ type ProviderConfig struct {
 	Models  []Model         `json:"models,omitempty"`
 }
 
-// GetWorkspaceConfig calls GET /v1/workspaces/{id}/config.
 func (c *Client) GetWorkspaceConfig(ctx context.Context, wsID string) (WorkspaceConfig, error) {
 	if wsID == "" {
 		return WorkspaceConfig{}, errors.New("crushapi: workspace id is required")

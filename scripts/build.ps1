@@ -63,9 +63,12 @@ try {
         }
     }
 
-    $crush = Join-Path $resourceDir 'crush.exe'
-    if (-not (Test-Path $crush)) {
-        throw "runtime assembly failed: missing $crush"
+    $engine = Join-Path $resourceDir 'tack-engine.exe'
+    if (-not (Test-Path $engine)) {
+        $engine = Join-Path $resourceDir 'crush.exe'
+    }
+    if (-not (Test-Path $engine)) {
+        throw "runtime assembly failed: missing $engine"
     }
     foreach ($helper in $learningHelpers) {
         $helperBinary = Join-Path $resourceDir "$helper.exe"

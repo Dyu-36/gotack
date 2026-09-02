@@ -19,7 +19,8 @@ if ($Commit -notmatch '^[0-9a-f]{40}$') {
 
 $crushDir = Join-Path $repoRoot 'third_party/crush'
 $bundleDir = Join-Path $repoRoot 'build/bin/resources'
-$bundleExe = Join-Path $bundleDir 'crush.exe'
+$bundleExe = Join-Path $bundleDir 'tack-engine.exe'
+$legacyExe = Join-Path $bundleDir 'crush.exe'
 $upstream = 'https://github.com/charmbracelet/crush.git'
 
 if (-not (Test-Path (Join-Path $crushDir '.git'))) {
@@ -44,6 +45,7 @@ New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
 Push-Location $crushDir
 try {
     go build -trimpath -o $bundleExe .
+    Copy-Item $bundleExe $legacyExe -Force
 }
 finally {
     Pop-Location

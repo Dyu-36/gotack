@@ -32,13 +32,12 @@ func TestMergeLocalProviderOverlaysAddsLocalProvidersWhenMissing(t *testing.T) {
 	if len(mistral.Models) < 3 || !mistral.Models[0].SupportsVision {
 		t.Fatalf("Mistral models = %#v", mistral.Models)
 	}
-	// Codex ships without models: its catalog is account-scoped and arrives
-	// with the ChatGPT sign-in.
+
 	codex := findProvider(t, providers, codexProviderID)
 	if codex.Type != codexProviderType || codex.APIEndpoint != codexBackendURL || len(codex.Models) != 0 {
 		t.Fatalf("Codex overlay = %#v", codex)
 	}
-	// The public OpenAI provider must survive untouched next to Codex.
+
 	if openai := findProvider(t, providers, openAIProviderID); openai.Name != "OpenAI" {
 		t.Fatalf("OpenAI provider = %#v", openai)
 	}
@@ -195,8 +194,6 @@ func TestPrepareLocalProviderConfigRetriesWholeBatchAfterFailure(t *testing.T) {
 	}
 }
 
-// Codex must be seeded without an api_key or a models list: the credential is
-// an OAuth token and the catalog is written by the ChatGPT sign-in.
 func TestPrepareLocalProviderConfigOmitsCredentialFieldsForCodex(t *testing.T) {
 	var (
 		batchRequests int
@@ -247,8 +244,6 @@ func TestPrepareLocalProviderConfigOmitsCredentialFieldsForCodex(t *testing.T) {
 	}
 }
 
-// Finalizing an OAuth-only provider must not call back into the engine: there
-// is no API key to validate and no catalog to discover.
 func TestFinalizeLocalProviderConfigSkipsCodex(t *testing.T) {
 	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)

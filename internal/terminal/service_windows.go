@@ -13,7 +13,6 @@ import (
 	"github.com/UserExistsError/conpty"
 )
 
-// windowsBackend wraps a conpty.ConPty so it satisfies ptyBackend.
 type windowsBackend struct {
 	cpty *conpty.ConPty
 }
@@ -27,11 +26,6 @@ func (b *windowsBackend) Resize(cols, rows uint16) error {
 
 func (b *windowsBackend) Close() error { return b.cpty.Close() }
 
-// Wait blocks on the underlying conpty handle and returns the exit code as a
-// signed int32. STILL_ACTIVE (259) is mapped to -1 so the UI can tell that
-// the wait was interrupted rather than the process actually exiting with
-// 259. In practice this branch only fires if the conpty handle is closed
-// before the child exits.
 func (b *windowsBackend) Wait() (int32, error) {
 	const stillActive = 259
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,14 +40,10 @@ func (b *windowsBackend) Wait() (int32, error) {
 	return int32(code), nil
 }
 
-// init wires the real ConPTY backend. Tests override openBackend directly.
 func init() {
 	openBackend = openWindowsBackend
 }
 
-// openWindowsBackend validates cwd and starts powershell -NoLogo inside a
-// ConPTY. The default 80x24 window is used; the UI can resize as soon as the
-// first TerminalData chunk arrives.
 func openWindowsBackend(cwd string) (ptyBackend, shellSpec, error) {
 	cleaned, err := validateCwd(cwd)
 	if err != nil {
@@ -74,10 +64,6 @@ func openWindowsBackend(cwd string) (ptyBackend, shellSpec, error) {
 	}, nil
 }
 
-// validateCwd enforces the rules from the bridge spec: the path must be an
-// existing, accessible directory. Symlinks are followed and the result is
-// cleaned so the ConPTY receives a stable path the shell can actually chdir
-// to.
 func validateCwd(cwd string) (string, error) {
 	trimmed := strings.TrimSpace(cwd)
 	if trimmed == "" {
@@ -89,7 +75,7 @@ func validateCwd(cwd string) (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		// Surface a precise message: file/dir missing vs permission denied.
+
 		if errors.Is(err, os.ErrNotExist) {
 			return "", fmt.Errorf("terminal: cwd not found: %s", abs)
 		}

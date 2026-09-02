@@ -15,10 +15,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-// the normal test suite stays hermetic; run it with the engine up:
-//
-//	build/bin/crush.exe server &
-//	go test -run TestBridgeSmoke -v .
 func TestBridgeSmoke(t *testing.T) {
 	ep := appconfig.PipeEndpoint()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -105,9 +101,6 @@ func TestBridgeSmoke(t *testing.T) {
 	}
 }
 
-// TestBridgeServicesSmoke drives the wiring-level services (supervisor
-// locate, workspace attach, session create, changes fetch) the same way the
-// bind layer does. Skips without a live engine.
 func TestBridgeServicesSmoke(t *testing.T) {
 	ep := appconfig.PipeEndpoint()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -160,8 +153,6 @@ func TestBridgeServicesSmoke(t *testing.T) {
 		t.Logf("fresh session touched %d files", len(files))
 	}
 
-	// Workspace service calls must not mutate the host-owned recent-workspace
-	// list; that state is updated only by the bind layer under the App mutex.
 	cfg := appconfig.Defaults()
 	if got := len(cfg.RecentWorkspaces); got != 0 {
 		t.Fatalf("workspace.Open must not mutate cfg.RecentWorkspaces; got %v", cfg.RecentWorkspaces)

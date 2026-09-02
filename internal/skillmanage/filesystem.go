@@ -257,9 +257,6 @@ func (m *Manager) removeSkillTree(path string) error {
 	return nil
 }
 
-// archiveSkillTree moves a curator-approved skill into the recoverable archive
-// beneath the managed root. The source category is flattened, as in Hermes;
-// an existing name gets a UTC timestamp suffix rather than being overwritten.
 func (m *Manager) archiveSkillTree(skillDir string) (string, error) {
 	archiveRoot := filepath.Join(m.root, archiveDirName)
 	if err := m.secureMkdirAll(archiveRoot); err != nil {
@@ -286,7 +283,7 @@ func (m *Manager) archiveSkillTree(skillDir string) (string, error) {
 	if err := os.Rename(skillDir, destination); err != nil {
 		return "", fmt.Errorf("archive skill: %w", err)
 	}
-	// Do not leave an empty category behind after flattening the archive.
+
 	m.removeEmptyCategory(filepath.Dir(skillDir))
 	return m.relative(destination), nil
 }
@@ -454,9 +451,6 @@ func (m *Manager) loadOwnership() (map[string]bool, error) {
 	return owned, nil
 }
 
-// readOwnershipManifest prefers the current protected filename. The legacy
-// filename is consulted only when the current file is absent, so a corrupt or
-// redirected current manifest always fails closed.
 func (m *Manager) readOwnershipManifest() ([]byte, error) {
 	for _, fileName := range []string{ownershipFileName, legacyOwnershipFileName} {
 		path := filepath.Join(m.root, fileName)

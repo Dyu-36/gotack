@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// wire_test.go -- role: prove the hook JSON round-trip against the exact wire
-// shape Crush uses (hooks.Payload in, parseStdout envelope out).
-
 func TestParseInputExtractsToolFields(t *testing.T) {
 	payload := []byte(`{
 		"event": "PreToolUse",
@@ -37,8 +34,6 @@ func TestParseInputMalformedFailsOpen(t *testing.T) {
 	}
 }
 
-// TestDenyRoundTrip checks that a destructive payload yields the exact deny
-// envelope Crush's parseStdout understands, and that it survives re-decoding.
 func TestDenyRoundTrip(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":"format C:"}}`)
 	out := Evaluate(ParseInput(payload), Options{})
@@ -70,8 +65,6 @@ func TestDenyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestAllowRoundTrip checks that an auto-tier call yields the exact allow
-// envelope Crush treats as a pre-approval, surviving re-decoding.
 func TestAllowRoundTrip(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"view","tool_input":{"file_path":"README.md"}}`)
 	out := Evaluate(ParseInput(payload), Options{})
@@ -95,9 +88,6 @@ func TestAllowRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPassThroughEmitsNothing checks that an ask-tier call in an interactive
-// session produces no bytes, which is how a hook expresses "no opinion" and
-// lets Crush fall through to its permission relay.
 func TestPassThroughEmitsNothing(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":"go build ./..."}}`)
 	out := Evaluate(ParseInput(payload), Options{})
@@ -113,8 +103,6 @@ func TestPassThroughEmitsNothing(t *testing.T) {
 	}
 }
 
-// TestUnknownToolPassThrough pins that a tool the guard does not recognise is
-// never auto-approved: interactive sessions fall through to the ask tier.
 func TestUnknownToolPassThrough(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"future_tool","tool_input":{}}`)
 	out := Evaluate(ParseInput(payload), Options{})

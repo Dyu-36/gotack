@@ -12,17 +12,8 @@ import (
 	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
-// pdf.go -- role: extract text from a PDF without adding a Go dependency.
-//
-// Order of attempts: pdftotext (poppler) -> LibreOffice -> Microsoft Word COM.
-// All three are optional. When every attempt fails, the caller still hands the
-// agent the file path plus the bundled office tooling hint, which beats the old
-// behaviour where the model saw a bare path and shelled out to install packages.
-
-// wdFormatText is Word's SaveAs2 format id for plain text.
 const wdFormatText = 2
 
-// ExtractTextFromPDF returns the plain text of a PDF file.
 func ExtractTextFromPDF(path string) (string, error) {
 	dir, err := os.MkdirTemp("", "gotack-pdf-")
 	if err != nil {
@@ -62,8 +53,6 @@ func ExtractTextFromPDF(path string) (string, error) {
 	return "", errors.New(strings.Join(problems, "; "))
 }
 
-// readExtracted reads a converter's output through the charset decoder: Word and
-// LibreOffice both emit UTF-16 or CP1252 text on Vietnamese Windows.
 func readExtracted(path string) (string, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -83,8 +72,6 @@ func conversionProblem(err error) string {
 	return err.Error()
 }
 
-// convertPDFWithWordCOM drives an installed Word through PowerShell. Word opens
-// PDFs natively; ConfirmConversions=$false suppresses its conversion prompt.
 func convertPDFWithWordCOM(src, dst string) error {
 	script := fmt.Sprintf(`$ErrorActionPreference='Stop';$app=New-Object -ComObject Word.Application;$app.Visible=$false;$app.DisplayAlerts=0;try{$doc=$app.Documents.Open(%s,$false,$true);$doc.SaveAs2(%s,%d);$doc.Close($false)}finally{$app.Quit()}`, psQuote(src), psQuote(dst), wdFormatText)
 	return runConversion("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)

@@ -11,15 +11,8 @@ import (
 
 var safeProviderID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// applyEffectiveCrushSettings applies a settings payload after repointing a
-// selection that the provider split stranded, and returns what was actually
-// written. Every caller that persists the selection must use this instead of
-// applyCrushSettings: the UI replays the selection it read at boot, so a
-// payload naming the credential-less "openai" provider would otherwise undo the
-// Codex migration on the very next save.
 func (a *App) applyEffectiveCrushSettings(s SettingsInfo, apiKey string) (SettingsInfo, error) {
-	// A missing engine or workspace is not an error here; applyCrushSettings
-	// already decides whether that is a no-op or a refused credential write.
+
 	if svc, err := a.services(); err == nil {
 		if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
 			redirected, err := a.redirectStrandedChatGPTSelection(svc, desc.WorkspaceID, s, apiKey)
@@ -32,9 +25,6 @@ func (a *App) applyEffectiveCrushSettings(s SettingsInfo, apiKey string) (Settin
 	return s, a.applyCrushSettings(s, apiKey)
 }
 
-// applyCrushSettings pushes agent-affecting settings into the currently open
-// Crush workspace. Crush hot-reloads these endpoints, so no engine restart is
-// needed. apiKey is an argument on purpose: it is never persisted in Gotack.
 func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 	svc, err := a.services()
 	if err != nil {
@@ -48,7 +38,7 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 	provider := strings.TrimSpace(s.Provider)
 	credentialProvider := strings.TrimSpace(s.CredentialProvider)
 	if credentialProvider == "" {
-		credentialProvider = provider // backwards compatibility with older UI payloads
+		credentialProvider = provider
 	}
 	modelID := strings.TrimSpace(s.Model)
 	endpoint := strings.TrimSpace(s.CustomURL)
@@ -73,8 +63,6 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 		}
 	}
 
-	// Everything above is read-only. From this point onward the REST API does
-	// not offer a transaction, so keep mutations in their dependency order.
 	managedLocalProvider := false
 	if credentialProvider != "" {
 		managedLocalProvider, err = prepareLocalProviderConfig(a.ctx, svc.api, ws, scope, credentialProvider)
@@ -106,8 +94,6 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 		}
 	}
 
-	// Select the provider only after its credential, endpoint and discovery
-	// state are ready. A failed setup must leave the previous model usable.
 	if !s.ProviderOnly && provider != "" && modelID != "" {
 		effort, think := crushReasoning(s.Thinking)
 		selected := crushapi.SelectedModel{Provider: provider, Model: modelID, ReasoningEffort: effort, Think: think}
@@ -116,9 +102,6 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 		}
 	}
 
-	// Crush keeps a workspace agent uninitialized until /agent/init is called.
-	// Ensure it exists after the effective provider/model configuration is ready;
-	// already-ready coordinators are preserved and refresh models per run.
 	if provider != "" && modelID != "" {
 		if err := svc.api.EnsureAgent(a.ctx, ws, true); err != nil {
 			return fmt.Errorf("initialize Crush agent: %w", err)
@@ -127,8 +110,6 @@ func (a *App) applyCrushSettings(s SettingsInfo, apiKey string) error {
 	return nil
 }
 
-// needWorkspace turns a missing workspace into a no-op unless the caller was
-// trying to store a credential, which must not be silently dropped.
 func needWorkspace(apiKey, reason string) error {
 	if apiKey == "" {
 		return nil

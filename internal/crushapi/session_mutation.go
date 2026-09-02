@@ -10,8 +10,6 @@ import (
 
 const sessionPath = "/v1/workspaces/{id}/sessions/{sid}"
 
-// GetSession fetches the complete session snapshot before a mutation. This is
-// important because Crush's PUT endpoint accepts a full session object.
 func (c *Client) GetSession(ctx context.Context, wsID, sessionID string) (Session, error) {
 	if wsID == "" || sessionID == "" {
 		return Session{}, errors.New("crushapi: workspace id and session id are required")
@@ -24,7 +22,6 @@ func (c *Client) GetSession(ctx context.Context, wsID, sessionID string) (Sessio
 	return sess, nil
 }
 
-// SaveSession persists a full session snapshot through Crush's PUT endpoint.
 func (c *Client) SaveSession(ctx context.Context, wsID string, sess Session) (Session, error) {
 	if wsID == "" || sess.ID == "" {
 		return Session{}, errors.New("crushapi: workspace id and session id are required")
@@ -41,7 +38,6 @@ func (c *Client) SaveSession(ctx context.Context, wsID string, sess Session) (Se
 	return saved, nil
 }
 
-// DeleteSession removes the session and its engine-owned messages/files.
 func (c *Client) DeleteSession(ctx context.Context, wsID, sessionID string) error {
 	if wsID == "" || sessionID == "" {
 		return errors.New("crushapi: workspace id and session id are required")

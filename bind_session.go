@@ -15,9 +15,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/userstrings"
 )
 
-// bind_session.go -- role: Wails-bound API for sessions and prompts.
-
-// SessionInfo is the JSON shape of a session row for the sidebar.
 type SessionInfo struct {
 	ID           string  `json:"id"`
 	Title        string  `json:"title"`
@@ -27,7 +24,6 @@ type SessionInfo struct {
 	IsBusy       bool    `json:"is_busy"`
 }
 
-// MessageInfo is the JSON shape of a replayed history message.
 type MessageInfo struct {
 	ID          string           `json:"id"`
 	Role        string           `json:"role"`
@@ -39,9 +35,6 @@ type MessageInfo struct {
 	ToolCalls   []ToolCallInfo   `json:"tool_calls,omitempty"`
 }
 
-// ToolCallInfo is a replayed tool call. Crush stores one assistant row per
-// agent step, so replay needs these to rebuild the tool rows the UI shows live
-// through tool:activity instead of leaving empty assistant bubbles behind.
 type ToolCallInfo struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -49,12 +42,6 @@ type ToolCallInfo struct {
 	Finished bool   `json:"finished"`
 }
 
-// PromptAttachment is the JSON shape accepted from the composer. An upload
-// arrives as base64 Content so Wails need not coerce browser ArrayBuffers into
-// Go bytes. A file chosen through the native picker, dropped on the window or
-// written as an @[path] tag arrives as Path instead and the host reads the bytes
-// itself, which keeps multi-megabyte files out of the webview. Exactly one of
-// the two fields is required; Path wins when both are present.
 type PromptAttachment struct {
 	FileName string `json:"file_name"`
 	MimeType string `json:"mime_type,omitempty"`
@@ -62,8 +49,6 @@ type PromptAttachment struct {
 	Path     string `json:"path,omitempty"`
 }
 
-// AttachmentInfo is attachment metadata returned with replayed messages.
-// Image content is returned as base64 so the UI can restore its preview.
 type AttachmentInfo struct {
 	FileName string `json:"file_name"`
 	MimeType string `json:"mime_type"`
@@ -71,10 +56,6 @@ type AttachmentInfo struct {
 	Content  string `json:"content,omitempty"`
 }
 
-// setCurrentSession marks sessionID as this client's active session. Crush
-// requires a live workspace SSE subscription for presence; if that stream was
-// lost, reattach it synchronously and retry once so the next prompt still has
-// a live event path back to the UI.
 func (a *App) setCurrentSession(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("session id is required")
@@ -112,7 +93,6 @@ func (a *App) setCurrentSessionBestEffort(sessionID string) {
 	}
 }
 
-// ListSessions lists sessions of the active workspace.
 func (a *App) ListSessions() ([]SessionInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -126,7 +106,6 @@ func (a *App) ListSessions() ([]SessionInfo, error) {
 	return out, nil
 }
 
-// CreateSession starts a new session and makes it the current one.
 func (a *App) CreateSession(title string) (SessionInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -140,7 +119,6 @@ func (a *App) CreateSession(title string) (SessionInfo, error) {
 	return toSessionInfo(s), nil
 }
 
-// RenameSession persists a title change in Crush and returns the refreshed row.
 func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -153,8 +131,6 @@ func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 	return toSessionInfo(s), nil
 }
 
-// DeleteSession removes the session from Crush. If it was current, the UI
-// selects another session and calls SwitchSession afterwards.
 func (a *App) DeleteSession(id string) error {
 	svc, err := a.services()
 	if err != nil {
@@ -167,15 +143,10 @@ func (a *App) DeleteSession(id string) error {
 	return nil
 }
 
-// SwitchSession sets the active session in the engine and guarantees the
-// workspace event stream is attached before returning.
 func (a *App) SwitchSession(id string) error {
 	return a.setCurrentSession(id)
 }
 
-// SessionMessages replays history for the first render. Text parts are
-// concatenated, binary attachments are included, and live tool activity
-// arrives via tool:activity.
 func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -202,8 +173,7 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	if providerID == "" || modelID == "" {
 		return false
 	}
-	// A local override may safely force the text/OCR fallback, but it must not
-	// promote a model that Crush itself will strip from the request as text-only.
+
 	if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil && !*override.SupportsVision {
 		return false
 	}
@@ -237,9 +207,6 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	return false
 }
 
-// SendPrompt starts an agent turn and returns the run ID. Reassert session
-// presence first so a stale/lost SSE attachment cannot accept the POST while
-// leaving the UI with no message or run-complete events.
 func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -253,10 +220,7 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 	if len(input) > 0 || len(tagged) > 0 {
 		supportsVision = a.isCurrentModelVision(svc)
 	}
-	// Expand @[C:\path\file.xlsx] tags into attachments and remove them from
-	// the visible prompt.
-	// Fail-soft: an unreadable file becomes a warning inside the prompt rather
-	// than aborting the whole turn.
+
 	prepared := decodePromptAttachments(input, supportsVision)
 	for _, path := range tagged {
 		item, prepErr := attachments.PrepareFile(path, supportsVision)
@@ -275,7 +239,6 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 	return runID, nil
 }
 
-// CancelPrompt interrupts the running turn.
 func (a *App) CancelPrompt(id string) error {
 	svc, err := a.services()
 	if err != nil {
@@ -284,13 +247,10 @@ func (a *App) CancelPrompt(id string) error {
 	return svc.sess.Cancel(a.ctx, id)
 }
 
-// maxToolInputPreview bounds replayed tool arguments; the UI renders them as a
-// collapsible preview in tool cards.
 const maxToolInputPreview = 4096
 
 func toMessageInfo(m crushapi.Message) MessageInfo {
-	// File payloads travel as <gotack-attachment> markers inside the prompt, so
-	// strip them back out for display and rebuild the chips from their metadata.
+
 	text, refs := attachments.ParseAttachmentBlocks(crushapi.ExtractText(m.Parts))
 	info := MessageInfo{
 		ID:        m.ID,
@@ -312,8 +272,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 		if strings.HasPrefix(attachment.MimeType, "image/") {
 			content = base64.StdEncoding.EncodeToString(attachment.Content)
 		}
-		// Older messages stored derived text as the attachment body, so prefer
-		// the real size on disk over the length of that note.
+
 		size := len(attachment.Content)
 		if stat, err := os.Stat(attachment.FilePath); err == nil {
 			size = int(stat.Size())
@@ -326,7 +285,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 		})
 	}
 	for _, call := range crushapi.ExtractToolCalls(m.Parts) {
-		// ToolCall.Input is raw JSON; the UI renders it as a text preview.
+
 		input := string(call.Input)
 		if runes := []rune(input); len(runes) > maxToolInputPreview {
 			input = string(runes[:maxToolInputPreview]) + "…"
@@ -341,9 +300,6 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 	return info
 }
 
-// decodePromptAttachments turns composer uploads into prepared attachments.
-// A file that cannot be decoded or extracted degrades into a warning carried
-// inside the prompt, so one unreadable file never drops the rest of the turn.
 func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
 	out := make([]attachments.Prepared, 0, len(input))
 	for i, item := range input {
@@ -351,8 +307,7 @@ func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []at
 		if name == "" {
 			name = fmt.Sprintf("attachment-%d.bin", i+1)
 		}
-		// A path send carries no body: the host reads the file itself, which is
-		// how a picked, dropped or @[tagged] file avoids base64 entirely.
+
 		if item.Path != "" {
 			prepared, err := attachments.PrepareFile(item.Path, supportsVision)
 			if err != nil {
@@ -385,7 +340,6 @@ func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []at
 	return out
 }
 
-// toSessionInfo maps a Crush session row to the Wails-bound shape.
 func toSessionInfo(s crushapi.Session) SessionInfo {
 	return SessionInfo{
 		ID:           s.ID,
@@ -397,7 +351,6 @@ func toSessionInfo(s crushapi.Session) SessionInfo {
 	}
 }
 
-// toSessionInfos maps a slice of Crush session rows to the Wails-bound shape.
 func toSessionInfos(in []crushapi.Session) []SessionInfo {
 	out := make([]SessionInfo, len(in))
 	for i, s := range in {

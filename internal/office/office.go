@@ -7,25 +7,16 @@ import (
 	"strings"
 )
 
-// office.go -- role: file-kind dispatch for the four MCP tool operations.
-// Extension decides the implementation; content format is markdown for Word
-// and PowerPoint and TSV for Excel.
-
-// readMaxChars bounds any single read result so one call cannot flood the
-// agent context.
 const readMaxChars = 120_000
 
-// Kind identifies a supported office file type.
 type Kind string
 
-// Supported file kinds.
 const (
 	KindDocx Kind = "docx"
 	KindXlsx Kind = "xlsx"
 	KindPptx Kind = "pptx"
 )
 
-// KindOf maps a file extension to its kind.
 func KindOf(path string) (Kind, error) {
 	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
 	case "docx":
@@ -39,7 +30,6 @@ func KindOf(path string) (Kind, error) {
 	}
 }
 
-// Info returns a one-line structure summary.
 func Info(path string) (string, error) {
 	kind, err := KindOf(path)
 	if err != nil {
@@ -55,7 +45,6 @@ func Info(path string) (string, error) {
 	}
 }
 
-// Read extracts document content as text. sheet selects one Excel sheet.
 func Read(path, sheet string) (string, error) {
 	kind, err := KindOf(path)
 	if err != nil {
@@ -71,13 +60,11 @@ func Read(path, sheet string) (string, error) {
 	}
 }
 
-// CreateRequest is the office_create tool input.
 type CreateRequest struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 }
 
-// Create generates a new file from content.
 func Create(req CreateRequest) (string, error) {
 	if req.Path == "" {
 		return "", fmt.Errorf("office: path is required")
@@ -104,8 +91,6 @@ func Create(req CreateRequest) (string, error) {
 	return summary, nil
 }
 
-// EditRequest is the office_edit tool input. Op selects the operation:
-// replace_text (docx/pptx), set_cell and append_rows (xlsx).
 type EditRequest struct {
 	Op      string `json:"op"`
 	Path    string `json:"path"`
@@ -117,7 +102,6 @@ type EditRequest struct {
 	Rows    string `json:"rows,omitempty"`
 }
 
-// Edit applies one mutation and reports what changed.
 func Edit(req EditRequest) (string, error) {
 	if req.Path == "" {
 		return "", fmt.Errorf("office: path is required")
@@ -166,7 +150,6 @@ func Edit(req EditRequest) (string, error) {
 	}
 }
 
-// MarshalArgs decodes a tool-call arguments blob into a typed request.
 func MarshalArgs[T any](raw json.RawMessage) (T, error) {
 	var req T
 	if len(raw) == 0 {
@@ -178,7 +161,6 @@ func MarshalArgs[T any](raw json.RawMessage) (T, error) {
 	return req, nil
 }
 
-// sheetLabel names the first sheet when the caller left the sheet unset.
 func sheetLabel(sheet string) string {
 	if sheet == "" {
 		return "(first sheet)"

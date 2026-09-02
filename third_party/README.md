@@ -18,7 +18,7 @@ Vendored upstream code is used only for contract inspection and release builds. 
 
 ## Distribution policy
 
-Release builds prefer a bundled Crush executable at `resources/crush.exe` next to `gotack.exe` on Windows (or `resources/crush` on Unix). If the bundle is absent, Gotack falls back to `crush` on `PATH`. A non-empty `engine_binary` setting is an explicit override and wins over both.
+Release builds prefer a bundled engine executable at `resources/tack-engine.exe` next to `tack.exe` on Windows (or `resources/tack-engine` on Unix). If the bundle is absent, Gotack falls back to `tack-engine` or `crush` on `PATH`. A non-empty `engine_binary` setting is an explicit override and wins over both.
 
 The release job must build Crush from the exact pinned commit plus the tracked patch set above and place it in the Gotack artifact. This keeps releases deterministic while retaining the PATH fallback for developer machines.
 

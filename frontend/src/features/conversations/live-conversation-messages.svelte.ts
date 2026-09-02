@@ -36,17 +36,13 @@ const latestSelection = (rows: readonly MessageInfo[]): LoadedSelection | undefi
   return latest ? { providerID: latest.provider, modelID: latest.model } : undefined
 }
 
-
 export function createMessageState(deps: MessageDeps) {
   const activeConversation = () => deps.conversations.value.find((item) => item.id === deps.activeId.value)
-  // Guards against a slow history snapshot overwriting a newer selection.
+
   let loadGeneration = 0
 
   const memoryKey = () => `${SESSION_MEMORY_PREFIX}${deps.workspace.value}`
 
-  // buildMessages mirrors what the live event stream renders. Crush stores one
-  // assistant row per agent step, so steps that only ran tools carry no text;
-  // replaying those rows verbatim is what produced the empty assistant bubbles.
   const buildMessages = (rows: readonly MessageInfo[]): Message[] => {
     const out: Message[] = []
     for (const row of rows) {
@@ -70,7 +66,7 @@ export function createMessageState(deps: MessageDeps) {
         out.push(inst)
       }
       for (const call of row.tool_calls ?? []) {
-        // Same id scheme as tool:activity so replay and live rows merge.
+
         const inst = new ChatMessage(`tool:${call.id}`, 'assistant', row.created_at)
         inst.kind = 'tool'
         inst.toolName = call.name
@@ -83,9 +79,7 @@ export function createMessageState(deps: MessageDeps) {
   }
 
   const loadMessages = async (id: string): Promise<LoadedSelection | undefined> => {
-    // Snapshots are async, so a newer selection must win. Otherwise the reply
-    // for the previous conversation lands after the switch and overwrites the
-    // history the user is now looking at.
+
     const generation = ++loadGeneration
     const rows = await desktop.sessionMessages(id)
     if (generation !== loadGeneration) return undefined
@@ -121,7 +115,6 @@ export function createMessageState(deps: MessageDeps) {
     await desktop.switchSession(next)
     return loadMessages(next)
   }
-
 
   const attachWorkspace = async (workspace: WorkspaceInfo) => {
     deps.workspace.value = workspace.is_default ? DEFAULT_WORKSPACE_LABEL : workspace.path
@@ -181,7 +174,7 @@ export function createMessageState(deps: MessageDeps) {
       deps.rememberSession(id)
       deps.input.value = ''
       deps.attachments.value = []
-      // Streaming text belongs to the conversation we just left.
+
       deps.streamingText.value = ''
       await desktop.switchSession(id)
       const selection = await loadMessages(id)
@@ -203,10 +196,7 @@ export function createMessageState(deps: MessageDeps) {
       return
     }
     if (current.status === 'streaming') {
-      // session:done is edge-triggered. If the UI missed that event during a
-      // stream reconnect, the local conversation can stay "streaming" forever
-      // even though Crush has already finished the run. Reconcile with the
-      // authoritative session state before rejecting the next prompt.
+
       const rows = await desktop.listSessions().catch(() => null)
       const remote = rows?.find((row) => row.id === current!.id)
       if (!remote || remote.is_busy) return
@@ -225,7 +215,7 @@ export function createMessageState(deps: MessageDeps) {
       await desktop.sendPrompt(current.id, text, attachments.map((attachment) => ({
         file_name: attachment.fileName,
         mime_type: attachment.mimeType,
-        // A path send carries no body: the host reads the file at send time.
+
         ...(attachment.path ? { path: attachment.path } : { content: attachment.content }),
       })))
     } catch (cause) {
@@ -240,9 +230,6 @@ export function createMessageState(deps: MessageDeps) {
     }
   }
 
-  // attachPaths turns host-resolved paths (native picker or OS drop) into chips.
-  // Nothing is read here, so a multi-megabyte spreadsheet costs no base64 pass
-  // through the webview.
   const attachPaths = (picks: readonly PromptFilePick[]) => {
     if (!picks.length) return
     deps.attachments.value = [...deps.attachments.value, ...picks.map((pick) => pathToAttachment(pick))]

@@ -179,8 +179,6 @@ func TestScheduledRunSuppressesAndForgetsBackgroundReview(t *testing.T) {
 	app.reflection.UserTurnAccepted("src-1")
 	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "scheduled result"})
 
-	// Forgetting the scheduled state also clears the due bit. The same ID is
-	// no longer scheduled after RecordOutcome consumes its in-flight record.
 	app.reflection.UserTurnAccepted("src-1")
 	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "foreground result"})
 	select {

@@ -14,7 +14,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// fakeSupervisor implements engine.EngineAPI without launching a process.
 type fakeSupervisor struct {
 	mu         sync.Mutex
 	ep         crushapi.Endpoint
@@ -53,9 +52,6 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-// engineTransport answers the two routes the connect sequence and the event
-// stream touch. streamBody controls what the SSE endpoint returns: a fixed
-// payload or a reader that blocks until the request context dies.
 type engineTransport struct {
 	version    string
 	streamBody func(req *http.Request) io.ReadCloser
@@ -87,7 +83,6 @@ func (tr *engineTransport) roundTrip() http.RoundTripper {
 	})
 }
 
-// newTestLink builds a Link whose dial reaches the fake engine transport.
 func newTestLink(t *testing.T, sup *fakeSupervisor, tr *engineTransport) *Link {
 	t.Helper()
 	sup.ep = crushapi.Endpoint{Network: "pipe", Address: "fake-engine"}
@@ -96,8 +91,7 @@ func newTestLink(t *testing.T, sup *fakeSupervisor, tr *engineTransport) *Link {
 	link.dial = func(context.Context, crushapi.Endpoint) (*http.Client, error) {
 		return &http.Client{Transport: tr.roundTrip()}, nil
 	}
-	// The fake version endpoint answers immediately, so the handshake never
-	// needs its real timeout; keep tests fast if it ever polls anyway.
+
 	link.handshakeTimeout = 2 * time.Second
 	return link
 }
@@ -121,8 +115,6 @@ func sseBody(payload string) func(*http.Request) io.ReadCloser {
 	}
 }
 
-// blockingBody keeps the stream open until the request context is cancelled,
-// mirroring a live engine connection.
 func blockingBody(req *http.Request) io.ReadCloser {
 	return contextReader{ctx: req.Context()}
 }
@@ -187,7 +179,6 @@ func TestConnectHandshakeSuccess(t *testing.T) {
 		t.Fatalf("recorded version = %q, want 1.2.3", got)
 	}
 
-	// A running link rejects duplicate connect attempts.
 	if _, started := link.BeginConnect(context.Background()); started {
 		t.Fatal("running link accepted a second connect attempt")
 	}
@@ -233,8 +224,6 @@ func TestConnectFailureAllowsRetry(t *testing.T) {
 		t.Fatalf("Connect() error = %v, want it to wrap the dial error", err)
 	}
 
-	// The host mirrors failConnect: the failure is recorded and the next
-	// attempt is allowed once the frontend backoff fires.
 	link.Fail(err.Error())
 	if got := link.Status(); got != StatusError {
 		t.Fatalf("status = %q, want error", got)
@@ -243,7 +232,6 @@ func TestConnectFailureAllowsRetry(t *testing.T) {
 		t.Fatalf("last error = %q, want the dial reason", link.LastError())
 	}
 
-	// The retry succeeds once the transport recovers.
 	link.dial = func(context.Context, crushapi.Endpoint) (*http.Client, error) {
 		return &http.Client{Transport: tr.roundTrip()}, nil
 	}
@@ -296,7 +284,6 @@ func TestCommitAttachRejectsDeadScope(t *testing.T) {
 func TestTransportLost(t *testing.T) {
 	link := NewLink(&fakeSupervisor{})
 
-	// Not running yet: a loss report must be dropped.
 	scope, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if link.TransportLost(scope, "early") {
@@ -314,7 +301,6 @@ func TestTransportLost(t *testing.T) {
 		t.Fatalf("last error = %q, want the loss reason", link.LastError())
 	}
 
-	// A second report on an already-unhealthy link must not re-fire.
 	if link.TransportLost(scope, "again") {
 		t.Fatal("transport loss fired twice for one outage")
 	}
@@ -351,7 +337,7 @@ func TestDisconnectResetsState(t *testing.T) {
 	if link.LastError() != "" || link.Version() != "" || link.Endpoint().Address != "" {
 		t.Fatal("disconnect must clear the recorded connection facts")
 	}
-	// Disconnecting twice is a no-op, not a panic.
+
 	link.Disconnect()
 }
 
@@ -371,6 +357,6 @@ func TestReplaceStreamScopeCancelsPrevious(t *testing.T) {
 	if second.Err() == nil {
 		t.Fatal("cancel scope must cancel the live stream scope")
 	}
-	// Rolling back twice must not panic.
+
 	link.CancelScope()
 }

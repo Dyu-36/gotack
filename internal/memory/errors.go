@@ -19,8 +19,6 @@ var (
 	ErrEmptyBatch     = errors.New("memory: operations list is empty")
 )
 
-// OverCapError keeps the unchanged live entries available for a single
-// corrective consolidation batch.
 type OverCapError struct {
 	Target  Target
 	Used    int
@@ -38,8 +36,6 @@ func (e *OverCapError) Error() string {
 
 func (e *OverCapError) Unwrap() error { return ErrOverCap }
 
-// operationError attaches the live pre-batch state to a recoverable locator
-// failure without leaking it on unrelated validation or scan errors.
 type operationError struct {
 	cause   error
 	entries []string

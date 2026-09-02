@@ -15,8 +15,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/uievents"
 )
 
-// recordingEmitter captures every event the service fires so tests can assert
-// on names and payloads without depending on the Wails runtime.
 type recordingEmitter struct {
 	mu     sync.Mutex
 	events []recordedEvent
@@ -46,22 +44,18 @@ func (e *recordingEmitter) snapshot() []recordedEvent {
 	return out
 }
 
-// fakeBackend is a programmable ptyBackend. The read program is a slice of
-// (chunk, error) pairs; once exhausted, Read returns io.EOF. The wait
-// program is fired by the FakeWait() method which the test calls to simulate
-// the child exiting.
 type fakeBackend struct {
 	mu sync.Mutex
 
 	readProgram []readStep
-	resizes     []uint32 // packed cols<<16 | rows
+	resizes     []uint32
 	writes      []string
 	closeCount  int32
 	waitCount   int32
 	waitCode    int32
 	waitErr     error
 	closed      bool
-	exitCh      chan struct{} // pre-created so exit-before-wait still works
+	exitCh      chan struct{}
 }
 
 func newFakeBackend(steps ...readStep) *fakeBackend {
@@ -106,15 +100,12 @@ func (b *fakeBackend) Close() error {
 }
 
 func (b *fakeBackend) Wait() (int32, error) {
-	// Wait blocks until the test calls Exit. We use a channel rather than a
-	// sleep so the test is deterministic.
+
 	<-b.exitSignal()
 	atomic.AddInt32(&b.waitCount, 1)
 	return b.waitCode, b.waitErr
 }
 
-// exitSignal returns the channel that is closed when the test wants the
-// waiter goroutine to proceed.
 func (b *fakeBackend) exitSignal() <-chan struct{} {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -146,8 +137,6 @@ func (b *fakeBackend) capturedResizes() [][2]uint16 {
 	return out
 }
 
-// withFakeBackend swaps the package-level openBackend with one that returns
-// the provided fake. The restore is called from t.Cleanup.
 func withFakeBackend(t *testing.T, fb *fakeBackend) {
 	t.Helper()
 	restore := openBackendForTest(func(cwd string) (ptyBackend, shellSpec, error) {
@@ -188,21 +177,15 @@ func TestOpenReturnsUUIDAndRegistersSession(t *testing.T) {
 		t.Fatalf("Open returned id %q, expected uuid", id)
 	}
 
-	// Pump must have read at least the EOF, so the events list is touched.
-	// We do not assert on the data payload here (the backend had no chunks).
 	got := rec.snapshot()
 	_ = got
 
-	// The session should be tracked.
 	if s.sessionBackend(id) == nil {
 		t.Fatalf("session %s not in map after Open", id)
 	}
-	// And the fake backend must have received a Close when the service
-	// stops (not yet; we haven't exited).
+
 }
 
-// TestOpenPropagatesBackendError verifies that a backend open failure is
-// surfaced to the caller and no session is registered.
 func TestOpenPropagatesBackendError(t *testing.T) {
 	restore := openBackendForTest(func(cwd string) (ptyBackend, shellSpec, error) {
 		return nil, shellSpec{}, errors.New("boom")
@@ -237,7 +220,6 @@ func TestWriteForwardsBytesToBackend(t *testing.T) {
 		t.Fatalf("backend writes: %#v", got)
 	}
 
-	// Empty write is a no-op and does not touch the backend.
 	if err := s.Write(id, ""); err != nil {
 		t.Fatalf("Write empty: %v", err)
 	}
@@ -294,15 +276,10 @@ func TestCloseRemovesSessionAndStopsBackend(t *testing.T) {
 	if s.sessionBackend(id) != nil {
 		t.Fatalf("session %s still in map after Close", id)
 	}
-	// Allow the pump goroutine a brief moment to see the closed master and
-	// exit; this is just to keep the race detector happy, no assertion.
+
 	time.Sleep(10 * time.Millisecond)
 }
 
-// TestCloseAlreadyExitedNoPanic covers the spec requirement: closing a
-// session whose child already exited must not panic. After the waiter
-// removes the entry, Close(id) is the unknown-id path and returns
-// ErrUnknownID.
 func TestCloseAlreadyExitedNoPanic(t *testing.T) {
 	fb := newFakeBackend()
 	withFakeBackend(t, fb)
@@ -310,7 +287,7 @@ func TestCloseAlreadyExitedNoPanic(t *testing.T) {
 
 	id, _ := s.Open(t.TempDir())
 	fb.exit(0)
-	// Wait for the waiter to actually remove the session.
+
 	deadline := time.Now().Add(2 * time.Second)
 	for s.sessionBackend(id) != nil {
 		if time.Now().After(deadline) {
@@ -319,14 +296,11 @@ func TestCloseAlreadyExitedNoPanic(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// Now Close must return ErrUnknownID and not panic.
 	if err := s.Close(id); !errors.Is(err, ErrUnknownID) {
 		t.Fatalf("Close after exit: want ErrUnknownID, got %v", err)
 	}
 }
 
-// TestExitEmitsTerminalExit covers the happy-path lifecycle: data chunks
-// stream as TerminalData, then a single TerminalExit with the right code.
 func TestExitEmitsTerminalExit(t *testing.T) {
 	fb := newFakeBackend(
 		readStep{data: "first chunk\n"},
@@ -337,7 +311,6 @@ func TestExitEmitsTerminalExit(t *testing.T) {
 
 	id, _ := s.Open(t.TempDir())
 
-	// Wait for both data events.
 	waitFor(t, 2*time.Second, func() bool {
 		count := 0
 		for _, e := range rec.snapshot() {
@@ -348,7 +321,6 @@ func TestExitEmitsTerminalExit(t *testing.T) {
 		return count >= 2
 	}, "two TerminalData events")
 
-	// Trigger child exit.
 	fb.exit(7)
 
 	waitFor(t, 2*time.Second, func() bool {
@@ -370,7 +342,6 @@ func TestExitEmitsTerminalExit(t *testing.T) {
 		return false
 	}, "TerminalExit event")
 
-	// And the session must be gone from the map.
 	waitFor(t, 2*time.Second, func() bool { return s.sessionBackend(id) == nil },
 		"session removed after exit")
 }
@@ -398,16 +369,13 @@ func TestDataPayloadShape(t *testing.T) {
 		return false
 	}, "TerminalData event")
 
-	// Drain.
 	fb.exit(0)
 	waitFor(t, 2*time.Second, func() bool { return s.sessionBackend(id) == nil },
 		"session removed")
 }
 
 func TestCloseBeforeWaitEmitsOnlyOneExit(t *testing.T) {
-	// The user closes the session before the child has exited. The waiter
-	// goroutine may still run later but must not emit a second
-	// TerminalExit because the once guard has already fired.
+
 	fb := newFakeBackend()
 	withFakeBackend(t, fb)
 	s, rec := newService(t)
@@ -417,9 +385,6 @@ func TestCloseBeforeWaitEmitsOnlyOneExit(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// Now trigger the child's wait. It still produces an exit code, but
-	// the public TerminalExit must not have been emitted (the user-driven
-	// close path is a separate, quiet shutdown).
 	fb.exit(0)
 	waitFor(t, 2*time.Second, func() bool { return true }, "settle")
 
@@ -431,9 +396,7 @@ func TestCloseBeforeWaitEmitsOnlyOneExit(t *testing.T) {
 }
 
 func TestConcurrentOpenClose(t *testing.T) {
-	// Lightweight stress: open 8 sessions in parallel and close them all.
-	// The race detector will catch any map or backend access that escapes
-	// the lock.
+
 	fb := newFakeBackend()
 	withFakeBackend(t, fb)
 	s, _ := newService(t)
@@ -475,7 +438,7 @@ func TestValidateCwd(t *testing.T) {
 	if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A symlink pointing to a real dir must resolve and pass.
+
 	link := filepath.Join(tmp, "link")
 	if err := os.Symlink(good, link); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
@@ -484,7 +447,7 @@ func TestValidateCwd(t *testing.T) {
 	cases := []struct {
 		name    string
 		in      string
-		wantErr string // substring of error, or "" for success
+		wantErr string
 	}{
 		{name: "empty", in: " ", wantErr: "empty working directory"},
 		{name: "missing", in: missing, wantErr: "cwd not found"},
@@ -507,7 +470,7 @@ func TestValidateCwd(t *testing.T) {
 				t.Fatalf("validateCwd(%q): unexpected err %v", c.in, err)
 			}
 			if !strings.HasPrefix(out, good) && c.name != "symlink" {
-				// Symlinks can resolve to the target; just require absolute.
+
 				if !filepath.IsAbs(out) {
 					t.Fatalf("validateCwd(%q) = %q, want absolute", c.in, out)
 				}
@@ -516,8 +479,6 @@ func TestValidateCwd(t *testing.T) {
 	}
 }
 
-// waitFor polls cond every 5ms until it returns true or timeout elapses.
-// It fails the test with msg if timeout is reached.
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

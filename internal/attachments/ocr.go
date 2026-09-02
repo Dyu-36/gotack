@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// ExtractTextFromImage attempts to perform OCR on an image file using OS-native tools.
-// It fails open gracefully (returns empty string) if OCR is unavailable or times out.
 func ExtractTextFromImage(filePath string) string {
 	if filePath == "" {
 		return ""

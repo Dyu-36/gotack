@@ -1,8 +1,6 @@
 import type { ChatAttachment } from './types.svelte'
 import type { PromptFilePick } from '../../platform/desktop'
 
-// The host owns the real limit (internal/appconfig, served by
-// App.AttachmentLimits()); the constant below is only the pre-answer fallback.
 const FALLBACK_MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
 let maxAttachmentSize = FALLBACK_MAX_ATTACHMENT_SIZE
 
@@ -32,9 +30,6 @@ export function formatAttachmentSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// Windows drag & drop and clipboard paste frequently deliver an empty
-// `File.type` for office documents, which used to reach the host as
-// application/octet-stream and lose the text extraction path.
 const extensionMimeTypes: Record<string, string> = {
   xls: 'application/vnd.ms-excel',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -77,9 +72,6 @@ export async function fileToAttachment(file: File): Promise<ChatAttachment> {
   }
 }
 
-// pathToAttachment builds a chip for a file the host picked or received through
-// an OS drop. There is no base64 body: the host reads the bytes at send time, so
-// a large spreadsheet never enters the webview.
 export function pathToAttachment(pick: PromptFilePick): ChatAttachment {
   const fileName = pick.file_name || pick.path
   return {

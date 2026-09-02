@@ -22,7 +22,6 @@ const (
 	maxResponseContentBytes = 24 * 1024
 )
 
-// Message is the bounded, model-facing shape of one Crush message.
 type Message struct {
 	ID                   string `json:"id"`
 	Role                 string `json:"role"`
@@ -33,8 +32,6 @@ type Message struct {
 	OriginalContentBytes int    `json:"original_content_bytes,omitempty"`
 }
 
-// DiscoveryResult mirrors Hermes' hydrated FTS result without fields Crush
-// does not persist (profile, source, model, lineage, or link).
 type DiscoveryResult struct {
 	SessionID      string    `json:"session_id"`
 	Title          string    `json:"title,omitempty"`
@@ -193,7 +190,6 @@ func withoutCompactionSummaries(rows []messageRow) []messageRow {
 	return filtered
 }
 
-// Around returns ±window messages centered on an exact string message id.
 func (s *Store) Around(ctx context.Context, sessionID, anchorID string, window int) (AroundResult, error) {
 	window = clampWindow(window)
 	s.mu.Lock()
@@ -233,8 +229,6 @@ func clampWindow(window int) int {
 	return window
 }
 
-// ReadSession returns the whole session when small, otherwise first 20 and
-// last 10 messages, matching Hermes' bounded read shape.
 func (s *Store) ReadSession(ctx context.Context, sessionID string) (ReadResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -263,8 +257,6 @@ func (s *Store) ReadSession(ctx context.Context, sessionID string) (ReadResult, 
 	}, nil
 }
 
-// BrowseWithOptions applies the trusted active-session exclusion used by the
-// engine-injected session_search path and lists recent sessions without FTS.
 func (s *Store) BrowseWithOptions(ctx context.Context, limit int, excludeSessionID string) ([]SessionSummary, error) {
 	limit = clampResultLimit(limit)
 	s.mu.Lock()

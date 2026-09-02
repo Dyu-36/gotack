@@ -1,8 +1,5 @@
 package main
 
-// recall_seed.go -- role: register Hermes-compatible read-only session_search
-// against the active workspace's Crush database.
-
 import (
 	"context"
 	"os"

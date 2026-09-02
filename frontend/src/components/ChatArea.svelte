@@ -26,7 +26,6 @@
     onInput: (value: string) => void
     onSend: () => void
     onAttachFiles?: (files: File[]) => void | Promise<void>
-    // Present in the desktop host: routes the paperclip to the native dialog.
     onPickFiles?: () => void | Promise<void>
     onRemoveAttachment?: (id: string) => void
     onStop: () => void
@@ -80,8 +79,6 @@
 
   const STICK_THRESHOLD = 96
 
-  // Tool rows can trail the assistant text, so the streaming cursor has to
-  // follow the last real text bubble instead of the last array entry.
   const streamingBubbleId = $derived(
     messages.filter((m) => m.role === 'assistant' && m.kind !== 'tool').at(-1)?.id ?? '',
   )
@@ -213,9 +210,6 @@
     if (isRenaming) renameInput?.select()
   })
 
-  // Observe the rendered list rather than the raw stream snapshot. This keeps
-  // scrolling in the same frame as the DOM height change and removes the old
-  // one-tick jump between token arrival and Markdown paint.
   $effect(() => {
     const list = messageList
     if (!list) return
@@ -226,8 +220,6 @@
     return () => observer.disconnect()
   })
 
-  // Structural changes may bind a new scroller/list before ResizeObserver has
-  // emitted its first record. Schedule one frame after Svelte commits the DOM.
   $effect(() => {
     void messages.length
     void isStreaming

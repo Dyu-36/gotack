@@ -9,13 +9,6 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// The memory store uses Hermes' strict context scanner for both writes and
-// prompt snapshots. Keep this table in the same order and with the same
-// bounded languages as hermes-agent's tools/threat_patterns.py: strict
-// includes the all and context classes as well as memory/skill-only checks.
-// Python's “\w“ is Unicode-aware; RE2's shorthand is ASCII-only. Spell out
-// the Unicode letter/number classes so an obfuscated phrase cannot bypass the
-// same bounded filler check merely by using non-ASCII words.
 const threatFiller = `(?:[\pL\pN_]+\s+){0,8}`
 
 type scanRule struct {
@@ -63,33 +56,27 @@ var scanRules = []scanRule{
 }
 
 var invisibleRunes = map[rune]struct{}{
-	'\u200b': {}, // zero-width space
-	'\u200c': {}, // zero-width non-joiner
-	'\u200d': {}, // zero-width joiner
-	'\u2060': {}, // word joiner
-	'\u2062': {}, // invisible times
-	'\u2063': {}, // invisible separator
-	'\u2064': {}, // invisible plus
-	'\ufeff': {}, // zero-width no-break space (BOM)
-	'\u202a': {}, // left-to-right embedding
-	'\u202b': {}, // right-to-left embedding
-	'\u202c': {}, // pop directional formatting
-	'\u202d': {}, // left-to-right override
-	'\u202e': {}, // right-to-left override
-	'\u2066': {}, // left-to-right isolate
-	'\u2067': {}, // right-to-left isolate
-	'\u2068': {}, // first strong isolate
-	'\u2069': {}, // pop directional isolate
+	'\u200b': {},
+	'\u200c': {},
+	'\u200d': {},
+	'\u2060': {},
+	'\u2062': {},
+	'\u2063': {},
+	'\u2064': {},
+	'\ufeff': {},
+	'\u202a': {},
+	'\u202b': {},
+	'\u202c': {},
+	'\u202d': {},
+	'\u202e': {},
+	'\u2066': {},
+	'\u2067': {},
+	'\u2068': {},
+	'\u2069': {},
 }
 
-// MaxScanChars is Hermes' hard scanner bound. It is a rune/character bound,
-// matching Python's content[:MAX_SCAN_CHARS], not a byte bound.
 const MaxScanChars = 65_536
 
-// scanFindings is the direct Go equivalent of Hermes' scan_for_threats(...,
-// scope="strict"). It scans only the first 65,536 runes, checks invisible
-// characters before NFKC (normalization can remove some), then applies the
-// strict expressions to the normalized copy.
 func scanFindings(content string) []string {
 	if content == "" {
 		return nil
@@ -102,9 +89,7 @@ func scanFindings(content string) []string {
 			seenInvisible[ch] = struct{}{}
 		}
 	}
-	// Hermes' Python set iteration is intentionally not an ordering contract;
-	// deterministic code-point order keeps diagnostics stable without changing
-	// which findings are returned.
+
 	for _, ch := range []rune{
 		'\u200b', '\u200c', '\u200d', '\u2060', '\u2062', '\u2063', '\u2064',
 		'\ufeff', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066',
@@ -139,7 +124,6 @@ func truncateRunes(content string, limit int) string {
 	return out.String()
 }
 
-// Scan rejects content using Hermes' strict memory/skill scanner.
 func Scan(content string) error {
 	findings := scanFindings(content)
 	if len(findings) == 0 {
@@ -152,9 +136,6 @@ func Scan(content string) error {
 	return fmt.Errorf("%w: content matches threat pattern '%s'. Content is injected into the system prompt and must not contain injection or exfiltration payloads", ErrBlocked, first)
 }
 
-// ScanRuleNames exposes the exact strict pattern identifiers for diagnostics
-// and contract tests. Invisible Unicode findings are content-specific and are
-// therefore not included in this static list.
 func ScanRuleNames() []string {
 	names := make([]string, 0, len(scanRules))
 	for _, rule := range scanRules {
@@ -163,9 +144,6 @@ func ScanRuleNames() []string {
 	return names
 }
 
-// SanitizeEntriesForPrompt replaces threat-bearing entries with Hermes' load
-// time placeholder while leaving the caller's raw entries untouched. This is
-// used to build the frozen context mirror that Crush reads.
 func SanitizeEntriesForPrompt(entries []string, filename string) []string {
 	sanitized := make([]string, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
@@ -191,9 +169,6 @@ func SanitizeEntriesForPrompt(entries []string, filename string) []string {
 	return sanitized
 }
 
-// SanitizeFileForPrompt parses one raw memory file and renders the sanitized
-// Hermes block. Invalid UTF-8 is refused so the caller cannot accidentally
-// replace or expose undecodable source content.
 func SanitizeFileForPrompt(target Target, data []byte) (string, error) {
 	if target != TargetMemory && target != TargetUser {
 		return "", ErrUnknownTarget

@@ -1,7 +1,3 @@
-// office is the gotack Office MCP server. It exposes Word, Excel and
-// PowerPoint operations to coding agents over the Model Context Protocol
-// stdio transport. Gotack registers this binary in the Crush engine config as
-// mcp_servers.gotack-office when a workspace opens.
 package main
 
 import (

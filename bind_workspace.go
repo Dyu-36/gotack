@@ -10,8 +10,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-// bind_workspace.go -- role: Wails-bound API for workspace selection.
-
 type WorkspaceInfo struct {
 	Path        string `json:"path"`
 	WorkspaceID string `json:"workspace_id"`
@@ -33,12 +31,10 @@ func isDefaultWorkspace(path string) bool {
 	return filepath.Clean(path) == filepath.Clean(defaultWorkspacePath())
 }
 
-// permissionsSkip enables ADR 0002's auto posture only when the user opted in.
 func (a *App) permissionsSkip() bool {
 	return a.cfg != nil && a.cfg.AutoApprove
 }
 
-// ListRecentWorkspaces returns remembered project roots, most recent first.
 func (a *App) ListRecentWorkspaces() []string {
 	if a.cfg == nil {
 		return nil
@@ -48,18 +44,6 @@ func (a *App) ListRecentWorkspaces() []string {
 	return out
 }
 
-// rebindWorkspaceRuntime re-points every workspace-scoped runtime at
-// workspaceID: it swaps the SSE attach scope (cancelling the previous one),
-// drops the Zalo chat-to-session mappings that belonged to the old workspace,
-// re-registers the bundled MCP servers, and re-points the seeded global
-// context directory.
-//
-// Every activation path runs exactly this sequence through activateCurrent,
-// which is how it stays aligned with replaceWorkspaceStream in
-// bind_engine.go. Note it is NOT the same as replaceWorkspaceStream: that
-// helper returns an error and cancels on attach failure, while these paths
-// route failure through transportLost. Collapsing them would change
-// reconnect behaviour.
 func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	var scope context.Context
 	if a.getConn() != nil {
@@ -77,16 +61,8 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	a.registerGuardHook(workspaceID)
 }
 
-// activateCurrent is the single shared activation sequence: apply the approval
-// posture, optionally record the path in the recent list, and re-point every
-// workspace-scoped runtime at the new workspace. Both activation entry points
-// funnel through it so the two cannot drift.
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
-	// CreateWorkspace uses YOLO=true for new workspaces. This explicit call also
-	// upgrades a workspace that an older Gotack/Crush process created with YOLO
-	// disabled, because Crush uses first-wins semantics for duplicate paths.
-	// The value follows the approval posture: prompts stay on unless the user
-	// opted into auto_approve (ADR 0002 escape hatch).
+
 	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
 		return WorkspaceInfo{}, err
 	}
@@ -102,8 +78,6 @@ func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, re
 	}, nil
 }
 
-// activateWorkspace makes a Crush workspace current through the shared
-// activation sequence.
 func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool) (WorkspaceInfo, error) {
 	desc, err := svc.ws.Open(a.ctx, path)
 	if err != nil {
@@ -123,7 +97,7 @@ func (a *App) reapplySavedWorkspaceSettings() {
 		Thinking:  a.cfg.Thinking,
 		CustomURL: a.cfg.CustomURL,
 	}
-	// Credentials are owned by Crush and are intentionally not replayed here.
+
 	effective, err := a.applyEffectiveCrushSettings(saved, "")
 	if err != nil {
 		if a.log != nil {
@@ -134,10 +108,6 @@ func (a *App) reapplySavedWorkspaceSettings() {
 	a.persistCorrectedSelection(effective)
 }
 
-// persistCorrectedSelection stores a selection the host had to repoint while
-// applying it. Without it the correction would live only in the engine's
-// config, so the next replay would send the stale provider again and the two
-// configs would keep contradicting each other.
 func (a *App) persistCorrectedSelection(s SettingsInfo) {
 	if a.cfg == nil {
 		return
@@ -157,10 +127,6 @@ func (a *App) persistCorrectedSelection(s SettingsInfo) {
 	}
 }
 
-// activateAssistantWorkspace attaches the default workspace through the
-// shared activation sequence. When the current workspace already is the
-// default one, only the permission flag is re-asserted: rebinding would
-// replace a healthy event stream with an identical one for no benefit.
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
 		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
@@ -175,9 +141,6 @@ func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, er
 	return a.activateCurrent(svc, desc, false)
 }
 
-// EnsureAssistantWorkspace attaches Gotack's always-available default
-// workspace. On Windows this is C:\, so chat and integrations have a valid
-// Crush workspace immediately after startup without requiring folder selection.
 func (a *App) EnsureAssistantWorkspace() (WorkspaceInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -191,9 +154,6 @@ func (a *App) EnsureAssistantWorkspace() (WorkspaceInfo, error) {
 	return info, nil
 }
 
-// OpenWorkspace changes the default working directory for the agent. It is an
-// optional convenience only: the agent remains able to use absolute paths to
-// files and folders anywhere the OS account can access.
 func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -207,7 +167,6 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 	return info, nil
 }
 
-// CurrentWorkspace returns the active workspace or null when none is attached.
 func (a *App) CurrentWorkspace() *WorkspaceInfo {
 	c := a.getConn()
 	if c == nil || c.ws == nil {

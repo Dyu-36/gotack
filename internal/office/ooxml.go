@@ -1,8 +1,5 @@
 package office
 
-// ooxml.go -- role: zip-package plumbing shared by the Word and PowerPoint
-// writers and readers. OOXML files are zip archives of XML parts.
-
 import (
 	"archive/zip"
 	"encoding/xml"
@@ -39,7 +36,6 @@ func walkXMLText(raw string, onStart, onText, onEnd func(string)) error {
 	}
 }
 
-// writePackage serializes parts (name -> XML content) into an OOXML zip file.
 func writePackage(path string, parts map[string]string) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -48,7 +44,7 @@ func writePackage(path string, parts map[string]string) error {
 	defer file.Close()
 
 	zipper := zip.NewWriter(file)
-	// Deterministic order: [Content_Types].xml first, then sorted names.
+
 	if _, ok := parts["[Content_Types].xml"]; ok {
 		if err := writePart(zipper, "[Content_Types].xml", parts["[Content_Types].xml"]); err != nil {
 			zipper.Close()
@@ -93,7 +89,6 @@ func writePart(zipper *zip.Writer, name, content string) error {
 	return nil
 }
 
-// readPackagePart extracts one XML part from an OOXML file.
 func readPackagePart(path, name string) (string, error) {
 	reader, err := zip.OpenReader(path)
 	if err != nil {
@@ -119,8 +114,6 @@ func readPackagePart(path, name string) (string, error) {
 	return "", fmt.Errorf("office: %s is missing %s", path, name)
 }
 
-// replacePackagePart rewrites one part inside an OOXML package while keeping
-// every other member byte-for-byte.
 func replacePackagePart(path, name, content string) error {
 	reader, err := zip.OpenReader(path)
 	if err != nil {
@@ -183,8 +176,6 @@ func replacePackagePart(path, name, content string) error {
 	return os.Rename(temp, path)
 }
 
-// listPackageParts returns member names matching a prefix, sorted by the
-// trailing number so slides keep document order.
 func listPackageParts(path, prefix string) ([]string, error) {
 	reader, err := zip.OpenReader(path)
 	if err != nil {
@@ -202,7 +193,6 @@ func listPackageParts(path, prefix string) ([]string, error) {
 	return names, nil
 }
 
-// byTrailingNumber sorts "base1", "base10", "base2" into numeric order.
 func byTrailingNumber(names []string) {
 	key := func(name string) int {
 		digits := 0
@@ -220,7 +210,6 @@ func byTrailingNumber(names []string) {
 	}
 }
 
-// escapeXML makes text safe for element and attribute content.
 func escapeXML(text string) string {
 	var out strings.Builder
 	for _, r := range text {

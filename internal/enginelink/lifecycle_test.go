@@ -13,11 +13,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-// TestLifecycleConnectCancelReconnect is the done-criterion proof: a full
-// connect -> cancel -> reconnect cycle under concurrent churn, safe under
-// `go test -race`. The churners race the connect goroutine with stream-scope
-// swaps, loss reports, and disconnects; whatever interleaving wins, the link
-// must settle and a clean reconnect must still succeed.
 func TestLifecycleConnectCancelReconnect(t *testing.T) {
 	sup := &fakeSupervisor{}
 	tr := &engineTransport{version: "1.2.3", streamBody: blockingBody}
@@ -27,7 +22,7 @@ func TestLifecycleConnectCancelReconnect(t *testing.T) {
 	for cycle := 0; cycle < 8; cycle++ {
 		scope, started := link.BeginConnect(context.Background())
 		if !started {
-			// A churner already moved the link; force a settled state and retry.
+
 			link.Disconnect()
 			scope, started = link.BeginConnect(context.Background())
 			if !started {
@@ -50,7 +45,6 @@ func TestLifecycleConnectCancelReconnect(t *testing.T) {
 			}
 		}()
 
-		// Concurrent churn against the in-flight attempt.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -64,8 +58,6 @@ func TestLifecycleConnectCancelReconnect(t *testing.T) {
 
 	wg.Wait()
 
-	// Whatever the interleaving, the link must accept a clean reconnect and
-	// reach running.
 	link.Disconnect()
 	scope, started := link.BeginConnect(context.Background())
 	if !started {
@@ -90,9 +82,6 @@ func TestLifecycleConnectCancelReconnect(t *testing.T) {
 	}
 }
 
-// TestConnectScopeCancellationAbandons proves the supersede path: when the
-// scope dies mid-handshake, the ready hook observes the dead context and the
-// attempt ends as ErrAttachSuperseded without an error transition.
 func TestConnectScopeCancellationAbandons(t *testing.T) {
 	sup := &fakeSupervisor{}
 	tr := &engineTransport{version: "1.2.3", streamBody: blockingBody}
@@ -114,14 +103,12 @@ func TestConnectScopeCancellationAbandons(t *testing.T) {
 		})
 	}()
 
-	// Stop the transport while the attempt is in flight.
 	link.Disconnect()
 
 	select {
 	case err := <-done:
 		if err != nil && !errors.Is(err, ErrAttachSuperseded) {
-			// The dial may also have observed the cancellation first; either
-			// way the attempt must not promote the link to running.
+
 			if link.Status() == StatusRunning {
 				t.Fatalf("superseded attempt reached running (err = %v)", err)
 			}
@@ -134,7 +121,6 @@ func TestConnectScopeCancellationAbandons(t *testing.T) {
 	}
 }
 
-// recordingConsumer drains the event channel the way uievents.Forwarder does.
 type recordingConsumer struct {
 	mu     sync.Mutex
 	count  int
@@ -209,8 +195,6 @@ func TestAttachStreamSilentOnCancellation(t *testing.T) {
 		t.Fatalf("AttachStream() error = %v", err)
 	}
 
-	// Cancelling the scope is an intentional detach: the stream closes and
-	// the consumer returns, but no loss report fires.
 	cancel()
 	select {
 	case <-consumer.done:
@@ -225,8 +209,7 @@ func TestAttachStreamSilentOnCancellation(t *testing.T) {
 }
 
 func TestAttachStreamSurfacesServerError(t *testing.T) {
-	// Route the events endpoint to a 500 to prove the synchronous attach
-	// failure reaches the caller.
+
 	api := crushapi.NewClient(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: 500,

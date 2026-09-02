@@ -8,11 +8,6 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// xlsx.go -- role: read, create and edit Excel workbooks through excelize.
-// office_read emits TSV so the agent can round-trip data without quoting
-// ambiguity; office_edit supports set-cell and append-rows operations.
-
-// xlsxInfo summarizes the workbook structure.
 func xlsxInfo(path string) (string, error) {
 	file, err := excelize.OpenFile(path)
 	if err != nil {
@@ -42,7 +37,6 @@ func xlsxInfo(path string) (string, error) {
 	return summary.String(), nil
 }
 
-// xlsxRead dumps one sheet (or the first sheet when empty) as TSV.
 func xlsxRead(path, sheet string, maxChars int) (string, error) {
 	file, err := excelize.OpenFile(path)
 	if err != nil {
@@ -75,7 +69,6 @@ func xlsxRead(path, sheet string, maxChars int) (string, error) {
 	return strings.TrimRight(out.String(), "\n"), nil
 }
 
-// xlsxCreate builds a workbook whose first sheet holds the TSV content.
 func xlsxCreate(path, content string) error {
 	file := excelize.NewFile()
 	defer file.Close()
@@ -101,7 +94,6 @@ func xlsxCreate(path, content string) error {
 	return nil
 }
 
-// xlsxSetCell writes one coerced value into a cell.
 func xlsxSetCell(path, sheet, cell, value string) error {
 	file, err := excelize.OpenFile(path)
 	if err != nil {
@@ -125,7 +117,6 @@ func xlsxSetCell(path, sheet, cell, value string) error {
 	return nil
 }
 
-// xlsxAppendRows appends TSV rows (one row per line) after the last row.
 func xlsxAppendRows(path, sheet, tsv string) (int, error) {
 	file, err := excelize.OpenFile(path)
 	if err != nil {
@@ -171,8 +162,6 @@ func xlsxAppendRows(path, sheet, tsv string) (int, error) {
 	return appended, nil
 }
 
-// coerceCell converts TSV text into a typed cell value: numbers and booleans
-// become native, everything else stays text.
 func coerceCell(value string) any {
 	if value == "" {
 		return ""

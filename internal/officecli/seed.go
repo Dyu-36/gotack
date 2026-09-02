@@ -1,7 +1,3 @@
-// Package officecli copies the bundled officecli binary and the matching
-// Crush skill files into the user's Gotack data directory and prepends that
-// directory to PATH. Crush inherits the updated PATH via the per-workspace
-// `env` config so the agent can invoke `officecli` directly.
 package officecli
 
 import (
@@ -16,13 +12,11 @@ import (
 	"github.com/Dyu-36/gotack/internal/bundleseed"
 )
 
-// Seeder manages the per-user officecli installation.
 type Seeder struct {
 	dataDir string
 	log     *slog.Logger
 }
 
-// New returns a Seeder rooted at the Gotack data directory.
 func New(dataDir string, log *slog.Logger) *Seeder {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -30,21 +24,14 @@ func New(dataDir string, log *slog.Logger) *Seeder {
 	return &Seeder{dataDir: dataDir, log: log}
 }
 
-// BinDir is the destination directory for the officecli binary. It is also
-// prepended to PATH so Crush can resolve `officecli` without a full path.
 func (s *Seeder) BinDir() string {
 	return filepath.Join(s.dataDir, "bin")
 }
 
-// SkillsDir is the destination directory for Crush skill files. It is
-// registered under `options.skills_paths` so the agent loads them on startup.
 func (s *Seeder) SkillsDir() string {
 	return filepath.Join(s.dataDir, "skills")
 }
 
-// Seed copies the bundled binary and skill tree into the data directory.
-// It is safe to call repeatedly: files are only rewritten when they are absent
-// from the destination or their recorded bundled size changes.
 func (s *Seeder) Seed(sourceDir string) error {
 	if sourceDir == "" {
 		return nil
@@ -68,8 +55,6 @@ func (s *Seeder) Seed(sourceDir string) error {
 	return nil
 }
 
-// InstallPath prepends the bin directory to the current process PATH so any
-// child process (including the Crush engine) can resolve `officecli`.
 func (s *Seeder) InstallPath() {
 	bin := s.BinDir()
 	current := os.Getenv("PATH")
@@ -85,8 +70,6 @@ func (s *Seeder) InstallPath() {
 	}
 }
 
-// CrushEnv returns the environment overrides Crush must apply to every
-// workspace so the agent shell sees the bundled officecli on PATH.
 func (s *Seeder) CrushEnv() map[string]string {
 	path := os.Getenv("PATH")
 	if path == "" {
@@ -95,13 +78,10 @@ func (s *Seeder) CrushEnv() map[string]string {
 	return map[string]string{"PATH": path}
 }
 
-// SkillsPathArg returns the path value Crush expects inside options.skills_paths.
 func (s *Seeder) SkillsPathArg() string {
 	return s.SkillsDir()
 }
 
-// EnsureOfficeCLIOnPath locates the officecli binary on disk, falling back to
-// any PATH-resident install. The returned path is absolute.
 func EnsureOfficeCLIOnPath() string {
 	name := "officecli"
 	if runtime.GOOS == "windows" {

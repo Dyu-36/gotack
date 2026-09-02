@@ -36,7 +36,7 @@ func TestSeedCopiesBinariesAndSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(seeder.SkillsDir(), "demo", "SKILL.md")); err != nil {
 		t.Fatalf("skill not copied: %v", err)
 	}
-	// Idempotent: a second call does not rewrite identical files.
+
 	if err := seeder.Seed(src); err != nil {
 		t.Fatalf("Seed (re-run): %v", err)
 	}

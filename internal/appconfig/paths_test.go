@@ -9,8 +9,7 @@ import (
 )
 
 func TestPipeEndpointShape(t *testing.T) {
-	// Cannot test both OSes in one binary; tag the test by build would be
-	// cleaner, but a runtime check keeps the file count down.
+
 	uid := currentUID()
 	wantSuffix := "crush.sock"
 	if uid != "" {
@@ -35,7 +34,7 @@ func TestPipeEndpointShape(t *testing.T) {
 	if !strings.HasSuffix(ep.Address, wantSuffix) {
 		t.Errorf("unix address=%q does not end with %q", ep.Address, wantSuffix)
 	}
-	// Path must live under the runtime dir or /tmp.
+
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" {
 		dir = "/tmp"

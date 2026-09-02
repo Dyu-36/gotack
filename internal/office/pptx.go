@@ -7,14 +7,8 @@ import (
 	"strings"
 )
 
-// pptx.go -- role: read, create and text-edit PowerPoint .pptx packages. The
-// writer emits a minimal valid package (master, layout, theme, one text-box
-// shape per content block) so generated decks open without a template file.
-
 var drawingTextPattern = regexp.MustCompile(`(<a:t(?:\s[^>]*)?>)(.*?)(</a:t>)`)
 
-// pptxSlideTexts returns the concatenated shape text of each slide, slides in
-// presentation order.
 func pptxSlideTexts(path string) ([]string, error) {
 	names, err := listPackageParts(path, "ppt/slides/slide")
 	if err != nil {
@@ -49,8 +43,6 @@ func pptxSlideTexts(path string) ([]string, error) {
 	return slides, nil
 }
 
-// pptxRead renders the deck as "## Slide N" blocks with one line per shape
-// paragraph, mirroring the markdown source format.
 func pptxRead(path string) (string, error) {
 	slides, err := pptxSlideTexts(path)
 	if err != nil {
@@ -63,7 +55,6 @@ func pptxRead(path string) (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
-// pptxInfo summarizes the deck structure.
 func pptxInfo(path string) (string, error) {
 	slides, err := pptxSlideTexts(path)
 	if err != nil {
@@ -76,9 +67,6 @@ func pptxInfo(path string) (string, error) {
 	return fmt.Sprintf("PowerPoint presentation: %d slides, %d text paragraphs", len(slides), paragraphs), nil
 }
 
-// pptxCreate builds a .pptx from the markdown subset. Each `# Heading` starts
-// a slide (its text becomes the title); bullets, paragraphs and tables below
-// it fill the slide body; --- forces a new untitled slide.
 func pptxCreate(path, content string) error {
 	type slide struct {
 		title  string
@@ -134,7 +122,6 @@ func pptxCreate(path, content string) error {
 	return writePackage(path, parts)
 }
 
-// pptxReplace replaces find with replace inside slide text nodes.
 func pptxReplace(path, find, replace string) (int, error) {
 	if find == "" {
 		return 0, fmt.Errorf("office: find text is required")
@@ -174,7 +161,7 @@ func slideXML(title string, blocks []string) string {
 	nextID := 2
 	shapes := textboxXML(nextID, 457200, 274638, 8229600, 914400, escapeXML(title), 3200, true)
 	for i, block := range blocks {
-		// Stack body text boxes below the title; roughly 1.3 lines per block.
+
 		nextID++
 		y := 1188720 + int64(i)*1362075
 		shapes += textboxXML(nextID, 457200, y, 8229600, 1270000, escapeXML(block), 1600, false)
@@ -205,8 +192,6 @@ func slideRelsXML() string {
 		`</Relationships>`
 }
 
-// pptxSkeleton returns the fixed parts of a minimal deck; slide overrides are
-// appended into [Content_Types].xml by pptxCreate.
 func pptxSkeleton(slideCount int) map[string]string {
 	slideIDs := strings.Builder{}
 	for i := 1; i <= slideCount; i++ {

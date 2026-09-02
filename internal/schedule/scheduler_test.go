@@ -13,12 +13,6 @@ import (
 	"time"
 )
 
-// scheduler_test.go -- role: behavioural proofs for the runner: firing
-// semantics, the unattended-mark-before-send order, duplicate and interval
-// guards across restarts, failure policy, and SSE outcome bookkeeping.
-
-// fakeRuntime records every seam call in order and lets each test script the
-// behaviour of the desktop-side functions.
 type fakeRuntime struct {
 	mu         sync.Mutex
 	calls      []string
@@ -27,7 +21,7 @@ type fakeRuntime struct {
 	sendErr    error
 	preflight  error
 	sessionSeq int
-	// sentPrompts maps session id -> prompt for assertions.
+
 	sentPrompts map[string]string
 }
 
@@ -81,9 +75,7 @@ func newTestScheduler(t *testing.T, rt Runtime, now time.Time) *Scheduler {
 	path := filepath.Join(t.TempDir(), FileName)
 	s := New(path, rt, slog.New(slog.DiscardHandler))
 	s.now = func() time.Time { return now }
-	// Direct evaluate calls below model an already-running scheduler without
-	// paying for a ticker goroutine in every unit test. Start-based tests reset
-	// this flag before exercising the real lifecycle.
+
 	s.started = true
 	return s
 }
@@ -124,7 +116,7 @@ func TestFireMarksUnattendedBeforeSend(t *testing.T) {
 			t.Fatalf("call %d = %q, want %q (full: %v)", i, got[i], want[i], got)
 		}
 	}
-	// Bookkeeping is persisted at claim time so it survives restarts.
+
 	stored := loadStored(t, s)
 	job := stored.Jobs[0]
 	if job.LastRun == nil {
@@ -166,7 +158,7 @@ func TestFailedMarkAbortsSend(t *testing.T) {
 	if !strings.Contains(job.LastOutcome, "roster write failed") {
 		t.Fatalf("outcome must record the failure reason, got %q", job.LastOutcome)
 	}
-	// The interval claim is rolled back so the policy can retry the firing.
+
 	if job.LastRun != nil {
 		t.Fatal("failed launch must roll back the last-run claim")
 	}
@@ -193,8 +185,7 @@ func TestFailedSendCountsFailure(t *testing.T) {
 
 func TestClaimPersistenceFailureAbortsBeforeNetwork(t *testing.T) {
 	rt := &fakeRuntime{}
-	// An existing directory cannot be replaced by schedule.json, forcing the
-	// claim save to fail without relying on platform-specific permissions.
+
 	s := New(t.TempDir(), Runtime{
 		CreateSession:  rt.CreateSession,
 		MarkUnattended: rt.MarkUnattended,
@@ -292,7 +283,7 @@ func TestSameJobNeverFiresConcurrently(t *testing.T) {
 	s.engineReady = true
 
 	s.evaluate(context.Background())
-	// The previous run has not completed; the interval has elapsed anyway.
+
 	s.evaluate(context.Background())
 
 	sends := 0
@@ -322,7 +313,7 @@ func TestIntervalWindowBlocksRefire(t *testing.T) {
 	if !s.RecordOutcome("sess-1", "", false) {
 		t.Fatal("scheduled session was not recognized")
 	}
-	// Still inside the 10m interval: nothing may fire.
+
 	s.evaluate(context.Background())
 
 	sends := 0
@@ -353,7 +344,6 @@ func TestIntervalGuardSurvivesRestart(t *testing.T) {
 		Preflight:      (&fakeRuntime{}).Preflight,
 	}
 
-	// First host run fires the job once.
 	first := New(path, rt, slog.New(slog.DiscardHandler))
 	first.now = base2026
 	first.file = File{Jobs: []*Job{testJob()}}
@@ -361,8 +351,6 @@ func TestIntervalGuardSurvivesRestart(t *testing.T) {
 	first.evaluate(context.Background())
 	first.RecordOutcome("sess-1", "", false)
 
-	// Restart: a fresh scheduler loads the persisted last-run and must not
-	// re-fire inside the interval window.
 	secondRT := &fakeRuntime{}
 	second := New(path, Runtime{
 		CreateSession:  secondRT.CreateSession,
@@ -397,7 +385,6 @@ func TestBudgetCapsFiringsPerHour(t *testing.T) {
 	s.file = File{Jobs: []*Job{job}}
 	s.engineReady = true
 
-	// Three attempts inside one hour: the budget allows exactly one launch.
 	for i := 0; i < 3; i++ {
 		s.evaluate(context.Background())
 		s.RecordOutcome(fmt.Sprintf("sess-%d", i+1), "", false)
@@ -422,7 +409,7 @@ func TestConsecutiveLaunchFailuresDisableJob(t *testing.T) {
 		SendPrompt:     rt.SendPrompt,
 		Preflight:      rt.Preflight,
 	}, base2026())
-	s.retryDelay = 0 // let every tick retry immediately
+	s.retryDelay = 0
 	s.file = File{Jobs: []*Job{testJob()}}
 	s.engineReady = true
 
@@ -437,7 +424,7 @@ func TestConsecutiveLaunchFailuresDisableJob(t *testing.T) {
 	if !strings.Contains(job.DisabledReason, fmt.Sprintf("%d consecutive failures", defaultFailureThreshold)) {
 		t.Fatalf("disabled reason must name the threshold, got %q", job.DisabledReason)
 	}
-	// A disabled job never fires again on its own.
+
 	rt.createErr = nil
 	s.evaluate(context.Background())
 	for _, call := range rt.callNames() {
@@ -445,7 +432,7 @@ func TestConsecutiveLaunchFailuresDisableJob(t *testing.T) {
 			t.Fatalf("disabled job fired again: %v", rt.callNames())
 		}
 	}
-	// The persisted state carries the disablement across restarts.
+
 	stored := loadStored(t, s)
 	if stored.Jobs[0].Enabled || stored.Jobs[0].DisabledReason == "" {
 		t.Fatalf("disablement not persisted: %+v", stored.Jobs[0])
@@ -463,7 +450,6 @@ func TestRunOutcomesFromSSE(t *testing.T) {
 	s.file = File{Jobs: []*Job{testJob()}}
 	s.engineReady = true
 
-	// Run 1 fails inside the engine; the outcome arrives via run_complete.
 	s.evaluate(context.Background())
 	s.RecordOutcome("sess-1", "model overloaded", false)
 	job := s.file.Jobs[0]
@@ -474,8 +460,6 @@ func TestRunOutcomesFromSSE(t *testing.T) {
 		t.Fatal("outcome must clear the in-flight entry")
 	}
 
-	// Run 2 succeeds and resets the failure streak. The clock advances past
-	// the 10m interval so the job is due again.
 	later := base2026().Add(11 * time.Minute)
 	s.now = func() time.Time { return later }
 	s.evaluate(context.Background())
@@ -484,7 +468,6 @@ func TestRunOutcomesFromSSE(t *testing.T) {
 		t.Fatalf("successful outcome must reset failures: %+v", job)
 	}
 
-	// Outcomes for unknown sessions are ignored, never fatal.
 	s.RecordOutcome("someone-elses-session", "boom", false)
 }
 
@@ -497,15 +480,13 @@ func TestRunErrorsDisableAfterThreshold(t *testing.T) {
 		Preflight:      rt.Preflight,
 	}, base2026())
 	job := testJob()
-	// Raise the budget so the failure threshold, not the budget, is what
-	// this test exercises.
+
 	job.HourlyBudget = defaultFailureThreshold + 1
 	s.file = File{Jobs: []*Job{job}}
 	s.engineReady = true
 
 	for i := 0; i < defaultFailureThreshold; i++ {
-		// Advance past the interval each round: the run launched, so the
-		// claim stands and the next firing needs a fresh window.
+
 		tick := base2026().Add(time.Duration(i+1) * 11 * time.Minute)
 		s.now = func() time.Time { return tick }
 		s.evaluate(context.Background())
@@ -525,7 +506,6 @@ func TestEngineNotReadyDefersWithoutFailures(t *testing.T) {
 		Preflight:      rt.Preflight,
 	}, base2026())
 	s.file = File{Jobs: []*Job{testJob()}}
-	// engineReady stays false.
 
 	s.evaluate(context.Background())
 
@@ -536,7 +516,6 @@ func TestEngineNotReadyDefersWithoutFailures(t *testing.T) {
 		t.Fatalf("engine downtime must not count against the job: %+v", job)
 	}
 
-	// Readiness is pushed (SetEngineReady), and the overdue job fires then.
 	if err := SaveFile(s.path, &s.file, base2026()); err != nil {
 		t.Fatal(err)
 	}

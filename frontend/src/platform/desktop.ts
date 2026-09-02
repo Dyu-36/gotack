@@ -1,6 +1,3 @@
-// desktop.ts -- role: the only path from UI to host. Every window.go call and
-// every host event subscription goes through this module. Method names mirror
-// docs/contracts/wails-bindings.md.
 
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
@@ -16,8 +13,7 @@ export type EngineInfo = {
 export type WorkspaceInfo = { path: string; workspace_id: string; is_default: boolean }
 export type SessionInfo = { id: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
 export type AttachmentInfo = { file_name: string; mime_type: string; size: number; content?: string }
-// An upload sends base64 `content`; a file the host picked, received through an
-// OS drop or expanded from an @[path] tag sends `path` and no body at all.
+
 export type PromptAttachment = { file_name: string; mime_type?: string; content?: string; path?: string }
 export type PromptFilePick = { file_name: string; mime_type: string; size: number; path: string }
 export type AttachmentLimitsInfo = { max_bytes: number; max_derived_lines: number; max_derived_bytes: number }
@@ -94,11 +90,7 @@ export type ProviderUsageInfo = {
   updated_at: number
   unavailable_reason?: string
 }
-// Mirrors Go SettingsInfo in bind_config.go. `autostart_engine` and
 
-// `small_model` were removed on both sides: the host always starts the engine
-// during OnStartup and always pins Crush's small-model slot to `model`, so
-// sending them was a silent no-op.
 export type SettingsInfo = {
   theme: string
   provider: string

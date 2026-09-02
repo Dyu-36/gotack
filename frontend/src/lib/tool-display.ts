@@ -25,7 +25,7 @@ function safeParseJson(raw?: string): Record<string, unknown> | null {
       return parsed as Record<string, unknown>
     }
   } catch {
-    // Malformed JSON (possibly partial/streaming)
+
   }
   return null
 }
@@ -97,7 +97,6 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
     category = 'mcp'
   }
 
-  // Fallback detail if not found from JSON
   if (!detail && rawInput) {
     const trimmed = rawInput.trim()
     if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
@@ -105,7 +104,6 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
     }
   }
 
-  // Format action labels
   let actionLabel = ''
   switch (category) {
     case 'terminal':
@@ -131,14 +129,11 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
       break
   }
 
-  // Nicely format params for inspection in expanded body
   let formattedParams = rawInput?.trim() ?? ''
   if (parsed) {
     try {
       formattedParams = JSON.stringify(parsed, null, 2)
-    } catch {
-      // keep raw
-    }
+    } catch {}
   }
 
   return {
@@ -173,4 +168,3 @@ export function formatToolGroupSummary(tools: readonly { toolName?: string }[]):
   }
   return countStr
 }
-

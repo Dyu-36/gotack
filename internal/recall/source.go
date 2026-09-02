@@ -12,24 +12,18 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// engineDBFile is the engine's SQLite database name inside its data dir.
 const engineDBFile = "crush.db"
 
-// Required columns per table. A missing table or required column is a schema
-// mismatch; an empty result set would hide a broken engine pin bump.
 var (
 	requiredSessionColumns = []string{"id", "updated_at"}
 	requiredMessageColumns = []string{"id", "session_id", "parts", "updated_at"}
 )
 
-// Optional columns: when one disappears in a Crush upgrade the ingestion
-// degrades (logs and substitutes a neutral value) instead of failing.
 var (
 	optionalSessionColumns = []string{"title", "parent_session_id"}
 	optionalMessageColumns = []string{"role", "created_at", "is_summary_message"}
 )
 
-// SourceSession is one session row read from crush.db.
 type SourceSession struct {
 	ID              string
 	ParentSessionID string
@@ -37,7 +31,6 @@ type SourceSession struct {
 	UpdatedAt       int64
 }
 
-// SourceMessage is one message row read from crush.db.
 type SourceMessage struct {
 	ID        string
 	SessionID string
@@ -48,35 +41,23 @@ type SourceMessage struct {
 	UpdatedAt int64
 }
 
-// sourceSchema records which columns actually exist so queries select
-// explicitly present columns only. Crush migrations add columns over time
-// (provider, is_summary_message, todos), and a future one may rename or drop
-// others; SELECT * would break at runtime instead of degrading.
 type sourceSchema struct {
 	sessionColumns map[string]bool
 	messageColumns map[string]bool
-	// degraded holds human-readable notes about missing optional columns.
+
 	degraded []string
 }
 
 func (s sourceSchema) sessionHas(column string) bool { return s.sessionColumns[column] }
 func (s sourceSchema) messageHas(column string) bool { return s.messageColumns[column] }
 
-// Source is a strictly read-only view of the engine's crush.db.
 type Source struct {
 	db     *sql.DB
 	schema sourceSchema
 }
 
-// Degraded returns notes about optional columns missing from the engine
-// schema. Callers log these so drift is visible instead of silent.
 func (s *Source) Degraded() []string { return s.schema.degraded }
 
-// openSource opens {dataDir}/crush.db strictly read-only. The DSN mirrors
-// Crush's own openDBReadOnly (internal/db/connect_modernc.go): mode=ro plus
-// _txlock=immediate, which upstream proves safe against a running WAL-mode
-// engine. Columns are probed before the Source is returned, so schema drift
-// is detected at open time rather than mid-query.
 func openSource(ctx context.Context, dataDir string) (*Source, error) {
 	dbPath := filepath.Join(dataDir, engineDBFile)
 	if _, err := os.Stat(dbPath); err != nil {
@@ -95,8 +76,7 @@ func openSource(ctx context.Context, dataDir string) (*Source, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open engine database read-only: %w", err)
 	}
-	// A single connection keeps the read-only probe cheap and avoids pooling
-	// handles against a database another process owns.
+
 	db.SetMaxOpenConns(1)
 
 	schema, err := probeSchema(ctx, db)
@@ -111,14 +91,10 @@ func openSource(ctx context.Context, dataDir string) (*Source, error) {
 	return &Source{db: db, schema: schema}, nil
 }
 
-// Close releases the read-only database handle.
 func (s *Source) Close() error {
 	return s.db.Close()
 }
 
-// probeSchema reads PRAGMA table_info for the two depended-on tables. A
-// missing table or required column wraps ErrSchemaMismatch; a missing
-// optional column appends a degradation note.
 func probeSchema(ctx context.Context, db *sql.DB) (sourceSchema, error) {
 	var schema sourceSchema
 
@@ -165,11 +141,8 @@ func probeSchema(ctx context.Context, db *sql.DB) (sourceSchema, error) {
 	return schema, nil
 }
 
-// tableColumns returns the column names of table, or nil when the table does
-// not exist (PRAGMA table_info yields zero rows for unknown tables).
 func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
-	// The table argument is a package constant, never user input, so it is
-	// safe to interpolate; PRAGMA does not accept bound identifiers.
+
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
 	if err != nil {
 		return nil, fmt.Errorf("probe table %q: %w", table, err)
@@ -200,9 +173,6 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]boo
 	return columns, nil
 }
 
-// SessionsSince returns sessions with updated_at >= since. The inclusive
-// bound makes a repeated sync idempotent for rows sharing a watermark value;
-// re-ingestion is an upsert.
 func (s *Source) SessionsSince(ctx context.Context, since int64) ([]SourceSession, error) {
 	titleExpr := "''"
 	if s.schema.sessionHas("title") {
@@ -233,9 +203,6 @@ func (s *Source) SessionsSince(ctx context.Context, since int64) ([]SourceSessio
 	return sessions, rows.Err()
 }
 
-// MessagesSince returns messages with updated_at >= since, selecting only
-// columns proven present by probeSchema. Missing optional columns fall back
-// to neutral expressions so the row shape stays stable.
 func (s *Source) MessagesSince(ctx context.Context, since int64) ([]SourceMessage, error) {
 	roleExpr := "''"
 	if s.schema.messageHas("role") {
@@ -274,14 +241,10 @@ func (s *Source) MessagesSince(ctx context.Context, since int64) ([]SourceMessag
 	return messages, rows.Err()
 }
 
-// SessionIDs returns the complete source-side identity set used to reconcile
-// deletions from the derived index.
 func (s *Source) SessionIDs(ctx context.Context) ([]string, error) {
 	return sourceIDs(ctx, s.db, "sessions")
 }
 
-// MessageIDs returns the complete source-side identity set used to reconcile
-// deletions from the derived index.
 func (s *Source) MessageIDs(ctx context.Context) ([]string, error) {
 	return sourceIDs(ctx, s.db, "messages")
 }

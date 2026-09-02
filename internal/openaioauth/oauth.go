@@ -17,24 +17,17 @@ import (
 )
 
 const (
-	// DefaultClientID is the public OAuth client ID registered for the OpenAI Codex CLI,
-	// widely used in tools such as pi.dev, openclaw, and roo-code for ChatGPT account authentication.
 	DefaultClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
-	// DefaultAuthURL is OpenAI's OAuth authorization endpoint.
 	DefaultAuthURL = "https://auth.openai.com/oauth/authorize"
 
-	// DefaultTokenURL is OpenAI's OAuth token endpoint.
 	DefaultTokenURL = "https://auth.openai.com/oauth/token"
 
-	// DefaultRedirectPort is the standard localhost callback port.
 	DefaultRedirectPort = 1455
 
-	// DefaultScopes requested for ChatGPT access.
 	DefaultScopes = "openid profile email offline_access"
 )
 
-// Token represents the OAuth2 token payload returned by OpenAI.
 type Token struct {
 	AccessToken     string `json:"access_token"`
 	RefreshToken    string `json:"refresh_token,omitempty"`
@@ -51,7 +44,6 @@ type Token struct {
 	ChatGPTPlanType string `json:"chatgpt_plan_type,omitempty"`
 }
 
-// UserEmail returns the resolved email address from AccountEmail or Email.
 func (t *Token) UserEmail() string {
 	if t.AccountEmail != "" {
 		return t.AccountEmail
@@ -59,7 +51,6 @@ func (t *Token) UserEmail() string {
 	return t.Email
 }
 
-// UserPlan returns the resolved plan type from AccountPlan or ChatGPTPlanType.
 func (t *Token) UserPlan() string {
 	if t.AccountPlan != "" {
 		return t.AccountPlan
@@ -67,7 +58,6 @@ func (t *Token) UserPlan() string {
 	return t.ChatGPTPlanType
 }
 
-// GeneratePKCE creates a cryptographically random code verifier and its S256 code challenge (RFC 7636).
 func GeneratePKCE() (verifier, challenge string, err error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -79,7 +69,6 @@ func GeneratePKCE() (verifier, challenge string, err error) {
 	return verifier, challenge, nil
 }
 
-// GenerateState creates a random state string to mitigate CSRF attacks during OAuth dance.
 func GenerateState() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -88,8 +77,6 @@ func GenerateState() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// IDTokenClaims is the subset of Codex OAuth identity metadata needed to route
-// subscription-backed requests to the right ChatGPT account.
 type IDTokenClaims struct {
 	Email          string
 	Plan           string
@@ -98,9 +85,6 @@ type IDTokenClaims struct {
 	AccountFedRAMP bool
 }
 
-// ParseIDTokenMetadata extracts ChatGPT account metadata from the unencrypted
-// JWT payload. Signature validation remains the authorization server's job;
-// this metadata is never treated as proof of authentication by itself.
 func ParseIDTokenMetadata(idToken string) IDTokenClaims {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 || parts[1] == "" {
@@ -122,7 +106,7 @@ func ParseIDTokenMetadata(idToken string) IDTokenClaims {
 			AccountID      string `json:"chatgpt_account_id"`
 			AccountFedRAMP bool   `json:"chatgpt_account_is_fedramp"`
 		} `json:"https://api.openai.com/auth"`
-		// Retain compatibility with older fixtures/token responses.
+
 		PlanType string `json:"chatgpt_plan_type"`
 		Plan     string `json:"plan"`
 	}
@@ -151,13 +135,11 @@ func ParseIDTokenMetadata(idToken string) IDTokenClaims {
 	return metadata
 }
 
-// ParseIDTokenClaims is retained for callers that only display identity data.
 func ParseIDTokenClaims(idToken string) (email, plan string) {
 	metadata := ParseIDTokenMetadata(idToken)
 	return metadata.Email, metadata.Plan
 }
 
-// Options configures the OAuth flow parameters.
 type Options struct {
 	ClientID     string
 	AuthURL      string
@@ -168,7 +150,6 @@ type Options struct {
 	LoginTimeout time.Duration
 }
 
-// DefaultOptions returns standard configuration for ChatGPT OAuth.
 func DefaultOptions() Options {
 	return Options{
 		ClientID:     DefaultClientID,
@@ -180,8 +161,6 @@ func DefaultOptions() Options {
 	}
 }
 
-// StartLogin starts a local callback listener, opens the browser for ChatGPT OAuth login,
-// waits for the authorization response, and exchanges the authorization code for tokens.
 func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 	if opts.ClientID == "" {
 		opts.ClientID = DefaultClientID
@@ -222,7 +201,6 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 	redirectURI := fmt.Sprintf("http://localhost:%d/auth/callback", actualPort)
 
-	// Construct authorization URL
 	vals := url.Values{}
 	vals.Set("client_id", opts.ClientID)
 	vals.Set("response_type", "code")
@@ -310,7 +288,6 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 	return ExchangeCode(ctx, opts, authCode, verifier, redirectURI)
 }
 
-// ExchangeCode exchanges an authorization code for an OAuth Token.
 func ExchangeCode(ctx context.Context, opts Options, code, verifier, redirectURI string) (*Token, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")

@@ -12,8 +12,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-// memoryAPI is a fake Crush transport that records every config write and
-// removal, so the memory registration flow can be asserted end to end.
 type memoryAPI struct {
 	t           *testing.T
 	setKeys     []string
@@ -54,8 +52,6 @@ func (f *memoryAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 }
 
-// newMemoryTestApp wires an App over the fake transport with a live-looking
-// engine connection, the way office_seed_test.go does it.
 func newMemoryTestApp(t *testing.T, fake *memoryAPI) *App {
 	t.Helper()
 	api := crushapi.NewClient(&http.Client{Transport: fake})
@@ -126,8 +122,6 @@ func TestRegisterMemoryToolsRemovesKeyWhenBinaryMissing(t *testing.T) {
 	}
 }
 
-// TestMemoryEntryShape pins the value builder against drift: the engine
-// launches the server from exactly these three fields.
 func TestMemoryEntryShape(t *testing.T) {
 	entry := memoryEntry("/x/memory.exe")
 	if entry["command"] != "/x/memory.exe" || entry["type"] != "stdio" || entry["timeout"] != 30 {

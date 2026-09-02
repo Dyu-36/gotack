@@ -5,13 +5,11 @@ import { createEngineState } from './live-conversation-engine.svelte'
 import { createMessageState } from './live-conversation-messages.svelte'
 import { createPermissionState } from './live-conversation-permissions.svelte'
 
-
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const DEFAULT_WORKSPACE_LABEL = 'C:\\'
 
 export function createLiveConversationState() {
-  // Top-level state owns the shared reactive surface. Sub-states get mutable
-  // references into these so writes stay consistent across the whole module.
+
   let conversations = $state<Conversation[]>([])
   let activeId = $state('')
   let input = $state('')
@@ -31,7 +29,6 @@ export function createLiveConversationState() {
   let apiKey = $state('')
   let customUrl = $state('')
 
-  // Shared helpers consumed by the sub-state factories.
   const errorText = (cause: unknown) => cause instanceof Error ? cause.message : String(cause)
   const reportError = (cause: unknown, prefix = '') => {
     const message = `${prefix}${prefix ? ': ' : ''}${errorText(cause)}`
@@ -54,8 +51,6 @@ export function createLiveConversationState() {
     if (id) localStorage.setItem(`${SESSION_MEMORY_PREFIX}${workspace}`, id)
   }
 
-  // Compose sub-states. Order matters: messages first because the engine
-  // needs ensureWorkspace from it.
   const messages = createMessageState({
     conversations: { get value() { return conversations }, set value(v) { conversations = v } },
     activeId: { get value() { return activeId }, set value(v) { activeId = v } },
@@ -88,8 +83,7 @@ export function createLiveConversationState() {
     reportError, clearError, updateConversation,
     ensureWorkspace: () => messages.ensureWorkspace(),
     reloadMessages: (id: string) => messages.loadMessages(id),
-    // prompt:files arrives when the OS drops files on the window; the host has
-    // already resolved their paths, so the composer only needs the chips.
+
     attachPaths: (picks) => messages.attachPaths(picks),
   })
 
@@ -131,8 +125,7 @@ export function createLiveConversationState() {
 
     setInput: (v: string) => { input = v },
     attachFiles: (files: File[]) => messages.attachFiles(files),
-    // Only the desktop host can resolve real paths, so the browser preview keeps
-    // the plain <input type="file"> fallback.
+
     get hasFilePicker() { return desktop.available() },
     pickFiles: () => messages.pickFiles(),
     removeAttachment: (id: string) => messages.removeAttachment(id),

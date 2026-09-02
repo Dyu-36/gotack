@@ -1,17 +1,9 @@
-// Package office reads, creates and edits Word, Excel and PowerPoint files.
-// It backs the gotack-office MCP server so the agent can work with office
-// documents through typed tools instead of ad-hoc shell scripting.
 package office
 
 import (
 	"strings"
 )
 
-// markdown.go -- role: the shared document source model. office_create and
-// office_edit accept one small markdown subset so a single grammar drives
-// Word, Excel and PowerPoint generation.
-
-// Block kinds produced by ParseBlocks.
 const (
 	kindHeading   = "heading"
 	kindParagraph = "paragraph"
@@ -21,24 +13,19 @@ const (
 	kindDivider   = "divider"
 )
 
-// Block is one block-level element of the source document.
 type Block struct {
 	Kind  string
-	Level int      // heading level 1..3
-	Text  string   // heading, paragraph and list item text
-	Rows  []string // table rows in TSV form
+	Level int
+	Text  string
+	Rows  []string
 }
 
-// Span is an inline run with simple emphasis flags.
 type Span struct {
 	Text   string
 	Bold   bool
 	Italic bool
 }
 
-// ParseBlocks splits source text into blocks: # headings, - or * bullets,
-// 1. numbered items, pipe tables and blank-line-separated paragraphs. ---
-// yields a divider. Unrecognized line prefixes become paragraphs.
 func ParseBlocks(src string) []Block {
 	var blocks []Block
 	flush := func(lines []string) {
@@ -69,7 +56,7 @@ func ParseBlocks(src string) []Block {
 			paragraph = nil
 			blocks = append(blocks, Block{Kind: kindDivider})
 		case strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|"):
-			// A separator row of dashes is structural, not content.
+
 			if isTableSeparator(trimmed) {
 				continue
 			}
@@ -116,8 +103,6 @@ func ParseBlocks(src string) []Block {
 	return blocks
 }
 
-// Inline splits text into bold/italic runs. **bold** and *italic* are
-// supported; markers never nest.
 func Inline(text string) []Span {
 	var spans []Span
 	var plain strings.Builder

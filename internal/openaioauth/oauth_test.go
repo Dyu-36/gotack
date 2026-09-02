@@ -82,10 +82,10 @@ func TestOAuthLogin(t *testing.T) {
 
 	opts := DefaultOptions()
 	opts.TokenURL = tokenServer.URL
-	opts.Port = 14560 // Use a distinct port for testing
+	opts.Port = 14560
 	opts.LoginTimeout = 5 * time.Second
 	opts.OpenBrowser = func(authURL string) error {
-		// Simulate browser redirect back to callback
+
 		u, err := url.Parse(authURL)
 		if err != nil {
 			return err

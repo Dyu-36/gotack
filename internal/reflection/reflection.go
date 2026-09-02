@@ -14,8 +14,7 @@ const (
 	MemoryInterval      = 10
 	SkillInterval       = 10
 	MaxReviewIterations = 16
-	// MaxReviewInputTokens is Hermes' aggregate uncached input-token ceiling
-	// for one detached background review. Ordinary user turns never use it.
+
 	MaxReviewInputTokens int64 = 600_000
 	defaultFireTimeout         = 30 * time.Second
 )
@@ -27,16 +26,12 @@ type Review struct {
 
 func (r Review) Any() bool { return r.Memory || r.Skills }
 
-// Runtime preserves Crush as the sole agent-turn executor. The tracker owns
-// only Hermes cadence and detached review lifecycle.
 type Runtime struct {
 	LoadTranscript func(context.Context, string) ([]Message, error)
 	CreateSession  func(context.Context, string) (string, error)
 	MarkReview     func(context.Context, string) error
 	SendPrompt     func(context.Context, string, string) (string, error)
-	// SendPromptWithBudget is used only for the detached review. Keeping this
-	// callback separate prevents the review ceiling from leaking into normal
-	// foreground turns.
+
 	SendPromptWithBudget func(context.Context, string, string, int64) (string, error)
 	CancelSession        func(context.Context, string) error
 	CleanupSession       func(context.Context, string) error
@@ -92,8 +87,6 @@ func (t *Tracker) NeedsHydration(sessionID string) bool {
 	return state == nil || !state.hydrated
 }
 
-// Hydrate restores only the memory cadence, which Hermes derives from stored
-// user turns. Skill cadence intentionally remains process-local.
 func (t *Tracker) Hydrate(sessionID string, priorUserTurns int) {
 	if sessionID == "" {
 		return
@@ -134,9 +127,6 @@ func (t *Tracker) UserTurnAccepted(sessionID string) {
 	}
 }
 
-// AssistantIteration counts each assistant message once. Repeated SSE
-// snapshots may reveal tool metadata later, so flags can upgrade without a
-// second increment.
 func (t *Tracker) AssistantIteration(sessionID, messageID string, hasTools bool) bool {
 	if sessionID == "" || messageID == "" {
 		return false
@@ -170,10 +160,6 @@ func (t *Tracker) AssistantIteration(sessionID, messageID string, hasTools bool)
 	return false
 }
 
-// LearningToolExecuted mirrors Hermes' post-guard cadence reset. A memory
-// write restarts the user-turn counter without clearing a review already due
-// for this turn; skill_manage restarts the model-iteration counter. Tool-call
-// IDs make repeated SSE snapshots idempotent.
 func (t *Tracker) LearningToolExecuted(sessionID, toolCallID, toolName string) {
 	if sessionID == "" || toolCallID == "" {
 		return
@@ -201,8 +187,6 @@ func (t *Tracker) LearningToolExecuted(sessionID, toolCallID, toolName string) {
 	}
 }
 
-// RunDone consumes cadence at the post-final gate. Failed, cancelled, or
-// empty-final runs do not review, and due state never leaks to a later turn.
 func (t *Tracker) RunDone(sessionID, finalText, runErr string, cancelled bool) (Review, string) {
 	if sessionID == "" {
 		return Review{}, ""
@@ -330,9 +314,6 @@ func (t *Tracker) CancelReview(ctx context.Context) error {
 	return t.rt.CancelSession(ctx, reviewSessionID)
 }
 
-// Stop cancels the launch/review and releases its claim during host shutdown.
-// The returned session id lets the host remove the detached Crush session even
-// though its run_complete stream is about to be disconnected.
 func (t *Tracker) Stop(ctx context.Context) (string, error) {
 	t.mu.Lock()
 	reviewSessionID := t.reviewSessionID

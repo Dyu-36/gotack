@@ -15,8 +15,6 @@
 
     void (async () => {
       try {
-        // Keep xterm out of the initial JS bundle. This component itself is
-        // rendered only after the user opens the terminal panel.
         const [{ Terminal }, { FitAddon }] = await Promise.all([
           import('@xterm/xterm'),
           import('@xterm/addon-fit'),

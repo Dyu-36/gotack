@@ -10,15 +10,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/zalo"
 )
 
-// bind_zalo.go -- role: Wails-bound API for the Zalo connection.
-//
-// The desktop host persists the channel state in <configDir>/zalo.json; the
-// token is write-only across the Wails boundary. The runtime API surface
-// mirrors the Stack one: pair a chat via /pair, send a file, regenerate the
-// pairing code, and revoke a chat on demand.
-
-// ZaloConfigInfo is the stored channel state returned to the UI; HasToken
-// hides the secret instead of echoing it.
 type ZaloConfigInfo struct {
 	Enabled     bool     `json:"enabled"`
 	PairedChats []string `json:"paired_chats"`
@@ -29,21 +20,16 @@ type ZaloConfigInfo struct {
 	Running     bool     `json:"running"`
 }
 
-// ZaloConfigUpdate is the editable payload: an empty token keeps the stored
-// one so the user can change settings without re-entering the secret.
 type ZaloConfigUpdate struct {
 	Enabled bool   `json:"enabled"`
 	Token   string `json:"token,omitempty"`
 }
 
-// ZaloFileRequest sends a local file to a paired chat (or every paired chat
-// when ChatID is empty).
 type ZaloFileRequest struct {
 	Path   string `json:"path"`
 	ChatID string `json:"chat_id,omitempty"`
 }
 
-// ZaloManagerStatus is the live bridge snapshot returned to the UI.
 type ZaloManagerStatus = zalo.Status
 
 func (a *App) snapshotZaloConfig() ZaloConfigInfo {
@@ -62,13 +48,10 @@ func (a *App) snapshotZaloConfig() ZaloConfigInfo {
 	}
 }
 
-// GetZaloConfig returns the current connection settings.
 func (a *App) GetZaloConfig() ZaloConfigInfo {
 	return a.snapshotZaloConfig()
 }
 
-// SaveZaloConfig persists the channel: validates the token, swaps the running
-// bridge, and remembers the choice in the desktop config.
 func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (ZaloManagerStatus, error) {
 	if a.zalo == nil {
 		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
@@ -102,7 +85,6 @@ func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (ZaloManagerStatus, error)
 	return a.zalo.Status(), nil
 }
 
-// TestZaloConnection validates the stored token and refreshes the bot name.
 func (a *App) TestZaloConnection() (ZaloManagerStatus, error) {
 	if a.zalo == nil {
 		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
@@ -112,7 +94,6 @@ func (a *App) TestZaloConnection() (ZaloManagerStatus, error) {
 	return a.zalo.TestConnection(ctx)
 }
 
-// RemoveZaloToken disconnects the bot and deletes all channel state.
 func (a *App) RemoveZaloToken() (ZaloManagerStatus, error) {
 	if a.zalo == nil {
 		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
@@ -123,16 +104,15 @@ func (a *App) RemoveZaloToken() (ZaloManagerStatus, error) {
 	}
 	if a.cfg != nil {
 		a.cfg.Zalo.Enabled = false
-		//lint:ignore SA1019 clearing the deprecated legacy token field on disconnect.
+
 		a.cfg.Zalo.Token = ""
-		//lint:ignore SA1019 clearing the deprecated legacy allow-list field on disconnect.
+
 		a.cfg.Zalo.AllowedChats = nil
 		_ = appconfig.Save(a.cfg)
 	}
 	return status, nil
 }
 
-// RegenerateZaloPairingCode rotates the displayed pairing code.
 func (a *App) RegenerateZaloPairingCode() (ZaloManagerStatus, error) {
 	if a.zalo == nil {
 		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
@@ -140,7 +120,6 @@ func (a *App) RegenerateZaloPairingCode() (ZaloManagerStatus, error) {
 	return a.zalo.RegeneratePairingCode()
 }
 
-// UnpairZaloChat revokes a single paired chat and forgets its session.
 func (a *App) UnpairZaloChat(chatID string) (ZaloManagerStatus, error) {
 	if a.zalo == nil {
 		return ZaloManagerStatus{}, errors.New("zalo manager not initialised")
@@ -148,7 +127,6 @@ func (a *App) UnpairZaloChat(chatID string) (ZaloManagerStatus, error) {
 	return a.zalo.Unpair(chatID)
 }
 
-// ZaloStatus exposes the live bridge state for the UI.
 func (a *App) ZaloStatus() ZaloManagerStatus {
 	if a.zalo == nil {
 		return ZaloManagerStatus{}
@@ -156,7 +134,6 @@ func (a *App) ZaloStatus() ZaloManagerStatus {
 	return a.zalo.Status()
 }
 
-// SendZaloFile pushes one local file to a paired chat from the desktop shell.
 func (a *App) SendZaloFile(req ZaloFileRequest) (string, error) {
 	if a.zalo == nil {
 		return "", errors.New("zalo manager not initialised")

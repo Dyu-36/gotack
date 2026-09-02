@@ -1,4 +1,3 @@
-// client_test.go -- role: focused tests for HTTP transport behavior.
 package crushapi
 
 import (
