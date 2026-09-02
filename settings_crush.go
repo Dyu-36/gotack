@@ -138,7 +138,7 @@ func needWorkspace(apiKey, reason string) error {
 
 func crushReasoning(value string) (effort string, think bool) {
 	switch v := strings.ToLower(strings.TrimSpace(value)); v {
-	case "low", "medium", "high", "xhigh", "max":
+	case "minimal", "low", "medium", "high", "xhigh", "max":
 		return v, true
 	default:
 		return "", false
