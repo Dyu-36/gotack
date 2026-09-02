@@ -62,7 +62,6 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 }
 
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
-
 	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
 		return WorkspaceInfo{}, err
 	}
@@ -132,6 +131,7 @@ func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, er
 		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
 			return WorkspaceInfo{}, err
 		}
+		a.rebindWorkspaceRuntime(desc.WorkspaceID)
 		return WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: true}, nil
 	}
 	desc, err := svc.ws.OpenWithDataDir(a.ctx, defaultWorkspacePath(), defaultWorkspaceDataDir())
