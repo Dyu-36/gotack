@@ -117,6 +117,7 @@ func (a *App) startup(ctx context.Context) {
 		Workspace: a.workspacePath,
 	}, a.log)
 
+	//lint:ignore SA1019 legacy Zalo config migration remains supported until Gotack v1.0.
 	if err := a.zalo.ImportLegacy(cfg.Zalo.Token, cfg.Zalo.AllowedChats); err != nil && a.log != nil {
 		a.log.Warn("zalo legacy import failed", "err", err)
 	}
