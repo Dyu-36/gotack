@@ -78,7 +78,7 @@ func TestPreferredModelPairDoesNotMaskNon404Failures(t *testing.T) {
 	requests := 0
 	client := NewClient(&http.Client{Transport: configMutationRoundTripper(func(req *http.Request) (*http.Response, error) {
 		requests++
-		return compatHTTPResponse(req, http.StatusInternalServerError, `{"message":"write failed"}`), nil
+		return compatHTTPResponse(req, http.StatusInternalServerError, "write failed"), nil
 	})})
 
 	err := client.SetPreferredModelPair(context.Background(), "ws-1", ConfigScopeGlobal, SelectedModel{Provider: "openai", Model: "gpt"})
