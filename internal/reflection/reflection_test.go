@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
 type fakeRuntime struct {
@@ -222,51 +223,76 @@ func TestStopCancelsAndReturnsDetachedSession(t *testing.T) {
 	}
 }
 
-func TestDigestBoundsOldTextAndKeepsRecentToolPair(t *testing.T) {
-	messages := make([]Message, 26)
-	messages[0] = Message{Role: "user", Text: strings.Repeat("u", 301)}
-	messages[1] = Message{Role: "assistant", Tools: []string{"read"}}
-	messages[2] = Message{Role: "tool", Results: []ToolResult{{Name: "read", Content: "file body"}}}
-	for i := 3; i < len(messages); i++ {
-		messages[i] = Message{Role: "user", Text: fmt.Sprintf("recent-%d", i)}
+func TestDigestKeepsOnlyLatestTwentyFourItems(t *testing.T) {
+	messages := make([]Message, digestTail+2)
+	for index := range messages {
+		messages[index] = Message{Role: "user", Text: fmt.Sprintf("message-%02d", index)}
 	}
+
 	digest := Digest(messages)
-	if strings.Contains(digest, strings.Repeat("u", 301)) ||
-		!strings.Contains(digest, strings.Repeat("u", 300)) ||
-		!strings.Contains(digest, "ASSISTANT[tools: read]") ||
-		!strings.Contains(digest, "TOOL[read]:\nfile body") {
-		t.Fatalf("digest drifted: %s", digest)
+	if strings.Contains(digest, "message-00") || strings.Contains(digest, "message-01") {
+		t.Fatalf("digest retained items older than the latest %d: %s", digestTail, digest)
+	}
+	if !strings.Contains(digest, "message-02") || !strings.Contains(digest, "message-25") {
+		t.Fatalf("digest dropped a retained boundary item: %s", digest)
+	}
+	if got := strings.Count(digest, "[USER]\n"); got != digestTail {
+		t.Fatalf("digest item count = %d, want %d", got, digestTail)
 	}
 }
 
-func TestDigestAppliesHermesToolResultBudgets(t *testing.T) {
-	large := strings.Repeat("x", maxToolResultRunes+1)
-	mcp := strings.Repeat("m", maxMCPResultRunes+1)
-	messages := []Message{
-		{Role: "assistant", Tools: []string{"read"}},
-		{Role: "tool", Results: []ToolResult{{Name: "read", Content: large}}},
-		{Role: "tool", Results: []ToolResult{{Name: "mcp_gotack-recall_session_search", Content: mcp}}},
-	}
-	digest := Digest(messages)
-	if strings.Contains(digest, large) || strings.Contains(digest, mcp) ||
-		!strings.Contains(digest, "Tool result truncated") {
-		t.Fatal("oversized tool result was not reduced to a preview")
-	}
+func TestDigestBoundsMessageAndToolPreviewsByRunes(t *testing.T) {
+	digest := Digest([]Message{
+		{Role: "user", Text: strings.Repeat("界", messagePreviewRunes+25) + "USER-END"},
+		{Role: "assistant", Text: strings.Repeat("答", messagePreviewRunes+25) + "ASSISTANT-END", Tools: []string{"read"}},
+		{Role: "tool", Results: []ToolResult{{Name: "read", Content: strings.Repeat("工", toolResultPreviewRunes+25) + "TOOL-END"}}},
+	})
 
-	tooMany := []Message{{Role: "assistant", Tools: []string{"a"}}}
-	for i := 0; i < 3; i++ {
-		tooMany = append(tooMany, Message{Role: "tool", Results: []ToolResult{{Name: "read", Content: strings.Repeat("z", 100_000)}}})
-	}
-	bounded := boundToolResults(tooMany)
-	total := 0
-	for _, message := range bounded {
-		for _, result := range message.Results {
-			total += runeLen(result.Content)
+	userPreview := digestLineAfter(t, digest, "[USER]")
+	assistantPreview := digestLineAfter(t, digest, "[ASSISTANT]")
+	toolPreview := strings.TrimPrefix(
+		digestLineWithPrefix(t, digest, "TOOL[read]: "),
+		"TOOL[read]: ",
+	)
+	for label, value := range map[string]string{
+		"user": userPreview, "assistant": assistantPreview,
+	} {
+		if got := runeLen(value); got != messagePreviewRunes {
+			t.Fatalf("%s preview runes = %d, want %d", label, got, messagePreviewRunes)
 		}
 	}
-	if total > maxTurnToolResultRunes {
-		t.Fatalf("tool turn budget = %d, want <= %d", total, maxTurnToolResultRunes)
+	if got := runeLen(toolPreview); got != toolResultPreviewRunes {
+		t.Fatalf("tool preview runes = %d, want %d", got, toolResultPreviewRunes)
 	}
+	if strings.Contains(digest, "USER-END") || strings.Contains(digest, "ASSISTANT-END") || strings.Contains(digest, "TOOL-END") {
+		t.Fatalf("digest leaked content beyond a preview boundary: %s", digest)
+	}
+	if strings.Count(digest, truncationMarker) != 3 || !utf8.ValidString(digest) {
+		t.Fatalf("digest truncation was not explicit and rune-safe: %s", digest)
+	}
+}
+
+func digestLineAfter(t *testing.T, digest, header string) string {
+	t.Helper()
+	lines := strings.Split(digest, "\n")
+	for index, line := range lines {
+		if line == header && index+1 < len(lines) {
+			return lines[index+1]
+		}
+	}
+	t.Fatalf("missing digest header %q in %s", header, digest)
+	return ""
+}
+
+func digestLineWithPrefix(t *testing.T, digest, prefix string) string {
+	t.Helper()
+	for _, line := range strings.Split(digest, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	t.Fatalf("missing digest line prefix %q in %s", prefix, digest)
+	return ""
 }
 
 func TestCombinedPromptDoesNotStopBeforeSkillOrMemoryReview(t *testing.T) {
