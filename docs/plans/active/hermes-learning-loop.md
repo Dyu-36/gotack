@@ -4,8 +4,9 @@ Date: 2026-09-02
 
 ## Status
 
-Active — implementation is present; final repository and packaged-app
-validation is still being completed before this record moves to `completed/`.
+Active — automated repository and Windows package validation are complete; one
+credentialed, interactive packaged-app smoke path remains before this record
+can move to `completed/`.
 
 ## Outcome
 
@@ -79,7 +80,8 @@ No placeholder package or file should remain for an excluded mechanism.
   24-KiB hydrated-content budget.
 - [x] Host registration: missing binaries remove their own workspace MCP keys;
   learned skills root is merged into `options.skills_paths`.
-- [ ] Final packaging, repository-wide checks, and packaged-app smoke proof.
+- [x] Automated packaging and repository-wide checks, including the Windows portable artifact.
+- [ ] Credentialed packaged-app smoke proof: accepted foreground turn, due review, guarded tool use, cleanup, learned-skill discovery, and bounded recall output.
 
 ## Adaptations to the Crush boundary
 
@@ -133,9 +135,15 @@ pnpm --dir frontend test
 pnpm --dir frontend build
 ```
 
-Also verify the packaged resources contain all four helper executables and run
-one real-app smoke path: accepted foreground turn, due review creation, guarded
-tool use, cleanup, learned skill discovery, and bounded recall output.
+Automated package proof is complete: GitHub Actions run `33583227648` built
+the Windows Wails application, pinned Crush, and the `memory`, `skills`,
+`recall`, `guard`, and `office` helpers, then assembled and uploaded the portable
+artifact. Run `33582827394` also passed `go test -race -count=1 ./...`.
+
+The remaining proof is deliberately manual and credentialed: launch the
+packaged application and exercise an accepted foreground turn, due review
+creation, guarded tool use, cleanup, learned-skill discovery, and bounded recall
+output.
 
 ## Decisions
 
@@ -155,6 +163,12 @@ tool use, cleanup, learned skill discovery, and bounded recall output.
 
 ## Result
 
-Pending final validation. Record exact commands, packaged-app evidence, and
-any remaining limitation here before moving this plan to
-`docs/plans/completed/`.
+Automated implementation, repository, race, and Windows packaging proof is
+complete on `main` source commit
+`b2cc47b7c0644c83dfa25ee5783e5ab67ae46291` through PR #10. The final PR CI
+run was `33583227648`; the separate race run was `33582827394`. All helper
+executables were built and included in the portable artifact.
+
+The plan remains active because this environment did not perform the one
+credentialed, interactive packaged-app smoke path listed above. No automated
+result is being substituted for that live proof.
