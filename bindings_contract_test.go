@@ -7,6 +7,14 @@ import (
 )
 
 func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
+	appType := reflect.TypeOf(App{})
+	for i := 0; i < appType.NumField(); i++ {
+		field := appType.Field(i)
+		if field.IsExported() {
+			t.Errorf("App field %s is exported and would expand the Wails contract", field.Name)
+		}
+	}
+
 	expected := []string{
 		"AnswerPermission",
 		"AnswerQuestion",
