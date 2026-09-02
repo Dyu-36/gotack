@@ -277,7 +277,6 @@
             <div class="menu-pop absolute bottom-full right-0 mb-2 w-80 p-2 z-30 animate-fade-in">
               <div class="flex items-center justify-between px-1 pb-1.5 border-b border-mm-border">
                 <span class="text-2xs uppercase tracking-wider text-mm-tertiary font-bold">Switch Model</span>
-                <span class="text-3xs text-mm-tertiary">Large & small dùng chung</span>
               </div>
 
               <div class="my-1.5 px-0.5">
