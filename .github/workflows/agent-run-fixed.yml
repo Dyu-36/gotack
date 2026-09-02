@@ -35,9 +35,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Apply patch
-        run: python3 scripts/hermes_parity_patch.py
+        run: |
+          python3 scripts/hermes_parity_patch.py
+          python3 scripts/hermes_parity_followup.py
       - name: Format changed Go files
-        run: gofmt -w internal/reflection/prompt.go internal/reflection/reflection_test.go internal/skillmanage/filesystem.go internal/skillmanage/manager_test.go
+        run: gofmt -w bind_session.go internal/reflection/prompt.go internal/reflection/reflection_test.go internal/skillmanage/filesystem.go internal/skillmanage/manager_test.go
       - name: Install frontend dependencies
         run: pnpm --dir frontend install --frozen-lockfile
       - name: Prepare Wails binding generation
@@ -74,13 +76,14 @@ jobs:
         shell: bash
         run: |
           rm -rf frontend/dist frontend/wailsjs
-          rm scripts/hermes_parity_patch.py .github/workflows/agent-run-fixed.yml
+          rm scripts/hermes_parity_patch.py scripts/hermes_parity_followup.py .github/workflows/agent-run-fixed.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bind_session.go
           git add internal/reflection/prompt.go internal/reflection/reflection_test.go
           git add internal/skillmanage/filesystem.go internal/skillmanage/manager_test.go
           git add .github/workflows/ci.yml
-          git add -u scripts/hermes_parity_patch.py .github/workflows/agent-run-fixed.yml
+          git add -u scripts/hermes_parity_patch.py scripts/hermes_parity_followup.py .github/workflows/agent-run-fixed.yml
           git diff --cached --check
           git commit -m 'fix(hermes): complete detached learning-loop parity'
           git push origin HEAD:agent/hermes-learning-loop-parity
