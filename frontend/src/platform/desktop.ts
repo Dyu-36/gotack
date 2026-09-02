@@ -76,6 +76,24 @@ export type ChatGPTOAuthStatus = {
   plan?: string
   expires_at?: number
 }
+export type ProviderUsageWindow = {
+  id: string
+  name?: string
+  used_percent: number
+  remaining_percent: number
+  window_seconds?: number
+  resets_at?: number
+}
+export type ProviderUsageInfo = {
+  provider_id: string
+  provider_name: string
+  available: boolean
+  plan?: string
+  limit_reached: boolean
+  windows: ProviderUsageWindow[]
+  updated_at: number
+  unavailable_reason?: string
+}
 // Mirrors Go SettingsInfo in bind_config.go. `autostart_engine` and
 
 // `small_model` were removed on both sides: the host always starts the engine
@@ -153,6 +171,7 @@ type BackendApp = {
   GetSettings: () => Promise<SettingsInfo>
   SaveSettings: (settings: SettingsInfo) => Promise<void>
   ListProviders: () => Promise<ProviderCatalogEntry[]>
+  GetProviderUsage: (providerID: string) => Promise<ProviderUsageInfo>
   RevealProviderAPIKey: (providerID: string) => Promise<string>
   DeleteProvider: (providerID: string) => Promise<void>
   LoginChatGPTOAuth: () => Promise<ChatGPTOAuthStatus>
@@ -217,7 +236,6 @@ export const desktop = {
   zaloStatus: () => call('ZaloStatus'),
   sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
-  listProviders: () => call('ListProviders'), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
+  listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
   loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'),
 }
-

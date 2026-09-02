@@ -10,6 +10,9 @@ Vendored upstream code is used only for contract inspection and release builds. 
   or reference that file.
 - Gotack-specific engine compatibility patches live in `third_party/patches/*.patch`
   and are applied, in filename order, on top of the pin before Crush is tested or built.
+- The proactive context patch preserves Crush's existing reserve for smaller
+  models and caps the live conversation at 128,000 prompt-plus-completion tokens
+  on larger contexts before the normal summarization/requeue path runs.
 - Contract checked: REST v1 sessions, agent/cancel, agent/refresh-prompt, config/set, config/set-batch, config/remove, config/models, config/provider-key, config/refresh-oauth, permissions, question batches, workspace SSE (`message`, `run_complete`, `file`, permission/question events).
 - Desktop integration: REST + SSE only through `internal/crushapi`; Gotack never imports `third_party/crush/internal/...`.
 
