@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import Composer from './Composer.svelte'
   import MessageBubble from './MessageBubble.svelte'
+  import AgentWorking from './AgentWorking.svelte'
   import type { ChatAttachment, Message, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
@@ -69,11 +71,12 @@
   let renameInput = $state<HTMLInputElement | null>(null)
   let renameCancelled = false
   let scroller = $state<HTMLElement | null>(null)
+  let messageList = $state<HTMLElement | null>(null)
   let pinned = $state(true)
-  let streamingText = $state('')
   let composer = $state<Composer | null>(null)
+  let scrollFrame: number | null = null
 
-  const STICK_THRESHOLD = 48
+  const STICK_THRESHOLD = 96
 
   // Tool rows can trail the assistant text, so the streaming cursor has to
   // follow the last real text bubble instead of the last array entry.
@@ -138,14 +141,33 @@
     if (event.key === 'Escape') cancelRename()
   }
 
+  function cancelScheduledScroll() {
+    if (scrollFrame === null) return
+    cancelAnimationFrame(scrollFrame)
+    scrollFrame = null
+  }
+
+  function scheduleScrollToBottom() {
+    if (!pinned || !scroller || scrollFrame !== null) return
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = null
+      if (!pinned || !scroller) return
+      scroller.scrollTop = scroller.scrollHeight
+    })
+  }
+
   function handleScroll() {
     if (!scroller) return
     const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-    pinned = distance <= STICK_THRESHOLD
+    const nextPinned = distance <= STICK_THRESHOLD
+    const becamePinned = nextPinned && !pinned
+    pinned = nextPinned
+    if (becamePinned) scheduleScrollToBottom()
   }
 
   function jumpToLatest() {
     pinned = true
+    cancelScheduledScroll()
     if (!scroller) return
     const reduceMotion =
       typeof window !== 'undefined' &&
@@ -157,14 +179,28 @@
     if (isRenaming) renameInput?.select()
   })
 
+  // Observe the rendered list rather than the raw stream snapshot. This keeps
+  // scrolling in the same frame as the DOM height change and removes the old
+  // one-tick jump between token arrival and Markdown paint.
   $effect(() => {
-    if (!pinned || !scroller) return
-    // Track the streaming message tail so we auto-stick while content grows.
-    const lastContent = messages.at(-1)?.content
-    void lastContent
-    void messages.length
-    scroller.scrollTop = scroller.scrollHeight
+    const list = messageList
+    if (!list) return
+
+    const observer = new ResizeObserver(() => scheduleScrollToBottom())
+    observer.observe(list)
+    queueMicrotask(scheduleScrollToBottom)
+    return () => observer.disconnect()
   })
+
+  // Structural changes may bind a new scroller/list before ResizeObserver has
+  // emitted its first record. Schedule one frame after Svelte commits the DOM.
+  $effect(() => {
+    void messages.length
+    void isStreaming
+    queueMicrotask(scheduleScrollToBottom)
+  })
+
+  onDestroy(cancelScheduledScroll)
 </script>
 
 <div class="flex flex-col h-full min-h-0">
@@ -269,7 +305,7 @@
     </div>
   {:else}
     <div bind:this={scroller} onscroll={handleScroll} class="messages relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại" aria-live="polite" aria-relevant="additions text" aria-busy={isStreaming}>
-      <div class="max-w-5xl mx-auto px-4 pt-6 pb-6">
+      <div bind:this={messageList} class="max-w-5xl mx-auto px-4 pt-6 pb-6">
         {#each messages as message, idx (message.id)}
           {#if message.kind === 'tool'}
             <div class="tool-row mb-4 mr-8 sm:mr-20" aria-label={`Tool ${message.toolName ?? ''}`}>
@@ -290,11 +326,7 @@
             <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
               <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
             </div>
-            <div class="flex items-center gap-1.5 py-2" aria-label="Đang trả lời">
-              <span class="thinking-dot"></span>
-              <span class="thinking-dot"></span>
-              <span class="thinking-dot"></span>
-            </div>
+            <AgentWorking label="Đang làm việc…" />
           </div>
         {/if}
       </div>
@@ -325,7 +357,6 @@
   @media (prefers-reduced-motion: reduce) {
     .messages,
     .scroll-stable { scroll-behavior: auto !important; }
-    .thinking-dot,
     .jump-latest { animation-duration: 0ms !important; transition-duration: 0ms !important; }
   }
 </style>
