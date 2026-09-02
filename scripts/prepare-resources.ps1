@@ -83,7 +83,11 @@ if (-not (Test-Path $uvExe)) {
         New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
         Invoke-WebRequest -Uri 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip' -OutFile $uvZip
         Expand-Archive -Path $uvZip -DestinationPath $uvExtract -Force
-        Copy-Item (Join-Path $uvExtract 'uv-x86_64-pc-windows-msvc/uv.exe') $uvExe -Force
+        $downloadedUv = Get-ChildItem -LiteralPath $uvExtract -Filter 'uv.exe' -File -Recurse | Select-Object -First 1
+        if (-not $downloadedUv) {
+            throw 'uv release archive does not contain uv.exe'
+        }
+        Copy-Item $downloadedUv.FullName $uvExe -Force
     }
 }
 
