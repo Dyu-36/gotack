@@ -126,6 +126,28 @@ func TestInitAgentPostsInteractiveFlag(t *testing.T) {
 	}
 }
 
+func TestRefreshPromptContextPostsNarrowAgentRoute(t *testing.T) {
+	var gotMethod, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	client := NewClient(&http.Client{Transport: transport})
+	if err := client.RefreshPromptContext(context.Background(), "ws-1"); err != nil {
+		t.Fatalf("RefreshPromptContext() error = %v", err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/v1/workspaces/ws-1/agent/refresh-prompt" {
+		t.Fatalf("prompt refresh request = %s %s", gotMethod, gotPath)
+	}
+}
+
 func TestEnsureAgentInitializesOnlyWhenNotReady(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -216,5 +238,31 @@ func TestSendPromptWithAttachmentsPostsAgentPayload(t *testing.T) {
 	}
 	if len(got.Attachments) != 1 || got.Attachments[0].FileName != "photo.png" || string(got.Attachments[0].Content) != "png-data" {
 		t.Fatalf("attachments = %#v", got.Attachments)
+	}
+}
+
+func TestSendPromptWithAttachmentsAndBudgetPostsOnlyExplicitBudget(t *testing.T) {
+	var got struct {
+		SessionID      string `json:"session_id"`
+		Prompt         string `json:"prompt"`
+		MaxInputTokens int64  `json:"max_input_tokens"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode prompt request: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	client := NewClient(&http.Client{Transport: transport})
+	if err := client.SendPromptWithAttachmentsAndBudget(context.Background(), "ws-1", "review-1", "review", "run-1", nil, 600_000); err != nil {
+		t.Fatalf("SendPromptWithAttachmentsAndBudget() error = %v", err)
+	}
+	if got.SessionID != "review-1" || got.Prompt != "review" || got.MaxInputTokens != 600_000 {
+		t.Fatalf("prompt payload = %#v", got)
 	}
 }

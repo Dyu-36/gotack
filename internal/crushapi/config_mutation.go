@@ -15,8 +15,9 @@ import (
 
 const (
 	configSetPath          = "/v1/workspaces/{id}/config/set"
+	configSetBatchPath     = "/v1/workspaces/{id}/config/set-batch"
 	configRemovePath       = "/v1/workspaces/{id}/config/remove"
-	configModelPath        = "/v1/workspaces/{id}/config/model"
+	configModelsPath       = "/v1/workspaces/{id}/config/models"
 	configProviderKeyPath  = "/v1/workspaces/{id}/config/provider-key"
 	configRefreshOAuthPath = "/v1/workspaces/{id}/config/refresh-oauth"
 )
@@ -35,27 +36,42 @@ type SelectedModel struct {
 	Think           bool   `json:"think,omitempty"`
 }
 
-// SetPreferredModel updates either the large or small preferred model. Changes
-// are hot-reloaded by Crush and published as config_changed to subscribers.
-func (c *Client) SetPreferredModel(ctx context.Context, wsID string, scope int, modelType string, model SelectedModel) error {
+// SetPreferredModelPair atomically pins Crush's large and small slots to the
+// one model Gotack exposes in Settings.
+func (c *Client) SetPreferredModelPair(ctx context.Context, wsID string, scope int, model SelectedModel) error {
 	if wsID == "" {
 		return errors.New("crushapi: workspace id is required")
-	}
-	if modelType != "large" && modelType != "small" {
-		return fmt.Errorf("crushapi: invalid model type %q", modelType)
 	}
 	if strings.TrimSpace(model.Provider) == "" || strings.TrimSpace(model.Model) == "" {
 		return errors.New("crushapi: provider and model are required")
 	}
-	body, err := json.Marshal(struct {
-		Scope     int           `json:"scope"`
-		ModelType string        `json:"model_type"`
-		Model     SelectedModel `json:"model"`
-	}{Scope: scope, ModelType: modelType, Model: model})
-	if err != nil {
-		return fmt.Errorf("crushapi: encode preferred model: %w", err)
+	return c.mutatePreferredModelPair(ctx, wsID, scope, &model)
+}
+
+// RemovePreferredModelPair atomically removes both preferred slots. Recent
+// model history remains owned by Crush and is deliberately preserved.
+func (c *Client) RemovePreferredModelPair(ctx context.Context, wsID string, scope int) error {
+	if wsID == "" {
+		return errors.New("crushapi: workspace id is required")
 	}
-	return c.doJSON(ctx, "POST", expandPath(configModelPath, "id", wsID), bytes.NewReader(body), nil)
+	return c.mutatePreferredModelPair(ctx, wsID, scope, nil)
+}
+
+func (c *Client) mutatePreferredModelPair(ctx context.Context, wsID string, scope int, model *SelectedModel) error {
+	body, err := json.Marshal(struct {
+		Scope  int                       `json:"scope"`
+		Models map[string]*SelectedModel `json:"models"`
+	}{
+		Scope: scope,
+		Models: map[string]*SelectedModel{
+			"large": model,
+			"small": model,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("crushapi: encode preferred model pair: %w", err)
+	}
+	return c.doJSON(ctx, "POST", expandPath(configModelsPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
 // SetProviderAPIKey stores a plain string provider credential through Crush's
@@ -119,7 +135,7 @@ func (c *Client) RefreshProviderOAuthToken(ctx context.Context, wsID string, sco
 }
 
 // SetConfigField writes one Crush config field using the server's sjson path
-// semantics. It is used for provider base_url, which Crush hot-reloads.
+// semantics.
 func (c *Client) SetConfigField(ctx context.Context, wsID string, scope int, key string, value any) error {
 	if wsID == "" || strings.TrimSpace(key) == "" {
 		return errors.New("crushapi: workspace id and config key are required")
@@ -133,6 +149,30 @@ func (c *Client) SetConfigField(ctx context.Context, wsID string, scope int, key
 		return fmt.Errorf("crushapi: encode config field: %w", err)
 	}
 	return c.doJSON(ctx, "POST", expandPath(configSetPath, "id", wsID), bytes.NewReader(body), nil)
+}
+
+// SetConfigFields writes related Crush config paths in one server-side
+// mutation. Callers use it when a partial provider definition would be invalid.
+func (c *Client) SetConfigFields(ctx context.Context, wsID string, scope int, fields map[string]any) error {
+	if wsID == "" {
+		return errors.New("crushapi: workspace id is required")
+	}
+	if len(fields) == 0 {
+		return errors.New("crushapi: config fields are required")
+	}
+	for key := range fields {
+		if strings.TrimSpace(key) == "" {
+			return errors.New("crushapi: config field key is required")
+		}
+	}
+	body, err := json.Marshal(struct {
+		Scope  int            `json:"scope"`
+		Fields map[string]any `json:"fields"`
+	}{Scope: scope, Fields: fields})
+	if err != nil {
+		return fmt.Errorf("crushapi: encode config fields: %w", err)
+	}
+	return c.doJSON(ctx, "POST", expandPath(configSetBatchPath, "id", wsID), bytes.NewReader(body), nil)
 }
 
 // RemoveConfigField deletes one Crush config field, for example a registered

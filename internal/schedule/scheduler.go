@@ -1,26 +1,5 @@
 package schedule
 
-// scheduler.go -- role: the scheduled-run runner.
-//
-// Semantics:
-//   - A firing submits ONE agent run through the desktop Runtime seam (create
-//     session, mark unattended, send prompt). The host never runs agent logic
-//     itself (ADR 0001).
-//   - Every scheduled session is marked unattended in the guard roster BEFORE
-//     the prompt is submitted, so the WP6 posture applies: ask-tier calls are
-//     denied with a legible reason instead of hanging on a prompt nobody can
-//     answer. A failed mark aborts the firing.
-//   - Outcomes arrive through RecordOutcome, fed by the host from the
-//     run_complete SSE event. There is no polling anywhere in this package:
-//     engine readiness is pushed via SetEngineReady, completions via SSE.
-//   - A job never fires concurrently with itself, never re-fires inside its
-//     interval window, and last-run bookkeeping is persisted before the run
-//     starts so the guard survives restarts.
-//   - Failed launches are recorded, retried after a backoff, and disable the
-//     job after a consecutive-failure threshold; they are never silently
-//     dropped and never spam, because the budget and the backoff both bound
-//     them.
-
 import (
 	"context"
 	"errors"
@@ -36,9 +15,7 @@ const (
 	// firing has no event source, so an internal clock is required; engine
 	// state is never polled here (readiness is pushed, outcomes ride SSE).
 	defaultTick = 30 * time.Second
-	// defaultFailureThreshold disables a job after this many consecutive
-	// failures (launch failures and run errors both count), the failure-nudge
-	// borrowed from Hermes (plan 5.1).
+	// Launch failures and run errors both count toward this threshold.
 	defaultFailureThreshold = 3
 	// defaultRetryDelay is the backoff before a failed launch may retry.
 	defaultRetryDelay = 5 * time.Minute
@@ -52,7 +29,7 @@ const (
 type Runtime struct {
 	CreateSession  func(ctx context.Context, title string) (sessionID string, err error)
 	MarkUnattended func(ctx context.Context, sessionID string) error
-	SendPrompt     func(ctx context.Context, sessionID, prompt string) (runID string, err error)
+	SendPrompt     func(ctx context.Context, sessionID, prompt string) error
 	// Preflight skips a firing instead of burning a failed run (for example
 	// when no provider/model is configured); its error never counts as a
 	// failure strike.
@@ -62,7 +39,15 @@ type Runtime struct {
 // flight tracks one launched run until its run_complete arrives.
 type flight struct {
 	sessionID string
-	runID     string
+}
+
+// jobSnapshot is the immutable launch input captured while s.mu is held.
+// Runtime calls may block for seconds; passing a *Job beyond that lock would
+// race with outcome bookkeeping (and, on restart, a fresh file load).
+type jobSnapshot struct {
+	id     string
+	name   string
+	prompt string
 }
 
 // Scheduler owns the job file, the tick loop and the firing guards.
@@ -125,9 +110,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.started = true
 	loopCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
-	s.done = make(chan struct{})
+	done := make(chan struct{})
+	s.done = done
+	ready := s.engineReady
 	s.mu.Unlock()
-	go s.loop(loopCtx)
+	go s.loop(loopCtx, done)
+	if ready {
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 
@@ -139,6 +132,7 @@ func (s *Scheduler) Stop() {
 	s.cancel = nil
 	s.done = nil
 	s.started = false
+	s.engineReady = false
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -157,27 +151,22 @@ func (s *Scheduler) SetEngineReady(ready bool) {
 	s.engineReady = ready
 	started := s.started
 	s.mu.Unlock()
-	if !ready {
+	if !ready || !started {
 		return
 	}
-	if started {
-		select {
-		case s.wake <- struct{}{}:
-		default:
-		}
-		return
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
-	// With no loop running yet there is nobody to consume the wake signal,
-	// so evaluate directly to keep readiness from being stranded.
-	s.evaluate(context.Background())
 }
 
 // RecordOutcome consumes one run completion. The host feeds it from the
-// run_complete SSE payload (never by polling). A session that is not an
-// in-flight scheduled run is ignored: it belongs to the UI or Zalo.
-func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) {
+// run_complete SSE payload (never by polling). It reports whether the session
+// belonged to a scheduled run so callers can keep Hermes' background reviewer
+// disabled for cron-style work; UI and Zalo sessions return false.
+func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) bool {
 	if sessionID == "" {
-		return
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -188,7 +177,7 @@ func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) {
 		delete(s.inflight, id)
 		job := s.jobLocked(id)
 		if job == nil {
-			return
+			return true
 		}
 		switch {
 		case cancelled:
@@ -201,13 +190,14 @@ func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) {
 			job.ConsecutiveFailures = 0
 			job.LastOutcome = "complete"
 		}
-		s.persistLocked(job.ID)
-		return
+		_ = s.persistLocked(job.ID)
+		return true
 	}
+	return false
 }
 
-func (s *Scheduler) loop(ctx context.Context) {
-	defer close(s.done)
+func (s *Scheduler) loop(ctx context.Context, done chan struct{}) {
+	defer close(done)
 	ticker := time.NewTicker(s.tick)
 	defer ticker.Stop()
 	for {
@@ -227,25 +217,31 @@ func (s *Scheduler) loop(ctx context.Context) {
 func (s *Scheduler) evaluate(ctx context.Context) {
 	now := s.now()
 	s.mu.Lock()
-	if !s.engineReady {
+	if !s.started || !s.engineReady {
 		s.mu.Unlock()
 		return
 	}
-	var due []*Job
+	var due []jobSnapshot
 	for _, job := range s.file.Jobs {
 		if s.dueLocked(job, now) {
-			due = append(due, job)
+			due = append(due, jobSnapshot{id: job.ID, name: job.Name, prompt: job.Prompt})
 		}
 	}
 	s.mu.Unlock()
+	var launches sync.WaitGroup
+	launches.Add(len(due))
 	for _, job := range due {
-		s.fire(ctx, job)
+		go func(snapshot jobSnapshot) {
+			defer launches.Done()
+			s.fire(ctx, snapshot)
+		}(job)
 	}
+	launches.Wait()
 }
 
 // dueLocked reports whether job may launch now. Callers hold s.mu.
 func (s *Scheduler) dueLocked(job *Job, now time.Time) bool {
-	if !job.Enabled || strings.TrimSpace(job.Prompt) == "" {
+	if job == nil || !job.Enabled || strings.TrimSpace(job.Prompt) == "" {
 		return false
 	}
 	if _, busy := s.inflight[job.ID]; busy {
@@ -260,61 +256,93 @@ func (s *Scheduler) dueLocked(job *Job, now time.Time) bool {
 	return !now.Before(NextDue(job, now))
 }
 
-// fire launches one agent run for job. The call order is pinned by tests:
-// create session, mark it unattended, then submit the prompt. A failed mark
-// aborts the firing: an unmarked scheduled session could hang on an
-// approval prompt nobody can answer (ADR 0002, plan 5.4).
-func (s *Scheduler) fire(ctx context.Context, job *Job) {
+// fire launches one agent run for job. The session is marked unattended
+// before its prompt is submitted so approval cannot block without a user.
+func (s *Scheduler) fire(ctx context.Context, snapshot jobSnapshot) {
 	fctx, cancel := context.WithTimeout(ctx, s.fireTimeout)
 	defer cancel()
 
 	if s.rt.Preflight != nil {
 		if err := s.rt.Preflight(fctx); err != nil {
-			s.noteSkip(job, err)
+			s.noteSkip(snapshot.id, err)
 			return
 		}
 	}
 
 	now := s.now()
 	s.mu.Lock()
-	if _, busy := s.inflight[job.ID]; busy {
+	job := s.jobLocked(snapshot.id)
+	if !s.started || !s.engineReady || job == nil || !job.Enabled || strings.TrimSpace(job.Prompt) == "" {
 		s.mu.Unlock()
 		return
 	}
-	prevRun := job.LastRun
+	if _, busy := s.inflight[snapshot.id]; busy {
+		s.mu.Unlock()
+		return
+	}
+	// Re-check due-ness after preflight. Another outcome or a clock advance may
+	// have made this snapshot stale while the preflight call was running.
+	if !s.dueLocked(job, now) {
+		s.mu.Unlock()
+		return
+	}
+	previousRun := job.LastRun
+	previousOutcome := job.LastOutcome
 	// Claim the firing before any network call so the interval guard holds
 	// even if the host dies mid-launch; the claim is rolled back on failure
 	// so the retry policy can try again.
 	job.LastRun = &now
 	job.LastOutcome = "fired"
-	s.inflight[job.ID] = &flight{}
-	s.persistLocked(job.ID)
-	s.mu.Unlock()
-
+	s.inflight[snapshot.id] = &flight{}
+	if err := s.persistLocked(snapshot.id); err != nil {
+		job.LastRun = previousRun
+		job.LastOutcome = previousOutcome
+		delete(s.inflight, snapshot.id)
+		s.mu.Unlock()
+		return
+	}
+	// Copy all mutable job fields needed after the lock is released.
 	title := "Schedule: " + strings.TrimSpace(job.Name)
 	if strings.TrimSpace(job.Name) == "" {
-		title = "Schedule: " + job.ID
+		title = "Schedule: " + snapshot.id
 	}
+	prompt := job.Prompt
+	s.mu.Unlock()
+
 	sessionID, err := s.rt.CreateSession(fctx, title)
 	if err == nil {
+		// Register the session before submission. A very short run may emit
+		// run_complete before SendPrompt returns.
+		s.mu.Lock()
+		if current, ok := s.inflight[snapshot.id]; ok {
+			current.sessionID = sessionID
+		}
+		s.mu.Unlock()
 		err = s.rt.MarkUnattended(fctx, sessionID)
 	}
-	var runID string
 	if err == nil {
-		runID, err = s.rt.SendPrompt(fctx, sessionID, job.Prompt)
+		err = s.rt.SendPrompt(fctx, sessionID, prompt)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.inflight, job.ID)
+	job = s.jobLocked(snapshot.id)
 	if err != nil {
-		s.recordLaunchFailureLocked(job, prevRun, err)
+		delete(s.inflight, snapshot.id)
+		if job != nil {
+			s.recordLaunchFailureLocked(job, previousRun, err)
+		}
 		return
 	}
-	delete(s.retryAfter, job.ID)
+	delete(s.retryAfter, snapshot.id)
+	if job == nil {
+		delete(s.inflight, snapshot.id)
+		return
+	}
 	job.RecentFires = append(pruneFires(job.RecentFires, now), now)
-	s.inflight[job.ID] = &flight{sessionID: sessionID, runID: runID}
-	s.persistLocked(job.ID)
+	// RecordOutcome may already have consumed the flight while SendPrompt was
+	// returning. Never recreate a completed flight here.
+	_ = s.persistLocked(job.ID)
 }
 
 // recordLaunchFailureLocked books a failed launch: the interval claim rolls
@@ -326,7 +354,7 @@ func (s *Scheduler) recordLaunchFailureLocked(job *Job, prevRun *time.Time, err 
 	job.LastOutcome = "launch failed: " + err.Error()
 	s.retryAfter[job.ID] = s.now().Add(s.retryDelay)
 	s.disableIfThresholdLocked(job)
-	s.persistLocked(job.ID)
+	_ = s.persistLocked(job.ID)
 }
 
 func (s *Scheduler) disableIfThresholdLocked(job *Job) {
@@ -340,19 +368,26 @@ func (s *Scheduler) disableIfThresholdLocked(job *Job) {
 
 // noteSkip records a preflight skip without burning a failure strike; it is
 // visible in the outcome so the skip is never silent. Callers hold no lock.
-func (s *Scheduler) noteSkip(job *Job, err error) {
+func (s *Scheduler) noteSkip(jobID string, err error) {
 	reason := "skipped: " + err.Error()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	job := s.jobLocked(jobID)
+	if job == nil {
+		return
+	}
 	if job.LastOutcome == reason {
 		return
 	}
 	job.LastOutcome = reason
-	s.persistLocked(job.ID)
+	_ = s.persistLocked(job.ID)
 }
 
 func (s *Scheduler) jobLocked(id string) *Job {
 	for _, job := range s.file.Jobs {
+		if job == nil {
+			continue
+		}
 		if job.ID == id {
 			return job
 		}
@@ -360,12 +395,14 @@ func (s *Scheduler) jobLocked(id string) *Job {
 	return nil
 }
 
-// persistLocked saves the job file; a save failure is logged, never fatal,
-// because the in-memory state stays authoritative for this host run.
-func (s *Scheduler) persistLocked(jobID string) {
+// persistLocked saves the job file and lets claim-time callers abort before
+// network I/O when the restart guard could not be recorded.
+func (s *Scheduler) persistLocked(jobID string) error {
 	if err := SaveFile(s.path, &s.file, s.now()); err != nil {
 		s.log.Warn("schedule: persist failed", "job", jobID, "err", err)
+		return err
 	}
+	return nil
 }
 
 // load reads and validates the job file. Callers hold s.mu.

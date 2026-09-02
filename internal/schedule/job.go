@@ -53,6 +53,9 @@ type File struct {
 // ValidateJob checks one job definition. The error text names the offending
 // field so a hand-edited schedule.json is easy to repair.
 func ValidateJob(job *Job) error {
+	if job == nil {
+		return errors.New("schedule: job must not be null")
+	}
 	if job.ID == "" {
 		return errors.New("schedule: job id is required")
 	}
@@ -79,6 +82,9 @@ func ValidateJob(job *Job) error {
 
 // ValidateFile checks the whole file, including cross-job constraints.
 func ValidateFile(file *File) error {
+	if file == nil {
+		return errors.New("schedule: file must not be null")
+	}
 	seen := make(map[string]struct{}, len(file.Jobs))
 	for _, job := range file.Jobs {
 		if err := ValidateJob(job); err != nil {
@@ -151,10 +157,16 @@ func LoadFile(path string) (*File, error) {
 // truncated schedule behind. Fire records older than the budget window are
 // pruned because nothing will ever count them again.
 func SaveFile(path string, file *File, now time.Time) error {
+	if file == nil {
+		return errors.New("schedule: file must not be null")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("schedule: mkdir: %w", err)
 	}
 	for _, job := range file.Jobs {
+		if job == nil {
+			return errors.New("schedule: job must not be null")
+		}
 		job.RecentFires = pruneFires(job.RecentFires, now)
 	}
 	data, err := json.MarshalIndent(file, "", "  ")

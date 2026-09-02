@@ -16,12 +16,16 @@ Beyond bringing Crush into a native desktop workflow, `gotack` ships a small set
 
 - **Tack-style local assistant** — the primary Crush prompt is aligned with Stack's Tack agent for general filesystem, Office, automation, system, research and software tasks. Its read-only sub-agent follows Stack's Sage research role, while Crush still injects Gotack's live skills and local context.
 - **Zalo connection** — connect `gotack` to an official [Zalo Bot](https://bot.zaloplatforms.com) token in Settings. Access is granted per chat by pairing: Settings shows a rotating six-digit code, and a chat joins by sending `/pair <code>`. Codes can be reissued (`RegenerateZaloPairingCode`) and individual chats revoked (`UnpairZaloChat`). The bridge long-polls `getUpdates`, forwards messages and image/document attachments from paired chats to the agent (one reusable session per chat), and sends the finished answer and referenced output files back, so the desktop agent stays reachable while the user is away. The token is stored locally and never returned to the UI. Paired chats and their sessions persist in `<configDir>/zalo.json`. The older `zalo.allowed_chats` config key is imported once at startup for backwards compatibility and is never written again.
-- **Office integration** — the Stack-compatible `officecli` executable, Office skill set, timetable solver/exporter and a bundled `office` MCP server (built from `cmd/office`) are installed into Crush's runtime whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files without a separate Office CLI setup. Resource seeding looks for `officecli.exe`, so today the bundle is only discovered on Windows; on other platforms Gotack starts without it and the Office MCP server is still registered.
+- **Office integration** — the Stack-compatible `officecli` executable, Office skill set, timetable solver/exporter and a bundled `office` MCP server (built from `cmd/office`) are installed into Crush's runtime whenever a workspace opens. The agent gains typed tools to inspect, read, create and edit Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files without a separate Office CLI setup. Resource seeding resolves the platform executable name; release artifacts currently ship the Windows payload.
 - **Live model catalog** — the provider and model pickers are populated from the engine's `GET /v1/workspaces/{id}/providers` catalog (including per-model context windows and costs) instead of a bundled static list. Settings deliberately exposes a single model selector, and the host writes that one model ID into both `models.large` and `models.small` in the Crush config; there is no separate small-task model today.
+- **Bounded learning and recall** — the bundled memory, skills, and recall MCP
+  servers provide capped atomic context updates, managed procedural skills, and
+  read-only search over past Crush sessions. A host-owned background reviewer
+  runs only at bounded cadences and never replaces Crush's agent loop.
 
 ## Stack baseline
 
-Baseline as of **2026-08-31**. Rows marked *installed* are what the repo builds
+Baseline as of **2026-09-02**. Rows marked *installed* are what the repo builds
 against today; the rest are target versions for features that have not landed.
 This table records intent, so it must be reconciled with `go.mod` and
 `frontend/package.json` whenever either changes.
@@ -59,6 +63,9 @@ Go direct dependencies (`go.mod`), all installed:
 | `github.com/creack/pty` | v1.1.24 | POSIX PTY for `internal/terminal` |
 | `github.com/Microsoft/go-winio` | v0.6.2 | named-pipe transport to Crush |
 | `github.com/google/uuid` | v1.6.0 | request and session identifiers |
+| `golang.org/x/sys` | v0.47.0 | platform-specific process, file, and terminal primitives |
+| `gopkg.in/yaml.v3` | v3.0.1 | strict skill frontmatter parsing |
+| `modernc.org/sqlite` | v1.56.0 | read-only recall index storage |
 
 Notes:
 
@@ -143,11 +150,12 @@ Features that can consume significant memory should be loaded only when required
 
 ### Single-user trust model
 
-Gotack attaches every workspace with Crush permission prompts skipped, and the
-default assistant workspace is the drive root (`C:\` on Windows) so that
-startup chat always has a real session context. This is a deliberate
-single-user desktop trade-off, not an oversight; treat it as a
-security-relevant default when changing workspace handling.
+Gotack keeps Crush permission prompts enabled by default. The bundled
+`PreToolUse` guard always blocks catastrophic commands and protects the managed
+context directory; only an explicit `"auto_approve": true` opts into skipped
+prompts. The default assistant workspace is the drive root (`C:\` on Windows),
+so this approval posture is a security-relevant invariant when changing
+workspace handling.
 
 ## Initial scope
 
@@ -175,7 +183,8 @@ What automated validation proves today (`.github/workflows/ci.yml`):
 repository invariants, `pnpm --dir frontend check`, `pnpm --dir frontend test`,
 `pnpm --dir frontend build`, and a Windows `wails build`. `release.yml` re-runs
 the source checks, including repository invariants and frontend tests, then
-builds the pinned Crush commit, `cmd/office` and `cmd/guard`, bundles
+builds the pinned Crush commit plus `cmd/office`, `cmd/guard`, `cmd/memory`,
+`cmd/skills`, and `cmd/recall`, bundles
 `officecli.exe` plus `resources/skills`, runs `scripts/prepare-resources.ps1`
 for the bundled Python runtime payloads (`resources/bin/`), copies the tracked
 `resources/context/` persona files, and publishes the portable ZIP.
@@ -198,25 +207,28 @@ Crush is developed by Charmbracelet:
 
 ```text
 main.go  app.go  bind_*.go  events.go   desktop host (package main, Wails bindings)
-office_seed.go  context_seed.go  guard_seed.go  memory_seed.go  schedule_host.go  reflection_host.go  settings_crush.go   package main helpers, not bound methods
+office_seed.go  context_seed.go  guard_seed.go  memory_seed.go  skills_seed.go  recall_seed.go  schedule_host.go  reflection_host.go  settings_crush.go   package main helpers, not bound methods
 internal/                              host implementation, one package per role
-  appconfig  attachments  changes  contextseed  crushapi  engine  enginelink
-  guard  logging  mcp  memory  office  officecli  permission  recall
-  reflection  schedule  session
-  terminal  uievents  workspace  zalo
+  appconfig  attachments  bundleseed  changes  contextseed  crushapi  engine
+  enginelink  guard  logging  mcp  memory  office  officecli  openaioauth
+  permission  recall
+  reflection  schedule  session  skillmanage
+  terminal  uievents  userstrings  workspace  zalo
 cmd/office/                            bundled Office MCP server (stdio), ships as office.exe
 cmd/guard/                             PreToolUse approval hook (blocklist/tiers), ships as guard.exe
 cmd/memory/                            persistent self-editing memory MCP server (stdio), ships as memory.exe
-cmd/recall/                            cross-session recall MCP server (stdio), reads crush.db read-only
+cmd/skills/                            progressive procedural-skill MCP server (stdio), ships as skills.exe
+cmd/recall/                            cross-session recall MCP server (stdio), reads crush.db read-only, ships as recall.exe
 frontend/                              Svelte 5 UI (folder name required by Wails v2)
-third_party/crush/                     vendored Crush engine (own git history, ignored here;
-                                       only third_party/README.md is tracked)
+third_party/crush/                     vendored Crush engine (own git history, ignored here)
+third_party/README.md                  tracked pin and patch documentation
+third_party/patches/                   tracked Gotack-owned engine patches
 resources/skills/                      skill tree bundled into release artifacts
 resources/context/                     tracked persona context files seeded into the data dir
 resources/bin/                         ignored runtime payloads, recreated by scripts/prepare-resources.ps1
-docs/                                  contracts, decisions, patterns, plans, product, templates
+docs/                                  contracts, decisions, patterns, plans, templates
 build/                                 Wails packaging assets per platform
-scripts/                               developer entry points (PowerShell, Windows only)
+scripts/                               Windows PowerShell build tooling plus the cross-platform Node invariant check
 .agents/skills/  .harness-core/        vendored repository-harness protocol and skills;
                                        .harness-core/manifest.json pins upstream file hashes
 .github/workflows/                     ci.yml and release.yml

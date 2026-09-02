@@ -1,198 +1,134 @@
 # Contract: gotack-memory MCP server (`cmd/memory`)
 
-Status: implemented by WP4 (Phase 2 of `docs/plans/completed/hermes-parity-harness.md`).
+Status: implemented by `internal/memory`, `cmd/memory`, and `memory_seed.go`.
 
-`cmd/memory` is a stdio MCP server (protocol `2024-11-05`, built on
-`internal/mcp`, same pattern as `cmd/office` and `cmd/recall`) that gives the
-assistant persistent self-editing memory. It curates two files inside the
-seeded context directory; because Crush re-reads every context file on each
-prompt construction, a write here lands in the system prompt on the next
-turn with no engine restart.
+`gotack-memory` is the only sanctioned agent writer for the two bounded
+memory files injected through `options.global_context_paths`. It uses MCP over
+stdio and exposes exactly one tool, `memory`. There is no read action because
+the files are already present in the next system prompt.
 
-This tool is the **only sanctioned writer** of the memory files, per
-`docs/decisions/0003-memory-writes-constrained-by-construction.md`. The
-safety is structural: hard caps with documented eviction, provenance on
-every entry, atomic writes, and a guard that denies every other write path
-into the context directory. No interactive approval is involved.
+## Tool shape
 
-## Tools
-
-Exactly one tool is exposed.
-
-### `memory`
-
-Input schema:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "action": {"type": "string", "enum": ["view", "add", "replace", "remove"]},
-    "target": {"type": "string", "enum": ["memory", "user"]},
-    "section": {"type": "string"},
-    "content": {"type": "string"}
-  },
-  "required": ["action"]
-}
-```
-
-| Field | Meaning |
-| --- | --- |
-| `action` | `view` reads one file; `add` appends to a section (creating it when absent); `replace` swaps one existing section; `remove` drops one existing section. Required. |
-| `target` | `memory` (MEMORY.md, durable facts) or `user` (USER.md, user preferences). Optional, defaults to `memory`. |
-| `section` | `§`-delimited section heading. Required for `add`, `replace` and `remove`. |
-| `content` | Text to store (may be multiline). Required and non-empty for `add` and `replace`. |
-
-Result: a JSON payload so the model can self-manage its budget (plan 2.2):
+`target` selects `memory` (`MEMORY.md`) or `user` (`USER.md`). A request uses
+either the single-operation fields or an `operations` array:
 
 ```json
 {
   "target": "memory",
-  "file": "MEMORY.md",
-  "size": 312,
-  "cap": 2200,
-  "remaining": 1888,
-  "evicted": 0,
-  "content": "…present for action=view only…"
+  "operations": [
+    {"action": "replace", "old_text": "old unique text", "content": "new entry"},
+    {"action": "add", "content": "another entry"}
+  ]
 }
 ```
 
-Validation is strict by construction (decision 0003): unknown `action` or
-`target` values, empty `content` on `add`/`replace`, and a missing `section`
-heading are typed errors; `replace` or `remove` against a section that does
-not exist is an explicit `memory: section not found` error, never a silent
-no-op. All errors surface as MCP `isError` tool results.
+The single-operation compatibility shape is
+`{target, action, old_text?, content?}`; `new_text` is accepted as an alias for
+`content`. `operations` is preferred for consolidation. When it is present, the
+single-operation fields are ignored.
 
-## File layout
+| Action | Contract |
+| --- | --- |
+| `add` | Append one non-empty entry. An exact duplicate succeeds without writing another copy. |
+| `replace` | Find the one entry containing `old_text` and replace that whole entry with `content`. |
+| `remove` | Find the one entry containing `old_text` and remove that whole entry. |
 
-```text
-<appconfig.Dir()>/context/          registered under options.global_context_paths
-  TACK.md                            seeded persona, not touched by this tool
-  memory/
-    MEMORY.md                        agent-curated durable facts, cap 2200 bytes
-    USER.md                          user preferences and profile, cap 1375 bytes
-```
+`old_text` must identify exactly one entry. Zero or multiple matches are
+errors; the tool never guesses. Unknown targets/actions, empty batches,
+missing fields, invalid UTF-8 already on disk, and blocked content are also
+refused.
 
-Both files sit under the registered context directory so injection is
-automatic, and outside any workspace, so the agent's generic `write`/`edit`
-tools cannot reach them (the guard also denies it, see below). The
-`memory/` subdirectory is created by the first write; `internal/contextseed`
-never deletes files it did not seed, so memory content survives re-seeding.
-CLI flags: `-dir` (memory directory), `-session` (provenance writer).
-Logs go to stderr; stdout carries only JSON-RPC.
+## Bounded atomic behavior
 
-## File format
+The character budgets are the Hermes limits, measured as Unicode runes over
+the serialized entry body:
 
-Sections are delimited by the Hermes-compatible `§` marker; each section
-holds one or more entries, each entry preceded by a provenance stamp:
+| Target | File | Cap |
+| --- | --- | ---: |
+| `memory` | `MEMORY.md` | 2,200 characters |
+| `user` | `USER.md` | 1,375 characters |
 
-```markdown
-§ Project facts
-<!-- gotack-memory: session=sess-1 at=2026-09-01T10:00:00Z -->
-The build uses pnpm.
-§ Preferences
-<!-- gotack-memory: session=sess-2 at=2026-09-02T09:30:00Z -->
-Prefers concise answers.
-```
+A batch is evaluated against a copy and committed only if every operation and
+the final state are valid. Intermediate overflow is allowed so one batch can
+consolidate old entries before adding a replacement. Final overflow refuses
+the entire batch and leaves the file unchanged; the store never evicts an
+entry. This is the policy in decisions
+[`0003`](../decisions/0003-memory-writes-constrained-by-construction.md) and
+[`0004`](../decisions/0004-memory-refuses-instead-of-evicting.md).
 
-- A line starting with `§` opens a section; the heading is the trimmed
-  remainder (a bare `§` is an unnamed section).
-- A line matching exactly `<!-- gotack-memory: session=<id> at=<RFC3339> -->`
-  opens a new entry; every other line is content of the open entry. Content
-  before the first marker is preserved in an unnamed section, so hand-edited
-  files lose nothing on the next write. CRLF input is normalized to LF.
-- Parsing is total: every input round-trips byte for byte (proven by
-  `TestSectionRoundTrip` in `internal/memory/sections_test.go`).
+All candidate `add`/`replace` content is scanned before filesystem access for
+instruction override, exfiltration instructions, and hidden Unicode. Each
+target has a cross-process lock. Persistence is temporary-file, sync, close,
+then atomic replacement, so readers see either the old or complete new file.
 
-## Caps and eviction policy
-
-Caps are measured in UTF-8 bytes: `MEMORY.md` 2200, `USER.md` 1375 (the
-Hermes values; bytes are the quantity that actually costs prompt space).
-Exact policy, pinned by `TestCapEnforcementEvictsOldest`,
-`TestEvictionOrdersByTimestamp`, `TestEvictionKeepsUnstampedContentLast`
-and `TestCapExceededRejectsSingleOversizedEntry`:
-
-1. After an `add` or `replace`, if the serialized file exceeds the cap,
-   entries are evicted oldest-first until it fits. Order: unstamped entries
-   (they predate recorded history) first, then stamped entries in ascending
-   provenance timestamp, ties broken by file position (top of file first).
-2. The just-written entry always survives eviction; a write is never
-   silently discarded.
-3. If the file still exceeds the cap with only the new entry left (the
-   entry alone is too large), the write is **rejected** with
-   `memory: … exceeds the file size cap …` naming the cap, forcing the
-   model to consolidate; the file on disk is untouched.
-4. Sections left empty by eviction are dropped. Surviving entries keep
-   their provenance stamps intact.
-
-`add` appends, so absent eviction the oldest entries settle at the top of
-the file; the timestamp order above keeps eviction correct even when stamps
-and positions disagree.
-
-## Provenance
-
-Every entry written by the tool carries `session=<writer> at=<RFC3339 UTC>`
-so a poisoned entry is traceable and removable (decision 0003). The writer
-id resolves `-session` flag > `GOTACK_MEMORY_SESSION` > `CRUSH_SESSION_ID`
-> `unknown`. Honest limitation: the engine exports the session id only to
-hooks today, not to MCP server processes, so in a stock install the session
-field reads `unknown` while the timestamp is always accurate; the env seams
-are in place for when the engine exports it.
-
-## Atomicity guarantee
-
-All persistence goes through temp-file-plus-rename in the target directory
-(`writeFileAtomic` in `internal/memory/store.go`): write, sync, close, then
-rename over the target; on any failure the temp file is removed. A crash at
-any point therefore leaves either the old or the new content on disk, never
-a half-written file inside the system prompt. Proven by
-`TestAtomicWriteSemantics`: success replaces content with no temp residue;
-a failed rename leaves the target intact and removes the temp file; a
-failed persist never touches the existing file.
-
-## Registration
-
-Written by `memory_seed.go` `registerMemoryTools` from the shared workspace
-rebind path (`rebindWorkspaceRuntime` in `bind_workspace.go`), at workspace
-scope, exactly like `gotack-office`:
+Successful results are deliberately compact and never echo stored text:
 
 ```json
-"mcp_servers": {
-  "gotack-memory": {
-    "command": "<absolute path to memory.exe>",
-    "type": "stdio",
-    "timeout": 30
+{
+  "success": true,
+  "done": true,
+  "target": "memory",
+  "usage": "14% — 312/2,200 chars",
+  "entry_count": 3,
+  "message": "Applied 2 operation(s).",
+  "note": "Write saved. This update is complete — do not repeat it."
+}
+```
+
+An over-cap refusal, or a recoverable `old_text` locator refusal, includes the
+unchanged `current_entries` and `usage` so the model can correct one bounded
+batch without a read tool. Other failures do not echo memory content. Domain
+failures are JSON tool results with `success: false`; MCP transport remains
+healthy.
+
+## File representation
+
+```text
+<appconfig.Dir()>/context/memory/
+  MEMORY.md
+  USER.md
+```
+
+Entries are raw UTF-8 text separated only by the exact delimiter `\n§\n`.
+Non-empty files receive a compact fullness wrapper:
+
+```text
+══════════════════════════════════════════════
+MEMORY (your personal notes) [14% — 312/2,200 chars]
+══════════════════════════════════════════════
+first entry
+§
+second entry
+```
+
+`USER.md` uses `USER PROFILE (who the user is)` in the same wrapper. Empty
+memory remains an empty file and consumes no prompt tokens. The parser also
+migrates the earlier marker/provenance representation without carrying its
+generated wrappers forward; new writes do not add provenance metadata.
+
+## Registration and removal
+
+On every workspace rebind, `memory_seed.go` writes:
+
+```json
+{
+  "mcp_servers": {
+    "gotack-memory": {
+      "command": "<absolute path to memory.exe>",
+      "type": "stdio",
+      "timeout": 30
+    }
   }
 }
 ```
 
-Config key written: `mcp_servers.gotack-memory`. Removal path: when the
-binary cannot be resolved (bundled-then-PATH, same strategy as
-`resolveOfficeCommand`), the host calls `RemoveConfigField` on the same key
-so the workspace is never left pointing at a missing binary (hard rule 8).
-Both directions are pinned by `memory_seed_test.go`.
+The binary defaults to `<appconfig.Dir()>/context/memory` and accepts `-dir`
+for an explicit root. If the executable cannot be resolved beside the app or
+on `PATH`, the host removes `mcp_servers.gotack-memory` rather than leaving a
+dangling entry.
 
-## Interaction with the guard
-
-`internal/guard` rule `memory-context-write` denies every generic
-`write`/`edit` into the context directory, independent of posture or
-write-safe root (`TestEvaluateTierMatrix`). That closes the side door: the
-caps above cannot be bypassed by writing the memory files directly, so this
-tool stays the only writer by construction. Deleting or editing the files
-by hand remains the documented recovery path — the tool re-parses whatever
-it finds.
-
-## Removing the feature
-
-1. `RemoveConfigField mcp_servers.gotack-memory` (workspace scope), or let
-   the host do it by removing the binary.
-2. Delete `cmd/memory/`, `internal/memory/`, `memory_seed.go` and this
-   contract; drop the row from `docs/contracts/crush-rest-sse.md`.
-3. Optionally delete `<appconfig.Dir()>/context/memory/` — plain text, no
-   other state exists.
-
-## Windows-only caveat
-
-Developed and tested on Windows. `os.Rename` over an existing file uses
-`MoveFileEx` with replace semantics, which this contract relies on; non-
-Windows behavior compiles but is untested, as elsewhere in gotack.
+The PreToolUse guard denies generic file-writing tools aimed at the context
+directory, including background reviews. Background reviews may mutate these
+files only through `memory`, where the caps, scan, lock, and atomic batch are
+unavoidable. Manual editing or deleting the plain-text files remains the
+recovery path.

@@ -16,8 +16,7 @@ import (
 const engineDBFile = "crush.db"
 
 // Required columns per table. A missing table or required column is a schema
-// mismatch that must surface as an error, per the Phase 3 plan: an empty
-// result set would hide a broken pin bump.
+// mismatch; an empty result set would hide a broken engine pin bump.
 var (
 	requiredSessionColumns = []string{"id", "updated_at"}
 	requiredMessageColumns = []string{"id", "session_id", "parts", "updated_at"}
@@ -26,15 +25,16 @@ var (
 // Optional columns: when one disappears in a Crush upgrade the ingestion
 // degrades (logs and substitutes a neutral value) instead of failing.
 var (
-	optionalSessionColumns = []string{"title"}
+	optionalSessionColumns = []string{"title", "parent_session_id"}
 	optionalMessageColumns = []string{"role", "created_at", "is_summary_message"}
 )
 
 // SourceSession is one session row read from crush.db.
 type SourceSession struct {
-	ID        string
-	Title     string
-	UpdatedAt int64
+	ID              string
+	ParentSessionID string
+	Title           string
+	UpdatedAt       int64
 }
 
 // SourceMessage is one message row read from crush.db.
@@ -208,9 +208,13 @@ func (s *Source) SessionsSince(ctx context.Context, since int64) ([]SourceSessio
 	if s.schema.sessionHas("title") {
 		titleExpr = "title"
 	}
+	parentExpr := "''"
+	if s.schema.sessionHas("parent_session_id") {
+		parentExpr = "COALESCE(parent_session_id, '')"
+	}
 	query := fmt.Sprintf(
-		"SELECT id, %s AS title, updated_at FROM sessions WHERE updated_at >= ? ORDER BY updated_at",
-		titleExpr,
+		"SELECT id, %s AS parent_session_id, %s AS title, updated_at FROM sessions WHERE updated_at >= ? ORDER BY updated_at",
+		parentExpr, titleExpr,
 	)
 	rows, err := s.db.QueryContext(ctx, query, since)
 	if err != nil {
@@ -221,7 +225,7 @@ func (s *Source) SessionsSince(ctx context.Context, since int64) ([]SourceSessio
 	var sessions []SourceSession
 	for rows.Next() {
 		var session SourceSession
-		if err := rows.Scan(&session.ID, &session.Title, &session.UpdatedAt); err != nil {
+		if err := rows.Scan(&session.ID, &session.ParentSessionID, &session.Title, &session.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan session row: %w", err)
 		}
 		sessions = append(sessions, session)
@@ -268,4 +272,37 @@ func (s *Source) MessagesSince(ctx context.Context, since int64) ([]SourceMessag
 		messages = append(messages, message)
 	}
 	return messages, rows.Err()
+}
+
+// SessionIDs returns the complete source-side identity set used to reconcile
+// deletions from the derived index.
+func (s *Source) SessionIDs(ctx context.Context) ([]string, error) {
+	return sourceIDs(ctx, s.db, "sessions")
+}
+
+// MessageIDs returns the complete source-side identity set used to reconcile
+// deletions from the derived index.
+func (s *Source) MessageIDs(ctx context.Context) ([]string, error) {
+	return sourceIDs(ctx, s.db, "messages")
+}
+
+func sourceIDs(ctx context.Context, db *sql.DB, table string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id FROM "+table+" ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("query %s ids: %w", table, err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan %s id: %w", table, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read %s ids: %w", table, err)
+	}
+	return ids, nil
 }

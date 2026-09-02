@@ -5,11 +5,39 @@ package office
 
 import (
 	"archive/zip"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 )
+
+func walkXMLText(raw string, onStart, onText, onEnd func(string)) error {
+	decoder := xml.NewDecoder(strings.NewReader(raw))
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch element := token.(type) {
+		case xml.StartElement:
+			if element.Name.Local == "t" {
+				var text string
+				if err := decoder.DecodeElement(&text, &element); err != nil {
+					return err
+				}
+				onText(text)
+				continue
+			}
+			onStart(element.Name.Local)
+		case xml.EndElement:
+			onEnd(element.Name.Local)
+		}
+	}
+}
 
 // writePackage serializes parts (name -> XML content) into an OOXML zip file.
 func writePackage(path string, parts map[string]string) error {

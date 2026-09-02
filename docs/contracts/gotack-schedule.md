@@ -3,15 +3,14 @@
 Gotack runs scheduled autonomous agent jobs from the desktop host
 (`internal/schedule`, wired in `schedule_host.go`). This is a host-internal
 capability with one external boundary: the persisted job file
-`schedule.json`, which users hand-edit while the app is closed. The phased
-authority is Phase 5 of `docs/plans/completed/hermes-parity-harness.md`; the
-unattended posture it depends on is `docs/contracts/gotack-approvals.md`.
+`schedule.json`, which users hand-edit while the app is closed. The unattended
+posture it depends on is `docs/contracts/gotack-approvals.md`.
 
 The desktop never executes agent logic itself (ADR 0001): a firing is one
 agent run submitted over the same REST path the UI uses, and its outcome
 arrives over the same SSE stream. No Wails-bound methods exist for the
-scheduler in this phase: there is no UI surface yet, and hard rule 8 forbids
-bound methods nothing consumes.
+scheduler: there is no UI surface, and hard rule 8 forbids bound methods
+nothing consumes.
 
 ## schedule.json schema
 
@@ -68,8 +67,8 @@ One firing = one agent run, in this pinned order:
 3. Submit the prompt (`POST /v1/workspaces/{id}/agent`).
 
 A failed mark aborts the firing and records a failure: an unmarked scheduled
-session could hang on an approval prompt nobody can answer (ADR 0002, plan
-5.4). The claim (`last_run`, `last_outcome: "fired"`) is persisted before any
+session could hang on an approval prompt nobody can answer (ADR 0002). The
+claim (`last_run`, `last_outcome: "fired"`) is persisted before any
 network call, so the interval guard survives restarts even if the host dies
 mid-launch; a failed launch rolls the claim back.
 
@@ -97,11 +96,11 @@ host's `DoneSink`; hard rule 5 is honoured: nothing here polls the engine.
   fails before a run starts is bounded by the retry policy below instead.
 - **Preflight skip**: when no model is configured (`config.json`), firings
   are skipped with `last_outcome: "skipped: …"` instead of burning a failed
-  run (plan 5.1). Skips never count as failures.
+  run. Skips never count as failures.
 - **Retry**: a failed launch is recorded, rolls back the interval claim, and
   retries after a 5-minute backoff. Failures are never silently dropped —
   `last_outcome`, `consecutive_failures` and the log carry them.
-- **Failure-nudge threshold**: 3 consecutive failures (launch failures and
+- **Failure threshold**: 3 consecutive failures (launch failures and
   run errors from `run_complete` both count; cancellations do not) disable
   the job with a legible `disabled_reason`. Re-enabling requires a hand
   edit: set `"enabled": true` (the streak and reason reset on load).

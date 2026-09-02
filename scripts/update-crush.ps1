@@ -49,6 +49,7 @@ $serverText = ($serverFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
 $requiredMarkers = @(
     '/v1/workspaces/{id}/sessions',
     '/v1/workspaces/{id}/agent',
+    '/v1/workspaces/{id}/agent/refresh-prompt',
     '/v1/workspaces/{id}/events',
     '/config/model',
     '/config/set',

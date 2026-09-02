@@ -77,23 +77,43 @@ func TestMergeProviderModelsKeepsConfiguredMetadataFirst(t *testing.T) {
 	}
 }
 
+func TestLocalProviderIdentityMatchesOnlyStableManagedIdentity(t *testing.T) {
+	spec := mistralProviderSpec()
+	if !localProviderIdentityMatches(crushapi.ProviderConfig{
+		Name:    spec.Provider.Name,
+		Type:    spec.Provider.Type,
+		BaseURL: "https://custom.example/v1",
+	}, spec) {
+		t.Fatal("custom endpoint made a Gotack-managed provider lose ownership")
+	}
+	if localProviderIdentityMatches(crushapi.ProviderConfig{Name: "User Mistral", Type: spec.Provider.Type}, spec) {
+		t.Fatal("hand-written provider was treated as Gotack-managed")
+	}
+	if localProviderIdentityMatches(crushapi.ProviderConfig{Name: spec.Provider.Name, Type: "custom"}, spec) {
+		t.Fatal("provider with a custom type was treated as Gotack-managed")
+	}
+}
+
 func TestPrepareLocalProviderConfigSeedsCrushWireFields(t *testing.T) {
-	var setKeys []string
+	var (
+		batchRequests int
+		setFields     map[string]json.RawMessage
+	)
 	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws/providers":
 			return jsonHTTPResponse(http.StatusOK, `[{"id":"openai","name":"OpenAI"}]`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws/config":
 			return jsonHTTPResponse(http.StatusOK, `{"providers":{}}`), nil
-		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws/config/set":
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws/config/set-batch":
 			var payload struct {
-				Key   string          `json:"key"`
-				Value json.RawMessage `json:"value"`
+				Fields map[string]json.RawMessage `json:"fields"`
 			}
 			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode config set: %v", err)
+				t.Fatalf("decode config batch: %v", err)
 			}
-			setKeys = append(setKeys, payload.Key)
+			batchRequests++
+			setFields = payload.Fields
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
 		default:
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
@@ -116,34 +136,87 @@ func TestPrepareLocalProviderConfigSeedsCrushWireFields(t *testing.T) {
 		"providers.mistral.base_url",
 		"providers.mistral.api_key",
 	}
-	if len(setKeys) != len(want) {
-		t.Fatalf("set keys = %#v, want %#v", setKeys, want)
+	if batchRequests != 1 || len(setFields) != len(want) {
+		t.Fatalf("batch requests = %d, fields = %#v", batchRequests, setFields)
 	}
-	for i := range want {
-		if setKeys[i] != want[i] {
-			t.Fatalf("set keys = %#v, want %#v", setKeys, want)
+	for _, key := range want {
+		if _, ok := setFields[key]; !ok {
+			t.Fatalf("batch fields = %#v, missing %q", setFields, key)
 		}
+	}
+}
+
+func TestPrepareLocalProviderConfigRetriesWholeBatchAfterFailure(t *testing.T) {
+	batchRequests := 0
+	providerExists := false
+	upstreamProviderVisible := false
+	failBatch := true
+	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws/providers":
+			if upstreamProviderVisible {
+				return jsonHTTPResponse(http.StatusOK, `[{"id":"mistral","name":"Mistral AI"}]`), nil
+			}
+			return jsonHTTPResponse(http.StatusOK, `[{"id":"openai","name":"OpenAI"}]`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws/config":
+			if providerExists {
+				return jsonHTTPResponse(http.StatusOK, `{"providers":{"mistral":{"name":"Mistral AI","type":"openai-compat","base_url":"https://api.mistral.ai/v1"}}}`), nil
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"providers":{}}`), nil
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws/config/set-batch":
+			batchRequests++
+			if failBatch {
+				return jsonHTTPResponse(http.StatusInternalServerError, `{"error":"injected failure"}`), nil
+			}
+			providerExists = true
+			return jsonHTTPResponse(http.StatusOK, `{}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return nil, nil
+		}
+	})
+	api := crushapi.NewClient(&http.Client{Transport: transport})
+
+	if _, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID); err == nil {
+		t.Fatal("first prepare succeeded despite batch failure")
+	}
+	failBatch = false
+	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID)
+	if err != nil || !seeded {
+		t.Fatalf("retry prepare = seeded:%v err:%v", seeded, err)
+	}
+	upstreamProviderVisible = true
+	managed, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID)
+	if err != nil || !managed {
+		t.Fatalf("completed provider prepare = managed:%v err:%v", managed, err)
+	}
+	if batchRequests != 2 {
+		t.Fatalf("batch requests = %d, want one failed whole batch and one retry", batchRequests)
 	}
 }
 
 // Codex must be seeded without an api_key or a models list: the credential is
 // an OAuth token and the catalog is written by the ChatGPT sign-in.
 func TestPrepareLocalProviderConfigOmitsCredentialFieldsForCodex(t *testing.T) {
-	var setKeys []string
+	var (
+		batchRequests int
+		setFields     map[string]json.RawMessage
+	)
 	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws/providers":
 			return jsonHTTPResponse(http.StatusOK, `[{"id":"openai","name":"OpenAI"}]`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/ws/config":
 			return jsonHTTPResponse(http.StatusOK, `{"providers":{}}`), nil
-		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws/config/set":
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/ws/config/set-batch":
 			var payload struct {
-				Key string `json:"key"`
+				Fields map[string]json.RawMessage `json:"fields"`
 			}
 			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode config set: %v", err)
+				t.Fatalf("decode config batch: %v", err)
 			}
-			setKeys = append(setKeys, payload.Key)
+			batchRequests++
+			setFields = payload.Fields
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
 		default:
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
@@ -164,12 +237,12 @@ func TestPrepareLocalProviderConfigOmitsCredentialFieldsForCodex(t *testing.T) {
 		"providers.codex.type",
 		"providers.codex.base_url",
 	}
-	if len(setKeys) != len(want) {
-		t.Fatalf("set keys = %#v, want %#v", setKeys, want)
+	if batchRequests != 1 || len(setFields) != len(want) {
+		t.Fatalf("batch requests = %d, fields = %#v", batchRequests, setFields)
 	}
-	for i := range want {
-		if setKeys[i] != want[i] {
-			t.Fatalf("set keys = %#v, want %#v", setKeys, want)
+	for _, key := range want {
+		if _, ok := setFields[key]; !ok {
+			t.Fatalf("batch fields = %#v, missing %q", setFields, key)
 		}
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
 )
 
 // indexFileName is the gotack-owned FTS5 database inside the index dir. It
@@ -32,6 +31,7 @@ CREATE TABLE IF NOT EXISTS recall_meta (
 );
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
+    parent_session_id TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL DEFAULT 0
 );
@@ -74,6 +74,15 @@ func openIndex(dir string) (*sql.DB, error) {
 	if _, err := db.Exec(indexSchema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize recall index schema: %w", err)
+	}
+	// Existing derived indexes predate lineage metadata. Add the one optional
+	// column in place; the index remains rebuildable and this migration never
+	// touches the read-only Crush source. The CREATE TABLE above handles new
+	// indexes; older ones need this additive migration.
+	if _, err := db.Exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT NOT NULL DEFAULT ''"); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate recall lineage column: %w", err)
 	}
 	return db, nil
 }
@@ -131,15 +140,16 @@ func ingestSessions(ctx context.Context, db *sql.DB, sessions []SourceSession) e
 		return fmt.Errorf("begin session ingest: %w", err)
 	}
 	stmt, err := tx.PrepareContext(ctx,
-		"INSERT INTO sessions (id, title, updated_at) VALUES (?, ?, ?)"+
-			" ON CONFLICT (id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at")
+		"INSERT INTO sessions (id, parent_session_id, title, updated_at) VALUES (?, ?, ?, ?)"+
+			" ON CONFLICT (id) DO UPDATE SET parent_session_id = excluded.parent_session_id,"+
+			" title = excluded.title, updated_at = excluded.updated_at")
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("prepare session upsert: %w", err)
 	}
 	defer stmt.Close()
 	for _, session := range sessions {
-		if _, err := stmt.ExecContext(ctx, session.ID, session.Title, session.UpdatedAt); err != nil {
+		if _, err := stmt.ExecContext(ctx, session.ID, session.ParentSessionID, session.Title, session.UpdatedAt); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("upsert session %q: %w", session.ID, err)
 		}
@@ -187,7 +197,7 @@ func ingestMessages(ctx context.Context, db *sql.DB, messages []SourceMessage) e
 	defer insertFTS.Close()
 
 	for _, message := range messages {
-		text := extractPartsText(message.Parts)
+		text := extractPartsText(message.Parts, message.Role)
 		isSummary := 0
 		if message.IsSummary {
 			isSummary = 1
@@ -215,55 +225,111 @@ func ingestMessages(ctx context.Context, db *sql.DB, messages []SourceMessage) e
 	return nil
 }
 
-// ftsMatch converts free-form user input into a safe FTS5 MATCH expression:
-// every whitespace-separated token becomes a quoted phrase, so FTS operators
-// and punctuation in the query cannot inject query syntax. Tokens without a
-// letter or digit are dropped; nil is returned when nothing searchable
-// remains.
-func ftsMatch(query string) *string {
-	var terms []string
-	for _, token := range strings.Fields(query) {
-		if !strings.ContainsFunc(token, func(r rune) bool {
-			return unicode.IsLetter(r) || unicode.IsDigit(r)
-		}) {
-			continue
+// reconcileIndex removes rows whose source objects were deleted from
+// crush.db. The identity snapshot and all derived deletes commit together.
+func reconcileIndex(ctx context.Context, db *sql.DB, sessionIDs, messageIDs []string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin recall reconciliation: %w", err)
+	}
+	rollback := func(err error) error {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, statement := range []string{
+		"CREATE TEMP TABLE IF NOT EXISTS seen_session_ids (id TEXT PRIMARY KEY)",
+		"CREATE TEMP TABLE IF NOT EXISTS seen_message_ids (id TEXT PRIMARY KEY)",
+		"DELETE FROM seen_session_ids",
+		"DELETE FROM seen_message_ids",
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return rollback(fmt.Errorf("prepare recall reconciliation: %w", err))
 		}
-		terms = append(terms, `"`+strings.ReplaceAll(token, `"`, `""`)+`"`)
 	}
-	if len(terms) == 0 {
-		return nil
+	if err := insertSeenIDs(ctx, tx, "seen_session_ids", sessionIDs); err != nil {
+		return rollback(err)
 	}
-	match := strings.Join(terms, " ")
-	return &match
+	if err := insertSeenIDs(ctx, tx, "seen_message_ids", messageIDs); err != nil {
+		return rollback(err)
+	}
+	for _, statement := range []string{
+		"DELETE FROM messages_fts WHERE message_id NOT IN (SELECT id FROM seen_message_ids)",
+		"DELETE FROM messages WHERE id NOT IN (SELECT id FROM seen_message_ids)",
+		"DELETE FROM sessions WHERE id NOT IN (SELECT id FROM seen_session_ids)",
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return rollback(fmt.Errorf("reconcile recall index: %w", err))
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit recall reconciliation: %w", err)
+	}
+	return nil
+}
+
+func insertSeenIDs(ctx context.Context, tx *sql.Tx, table string, ids []string) error {
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO "+table+" (id) VALUES (?)")
+	if err != nil {
+		return fmt.Errorf("prepare %s insert: %w", table, err)
+	}
+	defer stmt.Close()
+	for _, id := range ids {
+		if _, err := stmt.ExecContext(ctx, id); err != nil {
+			return fmt.Errorf("insert %s id %q: %w", table, id, err)
+		}
+	}
+	return nil
 }
 
 // searchResult is one FTS hit joined back to its message and session rows.
 type searchResult struct {
-	messageID   string
-	sessionID   string
-	title       string
-	role        string
-	isSummary   bool
-	createdAtMS int64
-	snippet     string
+	messageID string
+	sessionID string
+	title     string
+	role      string
+	snippet   string
 }
 
-// search runs an FTS5 query ranked by bm25 and filters summary messages out,
-// per the Phase 3 plan: summaries must not crowd out real content.
-func search(ctx context.Context, db *sql.DB, query string, limit int) ([]searchResult, error) {
-	match := ftsMatch(query)
-	if match == nil {
-		return nil, ErrInvalidQuery
+// search runs an FTS5 query and filters summary messages out so generated
+// summaries cannot crowd out real content. The MATCH expression
+// comes from buildMatch and the ORDER BY body from orderClause, so neither
+// the query nor the sort shape ever reaches SQL as raw user text.
+func search(ctx context.Context, db *sql.DB, match, order string, roles []string, limit int, excludeSessionID string) ([]searchResult, error) {
+	where := "messages_fts MATCH ? AND m.is_summary = 0"
+	args := []any{match}
+	if strings.TrimSpace(excludeSessionID) != "" {
+		// Exclude the active session and every parent/child in its lineage. The
+		// recursive CTE is evaluated only when a trusted id is supplied.
+		where += ` AND m.session_id NOT IN (
+			WITH RECURSIVE lineage(id) AS (
+				SELECT ?
+				UNION
+				SELECT s.parent_session_id FROM sessions s JOIN lineage l ON s.id = l.id
+				WHERE s.parent_session_id <> ''
+				UNION
+				SELECT s.id FROM sessions s JOIN lineage l ON s.parent_session_id = l.id
+				WHERE s.id <> ''
+			)
+			SELECT id FROM lineage
+		)`
+		args = append(args, strings.TrimSpace(excludeSessionID))
 	}
+	if len(roles) > 0 {
+		where += " AND m.role IN (" + strings.TrimSuffix(strings.Repeat("?,", len(roles)), ",") + ")"
+		for _, role := range roles {
+			args = append(args, role)
+		}
+	}
+	args = append(args, limit)
 	rows, err := db.QueryContext(ctx, `
-SELECT m.id, m.session_id, COALESCE(s.title, ''), m.role, m.is_summary, m.created_at,
+SELECT m.id, m.session_id, COALESCE(s.title, ''), m.role,
        snippet(messages_fts, 0, '[', ']', ' … ', 24)
 FROM messages_fts
 JOIN messages m ON m.id = messages_fts.message_id
 LEFT JOIN sessions s ON s.id = m.session_id
-WHERE messages_fts MATCH ? AND m.is_summary = 0
-ORDER BY messages_fts.rank
-LIMIT ?`, *match, limit)
+WHERE `+where+`
+ORDER BY `+order+`
+LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("run recall search: %w", err)
 	}
@@ -272,12 +338,10 @@ LIMIT ?`, *match, limit)
 	var results []searchResult
 	for rows.Next() {
 		var result searchResult
-		var isSummary int64
 		if err := rows.Scan(&result.messageID, &result.sessionID, &result.title,
-			&result.role, &isSummary, &result.createdAtMS, &result.snippet); err != nil {
+			&result.role, &result.snippet); err != nil {
 			return nil, fmt.Errorf("scan recall hit: %w", err)
 		}
-		result.isSummary = isSummary != 0
 		results = append(results, result)
 	}
 	return results, rows.Err()

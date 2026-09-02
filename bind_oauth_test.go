@@ -163,20 +163,22 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 			return jsonHTTPResponse(http.StatusOK, legacyConfig), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/catalog-ws/providers":
 			return jsonHTTPResponse(http.StatusOK, `[{"id":"codex","name":"ChatGPT (Codex)","default_large_model_id":"gpt-5-codex","models":[{"id":"gpt-5-codex"}]}]`), nil
-		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/catalog-ws/config/set":
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/catalog-ws/config/set-batch":
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
-		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/catalog-ws/config/model":
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/catalog-ws/config/models":
 			var payload struct {
-				ModelType string `json:"model_type"`
-				Model     struct {
+				Models map[string]struct {
 					Provider string `json:"provider"`
 					Model    string `json:"model"`
-				} `json:"model"`
+				} `json:"models"`
 			}
 			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode preferred model: %v", err)
+				t.Fatalf("decode preferred models: %v", err)
 			}
-			modelWrites = append(modelWrites, payload.ModelType+":"+payload.Model.Provider+"/"+payload.Model.Model)
+			for _, modelType := range []string{"large", "small"} {
+				model := payload.Models[modelType]
+				modelWrites = append(modelWrites, modelType+":"+model.Provider+"/"+model.Model)
+			}
 			return jsonHTTPResponse(http.StatusOK, `{}`), nil
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/catalog-ws/config/provider-key":
 			var payload struct {

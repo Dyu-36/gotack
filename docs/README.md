@@ -8,22 +8,12 @@ Start with the smallest authoritative surface.
   baseline, and repository layout.
 - `WORKFLOW.md`: request shape, planning, judgment, operation, validation, and
   completion.
-- `contracts/wails-bindings.md`: the UI/host boundary (bound methods and
-  events); update it in the same change as the binds.
-- `contracts/crush-rest-sse.md`: the host-to-engine boundary: every config
-  key the host writes, every REST endpoint and SSE event it consumes, and
-  the undo path for each; update it in the same change as `internal/crushapi`
-  or any `SetConfigField`/`RemoveConfigField` call.
-- `contracts/zalo-bot.md`: the Zalo Bot API boundary: the external endpoints
-  the host calls, the `Zalo.*` config keys it consumes (including the
-  deprecated legacy keys), pairing, session mapping, media handling, and the
-  legacy-import path; update it in the same change as `internal/zalo` or
-  `bind_zalo.go`.
-- `product/`: current product behavior. Still the generic harness placeholder;
-  Gotack's product behavior currently lives in `../README.md` and
-  `contracts/wails-bindings.md`.
-- `decisions/`: lasting choices future work must inherit. Currently empty — no
-  local decision record has been accepted yet.
+- `contracts/`: external boundaries and host-owned behavior. It covers Wails,
+  Crush REST/SSE, approvals, memory, recall, skills, reflection, scheduling,
+  and Zalo. Update the owning contract in the same change as its
+  implementation.
+- `decisions/`: accepted architecture and safety decisions. Its `README.md`
+  indexes the current ADRs and their implementation consequences.
 - `plans/`: durable working-memory documents; `active/` while in progress,
   `completed/` after validation.
 - [`patterns/encoding-invariants.md`](patterns/encoding-invariants.md): turn

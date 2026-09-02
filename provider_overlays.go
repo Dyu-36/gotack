@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
@@ -32,14 +33,6 @@ type localProviderSpec struct {
 	// stays off because its catalog is account-scoped and written by the engine
 	// when the token is stored.
 	OAuthOnly bool
-}
-
-// providerConfigWrite is one `providers.<id>.<field>` upsert against Crush's
-// config API. Seeding is expressed as an ordered list so the write order stays
-// reviewable: identity first, credential last.
-type providerConfigWrite struct {
-	key   string
-	value any
 }
 
 func mistralProviderSpec() localProviderSpec {
@@ -148,17 +141,47 @@ func engineModelsFor(spec localProviderSpec) []localEngineModel {
 	return models
 }
 
+func localProviderConfigFields(spec localProviderSpec) map[string]any {
+	base := "providers." + spec.Provider.ID
+	fields := map[string]any{
+		base + ".discover_models": false,
+		base + ".name":            spec.Provider.Name,
+		base + ".type":            spec.Provider.Type,
+		base + ".base_url":        spec.Provider.APIEndpoint,
+	}
+	if len(spec.Provider.Models) > 0 {
+		fields[base+".models"] = engineModelsFor(spec)
+	}
+	if spec.APIKeyTemplate != "" {
+		fields[base+".api_key"] = spec.APIKeyTemplate
+	}
+	return fields
+}
+
 // prepareLocalProviderConfig seeds a custom provider only while Catwalk does
 // not know that provider ID. Once Catwalk publishes Mistral, the upstream entry
 // wins and this function becomes a no-op without requiring a migration.
 //
-// It returns true only when a fresh local provider was seeded. The caller then
-// stores the credential/custom endpoint and calls finalizeLocalProviderConfig,
-// which enables discovery after credentials are available.
+// It returns true when the provider is Gotack-managed, including a matching
+// provider left by an earlier attempt. The caller can then retry finalization
+// after credentials and endpoint configuration succeed.
 func prepareLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID string, scope int, providerID string) (bool, error) {
 	spec, supported := localProviderSpecFor(providerID)
 	if !supported {
 		return false, nil
+	}
+
+	cfg, err := api.GetWorkspaceConfig(ctx, wsID)
+	if err != nil {
+		return false, fmt.Errorf("read provider config before local bootstrap: %w", err)
+	}
+	if configured, exists := cfg.Providers[providerID]; exists {
+		// Preserve an existing hand-written custom provider. The Gotack overlay
+		// only takes ownership when the stable identity fields match its spec.
+		// Check this before the catalog: after a successful atomic seed, Crush
+		// may publish the provider before a later finalization step is retried.
+		// Returning ownership here lets the retry complete that step.
+		return localProviderIdentityMatches(configured, spec), nil
 	}
 
 	upstream, err := api.ListProviders(ctx, wsID)
@@ -171,39 +194,19 @@ func prepareLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID 
 		}
 	}
 
-	cfg, err := api.GetWorkspaceConfig(ctx, wsID)
-	if err != nil {
-		return false, fmt.Errorf("read provider config before local bootstrap: %w", err)
-	}
-	if _, exists := cfg.Providers[providerID]; exists {
-		// Preserve an existing hand-written custom provider. The Gotack overlay
-		// only supplies UI metadata for it; it does not take ownership of config.
-		return false, nil
-	}
-
-	base := "providers." + providerID
-	writes := []providerConfigWrite{
-		{base + ".discover_models", false},
-		{base + ".name", spec.Provider.Name},
-		{base + ".type", spec.Provider.Type},
-	}
 	// An OAuth-only provider carries neither a curated catalog nor a key
 	// template. Writing an empty models list would erase the account-scoped
 	// catalog the engine stores with the token, and an empty api_key would read
 	// back as a configured credential in Settings.
-	if len(spec.Provider.Models) > 0 {
-		writes = append(writes, providerConfigWrite{base + ".models", engineModelsFor(spec)})
-	}
-	writes = append(writes, providerConfigWrite{base + ".base_url", spec.Provider.APIEndpoint})
-	if spec.APIKeyTemplate != "" {
-		writes = append(writes, providerConfigWrite{base + ".api_key", spec.APIKeyTemplate})
-	}
-	for _, write := range writes {
-		if err := api.SetConfigField(ctx, wsID, scope, write.key, write.value); err != nil {
-			return false, fmt.Errorf("seed local provider %s: %w", providerID, err)
-		}
+	if err := api.SetConfigFields(ctx, wsID, scope, localProviderConfigFields(spec)); err != nil {
+		return false, fmt.Errorf("seed local provider %s: %w", providerID, err)
 	}
 	return true, nil
+}
+
+func localProviderIdentityMatches(configured crushapi.ProviderConfig, spec localProviderSpec) bool {
+	return strings.TrimSpace(configured.Name) == spec.Provider.Name &&
+		strings.TrimSpace(configured.Type) == spec.Provider.Type
 }
 
 func finalizeLocalProviderConfig(ctx context.Context, api *crushapi.Client, wsID string, scope int, providerID string) error {

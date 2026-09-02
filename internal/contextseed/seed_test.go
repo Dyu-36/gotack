@@ -164,14 +164,28 @@ func TestSeed(t *testing.T) {
 	}
 }
 
-func TestContextPathArg(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := New(dataDir, nil)
-	if got, want := seeder.ContextDir(), filepath.Join(dataDir, "context"); got != want {
-		t.Errorf("ContextDir() = %q, want %q", got, want)
+func TestSeedRejectsMalformedReportWithoutChangingUserFile(t *testing.T) {
+	sourceDir := t.TempDir()
+	seeder := New(t.TempDir(), nil)
+	writeSource(t, sourceDir, "TACK.md", "bundled replacement")
+	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
+		t.Fatalf("create context dir: %v", err)
 	}
-	if got, want := seeder.ContextPathArg(), seeder.ContextDir(); got != want {
-		t.Errorf("ContextPathArg() = %q, want %q", got, want)
+	userPath := filepath.Join(seeder.ContextDir(), "TACK.md")
+	if err := os.WriteFile(userPath, []byte("keep my context"), 0o644); err != nil {
+		t.Fatalf("write user context: %v", err)
+	}
+	reportPath := filepath.Join(seeder.ContextDir(), ".seed-report.json")
+	if err := os.WriteFile(reportPath, []byte(`{"files":`), 0o644); err != nil {
+		t.Fatalf("write malformed report: %v", err)
+	}
+
+	err := seeder.Seed(sourceDir)
+	if err == nil || !strings.Contains(err.Error(), "parse "+reportPath) {
+		t.Fatalf("Seed error = %v, want malformed report diagnostic", err)
+	}
+	if got := readSeeded(t, seeder, "TACK.md"); got != "keep my context" {
+		t.Fatalf("TACK.md = %q after malformed report, want user content", got)
 	}
 }
 

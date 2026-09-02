@@ -17,11 +17,7 @@ import (
 // and model configuration.
 
 // SettingsInfo is the settings payload exchanged with the UI. Every field must
-// be genuinely readable AND writable: a field the host accepts and then
-// ignores is a contract lie (AGENTS.md rule 8). `autostart_engine` and
-// `small_model` were removed for exactly that reason -- the engine is always
-// started during OnStartup, and applyCrushSettings always pins Crush's
-// small-model slot to Model.
+// be genuinely readable and writable (AGENTS.md hard rule 8).
 type SettingsInfo struct {
 	Theme              string `json:"theme"`
 	Provider           string `json:"provider"`
@@ -91,9 +87,6 @@ func resolvedProviderCredential(pc crushapi.ProviderConfig) (kind, value string,
 // reads. When the user has no workspace open it falls back to a private
 // catalog workspace under Gotack's config directory, without changing what the
 // user currently has open.
-//
-// ListProviders and RevealProviderAPIKey previously held byte-identical copies
-// of this block, differing only in the zero value of their error return.
 func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
 	if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
 		return desc.WorkspaceID, nil
@@ -231,28 +224,49 @@ func (a *App) DeleteProvider(providerID string) error {
 	defer cancel()
 	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
 	base := "providers." + providerID
+	engineConfig, err := svc.api.GetWorkspaceConfig(ctx, ws)
+	if err != nil {
+		return fmt.Errorf("read provider state before deletion: %w", err)
+	}
+	clearSelection := a.cfg != nil && strings.TrimSpace(a.cfg.Provider) == providerID
+	clearModels := clearSelection || preferredModelsUseProvider(engineConfig.Models, providerID)
+	if clearSelection {
+		next := *a.cfg
+		next.Provider = ""
+		next.Model = ""
+		next.CustomURL = ""
+		if err := appconfig.Save(&next); err != nil {
+			return fmt.Errorf("save cleared provider selection: %w", err)
+		}
+		a.cfg = &next
+	}
+
+	// Once disabled, every remaining cleanup step is idempotent and safe to
+	// retry without leaving an enabled provider with missing credentials.
+	if err := svc.api.SetConfigField(ctx, ws, scope, base+".disable", true); err != nil {
+		return fmt.Errorf("disable provider: %w", err)
+	}
+	if clearModels {
+		if err := svc.api.RemovePreferredModelPair(ctx, ws, scope); err != nil {
+			return fmt.Errorf("clear provider model selection: %w", err)
+		}
+	}
 	if err := svc.api.RemoveConfigField(ctx, ws, scope, base+".api_key"); err != nil {
 		return fmt.Errorf("remove provider API key: %w", err)
 	}
 	if err := svc.api.RemoveConfigField(ctx, ws, scope, base+".oauth"); err != nil {
 		return fmt.Errorf("remove provider OAuth credential: %w", err)
 	}
-	if err := svc.api.SetConfigField(ctx, ws, scope, base+".disable", true); err != nil {
-		return fmt.Errorf("disable provider: %w", err)
-	}
+	return nil
+}
 
-	if a.cfg != nil && a.cfg.Provider == providerID {
-		_ = svc.api.RemoveConfigField(ctx, ws, scope, "models.large")
-		_ = svc.api.RemoveConfigField(ctx, ws, scope, "models.small")
-		a.cfg.Provider = ""
-		a.cfg.Model = ""
-		a.cfg.CustomURL = ""
-		cfgCopy := *a.cfg
-		if err := appconfig.Save(&cfgCopy); err != nil {
-			return err
+func preferredModelsUseProvider(models map[string]crushapi.SelectedModel, providerID string) bool {
+	for _, modelType := range []string{"large", "small"} {
+		if strings.TrimSpace(models[modelType].Provider) == providerID {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 // SaveSettings persists non-secret UI preferences and applies agent-affecting
@@ -268,23 +282,27 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 		return err
 	}
 
-	if a.cfg == nil {
-		a.cfg = appconfig.Defaults()
+	current := a.cfg
+	if current == nil {
+		current = appconfig.Defaults()
 	}
+	next := *current
 	if effective.Theme != "" {
-		a.cfg.Theme = effective.Theme
+		next.Theme = effective.Theme
 	}
-	a.cfg.Provider = strings.TrimSpace(effective.Provider)
-	a.cfg.Model = strings.TrimSpace(effective.Model)
+	next.Provider = strings.TrimSpace(effective.Provider)
+	next.Model = strings.TrimSpace(effective.Model)
 	// Gotack exposes one model selector. applyCrushSettings pins both
 	// models.large and models.small to it, so there is nothing extra to persist.
-	a.cfg.Thinking = strings.TrimSpace(effective.Thinking)
-	a.cfg.APIKey = "" // scrub any credential persisted by older builds
+	next.Thinking = strings.TrimSpace(effective.Thinking)
+	next.APIKey = "" // scrub any credential persisted by older builds
 	credentialProvider := strings.TrimSpace(effective.CredentialProvider)
-	if credentialProvider == "" || credentialProvider == a.cfg.Provider {
-		a.cfg.CustomURL = strings.TrimSpace(effective.CustomURL)
+	if credentialProvider == "" || credentialProvider == next.Provider {
+		next.CustomURL = strings.TrimSpace(effective.CustomURL)
 	}
-	cfgCopy := *a.cfg
-
-	return appconfig.Save(&cfgCopy)
+	if err := appconfig.Save(&next); err != nil {
+		return err
+	}
+	a.cfg = &next
+	return nil
 }

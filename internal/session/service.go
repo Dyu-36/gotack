@@ -144,12 +144,23 @@ func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
 	return s.SendWithAttachments(ctx, id, text, nil)
 }
 
+// SendWithInputBudget submits a prompt with an aggregate input-token ceiling.
+// It is reserved for the detached background reviewer; normal foreground
+// sends continue through Send/SendWithAttachments without a budget.
+func (s *Service) SendWithInputBudget(ctx context.Context, id, text string, maxInputTokens int64) (string, error) {
+	return s.sendWithAttachmentsAndBudget(ctx, id, text, nil, maxInputTokens)
+}
+
 // SendWithAttachments submits a prompt and its inline files to the engine.
 //
 // Derived file text rides inside the prompt: Crush converts every attachment
 // into a binary content part, so text placed there never reaches the model.
 // Only items carrying bytes the model can consume become native attachments.
 func (s *Service) SendWithAttachments(ctx context.Context, id, text string, items []attachments.Prepared) (string, error) {
+	return s.sendWithAttachmentsAndBudget(ctx, id, text, items, 0)
+}
+
+func (s *Service) sendWithAttachmentsAndBudget(ctx context.Context, id, text string, items []attachments.Prepared, maxInputTokens int64) (string, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
 		return "", err
@@ -171,7 +182,7 @@ func (s *Service) SendWithAttachments(ctx context.Context, id, text string, item
 		}
 	}
 	runID := uuid.NewString()
-	if err := s.api.SendPromptWithAttachments(ctx, wsID, id, promptText, runID, atts); err != nil {
+	if err := s.api.SendPromptWithAttachmentsAndBudget(ctx, wsID, id, promptText, runID, atts, maxInputTokens); err != nil {
 		return "", fmt.Errorf("send prompt: %w", err)
 	}
 	return runID, nil

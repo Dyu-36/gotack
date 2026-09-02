@@ -115,7 +115,10 @@ func (m *Manager) remember(update Update) bool {
 
 func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	text := strings.TrimSpace(update.Text)
-	command := strings.ToLower(strings.Fields(text)[0])
+	command := ""
+	if fields := strings.Fields(text); len(fields) > 0 {
+		command = strings.ToLower(fields[0])
+	}
 	state := m.snapshot()
 	paired := contains(state.PairedChatIDs, update.ChatID)
 

@@ -71,36 +71,34 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("save oauth token to engine: %w", err)
 	}
 
-	// Update local config preferences if needed
-	if a.cfg == nil {
-		a.cfg = appconfig.Defaults()
+	current := a.cfg
+	if current == nil {
+		current = appconfig.Defaults()
 	}
 	// A ChatGPT login only takes over the active provider when the user is not
 	// deliberately on something else. "openai" counts as a previous ChatGPT
 	// selection because it is where this credential used to live.
-	if a.cfg.Provider == "" || a.cfg.Provider == openAIProviderID || a.cfg.Provider == codexProviderID {
-		a.cfg.Provider = codexProviderID
+	if current.Provider == "" || current.Provider == openAIProviderID || current.Provider == codexProviderID {
+		next := *current
+		next.Provider = codexProviderID
 		providers, listErr := svc.api.ListProviders(a.ctx, workspaceID)
 		if listErr != nil {
 			return ChatGPTOAuthStatus{}, fmt.Errorf("load ChatGPT subscription models: %w", listErr)
 		}
-		modelID, modelErr := selectChatGPTModel(providers, a.cfg.Model)
+		modelID, modelErr := selectChatGPTModel(providers, current.Model)
 		if modelErr != nil {
 			return ChatGPTOAuthStatus{}, modelErr
 		}
-		a.cfg.Model = modelID
-		effort, think := crushReasoning(a.cfg.Thinking)
+		next.Model = modelID
+		effort, think := crushReasoning(next.Thinking)
 		selected := crushapi.SelectedModel{Provider: codexProviderID, Model: modelID, ReasoningEffort: effort, Think: think}
-		if err := svc.api.SetPreferredModel(a.ctx, workspaceID, scope, "large", selected); err != nil {
-			return ChatGPTOAuthStatus{}, fmt.Errorf("select ChatGPT large model: %w", err)
+		if err := svc.api.SetPreferredModelPair(a.ctx, workspaceID, scope, selected); err != nil {
+			return ChatGPTOAuthStatus{}, fmt.Errorf("select ChatGPT model: %w", err)
 		}
-		if err := svc.api.SetPreferredModel(a.ctx, workspaceID, scope, "small", selected); err != nil {
-			return ChatGPTOAuthStatus{}, fmt.Errorf("select ChatGPT small model: %w", err)
-		}
-		cfgCopy := *a.cfg
-		if err := appconfig.Save(&cfgCopy); err != nil {
+		if err := appconfig.Save(&next); err != nil {
 			return ChatGPTOAuthStatus{}, fmt.Errorf("save ChatGPT model preference: %w", err)
 		}
+		a.cfg = &next
 	}
 
 	return ChatGPTOAuthStatus{

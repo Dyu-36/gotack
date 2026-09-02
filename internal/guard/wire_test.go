@@ -122,3 +122,34 @@ func TestUnknownToolPassThrough(t *testing.T) {
 		t.Fatalf("unknown tools must pass through interactively, got %+v", out)
 	}
 }
+
+func TestUpdatedInputRoundTripWithoutDecision(t *testing.T) {
+	out := Output{
+		Version:      outputVersion,
+		UpdatedInput: json.RawMessage(`{"_session_id":"sess-1","_background_review":false}`),
+	}
+	if out.IsNone() {
+		t.Fatal("an updated_input patch is a hook opinion even without a decision")
+	}
+	raw, err := MarshalOutput(out)
+	if err != nil {
+		t.Fatalf("MarshalOutput: %v", err)
+	}
+	var decoded struct {
+		Decision     string          `json:"decision"`
+		UpdatedInput json.RawMessage `json:"updated_input"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("re-decode envelope: %v", err)
+	}
+	if decoded.Decision != DecisionNone {
+		t.Fatalf("decision = %q, want no opinion", decoded.Decision)
+	}
+	var patch map[string]any
+	if err := json.Unmarshal(decoded.UpdatedInput, &patch); err != nil {
+		t.Fatalf("decode updated_input: %v", err)
+	}
+	if patch["_session_id"] != "sess-1" || patch["_background_review"] != false {
+		t.Fatalf("updated_input = %s, want trusted foreground context", decoded.UpdatedInput)
+	}
+}

@@ -19,4 +19,8 @@ documents here as real choices are accepted, then index them in this file.
   one `PreToolUse` hook; remote and scheduled sessions default stricter.
 - [`0003-memory-writes-constrained-by-construction.md`](0003-memory-writes-constrained-by-construction.md)
   — memory writes need no interactive approval; safety comes from caps,
-  atomic writes, provenance, and denial of every other write path.
+  bounded atomic batches, content scanning, process locking, and denial of
+  generic context-file writes.
+- [`0004-memory-refuses-instead-of-evicting.md`](0004-memory-refuses-instead-of-evicting.md)
+  — over cap the memory tool refuses the write and reports what is stored;
+  no entry is ever evicted to make room.

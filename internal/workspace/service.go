@@ -24,6 +24,7 @@ import (
 type Descriptor struct {
 	Path        string `json:"path"`
 	WorkspaceID string `json:"workspace_id"`
+	DataDir     string `json:"-"`
 }
 
 // Service validates a local path, attaches it to the engine, and remembers
@@ -76,7 +77,7 @@ func (s *Service) open(ctx context.Context, path, dataDir string) (Descriptor, e
 		return Descriptor{}, err
 	}
 
-	desc := Descriptor{Path: clean, WorkspaceID: ws.ID}
+	desc := Descriptor{Path: clean, WorkspaceID: ws.ID, DataDir: ws.DataDir}
 	s.mu.Lock()
 	s.current = desc
 	s.mu.Unlock()

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -89,6 +90,66 @@ func TestMarkCapsRosterSize(t *testing.T) {
 	}
 	if RosterContains(path, "sess-0") {
 		t.Fatal("oldest session must be trimmed past the cap")
+	}
+}
+
+func TestReviewRosterLifecycleIsDistinct(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, ReviewRosterFileName)
+	unattendedPath := filepath.Join(dir, UnattendedRosterFileName)
+
+	if err := MarkReviewSession(reviewPath, "review-1"); err != nil {
+		t.Fatalf("mark review: %v", err)
+	}
+	if !ReviewRosterContains(reviewPath, "review-1") {
+		t.Fatal("marked review session must be present")
+	}
+	if RosterContains(unattendedPath, "review-1") {
+		t.Fatal("review roster must not implicitly mark the unattended roster")
+	}
+	if err := UnmarkReviewSession(reviewPath, "review-1"); err != nil {
+		t.Fatalf("unmark review: %v", err)
+	}
+	if ReviewRosterContains(reviewPath, "review-1") {
+		t.Fatal("unmarked review session must be absent")
+	}
+	if err := UnmarkReviewSession(reviewPath, "review-1"); err != nil {
+		t.Fatalf("repeated unmark must be idempotent: %v", err)
+	}
+}
+
+func TestReviewRosterRequiresSessionID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ReviewRosterFileName)
+	if err := MarkReviewSession(path, ""); err == nil {
+		t.Fatal("marking an empty review session id must fail")
+	}
+	if err := UnmarkReviewSession(path, ""); err == nil {
+		t.Fatal("unmarking an empty review session id must fail")
+	}
+}
+
+func TestConcurrentReviewCleanupKeepsNewMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ReviewRosterFileName)
+	if err := MarkReviewSession(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := UnmarkReviewSession(path, "old"); err != nil {
+			t.Errorf("unmark old: %v", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := MarkReviewSession(path, "new"); err != nil {
+			t.Errorf("mark new: %v", err)
+		}
+	}()
+	wg.Wait()
+	if !ReviewRosterContains(path, "new") {
+		t.Fatal("concurrent cleanup lost the new review marker")
 	}
 }
 

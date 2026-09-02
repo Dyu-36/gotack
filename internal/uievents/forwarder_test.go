@@ -36,6 +36,30 @@ type namedEvent struct {
 	data any
 }
 
+type iterationRecord struct {
+	messageID string
+	hasTools  bool
+}
+
+type learningRecord struct {
+	sessionID string
+	callID    string
+	toolName  string
+}
+
+type iterationSink struct {
+	records  []iterationRecord
+	learning []learningRecord
+}
+
+func (s *iterationSink) AssistantIteration(_ string, messageID string, hasTools bool) {
+	s.records = append(s.records, iterationRecord{messageID, hasTools})
+}
+
+func (s *iterationSink) LearningToolExecuted(sessionID, callID, toolName string) {
+	s.learning = append(s.learning, learningRecord{sessionID, callID, toolName})
+}
+
 func (c *collector) emit(name string, data any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,7 +80,7 @@ func (c *collector) of(name string) []namedEvent {
 
 func TestForwarderCoalescesDeltas(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
 	f.setDelay(30 * time.Millisecond)
 
 	ch := make(chan crushapi.StreamEvent, 8)
@@ -106,7 +130,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 
 func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
 	f.setDelay(time.Second) // only the run_complete flush path fires it
 
 	ch := make(chan crushapi.StreamEvent, 4)
@@ -140,7 +164,7 @@ func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 
 func TestForwarderToolActivityImmediate(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
 	f.setDelay(time.Hour)
 
 	parts := json.RawMessage(`[{"type":"tool_call","data":{"id":"t1","name":"bash","input":"ls","finished":true}}]`)
@@ -159,13 +183,97 @@ func TestForwarderToolActivityImmediate(t *testing.T) {
 	}
 }
 
+func TestForwarderReportsLateSkillManageMetadata(t *testing.T) {
+	var c collector
+	sink := &iterationSink{}
+	f := NewForwarder(slog.Default(), c.emit, nil, nil, sink)
+	f.setDelay(time.Hour)
+
+	f.handle(messageUpdate("m", "s", "", textParts("thinking")))
+	parts := json.RawMessage(`[{"type":"tool_call","data":{"id":"t1","name":"mcp_gotack-skills_skill_manage","input":{},"finished":false}}]`)
+	f.handle(messageUpdate("m", "s", "", parts))
+
+	if len(sink.records) != 2 || sink.records[0].hasTools ||
+		!sink.records[1].hasTools {
+		t.Fatalf("iteration snapshots = %+v", sink.records)
+	}
+}
+
+func TestLearningToolResultAdmissionRequiresGuardedCallID(t *testing.T) {
+	cases := []struct {
+		name   string
+		result crushapi.ToolResult
+		want   int
+	}{
+		{
+			name:   "failed result",
+			result: crushapi.ToolResult{ToolCallID: "call-1", Name: "memory", IsError: true},
+			want:   1,
+		},
+		{
+			name:   "missing call id",
+			result: crushapi.ToolResult{Name: "memory"},
+		},
+		{
+			name:   "successful result",
+			result: crushapi.ToolResult{ToolCallID: "call-1", Name: "memory"},
+			want:   1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &iterationSink{}
+			f := NewForwarder(slog.Default(), nil, nil, nil, sink)
+			parts, err := json.Marshal([]map[string]any{{
+				"type": "tool_result",
+				"data": tc.result,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.handle(messageUpdate("result-message", "session", "", parts))
+			if got := len(sink.learning); got != tc.want {
+				t.Fatalf("learning callbacks = %d, want %d: %+v", got, tc.want, sink.learning)
+			}
+		})
+	}
+}
+
+func TestForwarderReportsOnlyAdmittedLearningResults(t *testing.T) {
+	var c collector
+	sink := &iterationSink{}
+	f := NewForwarder(slog.Default(), c.emit, nil, nil, sink)
+	f.setDelay(time.Hour)
+	message := func(id string, result map[string]any) crushapi.StreamEvent {
+		payload, _ := json.Marshal(map[string]any{
+			"id": id, "session_id": "s", "role": "tool",
+			"parts": []map[string]any{{"type": "tool_result", "data": result}},
+		})
+		return crushapi.StreamEvent{Kind: "message", Event: "updated", Payload: payload}
+	}
+	f.handle(message("denied", map[string]any{
+		"tool_call_id": "d", "name": "memory", "content": "User denied permission",
+	}))
+	f.handle(message("hook-denied", map[string]any{
+		"tool_call_id": "h", "name": "skill_manage", "content": "blocked",
+		"metadata": `{"hook":{"decision":"deny","halt":false}}`,
+	}))
+	f.handle(message("ok", map[string]any{
+		"tool_call_id": "a", "name": "memory", "content": "failed while executing",
+		"is_error": false,
+	}))
+	if len(sink.learning) != 1 || sink.learning[0].callID != "a" || sink.learning[0].toolName != "memory" {
+		t.Fatalf("learning results = %+v", sink.learning)
+	}
+}
+
 // TestForwarderAppendIsSuffix verifies that consecutive flushes for the same
 // message emit a suffix, not a full re-send. This is the contract the
 // frontend relies on to render the append-only model without re-walking the
 // whole text on every tick.
 func TestForwarderAppendIsSuffix(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
 	f.setDelay(20 * time.Millisecond)
 
 	ch := make(chan crushapi.StreamEvent, 4)

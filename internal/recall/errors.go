@@ -17,3 +17,9 @@ var ErrSourceMissing = errors.New("recall: crush.db not found in data directory"
 
 // ErrInvalidQuery reports a search query with no searchable words.
 var ErrInvalidQuery = errors.New("recall: search query contains no searchable words")
+
+// ErrUnknownSession distinguishes an absent session from an empty one.
+var ErrUnknownSession = errors.New("recall: session not found in the recall index")
+
+// ErrUnknownMessage reports an anchor that is not part of the named session.
+var ErrUnknownMessage = errors.New("recall: message anchor not found")

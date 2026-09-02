@@ -5,15 +5,15 @@
 package officecli
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/Dyu-36/gotack/internal/bundleseed"
 )
 
 // Seeder manages the per-user officecli installation.
@@ -42,23 +42,9 @@ func (s *Seeder) SkillsDir() string {
 	return filepath.Join(s.dataDir, "skills")
 }
 
-// OfficeCLIPath returns the absolute path to the bundled officecli binary or
-// the empty string when it is not available.
-func (s *Seeder) OfficeCLIPath() string {
-	name := "officecli"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	candidate := filepath.Join(s.BinDir(), name)
-	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-		return candidate
-	}
-	return ""
-}
-
 // Seed copies the bundled binary and skill tree into the data directory.
-// It is safe to call repeatedly: each file is only rewritten when the source
-// is missing or differs in size.
+// It is safe to call repeatedly: files are only rewritten when they are absent
+// from the destination or their recorded bundled size changes.
 func (s *Seeder) Seed(sourceDir string) error {
 	if sourceDir == "" {
 		return nil
@@ -66,7 +52,8 @@ func (s *Seeder) Seed(sourceDir string) error {
 	if err := os.MkdirAll(s.BinDir(), 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
-	if err := copyDirIfChanged(sourceDir, s.BinDir()); err != nil {
+	options := bundleseed.Options{ExistingFiles: bundleseed.ManagedFiles}
+	if err := bundleseed.CopyIfChanged(sourceDir, s.BinDir(), options); err != nil {
 		return fmt.Errorf("copy bin tree: %w", err)
 	}
 	if err := os.MkdirAll(s.SkillsDir(), 0o755); err != nil {
@@ -74,7 +61,7 @@ func (s *Seeder) Seed(sourceDir string) error {
 	}
 	skillsSource := filepath.Join(sourceDir, "skills")
 	if info, err := os.Stat(skillsSource); err == nil && info.IsDir() {
-		if err := copyDirIfChanged(skillsSource, s.SkillsDir()); err != nil {
+		if err := bundleseed.CopyIfChanged(skillsSource, s.SkillsDir(), options); err != nil {
 			return fmt.Errorf("copy skills tree: %w", err)
 		}
 	}
@@ -133,98 +120,4 @@ func EnsureOfficeCLIOnPath() string {
 		}
 	}
 	return ""
-}
-
-// report holds the persisted bundle version used to skip unchanged files.
-type report struct {
-	Files map[string]int64 `json:"files"`
-}
-
-func copyDirIfChanged(source, destination string) error {
-	state, err := loadReport(destination)
-	if err != nil {
-		return err
-	}
-	updated := false
-	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(destination, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		previous, present := state.Files[rel]
-		if present && previous == info.Size() {
-			return nil
-		}
-		if err := copyFile(path, target, info.Mode()); err != nil {
-			return err
-		}
-		state.Files[rel] = info.Size()
-		updated = true
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if updated {
-		return saveReport(destination, state)
-	}
-	return nil
-}
-
-func copyFile(source, destination string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return err
-	}
-	in, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return nil
-}
-
-func loadReport(destination string) (report, error) {
-	report := report{Files: map[string]int64{}}
-	data, err := os.ReadFile(filepath.Join(destination, ".seed-report.json"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return report, nil
-		}
-		return report, err
-	}
-	if len(data) == 0 {
-		return report, nil
-	}
-	_ = json.Unmarshal(data, &report)
-	if report.Files == nil {
-		report.Files = map[string]int64{}
-	}
-	return report, nil
-}
-
-func saveReport(destination string, value report) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(destination, ".seed-report.json"), data, 0o644)
 }

@@ -72,14 +72,11 @@ type ZaloSettings struct {
 	AllowedChats []string `json:"allowed_chats,omitempty"`
 }
 
-// Defaults returns the factory config: system theme and empty agent settings so
-// Crush's own catalog defaults apply until the user picks a provider and model.
-// There is no autostart preference because App.startup always adopts or starts
-// the engine unconditionally.
+// Defaults returns a config with opt-in behavior disabled. Crush's catalog
+// supplies the provider and model until the user selects them.
 func Defaults() *Config {
 	return &Config{
-		Theme:       "system",
-		AutoApprove: true,
+		Theme: "system",
 	}
 }
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -19,9 +19,22 @@ function trackedFiles(...patterns) {
 }
 
 function checkImplementationFileSize() {
-  const files = trackedFiles('*.go', '*.ts', '*.tsx', '*.js', '*.jsx', '*.svelte', '*.mjs', '*.cjs')
+  const files = trackedFiles(
+    '*.go',
+    '*.ts',
+    '*.tsx',
+    '*.js',
+    '*.jsx',
+    '*.svelte',
+    '*.mjs',
+    '*.cjs',
+    '*.py',
+    '*.ps1',
+  )
   for (const file of files) {
-    const text = readFileSync(path.join(repoRoot, file), 'utf8')
+    const absolutePath = path.join(repoRoot, file)
+    if (!existsSync(absolutePath)) continue
+    const text = readFileSync(absolutePath, 'utf8')
     const lineCount = text.length === 0 ? 0 : text.replace(/\r\n/g, '\n').split('\n').length - (text.endsWith('\n') ? 1 : 0)
     if (lineCount >= 1000) {
       fail(`${file} has ${lineCount} lines; AGENTS.md hard rule 6 requires implementation files to stay under 1000 lines. Split it by responsibility.`)

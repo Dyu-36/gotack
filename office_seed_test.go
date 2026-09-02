@@ -75,9 +75,11 @@ func TestMergeSkillsPaths(t *testing.T) {
 type skillsPathsAPI struct {
 	t             *testing.T
 	existing      []string
+	existingEnv   map[string]string
 	writtenKeys   []string
 	writtenSkills []string
 	wroteSkills   bool
+	writtenEnv    map[string]string
 }
 
 func (f *skillsPathsAPI) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -94,15 +96,18 @@ func (f *skillsPathsAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 		out, _ := json.Marshal(map[string]string{"id": "ws-1", "path": body.Path})
 		return jsonHTTPResponse(http.StatusOK, string(out)), nil
 	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/config"):
-		body := "{}"
+		config := map[string]any{}
 		if len(f.existing) > 0 {
-			options, err := json.Marshal(map[string]any{"options": map[string]any{"skills_paths": f.existing}})
-			if err != nil {
-				f.t.Fatalf("encode fake config: %v", err)
-			}
-			body = string(options)
+			config["options"] = map[string]any{"skills_paths": f.existing}
 		}
-		return jsonHTTPResponse(http.StatusOK, body), nil
+		if len(f.existingEnv) > 0 {
+			config["env"] = f.existingEnv
+		}
+		encoded, err := json.Marshal(config)
+		if err != nil {
+			f.t.Fatalf("encode fake config: %v", err)
+		}
+		return jsonHTTPResponse(http.StatusOK, string(encoded)), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/config/set"):
 		var payload struct {
 			Key   string          `json:"key"`
@@ -122,6 +127,29 @@ func (f *skillsPathsAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 			f.wroteSkills = true
 		}
 		return jsonHTTPResponse(http.StatusOK, `{}`), nil
+	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/config/set-batch"):
+		var payload struct {
+			Fields map[string]json.RawMessage `json:"fields"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			f.t.Errorf("decode config batch request: %v", err)
+			return jsonHTTPResponse(http.StatusBadRequest, `{"message":"bad request"}`), nil
+		}
+		for key, raw := range payload.Fields {
+			f.writtenKeys = append(f.writtenKeys, key)
+			switch key {
+			case "options.skills_paths":
+				if err := json.Unmarshal(raw, &f.writtenSkills); err != nil {
+					f.t.Errorf("decode skills_paths batch write: %v", err)
+				}
+				f.wroteSkills = true
+			case "env":
+				if err := json.Unmarshal(raw, &f.writtenEnv); err != nil {
+					f.t.Errorf("decode env batch write: %v", err)
+				}
+			}
+		}
+		return jsonHTTPResponse(http.StatusOK, `{}`), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/config/remove"):
 		// registerOfficeTools removes the office MCP entry when the binary
 		// is missing; the skills_paths assertion does not depend on it.
@@ -129,6 +157,18 @@ func (f *skillsPathsAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 	default:
 		f.t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 		return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+	}
+}
+
+func TestMergeConfigEnvPreservesUserKeys(t *testing.T) {
+	existing := map[string]string{"CUSTOM": "keep", "PATH": "user-path"}
+	got := mergeConfigEnv(existing, map[string]string{"PATH": "gotack-path"})
+	want := map[string]string{"CUSTOM": "keep", "PATH": "gotack-path"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mergeConfigEnv() = %#v, want %#v", got, want)
+	}
+	if existing["PATH"] != "user-path" {
+		t.Fatalf("mergeConfigEnv mutated input: %#v", existing)
 	}
 }
 
@@ -156,13 +196,16 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// Seed under the redirected config dir so the seeded skills dir
-			// equals userSkillsDir(): production dedupes the two into one
-			// entry, which is exactly the WP2 shape these tests pin.
+			// The seeded and user skills directories intentionally coincide;
+			// production must keep only one entry.
 			appData := redirectAppData(t)
 			dataDir := filepath.Join(appData, "gotack")
 			bundled := filepath.Join(dataDir, "skills")
-			fake := &skillsPathsAPI{t: t, existing: test.existing(bundled)}
+			fake := &skillsPathsAPI{
+				t:           t,
+				existing:    test.existing(bundled),
+				existingEnv: map[string]string{"CUSTOM": "keep"},
+			}
 
 			api := crushapi.NewClient(&http.Client{Transport: fake})
 			app := NewApp()
@@ -191,13 +234,13 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 			if !reflect.DeepEqual(fake.writtenSkills, want) {
 				t.Fatalf("written options.skills_paths = %#v, want %#v", fake.writtenSkills, want)
 			}
+			if fake.writtenEnv["CUSTOM"] != "keep" || fake.writtenEnv["PATH"] == "" {
+				t.Fatalf("written env did not preserve user values and add PATH: %#v", fake.writtenEnv)
+			}
 		})
 	}
 }
 
-// TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs proves plan 6.4
-// discovery: with a workspace open, the merged list gains the per-user
-// skills dir (deduped against the seeded one) and <workspace>/.agents/skills.
 func TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs(t *testing.T) {
 	appData := redirectAppData(t)
 	dataDir := filepath.Join(appData, "gotack")

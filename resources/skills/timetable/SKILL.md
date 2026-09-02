@@ -36,10 +36,10 @@ description: Quy trình tạo thời khóa biểu trường học: thu thập th
 
 ### 📌 BƯỚC 2: Xếp lịch tự động
 
-**Ưu tiên giao cho agent chuyên trách nếu có tool `task`:**
-- Nếu tool `task` còn dùng được, giao toàn bộ Bước 2 cho agent `timetable-solver`:
-  - Gọi `task` đúng **một lần** với `agent_id: "timetable-solver"` và mảng `tasks` có đúng **một phần tử**: "Xếp thời khóa biểu từ file <đường dẫn file input>, khung thời gian <mô tả>, các yêu cầu <danh sách>. Kết quả ghi vào output/schedule.json."
-  - KHÔNG tách đọc dữ liệu, tạo bài toán, chạy solver hay kiểm tra kết quả thành nhiều task: các bước này dùng chung file và phải chạy tuần tự trong một agent.
+**Ưu tiên giao cho agent chuyên trách nếu có tool `agent`:**
+- Nếu tool `agent` dùng được, gọi đúng **một lần** với một đối số `prompt`:
+  - `{"prompt":"Xếp thời khóa biểu từ file <đường dẫn file input>, khung thời gian <mô tả>, các yêu cầu <danh sách>. Kết quả ghi vào output/schedule.json."}`
+  - KHÔNG tách đọc dữ liệu, tạo bài toán, chạy bộ xếp lịch hay kiểm tra kết quả thành nhiều lời gọi: các bước này dùng chung file và phải chạy tuần tự trong một agent.
 
 **Quy trình tự làm (hoặc nội dung agent con thực hiện) — MÔ TẢ BÀI TOÁN, KHÔNG VIẾT THUẬT TOÁN:**
 

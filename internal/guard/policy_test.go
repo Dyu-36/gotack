@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-// policy_test.go -- role: table tests for the graduated tier decisions
-// (ADR 0002, plan Phase 4): the blocklist floor, the write-safe root, the
-// memory context dir, and the unattended-deny posture.
+// policy_test.go -- table tests for the graduated tier decisions: the
+// blocklist floor, write-safe root, memory context dir, and unattended posture.
 
 // input builds a hook payload for one tool call rooted at cwd.
 func input(t *testing.T, cwd, tool string, toolInput map[string]any) Input {
@@ -182,5 +181,112 @@ func TestWithinPathBoundaries(t *testing.T) {
 				t.Fatalf("withinPath(%q, %q) = %v, want %v", tc.root, tc.target, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestBackgroundReviewWhitelist(t *testing.T) {
+	root := t.TempDir()
+	opts := Options{WriteSafeRoot: root, Unattended: true, Review: true}
+	allowed := []string{
+		"ls",
+		"glob",
+		"grep",
+		"view",
+		"mcp_gotack-memory_memory",
+		"mcp_gotack-skills_skill_view",
+		"mcp_gotack-skills_skill_manage",
+	}
+	for _, tool := range allowed {
+		t.Run("allows "+tool, func(t *testing.T) {
+			got := Evaluate(input(t, root, tool, map[string]any{}), opts)
+			if got.Decision != DecisionAllow {
+				t.Fatalf("decision = %q (reason %q), want allow", got.Decision, got.Reason)
+			}
+		})
+	}
+
+	denied := []string{
+		"sourcegraph", // network-backed search is outside the local review set.
+		"bash",
+		"write",
+		"download",
+		"fetch",
+		"agent",
+		"future_tool",
+		"mcp_untrusted_memory",
+		"mcp_untrusted_skill_manage",
+	}
+	for _, tool := range denied {
+		t.Run("denies "+tool, func(t *testing.T) {
+			toolInput := map[string]any{}
+			if tool == "write" {
+				toolInput["file_path"] = filepath.Join(root, "safe.txt")
+			}
+			got := Evaluate(input(t, root, tool, toolInput), opts)
+			if got.Decision != DecisionDeny || !strings.Contains(got.Reason, ruleReviewWhitelist) {
+				t.Fatalf("got %+v, want review-whitelist denial", got)
+			}
+		})
+	}
+}
+
+func TestBackgroundReviewKeepsSecurityFloor(t *testing.T) {
+	got := Evaluate(
+		input(t, t.TempDir(), "bash", map[string]any{"command": "format C:"}),
+		Options{Unattended: true, Review: true},
+	)
+	if got.Decision != DecisionDeny || !got.Halt || !strings.Contains(got.Reason, ruleDiskFormatWipe) {
+		t.Fatalf("got %+v, want unrecoverable-command denial before review policy", got)
+	}
+}
+
+func TestSkillContextInjection(t *testing.T) {
+	tools := []string{
+		"mcp_gotack-skills_skill_view",
+		"mcp_gotack-skills_skill_manage",
+	}
+	for _, tool := range tools {
+		t.Run("foreground "+tool, func(t *testing.T) {
+			in := input(t, t.TempDir(), tool, map[string]any{
+				"_session_id":        "forged",
+				"_background_review": true,
+			})
+			in.SessionID = "trusted-session"
+			got := Evaluate(in, Options{})
+			if got.Decision != DecisionNone {
+				t.Fatalf("foreground decision = %q, want normal interactive pass-through", got.Decision)
+			}
+			assertSkillPatch(t, got, "trusted-session", false)
+		})
+
+		t.Run("review "+tool, func(t *testing.T) {
+			in := input(t, t.TempDir(), tool, map[string]any{})
+			in.SessionID = "review-session"
+			got := Evaluate(in, Options{Unattended: true, Review: true})
+			if got.Decision != DecisionAllow {
+				t.Fatalf("review decision = %q, want allow", got.Decision)
+			}
+			assertSkillPatch(t, got, "review-session", true)
+		})
+	}
+
+	memory := input(t, t.TempDir(), "mcp_gotack-memory_memory", map[string]any{})
+	memory.SessionID = "review-session"
+	if got := Evaluate(memory, Options{Review: true}); len(got.UpdatedInput) != 0 {
+		t.Fatalf("memory must not receive skills-only hidden fields: %s", got.UpdatedInput)
+	}
+}
+
+func assertSkillPatch(t *testing.T, out Output, sessionID string, review bool) {
+	t.Helper()
+	if out.IsNone() {
+		t.Fatal("skill context patch must be emitted even with no decision")
+	}
+	var patch map[string]any
+	if err := json.Unmarshal(out.UpdatedInput, &patch); err != nil {
+		t.Fatalf("decode updated_input: %v", err)
+	}
+	if len(patch) != 2 || patch["_session_id"] != sessionID || patch["_background_review"] != review {
+		t.Fatalf("updated_input = %s, want session=%q review=%v", out.UpdatedInput, sessionID, review)
 	}
 }

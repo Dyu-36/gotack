@@ -8,9 +8,9 @@ import (
 //
 // The input mirrors hooks.Payload in the vendored engine: Crush pipes a JSON
 // object to the hook's stdin. The output mirrors the envelope the engine's
-// parseStdout understands (version, decision, halt, reason, context). The wire
-// shapes are pinned against the Crush commit recorded in .crush-pin; see
-// docs/contracts/gotack-approvals.md.
+// parseStdout understands (version, decision, halt, reason, context and
+// updated_input). The wire shapes are pinned against the Crush commit recorded
+// in .crush-pin; see docs/contracts/gotack-approvals.md.
 
 // Decision values a PreToolUse hook may return. An empty decision means the
 // hook expressed no opinion and Crush falls through to its own permission
@@ -79,15 +79,18 @@ func ParseInput(data []byte) Input {
 
 // Output is the hook's decision envelope written to stdout.
 type Output struct {
-	Version  int    `json:"version,omitempty"`
-	Decision string `json:"decision,omitempty"`
-	Halt     bool   `json:"halt,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-	Context  string `json:"context,omitempty"`
+	Version      int             `json:"version,omitempty"`
+	Decision     string          `json:"decision,omitempty"`
+	Halt         bool            `json:"halt,omitempty"`
+	Reason       string          `json:"reason,omitempty"`
+	Context      string          `json:"context,omitempty"`
+	UpdatedInput json.RawMessage `json:"updated_input,omitempty"`
 }
 
 // IsNone reports whether the hook expressed no opinion (pass-through).
-func (o Output) IsNone() bool { return o.Decision == DecisionNone }
+func (o Output) IsNone() bool {
+	return o.Decision == DecisionNone && len(o.UpdatedInput) == 0
+}
 
 // None is the pass-through result: the hook stays silent and Crush applies its
 // own permission system unchanged.

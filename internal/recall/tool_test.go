@@ -1,148 +1,175 @@
 package recall
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/Dyu-36/gotack/internal/mcp"
 )
 
-func TestToolHandlerReturnsCitedResults(t *testing.T) {
-	dataDir := standardFixture(t, t.TempDir())
-	store := newTestStore(t, dataDir)
-	tool := Tool(store)
-
-	if tool.Name != ToolName {
-		t.Fatalf("tool name = %q, want %q", tool.Name, ToolName)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(tool.Schema, &schema); err != nil {
-		t.Fatalf("tool schema is not valid JSON: %v", err)
-	}
-
-	text, err := tool.Handler(context.Background(), json.RawMessage(`{"query":"kubernetes","limit":5}`))
+func callTool(t *testing.T, store *Store, args string) map[string]any {
+	t.Helper()
+	text, err := Tool(store).Handler(context.Background(), json.RawMessage(args))
 	if err != nil {
-		t.Fatalf("handler: %v", err)
+		t.Fatalf("session_search(%s): %v", args, err)
 	}
-	var payload struct {
-		Count   int      `json:"count"`
-		Results []Result `json:"results"`
-	}
+	var payload map[string]any
 	if err := json.Unmarshal([]byte(text), &payload); err != nil {
-		t.Fatalf("handler output is not JSON: %v\n%s", err, text)
+		t.Fatalf("decode response: %v\n%s", err, text)
 	}
-	if payload.Count != 2 || len(payload.Results) != 2 {
-		t.Fatalf("payload = %+v", payload)
+	return payload
+}
+
+func TestToolImplementsFourHermesShapes(t *testing.T) {
+	store := newTestStore(t, standardFixture(t, t.TempDir()))
+
+	browse := callTool(t, store, `{}`)
+	if browse["mode"] != "browse" || browse["count"].(float64) != 2 {
+		t.Fatalf("browse = %+v", browse)
 	}
-	if payload.Results[0].SessionID == "" || payload.Results[0].CreatedAt == "" {
-		t.Fatalf("result lacks citation fields: %+v", payload.Results[0])
+
+	discover := callTool(t, store, `{"query":"kubernetes"}`)
+	if discover["mode"] != "discover" || discover["detail"] != "adaptive" || discover["count"].(float64) != 2 {
+		t.Fatalf("discover = %+v", discover)
+	}
+	results := discover["results"].([]any)
+	if results[0].(map[string]any)["detail"] != "full" || results[1].(map[string]any)["detail"] != "adaptive" {
+		t.Fatalf("adaptive hydration = %+v", results)
+	}
+	if got := callTool(t, store, `{"query":"healthy"}`)["count"].(float64); got != 0 {
+		t.Fatalf("default roles exposed tool output: count=%v", got)
+	}
+	if got := callTool(t, store, `{"query":"healthy","role_filter":"tool"}`)["count"].(float64); got != 1 {
+		t.Fatalf("explicit tool role count=%v", got)
+	}
+	if got := callTool(t, store, `{"query":"kubernetes","current_session_id":"sess-deploy"}`)["count"].(float64); got != 1 {
+		t.Fatalf("current session was not excluded: count=%v", got)
+	}
+
+	read := callTool(t, store, `{"query":"ignored","session_id":"sess-deploy"}`)
+	if read["mode"] != "read" || read["message_count"].(float64) != 3 {
+		t.Fatalf("read precedence = %+v", read)
+	}
+
+	scroll := callTool(t, store, `{"query":"ignored","session_id":"sess-deploy","around_message_id":"deploy-2","window":1}`)
+	if scroll["mode"] != "scroll" || scroll["window"].(float64) != 1 {
+		t.Fatalf("scroll precedence = %+v", scroll)
+	}
+	messages := scroll["messages"].([]any)
+	if len(messages) != 3 || messages[1].(map[string]any)["anchor"] != true {
+		t.Fatalf("scroll window = %+v", messages)
 	}
 }
 
-func TestToolHandlerArgumentErrors(t *testing.T) {
-	dataDir := standardFixture(t, t.TempDir())
-	store := newTestStore(t, dataDir)
-	tool := Tool(store)
-
-	cases := []struct {
-		name string
-		args string
-	}{
-		{"no arguments", ""},
-		{"invalid json", "{not json"},
-		{"wrong type", `{"query":42}`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := tool.Handler(context.Background(), json.RawMessage(tc.args)); err == nil {
-				t.Fatal("expected an argument error")
-			}
-		})
-	}
-}
-
-// TestToolOverMCPServer drives the tool through the stdio server, the way
-// Crush launches it after registration.
-func TestToolOverMCPServer(t *testing.T) {
-	dataDir := standardFixture(t, t.TempDir())
-	store := newTestStore(t, dataDir)
-	server := &mcp.Server{
-		Name:    "gotack-recall",
-		Version: "0.1.0",
-		Tools:   []mcp.Tool{Tool(store)},
-	}
-
-	lines := strings.Join([]string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"session_search","arguments":{"query":"kubernetes"}}}`,
-	}, "\n") + "\n"
-
-	var out bytes.Buffer
-	if err := server.Serve(context.Background(), strings.NewReader(lines), &out); err != nil {
-		t.Fatalf("serve: %v", err)
-	}
-	responses := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(responses) != 3 {
-		t.Fatalf("got %d responses: %q", len(responses), out.String())
-	}
-
-	var listing struct {
-		Result struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(responses[1]), &listing); err != nil {
-		t.Fatalf("decode tools/list: %v", err)
-	}
-	if len(listing.Result.Tools) != 1 || listing.Result.Tools[0].Name != ToolName {
-		t.Fatalf("tools/list = %+v", listing)
-	}
-
-	var call struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-			IsError bool `json:"isError"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(responses[2]), &call); err != nil {
-		t.Fatalf("decode tools/call: %v", err)
-	}
-	if call.Result.IsError || len(call.Result.Content) != 1 {
-		t.Fatalf("tools/call = %+v", call)
-	}
-	if !strings.Contains(call.Result.Content[0].Text, `"session_id": "sess-deploy"`) {
-		t.Fatalf("tool result lacks session citation: %s", call.Result.Content[0].Text)
-	}
-}
-
-// TestToolSurfacesSchemaMismatch proves a drifted engine database becomes an
-// isError tool result rather than an empty success.
-func TestToolSurfacesSchemaMismatch(t *testing.T) {
-	dir := t.TempDir()
-	createFixture(t, dir, func(db *sql.DB) {
-		seedSession(t, db, "s", "S", 1)
-		seedMessage(t, db, "m", "s", "user", "[]", 1, 1)
-		if _, err := db.Exec("ALTER TABLE messages DROP COLUMN parts"); err != nil {
-			t.Fatalf("drop parts: %v", err)
+func TestToolExcludesCurrentSessionLineageFromDiscoveryAndBrowse(t *testing.T) {
+	dir := createFixture(t, t.TempDir(), func(db *sql.DB) {
+		seedSession(t, db, "root", "Root", 100)
+		seedSession(t, db, "current", "Current", 300)
+		seedSession(t, db, "child", "Child", 400)
+		if _, err := db.Exec("UPDATE sessions SET parent_session_id = ? WHERE id = ?", "root", "current"); err != nil {
+			t.Fatal(err)
 		}
+		if _, err := db.Exec("UPDATE sessions SET parent_session_id = ? WHERE id = ?", "current", "child"); err != nil {
+			t.Fatal(err)
+		}
+		seedMessage(t, db, "root-m", "root", "user", textParts(t, "lineage needle root"), 1, 1)
+		seedMessage(t, db, "current-m", "current", "user", textParts(t, "lineage needle current"), 2, 2)
+		seedMessage(t, db, "child-m", "child", "assistant", textParts(t, "lineage needle child"), 3, 3)
 	})
 	store := newTestStore(t, dir)
-	tool := Tool(store)
+	query := callTool(t, store, `{"query":"lineage","current_session_id":"current","limit":10}`)
+	if query["count"].(float64) != 0 {
+		t.Fatalf("lineage sessions leaked from discovery: %+v", query)
+	}
+	browse := callTool(t, store, `{"current_session_id":"current","limit":10}`)
+	if browse["count"].(float64) != 0 {
+		t.Fatalf("lineage sessions leaked from browse: %+v", browse)
+	}
+}
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"query":"anything"}`))
-	if err == nil {
-		t.Fatal("schema mismatch must fail the tool call")
+func TestToolResponseContentCaps(t *testing.T) {
+	dir := createFixture(t, t.TempDir(), func(db *sql.DB) {
+		seedSession(t, db, "large", "Large", 100)
+		for i := 0; i < 25; i++ {
+			content := "needle " + strings.Repeat("ệ", 3000)
+			seedMessage(t, db, fmtID(i), "large", "user", textParts(t, content), int64(i), int64(i))
+		}
+	})
+	payload := callTool(t, newTestStore(t, dir), `{"query":"needle","detail":"full"}`)
+	total, largest, truncated := contentStats(payload)
+	if total > maxResponseContentBytes {
+		t.Fatalf("content total=%d, cap=%d", total, maxResponseContentBytes)
 	}
-	if !strings.Contains(err.Error(), "recall:") {
-		t.Fatalf("error is not typed: %v", err)
+	if largest > maxMessageContentBytes {
+		t.Fatalf("largest content=%d, cap=%d", largest, maxMessageContentBytes)
 	}
+	if !truncated {
+		t.Fatal("long content did not report truncation")
+	}
+	result := payload["results"].([]any)[0].(map[string]any)
+	for _, key := range []string{"bookend_start", "bookend_end"} {
+		for _, raw := range result[key].([]any) {
+			if got := len(raw.(map[string]any)["content"].(string)); got > maxBookendContentBytes {
+				t.Fatalf("%s content=%d, cap=%d", key, got, maxBookendContentBytes)
+			}
+		}
+	}
+}
+
+func TestToolSchemaUsesStringMessageIDs(t *testing.T) {
+	tool := Tool(newTestStore(t, standardFixture(t, t.TempDir())))
+	var schema struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.Schema, &schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if schema.Properties["around_message_id"].Type != "string" {
+		t.Fatalf("around_message_id type = %q", schema.Properties["around_message_id"].Type)
+	}
+	if _, err := tool.Handler(context.Background(), nil); err == nil {
+		t.Fatal("absent argument object must fail; {} is browse")
+	}
+	zero, huge := 0, 999
+	if requestLimit(&zero) != 1 || requestLimit(&huge) != 10 ||
+		requestWindow(&zero) != 1 || requestWindow(&huge) != 20 {
+		t.Fatal("explicit limits must use Hermes clamps")
+	}
+}
+
+func contentStats(value any) (total, largest int, truncated bool) {
+	switch value := value.(type) {
+	case map[string]any:
+		if content, ok := value["content"].(string); ok {
+			size := len(content)
+			total += size
+			if size > largest {
+				largest = size
+			}
+		}
+		if value["content_truncated"] == true {
+			truncated = true
+		}
+		for _, child := range value {
+			childTotal, childLargest, childTruncated := contentStats(child)
+			total += childTotal
+			if childLargest > largest {
+				largest = childLargest
+			}
+			truncated = truncated || childTruncated
+		}
+	case []any:
+		for _, child := range value {
+			childTotal, childLargest, childTruncated := contentStats(child)
+			total += childTotal
+			if childLargest > largest {
+				largest = childLargest
+			}
+			truncated = truncated || childTruncated
+		}
+	}
+	return total, largest, truncated
 }

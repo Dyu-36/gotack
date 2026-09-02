@@ -1,103 +1,98 @@
-# Gotack Reflection Contract
+# Contract: Hermes background review
 
-Gotack runs bounded reflection agent jobs from the desktop host
-(`internal/reflection`, wired in `reflection_host.go`). Reflection is the
-Phase 6 learning loop of `docs/plans/completed/hermes-parity-harness.md`: the
-host watches completed runs, and when a gate opens it launches one short
-engine run whose only job is to distil durable lessons into the persistent
-memory files through the gotack-memory MCP server (D3,
-`docs/decisions/0003`). The unattended posture it depends on is
-`docs/contracts/gotack-approvals.md`; the memory write path it is confined
-to is `docs/contracts/gotack-memory-mcp.md`.
+Status: implemented by `internal/reflection`, `reflection_host.go`, the
+existing Crush REST/SSE integration, and `internal/guard`.
 
-The desktop never executes agent logic itself (ADR 0001): a firing is one
-agent run submitted over the same REST path the UI uses, and its outcome
-arrives over the same SSE stream. No Wails-bound methods exist for
-reflection in this phase: there is no UI surface yet, and hard rule 8
-forbids bound methods nothing consumes.
+Gotack maintains two bounded learning cadences and, when either is due,
+launches one detached Crush session to update persistent memory and/or the
+managed skill library. The desktop host owns counters and lifecycle only;
+Crush remains the sole agent-turn executor.
 
-## Triggers and gates
+There is no literal nudge appended to user prompts, no UI binding, and no
+session-deletion review trigger.
 
-Reflection consumes the same `run_complete` SSE event the scheduler books,
-routed through `App.RunDone`, plus session deletion as the session-end
-signal. A gate opening starts at most one bounded run; gates never queue.
+## Cadence and final-response gate
 
-| Gate | Opens when | Rationale |
+| Review target | Due condition | Persistence |
 | --- | --- | --- |
-| Turn threshold | 8 completed turns accumulated for one session (errored and cancelled runs never count) | learning happens after substantive use, not every turn |
-| Session end | the session is deleted with at least 1 completed turn, once per session | a closed conversation is a natural review point; the firing runs BEFORE the delete so the source conversation is still readable |
+| Memory | Every 10 user prompts successfully accepted by Crush. | On first use/restart, hydrate from persisted user-message count modulo 10. |
+| Skills | Every 10 unique assistant/model messages observed on SSE across turns. | Process-local. A message containing `skill_manage` resets the counter. |
 
-A refused or failed launch is logged at debug level and never surfaced: the
-reflection loop must not disturb the event stream that feeds it. An
-explicit user command (a `/learn` surface) is deferred: no UI seam exists
-yet this phase, and the two event gates already cover the plan's 6.1
-intent.
+The counters are evaluated on `run_complete`. A due flag is consumed even
+when that run errored, was cancelled, or produced no final text, but only a
+successful non-empty final response may launch a review. If both cadences are
+due, one review handles both.
 
-## Budget and in-flight guard
+Only one launch/review may be in flight host-wide and gates do not queue. A
+new foreground user turn cancels pending background work before its prompt is
+sent. Review completions are recognized by session id, never advance either
+cadence, and trigger cleanup instead of another review.
 
-- **Hourly budget**: at most 1 reflection launch per sliding one-hour
-  window, host-wide. The budget counts launched runs; preflight skips
-  consume nothing.
-- **In-flight guard**: a second gate never opens while a reflection run is
-  still in flight; the flight clears when its `run_complete` arrives
-  (or when a launch fails after the claim).
-- **Preflight skip**: when no model is configured (`config.json`), firings
-  are skipped instead of burning a failed run.
+Scheduled runs never launch background review and their model-iteration state
+is discarded on completion, matching Hermes' `skip_background_review` cron
+path and avoiding a second autonomous token spend.
 
-## Recursion guard
+## Review session and prompt
 
-Reflection runs are engine runs, so they emit `run_complete` too. Every
-reflection session is created with the title `Reflection: <source session
-id>` and tagged in the tracker; completion events from tagged sessions are
-ignored by construction, so the loop can never feed itself. A tagged
-completion also clears the in-flight guard and never counts toward any turn
-threshold.
+The host performs this bounded sequence:
 
-## Firing semantics
+1. Snapshot the source session transcript through the REST service.
+2. Create a session titled `Background review`.
+3. Add its id to `<appconfig.Dir()>/review-sessions.json` before any tool can
+   run.
+4. Build and send the review prompt through the normal Crush agent endpoint.
 
-One firing = one agent run, in this pinned order (same shape as
-`docs/contracts/gotack-schedule.md`):
+Preflight requires a configured model and whichever `memory`/skills binary
+the due targets need. Launch is bounded by 30 seconds. The review uses the
+currently configured engine model; no separate model-selection path is
+implemented.
 
-1. Create a session through `internal/session`
-   (`POST /v1/workspaces/{id}/sessions`), in the currently active
-   workspace, titled `Reflection: <source session id>`.
-2. Mark the session id in the unattended roster **before** any prompt runs
-   (`guard.MarkUnattendedSession`), exactly like a scheduled or Zalo run.
-3. Submit the reflection prompt (`POST /v1/workspaces/{id}/agent`).
+Because the detached session does not share the source prompt cache, its
+snapshot keeps the latest 24-message tail, extending backward rather than
+splitting a leading run of tool results. Recent tool calls and tool results
+remain intact. Older user messages are reduced to one-line 300-rune previews;
+older assistant messages to 200 runes plus tool names, and older tool results
+are omitted. The memory prompt asks only for durable user facts/preferences.
+The skill prompt
+actively prefers correcting a relevant loaded agent-owned skill, then an
+existing class-level skill, and creates a new umbrella only when no existing
+one fits. It excludes transient failures, unresolved attempts, and one-session
+narratives. When both cadences are due, a dedicated combined prompt evaluates
+both dimensions before allowing `Nothing to save.`; it cannot stop after the
+memory check without considering skills.
 
-A failed mark aborts the firing and releases the claim. A launch timeout of
-30 s bounds the whole sequence; the session-end gate bounds itself with a
-15 s context so a refused or slow launch never blocks the delete that
-follows it.
+The review is cancelled at 16 assistant iterations only when the 16th message
+still requests tools. A normal final response at that boundary is allowed to
+complete. On completion or failed launch, the host removes the review roster
+entry and deletes the detached session. Application shutdown first cancels and
+deletes any detached review while the REST link is still available, then
+disconnects from Crush, so a hidden review is not stranded across exit.
 
-## Memory routing (D3)
+## Guard boundary
 
-The reflection prompt instructs the run to review the source session and
-record durable lessons **only** through the gotack-memory `memory` tool
-(view/add/replace), and to never write context files directly or touch
-MEMORY.md/USER.md with write, edit or shell tools. This keeps every memory
-write on the D3-sanctioned path: caps, atomic writes, provenance and the
-denial of every other write path are enforced by `internal/memory`, not by
-the reflection run's goodwill. Reflection proposes; the memory tool decides.
-There is no interactive approval step for memory writes by construction
-(D3) — the unattended posture below is the second stop.
+The dedicated review roster selects a stricter PreToolUse posture. The
+destructive-command blocklist remains the first rule. The review allowlist is:
 
-## Unattended posture linkage
+- `memory`;
+- `skill_view` (the host-side read-proof handshake) and `skill_manage`;
+- local `ls`, `glob`, `grep`, and `view` equivalents of read/search tools.
 
-Every reflection session is recorded in
-`<appconfig.Dir()>/unattended-sessions.json` before its prompt runs, so the
-guard applies the unattended posture of `docs/contracts/gotack-approvals.md`:
-reads and in-root writes are pre-approved, ask-tier operations are denied
-with rule `unattended-approval`, and the blocklist floor always applies. A
-reflection run therefore either proceeds or fails legibly — it never hangs.
+Shell execution, workspace writes, network-backed search, delegation, and
+unknown tools are denied by rule `background-review-tool-whitelist`.
 
-## Removal
+For every Gotack skill call, the hook overwrites hidden `_session_id` and
+`_background_review` fields. The skill server then enforces background
+ownership and fresh-read rules. The memory server independently enforces its
+content scan, cap, lock, and atomic write contract.
 
-Delete `internal/reflection` and `reflection_host.go`, and drop the
-`startReflection`/`RunDone`/`sessionEnded` wiring in `app.go` and
-`bind_session.go`. Nothing persists: tracker state is in-memory only, no
-config keys are written, and there is no `RemoveConfigField` undo to
-perform. Reflection sessions are ordinary Crush sessions titled
-`Reflection: …`; remove them through the UI if wanted. Their unattended
-roster entries are shared with schedule and Zalo, are capped, and can be
-deleted freely.
+## Adaptation boundary
+
+Hermes' post-turn reviewer is represented as a detached Crush session because
+the current REST boundary has no session-fork operation. The routed digest,
+strict review roster, cleanup, and cancellation keep that adaptation bounded;
+the host does not reproduce the agent loop or tool dispatcher.
+
+To remove the feature, remove `internal/reflection`, `reflection_host.go`, the
+tracker callbacks in `app.go`/`bind_session.go`/`internal/uievents`, and the
+review-roster branch in `internal/guard`. Memory, skills, and recall remain
+independently usable MCP tools.

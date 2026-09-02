@@ -125,6 +125,12 @@ jobs:
       - name: Build memory MCP server
         shell: pwsh
         run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\memory.exe" ./cmd/memory
+      - name: Build skills MCP server
+        shell: pwsh
+        run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\skills.exe" ./cmd/skills
+      - name: Build recall MCP server
+        shell: pwsh
+        run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\recall.exe" ./cmd/recall
       - name: Assemble portable directory
         shell: pwsh
         run: |
@@ -135,6 +141,8 @@ jobs:
           Copy-Item build\bin\resources\office.exe "$out\resources\office.exe"
           Copy-Item build\bin\resources\guard.exe "$out\resources\guard.exe"
           Copy-Item build\bin\resources\memory.exe "$out\resources\memory.exe"
+          Copy-Item build\bin\resources\skills.exe "$out\resources\skills.exe"
+          Copy-Item build\bin\resources\recall.exe "$out\resources\recall.exe"
           Copy-Item build\windows\README.md "$out\README.txt"
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
