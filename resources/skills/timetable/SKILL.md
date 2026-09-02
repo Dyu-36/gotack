@@ -15,6 +15,8 @@ Cần có đủ ba nhóm dữ liệu:
 
 Dữ liệu có thể nằm trong cuộc trò chuyện hoặc file đính kèm. Nếu thiếu dữ liệu bắt buộc, chỉ hỏi phần còn thiếu trước khi xếp lịch.
 
+Đầu ra của skill luôn là file Excel `.xlsx`. Không hỏi người dùng chọn Excel, Markdown, Word hoặc định dạng đầu ra khác.
+
 ## Phạm vi
 
 Chỉ dùng các loại yêu cầu trong `reference/problem-schema-core.md`.
