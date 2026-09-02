@@ -31,11 +31,16 @@ decision into `docs/decisions/`; keep task-local choices in the plan.
 ## Active Plans
 
 - [`hermes-learning-loop.md`](active/hermes-learning-loop.md)
-  — finish and validate the bounded Hermes memory, procedural-skill, review,
-  and recall loop against current code and the pinned upstream source.
+  — automated source and Windows package validation is complete; finish the
+  credentialed packaged-app smoke path for the bounded memory, skill, review,
+  and recall loop.
 
 ## Recently Completed
 
+- [`thermo-nuclear-maintainability-hardening.md`](completed/thermo-nuclear-maintainability-hardening.md)
+  — hardened backend boundaries, removed confirmed dead code and stale artifacts,
+  made clean-checkout validation reproducible, expanded CI/static analysis, and
+  consolidated the repository to the single `main` branch. Completed 2026-09-02.
 - [`hermes-parity-harness.md`](completed/hermes-parity-harness.md)
   — bring Hermes-class memory, cross-session recall, graduated approvals,
   scheduling and a learning loop onto the Crush core, and relocate the
