@@ -10,6 +10,7 @@ export const REASONING_EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: strin
   { id: 'low', label: 'Low (Thấp)', short: 'Low' },
   { id: 'medium', label: 'Medium (Vừa)', short: 'Med' },
   { id: 'high', label: 'High (Sâu)', short: 'High' },
+  { id: 'xhigh', label: 'X-High (Rất sâu)', short: 'X-High' },
   { id: 'max', label: 'Max (Tối đa)', short: 'Max' },
 ]
 
