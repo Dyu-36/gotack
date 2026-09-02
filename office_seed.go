@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
+	"github.com/Dyu-36/gotack/internal/bundleseed"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/officecli"
 )
@@ -73,10 +74,31 @@ func (s *officeSeeder) resolveOfficeSourceDir() string {
 	return ""
 }
 
+func (s *officeSeeder) resolveOfficeSkillsSourceDir() string {
+	if executable, err := os.Executable(); err == nil {
+		root := filepath.Dir(executable)
+		for _, candidate := range []string{
+			filepath.Join(root, "resources", "skills"),
+			filepath.Join(root, "..", "resources", "skills"),
+			filepath.Join(root, "..", "..", "resources", "skills"),
+		} {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				return filepath.Clean(candidate)
+			}
+		}
+	}
+	return ""
+}
+
 func (s *officeSeeder) startup() {
 	source := s.resolveOfficeSourceDir()
 	if source == "" {
-		s.log.Debug("office: bundled resources not found, falling back to system install")
+		s.log.Debug("office: bundled executable resources not found, falling back to system install")
+		if skillsSource := s.resolveOfficeSkillsSourceDir(); skillsSource != "" {
+			if err := bundleseed.CopyIfChanged(skillsSource, filepath.Join(appconfig.Dir(), "skills"), bundleseed.Options{ExistingFiles: bundleseed.ManagedFiles}); err != nil {
+				s.log.Warn("office: failed to seed bundled skills", "err", err)
+			}
+		}
 	} else if err := s.seeder.Seed(source); err != nil {
 		s.log.Warn("office: failed to seed bundled resources", "err", err)
 	}

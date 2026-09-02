@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
+	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
@@ -45,6 +46,9 @@ func (a *App) ListRecentWorkspaces() []string {
 }
 
 func (a *App) rebindWorkspaceRuntime(workspaceID string) {
+	if a.link == nil || a.link.Status() != enginelink.StatusRunning {
+		return
+	}
 	var scope context.Context
 	if a.getConn() != nil {
 		scope = a.link.ReplaceStreamScope(a.ctx)
