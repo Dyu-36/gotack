@@ -1,49 +1,38 @@
 # Execution Plans
 
-Execution plans are Git-native working memory for complex tasks. They preserve
-enough context for another agent or human to resume work without reconstructing
-intent from chat history or a partial diff.
-
-## When To Create A Plan
-
-Use an ephemeral plan for bounded, single-session work.
-
-Create one durable plan when work spans sessions, coordinates contributors, has
-meaningful dependencies or ordering, requires recovery steps, or would be unsafe
-to resume from the diff alone.
-
-Use `docs/templates/exec-plan.md` and place the file under `active/`.
-For an explicitly authorized baseline-to-rerun Harness experiment, use
-`docs/templates/harness-improvement.md` instead.
+This directory keeps the implementation plan for each non-trivial, cross-cutting change.
+A useful plan records the problem, scope, sequence, compatibility policy, validation steps,
+and rollback path before code starts moving. It is the handoff between design, implementation,
+and review.
 
 ## Lifecycle
 
-```text
-docs/plans/active/<slug>.md
-  -> update progress and decisions during implementation
-  -> record final validation and result
-  -> move to docs/plans/completed/<slug>.md
-```
-
-The plan is the primary task artifact. Promote a lasting product or architecture
-decision into `docs/decisions/`; keep task-local choices in the plan.
+1. Create a plan in `active/` before editing behavior that spans packages or changes contracts.
+2. Update the plan while implementing when the constraints or sequence change.
+3. Validate the final implementation against the plan, tests, builds, and user-facing behavior.
+4. Move the plan to `completed/` when the work is done; do not rewrite history after completion.
 
 ## Active Plans
 
-- [`hermes-learning-loop.md`](active/hermes-learning-loop.md)
-  — finish and validate the bounded Hermes memory, procedural-skill, review,
-  and recall loop against current code and the pinned upstream source.
+No active plans.
 
 ## Recently Completed
 
+- [`hermes-learning-loop.md`](completed/hermes-learning-loop.md)
+  — completed the bounded Hermes-derived memory, skills, reflection, guard, and recall loop; added strict detached-session context bounds, ownership migration, clean-checkout CI, and inspected Windows packaging.
 - [`hermes-parity-harness.md`](completed/hermes-parity-harness.md)
-  — bring Hermes-class memory, cross-session recall, graduated approvals,
-  scheduling and a learning loop onto the Crush core, and relocate the
-  Tack/Sage persona out of the vendored checkout into a tracked, released
-  seam. Completed 2026-09-01 with all seven phases and the carried-over
-  hygiene items landed on `main`.
-- [`cleanup-dead-code-and-doc-drift.md`](completed/cleanup-dead-code-and-doc-drift.md)
-  — dead state, duplicated blocks and documentation drift in `package main`.
-  Closed 2026-08-31 after a third-pass re-audit; the seven items that were
-  still open moved into the carry-over section of the active Hermes plan, so
-  one plan owns their ordering.
+  — locked the durable Hermes memory, skill-management, recall, and background-review behavior to the current audited contracts and regression suites.
+- [`tray-window-behavior.md`](completed/tray-window-behavior.md)
+  — restored hidden startup, explicit window activation, and hide-to-tray lifecycle.
+- [`external-chat-zalo.md`](completed/external-chat-zalo.md)
+  — added the production Zalo integration and reusable chat-bridge subsystem.
+- [`hermes-agent-parity.md`](completed/hermes-agent-parity.md)
+  — completed the Gotack/Crush implementation of Hermes-style memory, skills,
+  recall, and background reflection.
+- [`crush-codex-parity.md`](completed/crush-codex-parity.md)
+  — documented and completed the ChatGPT/Codex transport port.
+- [`ui-overhaul.md`](completed/ui-overhaul.md)
+  — delivered the original application shell overhaul.
+- [`ui-finish.md`](completed/ui-finish.md)
+  — completed the product-grade UI finish, Composer attachment pipeline,
+  accessibility pass, and frontend verification.
