@@ -3,6 +3,7 @@
   import Composer from './Composer.svelte'
   import MessageBubble from './MessageBubble.svelte'
   import AgentWorking from './AgentWorking.svelte'
+  import ToolCard from './ToolCard.svelte'
   import type { ChatAttachment, Message, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
@@ -308,12 +309,7 @@
       <div bind:this={messageList} class="max-w-5xl mx-auto px-4 pt-6 pb-6">
         {#each messages as message, idx (message.id)}
           {#if message.kind === 'tool'}
-            <div class="tool-row mb-4 mr-8 sm:mr-20" aria-label={`Tool ${message.toolName ?? ''}`}>
-              <span class:done={message.toolFinished} class="tool-dot"></span>
-              <span class="font-mono text-xs text-mm-text font-medium">{message.toolName ?? 'tool'}</span>
-              <span class="text-2xs text-mm-tertiary">{message.toolFinished ? 'hoàn thành' : 'đang chạy'}</span>
-              {#if message.content}<span class="truncate text-2xs text-mm-secondary max-w-sm">{message.content}</span>{/if}
-            </div>
+            <ToolCard {message} />
           {:else}
             <MessageBubble
               {message}
@@ -345,9 +341,6 @@
   .hero-title { font-size: 24px; line-height: 32px; }
   .status-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--mm-tertiary); }
   .status-dot.online { background: var(--mm-success, #448361); }
-  .tool-row { display: flex; align-items: center; gap: 7px; min-width: 0; margin-left: 36px; padding: 6px 9px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); }
-  .tool-dot { width: 7px; height: 7px; border-radius: 999px; background: #c89336; flex: 0 0 auto; }
-  .tool-dot.done { background: var(--mm-success, #448361); }
   .input-inline { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--mm-accent); border-radius: 5px; background: var(--mm-bg); color: var(--mm-text); font: inherit; outline: none; }
   .messages { overflow-anchor: none; }
   .jump-latest { position: sticky; bottom: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--mm-panel); border: 1px solid var(--mm-border); color: var(--mm-text); font-size: 12px; font-weight: 500; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); cursor: pointer; transition: background-color 120ms ease, transform 120ms ease; }
