@@ -39,7 +39,7 @@ The server receives only the per-user root:
 
 ```text
 <appconfig.Dir()>/skills/
-  .gotack-agent-skills.json
+  .ownership.json
   [<category>/]<name>/SKILL.md
   [<category>/]<name>/references/**
   [<category>/]<name>/templates/**
@@ -77,7 +77,14 @@ The PreToolUse hook overwrites `_session_id` and `_background_review` on every
 skills call; these fields are host context, not model authority. Foreground
 calls use normal validation. A background review may modify or delete only a
 skill it previously created during a background review, recorded in
-`.gotack-agent-skills.json`.
+`.ownership.json`.
+
+Existing installations are migrated without weakening this boundary. The
+legacy `.gotack-agent-skills.json` file is read only when `.ownership.json` is
+absent; the next ownership-changing write publishes the current filename. If
+the current manifest exists but is corrupt, unreadable, redirected, or has an
+unsupported version, loading fails closed and never falls back to the legacy
+file.
 
 Before changing an existing `SKILL.md` or support file, the same review must
 call `skill_view` for that exact file. `skill_view` records the file's digest;
