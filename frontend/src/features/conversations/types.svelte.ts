@@ -49,4 +49,4 @@ export type SessionSummary = Pick<Conversation, 'id' | 'title' | 'updatedAt' | '
 
 // ReasoningEffort is filtered against each model's backend catalog metadata;
 // models with explicit reasoning levels only expose those supported values.
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'max'
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
