@@ -1,0 +1,110 @@
+diff --git a/internal/agent/agent.go b/internal/agent/agent.go
+--- a/internal/agent/agent.go
++++ b/internal/agent/agent.go
+@@ -54,10 +54,31 @@ const (
+ 	// Constants for auto-summarization thresholds
+ 	largeContextWindowThreshold = 200_000
+ 	largeContextWindowBuffer    = 20_000
+ 	smallContextWindowRatio     = 0.2
++	// Long-context models degrade before they exhaust their advertised window.
++	// Compact proactively once the live session reaches 128K tokens, while
++	// preserving the existing output reserve for models whose safe limit is
++	// smaller than 128K.
++	proactiveAutoCompactLimit = 128_000
+ )
+ 
++// autoSummarizeTokenLimit returns the amount of live context that may be used
++// before automatic summarization stops the current agent loop. A zero context
++// window remains opt-out for custom/local models whose capacity is unknown.
++func autoSummarizeTokenLimit(contextWindow int64) int64 {
++	if contextWindow <= 0 {
++		return 0
++	}
++
++	reserve := int64(float64(contextWindow) * smallContextWindowRatio)
++	if contextWindow > largeContextWindowThreshold {
++		reserve = largeContextWindowBuffer
++	}
++	safeLimit := contextWindow - reserve
++	if safeLimit <= 0 {
++		return 0
++	}
++	if safeLimit > proactiveAutoCompactLimit {
++		return proactiveAutoCompactLimit
++	}
++	return safeLimit
++}
++
+ var userAgent = fmt.Sprintf("Charm-Crush/%s (https://charm.land/crush)", version.Version)
+ 
+ //go:embed templates/title.md
+@@ -1035,24 +1056,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 		StopWhen: []fantasy.StopCondition{
+ 			func(_ []fantasy.StepResult) bool {
+ 				cw := int64(largeModel.CatwalkCfg.ContextWindow)
+-				// If context window is unknown (0), skip auto-summarize
+-				// to avoid immediately truncating custom/local models.
+-				if cw == 0 {
++				limit := autoSummarizeTokenLimit(cw)
++				if limit == 0 {
+ 					return false
+ 				}
+ 				tokens := currentSession.CompletionTokens + currentSession.PromptTokens
+-				remaining := cw - tokens
+-				var threshold int64
+-				if cw > largeContextWindowThreshold {
+-					threshold = largeContextWindowBuffer
+-				} else {
+-					threshold = int64(float64(cw) * smallContextWindowRatio)
+-				}
+-				if (remaining <= threshold) && !a.disableAutoSummarize {
++				if tokens >= limit && !a.disableAutoSummarize {
+ 					shouldSummarize = true
+ 					return true
+ 				}
+ 				return false
+ 			},
+ 			func(steps []fantasy.StepResult) bool {
+ 				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
+ 			},
+ 		},
+ 	})
+diff --git a/internal/agent/auto_summarize_test.go b/internal/agent/auto_summarize_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/agent/auto_summarize_test.go
+@@ -0,0 +1,34 @@
++package agent
++
++import "testing"
++
++func TestAutoSummarizeTokenLimit(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name          string
++		contextWindow int64
++		want          int64
++	}{
++		{name: "unknown context remains disabled", contextWindow: 0, want: 0},
++		{name: "64K keeps twenty percent reserve", contextWindow: 64_000, want: 51_200},
++		{name: "128K keeps twenty percent reserve", contextWindow: 128_000, want: 102_400},
++		{name: "150K keeps twenty percent reserve", contextWindow: 150_000, want: 120_000},
++		{name: "200K compacts proactively", contextWindow: 200_000, want: 128_000},
++		{name: "one million compacts proactively", contextWindow: 1_000_000, want: 128_000},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			if got := autoSummarizeTokenLimit(test.contextWindow); got != test.want {
++				t.Fatalf(
++					"autoSummarizeTokenLimit(%d) = %d, want %d",
++					test.contextWindow,
++					got,
++					test.want,
++				)
++			}
++		})
++	}
++}
