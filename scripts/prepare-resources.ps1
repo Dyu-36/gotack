@@ -22,7 +22,7 @@ if (-not (Test-Path $officeCliExe)) {
     if (Test-Path $localOfficeCli) {
         Copy-Item $localOfficeCli $officeCliExe -Force
     } else {
-        Invoke-WebRequest -Uri 'https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-windows-amd64.exe' -OutFile $officeCliExe
+        Invoke-WebRequest -Uri 'https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-win-x64.exe' -OutFile $officeCliExe
     }
 }
 
