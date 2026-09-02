@@ -76,7 +76,7 @@ jobs:
           pnpm --dir frontend test
           pnpm --dir frontend build
 
-      - name: Build Gotack
+      - name: Build Tack
         shell: pwsh
         run: wails build -platform windows/amd64 -clean -webview2 download
 
@@ -139,10 +139,10 @@ jobs:
       - name: Assemble portable ZIP
         shell: pwsh
         run: |
-          $name = "gotack-$env:GITHUB_REF_NAME-windows-amd64"
+          $name = "tack-$env:GITHUB_REF_NAME-windows-amd64"
           $out = "artifacts\$name"
           New-Item -ItemType Directory -Force "$out\resources" | Out-Null
-          Copy-Item build\bin\gotack.exe "$out\gotack.exe"
+          Copy-Item build\bin\tack.exe "$out\tack.exe"
           Copy-Item build\bin\resources\crush.exe "$out\resources\crush.exe"
           Copy-Item build\bin\resources\office.exe "$out\resources\office.exe"
           Copy-Item build\bin\resources\guard.exe "$out\resources\guard.exe"
@@ -173,4 +173,4 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$env:GITHUB_REF_NAME" "artifacts\gotack-$env:GITHUB_REF_NAME-windows-amd64.zip" --verify-tag --generate-notes --title "Gotack $env:GITHUB_REF_NAME"
+        run: gh release create "$env:GITHUB_REF_NAME" "artifacts\tack-$env:GITHUB_REF_NAME-windows-amd64.zip" --verify-tag --generate-notes --title "Tack $env:GITHUB_REF_NAME"
