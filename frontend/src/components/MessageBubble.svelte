@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import type { Message } from '../features/conversations/types.svelte'
-  import { renderMarkdown, chatLinks } from '../lib/markdown'
+  import { chatLinks } from '../lib/markdown'
   import { attachmentDataURL, formatAttachmentSize, isPreviewableImage } from '../features/conversations/attachments'
+  import AgentWorking from './AgentWorking.svelte'
+  import StreamingMarkdown from './StreamingMarkdown.svelte'
 
   type Props = {
     message: Message
@@ -11,48 +13,11 @@
 
   let { message, isStreaming = false }: Props = $props()
 
-  let rendered = $state('')
   let copied = $state(false)
-  let renderTimer: ReturnType<typeof setTimeout> | null = null
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
   let renderedContentEl = $state<HTMLDivElement | null>(null)
-  let lastRenderedContent = ''
-
-  $effect(() => {
-    renderContentThrottled(message.content, isStreaming)
-  })
-
-  function renderContentThrottled(content: string, streaming: boolean) {
-    if (!content) {
-      rendered = ''
-      lastRenderedContent = ''
-      return
-    }
-
-    if (!streaming) {
-      if (renderTimer) {
-        clearTimeout(renderTimer)
-        renderTimer = null
-      }
-      doRender(content)
-      return
-    }
-
-    if (renderTimer) return
-    renderTimer = setTimeout(() => {
-      renderTimer = null
-      doRender(message.content)
-    }, 60)
-  }
-
-  function doRender(content: string) {
-    if (content === lastRenderedContent) return
-    lastRenderedContent = content
-    rendered = renderMarkdown(content)
-  }
 
   onDestroy(() => {
-    if (renderTimer) clearTimeout(renderTimer)
     if (copiedTimer) clearTimeout(copiedTimer)
   })
 
@@ -143,19 +108,12 @@
       <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
     </div>
     <div class="flex-1 min-w-0 max-w-[90%] sm:max-w-[85%]">
-      {#if rendered}
+      {#if message.content.trim()}
         <div class="prose-notion" use:chatLinks bind:this={renderedContentEl}>
-          {@html rendered}
-          {#if isStreaming}
-            <span data-copy-ignore class="inline-block w-1.5 h-4 bg-mm-accent ml-1 align-text-bottom rounded-xs animate-pulse" aria-hidden="true"></span>
-          {/if}
+          <StreamingMarkdown content={message.content} {isStreaming} />
         </div>
       {:else if isStreaming}
-        <div class="flex items-center gap-1.5 py-2">
-          <span class="thinking-dot"></span>
-          <span class="thinking-dot"></span>
-          <span class="thinking-dot"></span>
-        </div>
+        <AgentWorking label="Đang suy nghĩ…" />
       {/if}
 
       {#if message.content}
