@@ -65,6 +65,8 @@ foreach ($patch in $patches) {
 
 # Keep every consumer of this script, including CI and release builds, on the
 # same reviewed API and recall-schema contract as scripts/update-crush.ps1.
+# The closing quote deliberately delimits every route: without it, model would
+# also match models, and set would also match set-batch.
 $serverFiles = @(
     (Join-Path $CrushDir 'internal/server/server.go'),
     (Join-Path $CrushDir 'internal/server/proto.go'),
@@ -72,19 +74,19 @@ $serverFiles = @(
 )
 $serverText = ($serverFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
 Assert-ContainsMarkers -Label 'server contract' -Text $serverText -Markers @(
-    '/v1/workspaces/{id}/sessions',
-    '/v1/workspaces/{id}/agent',
-    '/v1/workspaces/{id}/agent/refresh-prompt',
-    '/v1/workspaces/{id}/events',
-    '/v1/workspaces/{id}/config/model',
-    '/v1/workspaces/{id}/config/models',
-    '/v1/workspaces/{id}/config/set',
-    '/v1/workspaces/{id}/config/set-batch',
-    '/v1/workspaces/{id}/config/remove',
-    '/v1/workspaces/{id}/config/provider-key',
-    '/v1/workspaces/{id}/config/refresh-oauth',
-    '/v1/workspaces/{id}/permissions/grant',
-    '/v1/workspaces/{id}/questions/answer',
+    'POST /v1/workspaces/{id}/sessions"',
+    'GET /v1/workspaces/{id}/agent"',
+    'POST /v1/workspaces/{id}/agent/refresh-prompt"',
+    'GET /v1/workspaces/{id}/events"',
+    'POST /v1/workspaces/{id}/config/model"',
+    'POST /v1/workspaces/{id}/config/models"',
+    'POST /v1/workspaces/{id}/config/set"',
+    'POST /v1/workspaces/{id}/config/set-batch"',
+    'POST /v1/workspaces/{id}/config/remove"',
+    'POST /v1/workspaces/{id}/config/provider-key"',
+    'POST /v1/workspaces/{id}/config/refresh-oauth"',
+    'POST /v1/workspaces/{id}/permissions/grant"',
+    'POST /v1/workspaces/{id}/questions/answer"',
     'PayloadTypeFile',
     'PayloadTypeRunComplete'
 )
