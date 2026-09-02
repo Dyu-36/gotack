@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "gotack",
-  "outputfilename": "gotack",
+  "name": "tack",
+  "outputfilename": "tack",
   "frontend:install": "pnpm install --frozen-lockfile",
   "frontend:build": "pnpm build",
   "frontend:dev:watcher": "pnpm dev",
@@ -11,9 +11,9 @@
   },
   "Info": {
     "companyName": "Dyu-36",
-    "productName": "Gotack",
+    "productName": "Tack",
     "productVersion": "0.1.0",
     "copyright": "Copyright 2026 Dyu-36",
-    "comments": "Gotack desktop shell for Crush"
+    "comments": "Tack desktop shell for Crush"
   }
 }
