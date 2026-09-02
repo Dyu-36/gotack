@@ -97,7 +97,7 @@ new file mode 100644
 +					"autoSummarizeTokenLimit(%d) = %d, want %d",
 +					test.contextWindow,
 +					got,
-+					want,
++					test.want,
 +				)
 +			}
 +		})
