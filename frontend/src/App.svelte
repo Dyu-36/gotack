@@ -123,10 +123,11 @@
 <style>
   .app-shell { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--tack-app-bg); }
   .workspace-frame { display: grid; grid-template-columns: var(--sidebar-col) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; overflow: hidden; transition: grid-template-columns 140ms ease; }
-  .provider-usage-slot { position: absolute; right: 24px; bottom: 78px; z-index: 14; max-width: calc(100% - 48px); }
+  .provider-usage-slot { position: absolute; top: 54px; right: 24px; z-index: 14; max-width: calc(100% - 48px); }
+  .provider-usage-slot :global(.usage-popover) { top: calc(100% + 8px); bottom: auto; }
   .status-error { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); max-width: min(680px, 90vw); padding: 9px 12px; border: 1px solid var(--mm-border); border-radius: 8px; background: var(--mm-bg); box-shadow: 0 8px 30px rgb(0 0 0 / 14%); font-size: 12px; z-index: 20; }
 
   @media (max-width: 720px) {
-    .provider-usage-slot { right: 16px; bottom: 74px; max-width: calc(100% - 32px); }
+    .provider-usage-slot { top: 52px; right: 16px; max-width: calc(100% - 32px); }
   }
 </style>
