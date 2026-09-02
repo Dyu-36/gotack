@@ -55,45 +55,45 @@
     onclick={toggle}
     aria-expanded={expanded}
   >
-    <div class="flex items-center gap-2 min-w-0 flex-1">
+    <div class="flex items-center gap-2.5 min-w-0 flex-1">
       <div
-        class="tool-icon-wrap shrink-0 flex items-center justify-center w-4 h-4 text-mm-secondary"
+        class="tool-icon-wrap shrink-0 flex items-center justify-center w-4.5 h-4.5 text-mm-secondary"
         class:tool-icon-pulse={isRunning}
         class:text-mm-accent={isRunning}
       >
         {#if displayInfo.category === 'terminal'}
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="4 17 10 11 4 5"></polyline>
             <line x1="12" y1="19" x2="20" y2="19"></line>
           </svg>
         {:else if displayInfo.category === 'read'}
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
             <circle cx="12" cy="12" r="3"></circle>
           </svg>
         {:else if displayInfo.category === 'edit'}
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 20h9"></path>
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
           </svg>
         {:else if displayInfo.category === 'search'}
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
         {:else if displayInfo.category === 'list'}
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
         {:else}
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
         {/if}
       </div>
 
-      <div class="flex items-baseline gap-1.5 min-w-0 truncate text-xs">
+      <div class="flex items-baseline gap-1.5 min-w-0 truncate text-sm">
         <span class="tool-action text-mm-secondary shrink-0 font-normal">
           {displayInfo.actionLabel}
         </span>
@@ -109,7 +109,7 @@
 
     <div class="flex items-center gap-2 shrink-0">
       <span
-        class="status-pill text-2xs px-1.5 py-0.5 rounded font-medium transition-colors"
+        class="status-pill text-xs px-2 py-0.5 rounded font-medium transition-colors"
         class:bg-amber-500-15={isRunning}
         class:text-amber-600={isRunning}
         class:dark:text-amber-400={isRunning}
@@ -121,7 +121,7 @@
       </span>
 
       <svg
-        class="chevron-icon w-3.5 h-3.5 text-mm-tertiary transition-transform duration-200"
+        class="chevron-icon w-4 h-4 text-mm-tertiary transition-transform duration-200"
         class:rotate-180={expanded}
         viewBox="0 0 24 24"
         fill="none"
@@ -141,19 +141,19 @@
       class="tool-body border-t border-mm-border bg-mm-panel/50 p-2.5 relative group"
       transition:slide={{ duration: 180 }}
     >
-      <div class="scroll-fade-v max-h-56 overflow-y-auto font-mono text-2xs leading-relaxed text-mm-text">
+      <div class="scroll-fade-v max-h-56 overflow-y-auto font-mono text-xs leading-relaxed text-mm-text">
         {#if displayInfo.isCode}
           <div class="flex items-start gap-1.5 font-semibold text-mm-accent mb-1.5">
             <span class="select-none opacity-60">$</span>
             <span class="break-all">{displayInfo.detailLabel}</span>
           </div>
         {/if}
-        <pre class="whitespace-pre-wrap break-words bg-mm-bg dark:bg-[#14161a] p-2 rounded border border-mm-border/60"><code>{displayInfo.formattedParams || message.content}</code></pre>
+        <pre class="whitespace-pre-wrap break-words bg-mm-bg dark:bg-[#14161a] p-2.5 rounded border border-mm-border/60"><code>{displayInfo.formattedParams || message.content}</code></pre>
       </div>
 
       <button
         type="button"
-        class="copy-btn absolute top-3.5 right-3.5 px-2 py-1 rounded text-2xs bg-mm-panel border border-mm-border text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-all opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 shadow-xs cursor-pointer"
+        class="copy-btn absolute top-3.5 right-3.5 px-2.5 py-1 rounded text-xs bg-mm-panel border border-mm-border text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-all opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 shadow-xs cursor-pointer"
         onclick={copyParams}
         title="Sao chép tham số"
       >
