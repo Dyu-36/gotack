@@ -121,7 +121,7 @@ jobs:
             Copy-Item $localOffice "$resourcesDir\officecli.exe" -Force
           } else {
             Write-Host "Downloading officecli (Windows x64)..."
-            Invoke-WebRequest -Uri "https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-windows-amd64.exe" -OutFile "$resourcesDir\officecli.exe"
+            Invoke-WebRequest -Uri "https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-win-x64.exe" -OutFile "$resourcesDir\officecli.exe"
           }
           & "$resourcesDir\officecli.exe" --version
           if (Test-Path "$env:GITHUB_WORKSPACE\resources\skills") {
