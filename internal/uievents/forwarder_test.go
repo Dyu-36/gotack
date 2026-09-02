@@ -52,12 +52,19 @@ type iterationSink struct {
 	learning []learningRecord
 }
 
-func (s *iterationSink) AssistantIteration(_ string, messageID string, hasTools bool) {
+func (s *iterationSink) assistantIteration(_ string, messageID string, hasTools bool) {
 	s.records = append(s.records, iterationRecord{messageID, hasTools})
 }
 
-func (s *iterationSink) LearningToolExecuted(sessionID, callID, toolName string) {
+func (s *iterationSink) learningToolExecuted(sessionID, callID, toolName string) {
 	s.learning = append(s.learning, learningRecord{sessionID, callID, toolName})
+}
+
+func (s *iterationSink) callbacks() Callbacks {
+	return Callbacks{
+		AssistantIteration:   s.assistantIteration,
+		LearningToolExecuted: s.learningToolExecuted,
+	}
 }
 
 func (c *collector) emit(name string, data any) {
@@ -78,9 +85,26 @@ func (c *collector) of(name string) []namedEvent {
 	return out
 }
 
+func TestForwarderDelayPolicyAndTestOverride(t *testing.T) {
+	f := NewForwarder(slog.Default(), nil, Callbacks{})
+	if got := f.nextDelay(1); got != 16*time.Millisecond {
+		t.Fatalf("small delta delay = %v, want 16ms", got)
+	}
+	if got := f.nextDelay(513); got != coalesceDelay {
+		t.Fatalf("medium delta delay = %v, want %v", got, coalesceDelay)
+	}
+	if got := f.nextDelay(4097); got != 80*time.Millisecond {
+		t.Fatalf("large delta delay = %v, want 80ms", got)
+	}
+	f.setDelay(123 * time.Millisecond)
+	if got := f.nextDelay(1); got != 123*time.Millisecond {
+		t.Fatalf("override delay = %v, want 123ms", got)
+	}
+}
+
 func TestForwarderCoalescesDeltas(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(30 * time.Millisecond)
 
 	ch := make(chan crushapi.StreamEvent, 8)
@@ -130,7 +154,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 
 func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(time.Second) // only the run_complete flush path fires it
 
 	ch := make(chan crushapi.StreamEvent, 4)
@@ -164,7 +188,7 @@ func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 
 func TestForwarderToolActivityImmediate(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(time.Hour)
 
 	parts := json.RawMessage(`[{"type":"tool_call","data":{"id":"t1","name":"bash","input":"ls","finished":true}}]`)
@@ -186,7 +210,7 @@ func TestForwarderToolActivityImmediate(t *testing.T) {
 func TestForwarderReportsLateSkillManageMetadata(t *testing.T) {
 	var c collector
 	sink := &iterationSink{}
-	f := NewForwarder(slog.Default(), c.emit, nil, nil, sink)
+	f := NewForwarder(slog.Default(), c.emit, sink.callbacks())
 	f.setDelay(time.Hour)
 
 	f.handle(messageUpdate("m", "s", "", textParts("thinking")))
@@ -223,7 +247,7 @@ func TestLearningToolResultAdmissionRequiresGuardedCallID(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sink := &iterationSink{}
-			f := NewForwarder(slog.Default(), nil, nil, nil, sink)
+			f := NewForwarder(slog.Default(), nil, sink.callbacks())
 			parts, err := json.Marshal([]map[string]any{{
 				"type": "tool_result",
 				"data": tc.result,
@@ -242,7 +266,7 @@ func TestLearningToolResultAdmissionRequiresGuardedCallID(t *testing.T) {
 func TestForwarderReportsOnlyAdmittedLearningResults(t *testing.T) {
 	var c collector
 	sink := &iterationSink{}
-	f := NewForwarder(slog.Default(), c.emit, nil, nil, sink)
+	f := NewForwarder(slog.Default(), c.emit, sink.callbacks())
 	f.setDelay(time.Hour)
 	message := func(id string, result map[string]any) crushapi.StreamEvent {
 		payload, _ := json.Marshal(map[string]any{
@@ -273,7 +297,7 @@ func TestForwarderReportsOnlyAdmittedLearningResults(t *testing.T) {
 // whole text on every tick.
 func TestForwarderAppendIsSuffix(t *testing.T) {
 	var c collector
-	f := NewForwarder(slog.Default(), c.emit, nil, nil, nil)
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(20 * time.Millisecond)
 
 	ch := make(chan crushapi.StreamEvent, 4)

@@ -179,8 +179,8 @@ Release candidate. The desktop client, Zalo connection, and Office integration
 are implemented and covered by the Go unit and smoke suites.
 
 What automated validation proves today (`.github/workflows/ci.yml`):
-`go test ./...`, `go vet ./...`, `gofmt`, generated UI-event drift,
-repository invariants, `pnpm --dir frontend check`, `pnpm --dir frontend test`,
+`go test ./...`, `go vet ./...`, `staticcheck`, unreachable-function analysis,
+`gofmt`, generated UI-event drift, repository invariants, `pnpm --dir frontend check`, `pnpm --dir frontend test`,
 `pnpm --dir frontend build`, and a Windows `wails build`. `release.yml` re-runs
 the source checks, including repository invariants and frontend tests, then
 builds the pinned Crush commit plus `cmd/office`, `cmd/guard`, `cmd/memory`,

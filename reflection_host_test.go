@@ -111,7 +111,7 @@ func TestHostRunsBoundedReviewAndRemovesDetachedSession(t *testing.T) {
 	app := reviewTestApp(t, transport)
 	app.reflection.Hydrate("src-1", 9)
 	app.reflection.UserTurnAccepted("src-1")
-	app.RunDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "done"})
+	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "done"})
 
 	var req reviewRequest
 	select {
@@ -127,7 +127,7 @@ func TestHostRunsBoundedReviewAndRemovesDetachedSession(t *testing.T) {
 		t.Fatal("review was sent before its restricted-session marker")
 	}
 
-	app.RunDone(uievents.SessionDonePayload{SessionID: "review-1", Text: "Nothing to save."})
+	app.runDone(uievents.SessionDonePayload{SessionID: "review-1", Text: "Nothing to save."})
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		transport.mu.Lock()
@@ -177,12 +177,12 @@ func TestScheduledRunSuppressesAndForgetsBackgroundReview(t *testing.T) {
 
 	app.reflection.Hydrate("src-1", 9)
 	app.reflection.UserTurnAccepted("src-1")
-	app.RunDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "scheduled result"})
+	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "scheduled result"})
 
 	// Forgetting the scheduled state also clears the due bit. The same ID is
 	// no longer scheduled after RecordOutcome consumes its in-flight record.
 	app.reflection.UserTurnAccepted("src-1")
-	app.RunDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "foreground result"})
+	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "foreground result"})
 	select {
 	case request := <-transport.agentCh:
 		t.Fatalf("scheduled run leaked into background review: %+v", request)

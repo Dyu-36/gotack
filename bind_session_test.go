@@ -187,7 +187,7 @@ func TestSetCurrentSessionReattachesMissingEventStream(t *testing.T) {
 	a.conn.Store(&conn{
 		api: api,
 		ws:  ws,
-		fwd: uievents.NewForwarder(a.log, func(string, any) {}, nil, nil, nil),
+		fwd: uievents.NewForwarder(a.log, func(string, any) {}, uievents.Callbacks{}),
 	})
 	if err := a.setCurrentSession("session-1"); err != nil {
 		t.Fatalf("setCurrentSession() error = %v", err)

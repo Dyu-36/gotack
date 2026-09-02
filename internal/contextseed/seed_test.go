@@ -207,6 +207,9 @@ func TestRepoTrackedTackContext(t *testing.T) {
 	if !strings.Contains(text, "Tack") {
 		t.Errorf("TACK.md must name the Tack persona")
 	}
+	if strings.Contains(text, "permissions in auto-approved mode") {
+		t.Error("TACK.md must not claim blanket auto-approval; interactive approval is the default")
+	}
 	for _, marker := range []string{
 		"## Core Principles",
 		"## Task Management",

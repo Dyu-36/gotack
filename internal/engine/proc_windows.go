@@ -10,15 +10,9 @@ import (
 
 // Windows process creation flags.
 //
-// The engine used to be launched with 0x00000008 under a "CREATE_NO_WINDOW"
-// comment, but that value is DETACHED_PROCESS: the child is given no console
-// at all. Every console grandchild Crush then spawns (LSP servers, stdio MCP
-// servers, git, rg, shell tools) forces Windows to allocate a fresh console
-// plus a conhost.exe, which is the black window that flashed on each chat turn
-// and the source of the UI stutter.
-//
-// CREATE_NEW_CONSOLE combined with HideWindow gives the engine one real but
-// invisible console. Descendants inherit it and therefore allocate nothing.
+// DETACHED_PROCESS gives the engine no console, which makes console
+// descendants allocate their own windows. CREATE_NEW_CONSOLE combined with
+// HideWindow gives the engine one invisible console that descendants inherit.
 const (
 	detachedProcess  = 0x00000008 // never use: no console -> children allocate their own
 	createNewConsole = 0x00000010 // CREATE_NEW_CONSOLE

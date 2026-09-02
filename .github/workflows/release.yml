@@ -50,6 +50,12 @@ jobs:
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
 
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Generate Wails bindings
+        run: wails generate module
+
       - name: Load Crush pin
         shell: pwsh
         run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .crush-pin -Raw).Trim())
@@ -59,13 +65,16 @@ jobs:
         run: |
           go test ./...
           go vet ./...
+          $unformatted = @(gofmt -l (git ls-files '*.go'))
+          if ($unformatted.Count -gt 0) {
+            throw "Go files need gofmt: $($unformatted -join ', ')"
+          }
+          go run ./internal/uievents/gen/main.go
+          git diff --exit-code -- frontend/src/platform/events.generated.ts
           node scripts/check-repository-invariants.mjs
           pnpm --dir frontend check
           pnpm --dir frontend test
           pnpm --dir frontend build
-
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Build Gotack
         shell: pwsh

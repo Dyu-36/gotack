@@ -207,7 +207,7 @@ func (a *App) reflectionTurnAccepted(sessionID string, ready bool) {
 	}
 }
 
-func (a *App) AssistantIteration(sessionID, messageID string, hasTools bool) {
+func (a *App) assistantIteration(sessionID, messageID string, hasTools bool) {
 	if a.reflection == nil || !a.reflection.AssistantIteration(sessionID, messageID, hasTools) {
 		return
 	}
@@ -220,7 +220,7 @@ func (a *App) AssistantIteration(sessionID, messageID string, hasTools bool) {
 	}()
 }
 
-func (a *App) LearningToolExecuted(sessionID, toolCallID, toolName string) {
+func (a *App) learningToolExecuted(sessionID, toolCallID, toolName string) {
 	if a.reflection != nil {
 		a.reflection.LearningToolExecuted(sessionID, toolCallID, toolName)
 	}

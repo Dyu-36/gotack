@@ -61,8 +61,8 @@ func Failed(fileName, reason string) Prepared {
 // text the model can read. supportsVision selects between sending image bytes
 // and falling back to OCR.
 func Prepare(fileName, declaredMime string, content []byte, supportsVision bool) (Prepared, error) {
-	name := filepath.Base(strings.TrimSpace(fileName))
-	if name == "" || name == "." {
+	name := BaseName(fileName)
+	if name == "" {
 		return Prepared{}, fmt.Errorf("tên tệp là bắt buộc")
 	}
 	if len(content) > MaxAttachmentSize {

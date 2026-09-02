@@ -160,11 +160,8 @@ func TestBridgeServicesSmoke(t *testing.T) {
 		t.Logf("fresh session touched %d files", len(files))
 	}
 
-	// Recent-list ownership moved to App. The smoke test cannot reach
-	// App (that would mean pulling the Wails runtime into a unit test),
-	// so the contract here is that the workspace Service no longer
-	// touches the config: ListRecentWorkspaces now lives in the bind
-	// layer under a single mutex. We assert the negative.
+	// Workspace service calls must not mutate the host-owned recent-workspace
+	// list; that state is updated only by the bind layer under the App mutex.
 	cfg := appconfig.Defaults()
 	if got := len(cfg.RecentWorkspaces); got != 0 {
 		t.Fatalf("workspace.Open must not mutate cfg.RecentWorkspaces; got %v", cfg.RecentWorkspaces)

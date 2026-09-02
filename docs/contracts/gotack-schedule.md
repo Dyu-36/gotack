@@ -87,7 +87,7 @@ Engine readiness is pushed to the scheduler by the connection flow
 never polled. While the engine is down, due firings defer without counting
 failures, and the transition back to ready re-evaluates due jobs
 immediately. Outcomes ride the existing `run_complete` SSE event through the
-host's `DoneSink`; hard rule 5 is honoured: nothing here polls the engine.
+forwarder's host completion callback; hard rule 5 is honoured: nothing here polls the engine.
 
 ## Budget and failure policy
 

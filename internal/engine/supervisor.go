@@ -65,8 +65,8 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 	cmd := exec.Command(bin, "server")
 	configureProcAttr(cmd)
 
-	// The engine now runs on a hidden console, so anything it writes to
-	// stdout/stderr would be unreadable. Tee it into the log directory
+	// The engine runs on a hidden console, so tee stdout/stderr into the log
+	// directory
 	// instead: this is the only place engine-side failures (MCP init, LSP,
 	// skill parsing) are visible once the console is gone.
 	logPath := filepath.Join(appconfig.LogDir(), "crush-engine.log")

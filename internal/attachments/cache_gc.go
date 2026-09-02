@@ -9,12 +9,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/appconfig"
 )
 
-// cache_gc.go -- role: keep the attachment cache from growing forever.
-//
-// Every send used to copy the uploaded bytes under %APPDATA%/gotack/attachments
-// and nothing ever removed them. Startup calls PruneCache exactly once; there is
-// deliberately no background loop watching the directory (AGENTS.md rule 5).
-
 // PruneCache trims the attachment cache: entries older than
 // appconfig.AttachmentCacheTTL go first, then the oldest remaining entries until
 // the total fits appconfig.AttachmentCacheBudget.

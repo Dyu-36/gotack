@@ -253,9 +253,8 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 	if len(input) > 0 || len(tagged) > 0 {
 		supportsVision = a.isCurrentModelVision(svc)
 	}
-	// An @[C:\path\file.xlsx] tag used to reach the model as literal text, so the
-	// agent answered about a path it could not read. Expand the tags into real
-	// attachments and remove them from the visible prompt.
+	// Expand @[C:\path\file.xlsx] tags into attachments and remove them from
+	// the visible prompt.
 	// Fail-soft: an unreadable file becomes a warning inside the prompt rather
 	// than aborting the whole turn.
 	prepared := decodePromptAttachments(input, supportsVision)
@@ -320,7 +319,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 			size = int(stat.Size())
 		}
 		info.Attachments = append(info.Attachments, AttachmentInfo{
-			FileName: filepath.Base(attachment.FileName),
+			FileName: attachments.BaseName(attachment.FileName),
 			MimeType: attachment.MimeType,
 			Size:     size,
 			Content:  content,
@@ -348,8 +347,8 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
 	out := make([]attachments.Prepared, 0, len(input))
 	for i, item := range input {
-		name := filepath.Base(strings.TrimSpace(item.FileName))
-		if name == "" || name == "." {
+		name := attachments.BaseName(item.FileName)
+		if name == "" {
 			name = fmt.Sprintf("attachment-%d.bin", i+1)
 		}
 		// A path send carries no body: the host reads the file itself, which is
