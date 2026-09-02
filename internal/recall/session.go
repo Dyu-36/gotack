@@ -263,14 +263,8 @@ func (s *Store) ReadSession(ctx context.Context, sessionID string) (ReadResult, 
 	}, nil
 }
 
-// Browse lists the most recently active sessions without invoking FTS.
-func (s *Store) Browse(ctx context.Context, limit int) ([]SessionSummary, error) {
-	return s.BrowseWithOptions(ctx, limit, "")
-}
-
 // BrowseWithOptions applies the trusted active-session exclusion used by the
-// engine-injected session_search path. The two-argument Browse wrapper keeps
-// callers that intentionally request every recent session source-compatible.
+// engine-injected session_search path and lists recent sessions without FTS.
 func (s *Store) BrowseWithOptions(ctx context.Context, limit int, excludeSessionID string) ([]SessionSummary, error) {
 	limit = clampResultLimit(limit)
 	s.mu.Lock()

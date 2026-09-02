@@ -7,7 +7,9 @@ Host-to-UI events are declared once in `internal/uievents/names.go`.
 `frontend/src/platform/events.generated.ts` is generated from that file by
 `go run ./internal/uievents/gen/main.go` and must never be hand-edited. CI runs the
 generator and fails when the generated file drifts, so regenerate it in the
-same change as an event rename before pushing.
+same change as an event rename before pushing. `bindings_contract_test.go`
+reflects the exported `*App` method set and fails when a host-only callback or
+an undocumented method enters the Wails surface.
 
 ## UI -> Host (bound methods)
 
@@ -71,8 +73,10 @@ in `README.md`.
 | `PickPromptFiles()` | `PromptFilePick[]`, `error` | Native multi-file picker. Returns `{file_name, mime_type, size, path}` per file; empty on cancel. The webview never reads the bytes. |
 | `AttachmentLimits()` | `AttachmentLimitsInfo` | `{max_bytes, max_derived_lines, max_derived_bytes}` from `internal/appconfig`, so the composer enforces the same cap as the host. |
 
-`PromptAttachment`: `{file_name, mime_type?, content?, path?}`. `content` is
-standard base64 (upload or pasted image); `path` is an absolute host path for a
+`PromptAttachment`: `{file_name, mime_type?, content?, path?}`. `file_name` is
+reduced to its basename using either Windows or POSIX separators before it is
+stored or replayed. `content` is standard base64 (upload or pasted image);
+`path` is an absolute host path for a
 file chosen with `PickPromptFiles()`, dropped on the window, or written in the
 prompt as an `@[C:\dir\file.xlsx]` tag. Exactly one of the two is required and
 `path` wins when both are sent, so a multi-megabyte spreadsheet never crosses the
@@ -259,7 +263,9 @@ runtime before the Office bundle can be seeded there.
 ## Rules
 
 1. Bound methods stay in package `main`; arguments and results are
-   JSON-serializable.
+   JSON-serializable. Every other host callback stays unexported or is passed
+   as a function value. Update the exact allowlist in `bindings_contract_test.go`
+   only when this contract gains or loses a bound method.
 2. Secrets are write-only across this boundary, with one deliberate exception:
    `RevealProviderAPIKey` returns a stored provider key on explicit user
    action. The Zalo token is never returned; `api_key` is always empty on read.

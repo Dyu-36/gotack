@@ -154,8 +154,8 @@ func (a *App) startup(ctx context.Context) {
 	// waits for readiness pushed by the connection flow before firing.
 	a.startScheduler()
 
-	// The reflection loop consumes run completions through RunDone and needs
-	// no loop of its own; constructing the tracker performs no I/O.
+	// The reflection tracker consumes run-completion callbacks and needs no loop
+	// of its own; constructing it performs no I/O.
 	a.startReflection()
 
 	// The terminal service lives in the conn so a stop/start cycle can
@@ -170,8 +170,7 @@ func (a *App) startup(ctx context.Context) {
 	// the webview; the composer renders chips from the emitted metadata.
 	a.registerFileDrop()
 
-	// One-shot trim, not a loop: every send used to copy its upload into the
-	// attachment cache and nothing ever removed it again.
+	// Trim the attachment cache once at startup; no background sweeper is needed.
 	go attachments.PruneCache()
 
 	// The Crush engine is part of Gotack's runtime, not an optional project
@@ -313,11 +312,10 @@ func (a *App) workspacePath() string {
 	return desc.Path
 }
 
-// RunDone implements uievents.DoneSink: completed agent runs are routed to
-// the Zalo manager, which decides which chat (if any) receives the answer,
-// to the scheduler, which books the outcome of scheduled runs from the
-// run_complete SSE event (never by polling), and to the reflection tracker.
-func (a *App) RunDone(done uievents.SessionDonePayload) {
+// runDone routes an SSE run completion to Zalo, scheduled-run accounting, and
+// the reflection tracker. It is deliberately unexported so Wails cannot expose
+// this host-only callback as a UI binding.
+func (a *App) runDone(done uievents.SessionDonePayload) {
 	if a.zalo != nil {
 		a.zalo.Done(done.SessionID, done.Text)
 	}

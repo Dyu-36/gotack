@@ -105,7 +105,15 @@ func (a *App) tryConnect() bool {
 // running.
 func (a *App) connect(scope context.Context) {
 	err := a.link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
-		fwd := uievents.NewForwarder(a.log, a.emit, a.permsFromConn(), a, a)
+		callbacks := uievents.Callbacks{
+			RunDone:              a.runDone,
+			AssistantIteration:   a.assistantIteration,
+			LearningToolExecuted: a.learningToolExecuted,
+		}
+		if relay := a.permsFromConn(); relay != nil {
+			callbacks.PermissionPending = relay.Pending
+		}
+		fwd := uievents.NewForwarder(a.log, a.emit, callbacks)
 		ws := workspace.NewService(api)
 		sess := session.NewService(api, ws)
 		diffs := changes.NewService(api, ws)
@@ -117,7 +125,8 @@ func (a *App) connect(scope context.Context) {
 		// Gotack always attaches a default workspace before reporting the engine as
 		// running. On Windows that workspace is C:\, while Crush persistence stays
 		// under Gotack's app-data directory. Users can chat immediately without
-		// selecting a folder, and all workspaces run with permission prompts off.
+		// selecting a folder. Workspace activation then applies the saved approval
+		// posture; interactive approval remains the default.
 		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
 		// Runs before the workspace attach so the engine builds its agent from the
 		// provider that owns the ChatGPT credential after the OpenAI/Codex split.

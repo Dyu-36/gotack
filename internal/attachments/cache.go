@@ -45,8 +45,8 @@ func SaveToCache(fileName string, content []byte) (string, error) {
 // shell: letters (including Vietnamese), digits, dot, dash and underscore
 // survive, every other run of characters collapses into one underscore.
 func SanitizeFileName(fileName string) string {
-	base := filepath.Base(strings.TrimSpace(fileName))
-	if base == "" || base == "." || base == string(filepath.Separator) {
+	base := BaseName(fileName)
+	if base == "" {
 		return "attachment.bin"
 	}
 	ext := filepath.Ext(base)
