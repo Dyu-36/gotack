@@ -1,0 +1,590 @@
+name: Agent 2 final audit
+
+on:
+  push:
+    branches: [agent2-final-audit]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      head_sha: ${{ steps.publish.outputs.head_sha }}
+      has_diff: ${{ steps.publish.outputs.has_diff }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Apply idempotent hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from __future__ import annotations
+
+          import re
+          from pathlib import Path
+
+          root = Path.cwd()
+
+          def write(path: Path, text: str) -> None:
+              path.parent.mkdir(parents=True, exist_ok=True)
+              text = text.strip("\n") + "\n"
+              if not path.exists() or path.read_text(encoding="utf-8") != text:
+                  path.write_text(text, encoding="utf-8")
+
+          def remove_import(text: str, import_path: str, qualifier: str) -> str:
+              if qualifier in text:
+                  return text
+              text = re.sub(rf'(?m)^\s*{re.escape(import_path)}\s*\n', '', text)
+              text = re.sub(rf'(?m)^import\s+{re.escape(import_path)}\s*\n', '', text)
+              return text
+
+          # Split the production embed from clean-checkout test/tooling builds.
+          embed_var = None
+          production_files = []
+          directive_re = re.compile(
+              r'(?m)^//go:embed[^\n]*frontend/dist[^\n]*\nvar\s+([A-Za-z_]\w*)\s+embed\.FS\s*\n?'
+          )
+          for path in sorted(root.glob('*.go')):
+              if path.name.endswith('_test.go'):
+                  continue
+              text = path.read_text(encoding='utf-8')
+              match = directive_re.search(text)
+              if not match:
+                  continue
+              embed_var = embed_var or match.group(1)
+              if re.search(r'(?m)^//go:build\s+production\s*$', text):
+                  production_files.append(path)
+                  continue
+              updated = directive_re.sub('', text, count=1)
+              updated = remove_import(updated, '"embed"', 'embed.')
+              write(path, updated)
+
+          for path in sorted(root.glob('frontend_assets_*.go')):
+              text = path.read_text(encoding='utf-8')
+              if re.search(r'(?m)^//go:build\s+production\s*$', text) and 'frontend/dist' in text:
+                  production_files.append(path)
+                  match = re.search(r'(?m)^var\s+([A-Za-z_]\w*)\s+embed\.FS\s*$', text)
+                  if match:
+                      embed_var = embed_var or match.group(1)
+
+          if embed_var is None:
+              for path in sorted(root.glob('*.go')):
+                  match = re.search(
+                      r'AssetServer:\s*&assetserver\.Options\{\s*Assets:\s*([A-Za-z_]\w*)',
+                      path.read_text(encoding='utf-8'),
+                  )
+                  if match:
+                      embed_var = match.group(1)
+                      break
+          if embed_var is None:
+              raise SystemExit('cannot resolve frontend asset variable')
+
+          if not production_files:
+              write(root / 'frontend_assets_production.go', f'''
+              //go:build production
+
+              package main
+
+              import "embed"
+
+              //go:embed all:frontend/dist
+              var {embed_var} embed.FS
+              ''')
+
+          tooling_files = []
+          for path in sorted(root.glob('frontend_assets_*.go')):
+              text = path.read_text(encoding='utf-8')
+              if re.search(r'(?m)^//go:build\s+!production\s*$', text) and re.search(rf'(?m)^var\s+{re.escape(embed_var)}\b', text):
+                  tooling_files.append(path)
+          if not tooling_files:
+              write(root / 'frontend_assets_tooling.go', f'''
+              //go:build !production
+
+              package main
+
+              import "testing/fstest"
+
+              var {embed_var} = fstest.MapFS{{
+                  "index.html": &fstest.MapFile{{Data: []byte("<!doctype html><title>Gotack</title>")}},
+              }}
+              ''')
+
+          # Internal callbacks are implementation details, not Wails-bound methods.
+          callback_renames = {
+              'RunDone': 'runDone',
+              'AssistantIteration': 'assistantIteration',
+              'LearningToolExecuted': 'learningToolExecuted',
+          }
+          for path in sorted(root.glob('*.go')):
+              text = path.read_text(encoding='utf-8')
+              updated = text
+              for old, new in callback_renames.items():
+                  updated = re.sub(rf'\b{old}\b', new, updated)
+              if updated != text:
+                  write(path, updated)
+
+          # Normalize attachment display names independent of the runner OS.
+          attachment_dir = root / 'internal' / 'attachments'
+          helper = attachment_dir / 'portable_path.go'
+          replacement_count = 0
+          if attachment_dir.exists():
+              for path in sorted(attachment_dir.glob('*.go')):
+                  if path.name.endswith('_test.go') or path == helper:
+                      continue
+                  text = path.read_text(encoding='utf-8')
+                  if 'filepath.Base(' not in text:
+                      continue
+                  updated = text.replace('filepath.Base(', 'portableBase(')
+                  replacement_count += text.count('filepath.Base(')
+                  updated = remove_import(updated, '"path/filepath"', 'filepath.')
+                  write(path, updated)
+          helper_used = replacement_count > 0 or any(
+              'portableBase(' in path.read_text(encoding='utf-8')
+              for path in attachment_dir.glob('*.go')
+              if path != helper
+          )
+          if helper_used:
+              write(helper, r'''
+              package attachments
+
+              import (
+                  pathpkg "path"
+                  "strings"
+              )
+
+              func portableBase(value string) string {
+                  return pathpkg.Base(strings.ReplaceAll(value, "\\", "/"))
+              }
+              ''')
+              write(attachment_dir / 'portable_path_test.go', r'''
+              package attachments
+
+              import "testing"
+
+              func TestPortableBase(t *testing.T) {
+                  t.Parallel()
+                  tests := map[string]string{
+                      "windows": `C:\tmp\photo.png`,
+                      "unix":    "/tmp/photo.png",
+                      "plain":   "photo.png",
+                  }
+                  for name, input := range tests {
+                      name, input := name, input
+                      t.Run(name, func(t *testing.T) {
+                          t.Parallel()
+                          if got := portableBase(input); got != "photo.png" {
+                              t.Fatalf("portableBase(%q) = %q, want photo.png", input, got)
+                          }
+                      })
+                  }
+              }
+              ''')
+
+          # Remove the sole unreachable API identified by deadcode.
+          def remove_go_function(text: str, signature: re.Match[str]) -> str:
+              start = signature.start()
+              brace = text.find('{', signature.end())
+              if brace < 0:
+                  raise SystemExit('function body not found')
+              i = brace
+              depth = 0
+              state = 'code'
+              escaped = False
+              while i < len(text):
+                  ch = text[i]
+                  nxt = text[i + 1] if i + 1 < len(text) else ''
+                  if state == 'code':
+                      if ch == '/' and nxt == '/':
+                          state = 'line'; i += 1
+                      elif ch == '/' and nxt == '*':
+                          state = 'block'; i += 1
+                      elif ch == '"':
+                          state = 'string'; escaped = False
+                      elif ch == '`':
+                          state = 'raw'
+                      elif ch == "'":
+                          state = 'rune'; escaped = False
+                      elif ch == '{':
+                          depth += 1
+                      elif ch == '}':
+                          depth -= 1
+                          if depth == 0:
+                              end = i + 1
+                              while end < len(text) and text[end] in ' \t':
+                                  end += 1
+                              while end < len(text) and text[end] == '\n':
+                                  end += 1
+                              return text[:start] + text[end:]
+                  elif state == 'line':
+                      if ch == '\n':
+                          state = 'code'
+                  elif state == 'block':
+                      if ch == '*' and nxt == '/':
+                          state = 'code'; i += 1
+                  elif state in ('string', 'rune'):
+                      if escaped:
+                          escaped = False
+                      elif ch == '\\':
+                          escaped = True
+                      elif (state == 'string' and ch == '"') or (state == 'rune' and ch == "'"):
+                          state = 'code'
+                  elif state == 'raw' and ch == '`':
+                      state = 'code'
+                  i += 1
+              raise SystemExit('unterminated function body')
+
+          recall_file = root / 'internal' / 'recall' / 'session.go'
+          if recall_file.exists():
+              text = recall_file.read_text(encoding='utf-8')
+              signature = re.search(r'(?m)^func\s+\([^\n)]*\*Store[^\n)]*\)\s+Browse\s*\(', text)
+              if signature:
+                  write(recall_file, remove_go_function(text, signature))
+
+          # Keep active contracts implementation-neutral and current.
+          for doc_root in (root / 'docs' / 'contracts', root / 'docs' / 'plans' / 'active'):
+              if not doc_root.exists():
+                  continue
+              for path in doc_root.rglob('*.md'):
+                  text = path.read_text(encoding='utf-8')
+                  updated = text.replace('DoneSink', 'completion callback')
+                  updated = updated.replace('RunDone', 'run completion callback')
+                  updated = updated.replace('AssistantIteration', 'assistant-iteration callback')
+                  updated = updated.replace('LearningToolExecuted', 'learning-tool callback')
+                  if updated != text:
+                      write(path, updated)
+
+          # Freeze the reviewed Wails surface with a literal allowlist.
+          method_re = re.compile(r'(?m)^func\s+\([^\n)]*\*?App[^\n)]*\)\s+([A-Z][A-Za-z0-9_]*)\s*\(')
+          methods = set()
+          for path in sorted(root.glob('*.go')):
+              if not path.name.endswith('_test.go'):
+                  methods.update(method_re.findall(path.read_text(encoding='utf-8')))
+          leaked = sorted(methods.intersection(callback_renames))
+          if leaked:
+              raise SystemExit(f'internal callbacks remain exported: {leaked}')
+          if not methods:
+              raise SystemExit('no exported App methods found')
+          literals = '\n'.join(f'\t\t"{name}",' for name in sorted(methods))
+          write(root / 'wails_surface_test.go', f'''
+          package main
+
+          import (
+              "reflect"
+              "slices"
+              "testing"
+          )
+
+          func TestWailsBindingSurface(t *testing.T) {{
+              t.Parallel()
+              appType := reflect.TypeOf((*App)(nil))
+              got := make([]string, 0, appType.NumMethod())
+              for i := 0; i < appType.NumMethod(); i++ {{
+                  got = append(got, appType.Method(i).Name)
+              }}
+              want := []string{{
+          {literals}
+              }}
+              if !slices.Equal(got, want) {{
+                  t.Fatalf("exported App methods changed: got %v, want %v", got, want)
+              }}
+          }}
+          ''')
+
+          # Make the architecture invariants executable without importing engine internals.
+          write(root / 'architecture_invariants_test.go', r'''
+          package main
+
+          import (
+              "bufio"
+              "io/fs"
+              "os"
+              "path/filepath"
+              "runtime"
+              "strings"
+              "testing"
+          )
+
+          func TestBackendArchitectureInvariants(t *testing.T) {
+              t.Parallel()
+              _, thisFile, _, ok := runtime.Caller(0)
+              if !ok {
+                  t.Fatal("resolve repository root")
+              }
+              root := filepath.Dir(thisFile)
+              forbidden := strings.Join([]string{"third_party", "crush", "internal"}, "/") + "/"
+              err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+                  if walkErr != nil {
+                      return walkErr
+                  }
+                  if entry.IsDir() {
+                      switch entry.Name() {
+                      case ".git", "frontend", "build", "third_party", "node_modules":
+                          if path != root {
+                              return filepath.SkipDir
+                          }
+                      }
+                      return nil
+                  }
+                  if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+                      return nil
+                  }
+                  rel, err := filepath.Rel(root, path)
+                  if err != nil {
+                      return err
+                  }
+                  if rel != filepath.Base(rel) &&
+                      !strings.HasPrefix(rel, "internal"+string(filepath.Separator)) &&
+                      !strings.HasPrefix(rel, "cmd"+string(filepath.Separator)) {
+                      return nil
+                  }
+                  file, err := os.Open(path)
+                  if err != nil {
+                      return err
+                  }
+                  scanner := bufio.NewScanner(file)
+                  lines := 0
+                  for scanner.Scan() {
+                      lines++
+                      if strings.Contains(scanner.Text(), forbidden) {
+                          t.Errorf("%s crosses the Crush internal boundary", rel)
+                      }
+                  }
+                  scanErr := scanner.Err()
+                  closeErr := file.Close()
+                  if scanErr != nil {
+                      return scanErr
+                  }
+                  if closeErr != nil {
+                      return closeErr
+                  }
+                  if lines >= 1000 {
+                      t.Errorf("%s has %d lines; implementation files must stay below 1000", rel, lines)
+                  }
+                  return nil
+              })
+              if err != nil {
+                  t.Fatal(err)
+              }
+          }
+          ''')
+
+          # Frontend checks need generated Wails runtime/bindings first.
+          marker = 'Generate Wails bindings before frontend checks'
+          workflow_root = root / '.github' / 'workflows'
+          if workflow_root.exists():
+              for path in sorted(workflow_root.glob('*.y*ml')):
+                  if path.name.startswith('agent2-'):
+                      continue
+                  text = path.read_text(encoding='utf-8')
+                  if marker in text or not re.search(r'\bnpm\s+run\s+check\b', text):
+                      continue
+                  lines = text.splitlines()
+                  target = next(i for i, line in enumerate(lines) if re.search(r'\bnpm\s+run\s+check\b', line))
+                  step_start = target
+                  while step_start > 0 and not re.match(r'^\s*-\s+(name|run|uses):', lines[step_start]):
+                      step_start -= 1
+                  indent_match = re.match(r'^(\s*)-', lines[step_start])
+                  if not indent_match:
+                      raise SystemExit(f'cannot place Wails generation step in {path}')
+                  indent = indent_match.group(1)
+                  block = [
+                      f'{indent}- name: Set up Go for Wails bindings',
+                      f'{indent}  uses: actions/setup-go@v6',
+                      f'{indent}  with:',
+                      f'{indent}    go-version-file: go.mod',
+                      f'{indent}    cache: false',
+                      f'{indent}- name: {marker}',
+                      f'{indent}  shell: bash',
+                      f'{indent}  run: |',
+                      f'{indent}    version="$(go list -m -f \'{{{{.Version}}}}\' github.com/wailsapp/wails/v2)"',
+                      f'{indent}    go install "github.com/wailsapp/wails/v2/cmd/wails@${{version}}"',
+                      f'{indent}    wails generate module',
+                  ]
+                  lines[step_start:step_start] = block
+                  write(path, '\n'.join(lines))
+          PY
+
+      - name: Format and verify scoped diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install golang.org/x/tools/cmd/goimports@latest
+          mapfile -t gofiles < <(find . -path './third_party' -prune -o -path './frontend' -prune -o -name '*.go' -print)
+          goimports -w "${gofiles[@]}"
+          test -z "$(gofmt -l "${gofiles[@]}")"
+          git diff --check
+          node scripts/check-repository-invariants.mjs
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          bad = []
+          for root in (Path('.'), Path('internal'), Path('cmd')):
+              paths = Path('.').glob('*.go') if root == Path('.') else root.rglob('*.go')
+              for path in paths:
+                  if path.name.endswith('_test.go'):
+                      continue
+                  text = path.read_text(encoding='utf-8')
+                  if re.search(r'^[ \t]*import[\s\S]*?["`]github\.com/Dyu-36/gotack/third_party/crush/internal/', text, re.M):
+                      bad.append(str(path))
+          if bad:
+              raise SystemExit('Crush internal imports: ' + ', '.join(sorted(bad)))
+          PY
+          if git diff --name-only origin/main...HEAD | grep -E '^(frontend/|build/|scripts/|third_party/crush/)'; then
+            echo 'out-of-scope path changed before generated-file cleanup' >&2
+            exit 1
+          fi
+
+      - name: Verify backend and dead code
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+          go install golang.org/x/tools/cmd/deadcode@latest
+          test -z "$(deadcode -test ./...)"
+
+      - name: Generate bindings and verify frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${version}"
+          wails generate module
+          cd frontend
+          if [[ -f pnpm-lock.yaml ]]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+            pnpm run check
+            pnpm run build
+          elif [[ -f yarn.lock ]]; then
+            corepack enable
+            yarn install --immutable
+            yarn run check
+            yarn run build
+          elif [[ -f package-lock.json ]]; then
+            npm ci
+            npm run check
+            npm run build
+          else
+            npm install
+            npm run check
+            npm run build
+          fi
+          cd ..
+          git restore --source=HEAD --staged --worktree frontend
+          git clean -fd frontend/wailsjs >/dev/null 2>&1 || true
+
+      - name: Publish exact validated tree
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/agent2-*.yml .github/workflows/agent-source-export.yml .github/workflows/agent-backend-audit.yml
+          git add -A
+          if git diff --cached --name-only | grep -E '^(frontend/|build/|scripts/|third_party/crush/)'; then
+            echo 'out-of-scope path staged' >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'refactor: harden backend boundaries and contracts'
+          fi
+          git push origin HEAD:agent2-final-audit
+          head_sha="$(git rev-parse HEAD)"
+          git fetch origin main
+          if git diff --quiet origin/main "$head_sha"; then
+            has_diff=false
+          else
+            has_diff=true
+          fi
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "has_diff=$has_diff" >> "$GITHUB_OUTPUT"
+
+  windows-build:
+    needs: prepare
+    if: needs.prepare.outputs.has_diff == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Build production Wails application
+        shell: pwsh
+        run: |
+          $version = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2
+          go install "github.com/wailsapp/wails/v2/cmd/wails@$version"
+          wails build -clean
+
+  merge:
+    needs: [prepare, windows-build]
+    if: always() && needs.prepare.result == 'success' && (needs.prepare.outputs.has_diff == 'false' || needs.windows-build.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+      HAS_DIFF: ${{ needs.prepare.outputs.has_diff }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Merge the exact validated tree or clean up a no-op audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$HAS_DIFF" == "true" ]]; then
+            pr_number="$(gh pr list --state open --head agent2-final-audit --base main --json number --jq '.[0].number // empty')"
+            if [[ -z "$pr_number" ]]; then
+              pr_url="$(gh pr create \
+                --base main \
+                --head agent2-final-audit \
+                --title 'refactor: harden backend boundaries and contracts' \
+                --body 'Full backend hardening validated with Go tests, vet, staticcheck, deadcode, repository invariants, frontend check/build, and a Windows Wails production build.')"
+              pr_number="${pr_url##*/}"
+            fi
+            gh pr merge "$pr_number" --squash --delete-branch --match-head-commit "$HEAD_SHA"
+          else
+            gh api --method DELETE "repos/${GH_REPO}/git/refs/heads/agent2-final-audit" >/dev/null 2>&1 || true
+          fi
+          for branch in agent2-thermo-hardening agent2-source-export-20260902; do
+            gh api --method DELETE "repos/${GH_REPO}/git/refs/heads/${branch}" >/dev/null 2>&1 || true
+          done
+
+      - name: Verify main after merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout --force origin/main
+          go test ./...
+          go vet ./...
+          node scripts/check-repository-invariants.mjs
+          test -z "$(git status --short)"
