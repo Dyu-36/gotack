@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const reportFileName = ".seed-report.json"
@@ -45,6 +46,7 @@ func CopyIfChanged(source, destination string, options Options) error {
 		return err
 	}
 	updated := false
+	sourceFiles := map[string]struct{}{}
 	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -57,6 +59,7 @@ func CopyIfChanged(source, destination string, options Options) error {
 		if entry.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
+		sourceFiles[rel] = struct{}{}
 		info, err := entry.Info()
 		if err != nil {
 			return err
@@ -124,8 +127,59 @@ func CopyIfChanged(source, destination string, options Options) error {
 	if err != nil {
 		return err
 	}
+	for rel, previousSize := range state.Files {
+		if _, exists := sourceFiles[rel]; exists {
+			continue
+		}
+		target := filepath.Join(destination, rel)
+		info, statErr := os.Stat(target)
+		if statErr != nil && !os.IsNotExist(statErr) {
+			return fmt.Errorf("bundleseed: stat removed file %s: %w", target, statErr)
+		}
+		if statErr == nil && options.ExistingFiles == UserEditableFiles {
+			targetHash, hashErr := fileHash(target)
+			if hashErr != nil {
+				return fmt.Errorf("bundleseed: hash removed file %s: %w", target, hashErr)
+			}
+			previousHash := state.Hashes[rel]
+			if info.Size() != previousSize || previousHash != "" && targetHash != previousHash {
+				if options.OnPreserve != nil {
+					options.OnPreserve(rel, ModifiedFile)
+				}
+				delete(state.Files, rel)
+				delete(state.Hashes, rel)
+				updated = true
+				continue
+			}
+		}
+		if statErr == nil {
+			if err := os.Remove(target); err != nil {
+				return fmt.Errorf("bundleseed: remove stale file %s: %w", target, err)
+			}
+			if err := removeEmptyParents(filepath.Dir(target), destination); err != nil {
+				return err
+			}
+		}
+		delete(state.Files, rel)
+		delete(state.Hashes, rel)
+		updated = true
+	}
 	if updated {
 		return saveReport(destination, state)
+	}
+	return nil
+}
+
+func removeEmptyParents(dir, root string) error {
+	root = filepath.Clean(root)
+	for dir = filepath.Clean(dir); dir != root; dir = filepath.Dir(dir) {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil
+		}
+		if err := os.Remove(dir); err != nil {
+			return nil
+		}
 	}
 	return nil
 }

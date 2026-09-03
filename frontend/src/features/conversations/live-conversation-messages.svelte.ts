@@ -55,14 +55,24 @@ export function createMessageState(deps: MessageDeps) {
           mimeType: attachment.mime_type,
           size: attachment.size,
           content: attachment.content ?? '',
+          path: attachment.path,
         }))
         out.push(inst)
         continue
       }
       if (row.role !== 'assistant') continue
-      if (row.text.trim()) {
+      const attachments = (row.attachments ?? []).map((attachment, index) => ({
+        id: `${row.id}:attachment:${index}`,
+        fileName: attachment.file_name,
+        mimeType: attachment.mime_type,
+        size: attachment.size,
+        content: attachment.content ?? '',
+        path: attachment.path,
+      }))
+      if (row.text.trim() || attachments.length) {
         const inst = new ChatMessage(row.id, 'assistant', row.created_at)
         inst.content = row.text
+        inst.attachments = attachments
         out.push(inst)
       }
       for (const call of row.tool_calls ?? []) {

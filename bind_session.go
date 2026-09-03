@@ -54,6 +54,7 @@ type AttachmentInfo struct {
 	MimeType string `json:"mime_type"`
 	Size     int    `json:"size"`
 	Content  string `json:"content,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
 func (a *App) setCurrentSession(sessionID string) error {
@@ -265,6 +266,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 			FileName: ref.FileName,
 			MimeType: ref.MimeType,
 			Size:     ref.Size,
+			Path:     ref.Path,
 		})
 	}
 	for _, attachment := range crushapi.ExtractAttachments(m.Parts) {
@@ -282,6 +284,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 			MimeType: attachment.MimeType,
 			Size:     size,
 			Content:  content,
+			Path:     attachment.FilePath,
 		})
 	}
 	for _, call := range crushapi.ExtractToolCalls(m.Parts) {
