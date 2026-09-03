@@ -17,8 +17,7 @@ var (
 )
 
 var StreamKinds = []string{
-	"message", "run_complete", "permission_request", "question_batch_request",
-	"question_batch_notification", "file",
+	"message", "run_complete", "permission_request", "file",
 }
 
 type EventConsumer interface {

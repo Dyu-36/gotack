@@ -7,8 +7,6 @@ export const events = {
   engineStatus: "engine:status",
   permissionRequest: "permission:request",
   promptFiles: "prompt:files",
-  questionRequest: "question:request",
-  questionResolved: "question:resolved",
   sessionDelta: "session:delta",
   sessionDone: "session:done",
   terminalData: "terminal:data",

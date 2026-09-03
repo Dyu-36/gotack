@@ -38,11 +38,15 @@ jobs:
       - name: Check unreachable functions
         run: |
           go install golang.org/x/tools/cmd/deadcode@${{ env.DEADCODE_VERSION }}
-          unreachable="$(deadcode -test ./...)"
-          if [ -n "$unreachable" ]; then
-            echo "$unreachable"
-            exit 1
-          fi
+          deadcode -test ./... | tee deadcode.txt
+          test ! -s deadcode.txt
+      - name: Upload deadcode diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deadcode-diagnostics
+          path: deadcode.txt
+          if-no-files-found: warn
       - name: Check gofmt
         run: |
           unformatted="$(gofmt -l $(git ls-files '*.go'))"
@@ -129,13 +133,29 @@ jobs:
       - name: Build pinned Crush
         shell: pwsh
         run: |
-          git clone --filter=blob:none https://github.com/charmbracelet/crush.git "$env:RUNNER_TEMP\crush"
-          git -C "$env:RUNNER_TEMP\crush" checkout $env:CRUSH_COMMIT
-          ./scripts/apply-crush-patches.ps1 -CrushDir "$env:RUNNER_TEMP\crush"
-          New-Item -ItemType Directory -Force build\bin\resources | Out-Null
-          Push-Location "$env:RUNNER_TEMP\crush"
-          go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\tack-engine.exe" .
-          Pop-Location
+          Start-Transcript -Path "$env:GITHUB_WORKSPACE\crush-build.log" -Force
+          try {
+            git clone --filter=blob:none https://github.com/charmbracelet/crush.git "$env:RUNNER_TEMP\crush"
+            git -C "$env:RUNNER_TEMP\crush" checkout $env:CRUSH_COMMIT
+            ./scripts/apply-crush-patches.ps1 -CrushDir "$env:RUNNER_TEMP\crush"
+            New-Item -ItemType Directory -Force build\bin\resources | Out-Null
+            Push-Location "$env:RUNNER_TEMP\crush"
+            try {
+              go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\tack-engine.exe" .
+              if ($LASTEXITCODE -ne 0) { throw "pinned Crush go build failed with exit code $LASTEXITCODE" }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            Stop-Transcript
+          }
+      - name: Upload pinned Crush diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-crush-diagnostics
+          path: crush-build.log
+          if-no-files-found: warn
       - name: Build guard approval hook
         shell: pwsh
         run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\guard.exe" ./cmd/guard

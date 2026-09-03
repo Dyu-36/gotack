@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $patchDir = Join-Path $repoRoot 'third_party/patches'
+$hardeningScript = Join-Path $PSScriptRoot 'harden-crush-for-tack.ps1'
 
 if (-not (Test-Path (Join-Path $CrushDir '.git'))) {
     throw "Crush checkout not found at $CrushDir"
@@ -43,6 +44,19 @@ function Assert-ContainsMarkers {
     }
 }
 
+function Assert-NotContainsMarkers {
+    param(
+        [string]$Label,
+        [string]$Text,
+        [string[]]$Markers
+    )
+    foreach ($marker in $Markers) {
+        if ($Text.Contains($marker)) {
+            throw "Crush $Label marker unexpectedly present after hardening: $marker"
+        }
+    }
+}
+
 $patches = Get-ChildItem -Path $patchDir -Filter '*.patch' -File | Sort-Object Name
 foreach ($patch in $patches) {
     $baseArgs = @('-C', $CrushDir, 'apply')
@@ -62,6 +76,11 @@ foreach ($patch in $patches) {
 
     throw "Crush patch $($patch.Name) does not apply cleanly to $CrushDir"
 }
+
+if (-not (Test-Path $hardeningScript)) {
+    throw "Crush hardening script not found: $hardeningScript"
+}
+& $hardeningScript -CrushDir $CrushDir
 
 # Keep every consumer of this script, including CI and release builds, on the
 # same reviewed API and recall-schema contract as scripts/update-crush.ps1.
@@ -86,10 +105,55 @@ Assert-ContainsMarkers -Label 'server contract' -Text $serverText -Markers @(
     'POST /v1/workspaces/{id}/config/provider-key"',
     'POST /v1/workspaces/{id}/config/refresh-oauth"',
     'POST /v1/workspaces/{id}/permissions/grant"',
-    'POST /v1/workspaces/{id}/questions/answer"',
     'PayloadTypeFile',
     'PayloadTypeRunComplete'
 )
+Assert-NotContainsMarkers -Label 'server contract' -Text $serverText -Markers @(
+    'POST /v1/workspaces/{id}/questions/answer"',
+    'POST /v1/workspaces/{id}/questions/cancel"'
+)
+
+$agentFiles = @(
+    (Join-Path $CrushDir 'internal/agent/coordinator.go'),
+    (Join-Path $CrushDir 'internal/config/config.go'),
+    (Join-Path $CrushDir 'internal/agent/templates/coder.md.tpl'),
+    (Join-Path $CrushDir 'internal/agent/templates/agentic_fetch_prompt.md.tpl'),
+    (Join-Path $CrushDir 'internal/agent/templates/task.md.tpl'),
+    (Join-Path $CrushDir 'internal/agent/tools/bash.md.tpl'),
+    (Join-Path $CrushDir 'internal/agent/tools/crush_info.go'),
+    (Join-Path $CrushDir 'internal/agent/tools/crush_logs.go'),
+    (Join-Path $CrushDir 'internal/agent/tools/crush_info.md'),
+    (Join-Path $CrushDir 'internal/agent/tools/crush_logs.md.tpl')
+)
+$agentText = ($agentFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+Assert-NotContainsMarkers -Label 'agent tool/identity' -Text $agentText -Markers @(
+    'NewQuestionTool',
+    'You are Crush',
+    'agent for Crush',
+    'analysis agent for Crush',
+    'Generated with Crush',
+    'Assisted-by: Crush',
+    'Co-Authored-By: Crush',
+    '"crush_info"',
+    '"crush_logs"'
+)
+Assert-ContainsMarkers -Label 'Tack identity' -Text $agentText -Markers @(
+    'You are Tack,',
+    '"tack_info"',
+    '"tack_logs"',
+    'Generated with Tack'
+)
+
+$questionToolFiles = @(
+    (Join-Path $CrushDir 'internal/agent/tools/question.go'),
+    (Join-Path $CrushDir 'internal/agent/tools/question.md'),
+    (Join-Path $CrushDir 'internal/agent/tools/question_test.go')
+)
+foreach ($questionToolFile in $questionToolFiles) {
+    if (Test-Path $questionToolFile) {
+        throw "Question agent-tool source unexpectedly present after hardening: $questionToolFile"
+    }
+}
 
 $schemaFiles = @(
     (Join-Path $CrushDir 'internal/db/migrations/20250424200609_initial.sql'),
@@ -106,4 +170,4 @@ Assert-ContainsMarkers -Label 'recall schema' -Text $schemaText -Markers @(
     'updated_at INTEGER'
 )
 
-Write-Host 'Crush server and recall contracts verified after patching.'
+Write-Host 'Crush server, agent-tool identity, and recall contracts verified after patching.'

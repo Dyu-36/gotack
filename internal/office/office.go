@@ -1,7 +1,6 @@
 package office
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -148,17 +147,6 @@ func Edit(req EditRequest) (string, error) {
 	default:
 		return "", fmt.Errorf("office: unknown op %q (use replace_text, set_cell or append_rows)", req.Op)
 	}
-}
-
-func MarshalArgs[T any](raw json.RawMessage) (T, error) {
-	var req T
-	if len(raw) == 0 {
-		return req, fmt.Errorf("office: arguments are required")
-	}
-	if err := json.Unmarshal(raw, &req); err != nil {
-		return req, fmt.Errorf("office: decode arguments: %w", err)
-	}
-	return req, nil
 }
 
 func sheetLabel(sheet string) string {

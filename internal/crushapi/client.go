@@ -19,7 +19,6 @@ const (
 	workspacesPath      = "/v1/workspaces"
 	permissionGrantPath = "/v1/workspaces/{id}/permissions/grant"
 	permissionSkipPath  = "/v1/workspaces/{id}/permissions/skip"
-	questionsAnswerPath = "/v1/workspaces/{id}/questions/answer"
 	agentPath           = "/v1/workspaces/{id}/agent"
 	agentInitPath       = "/v1/workspaces/{id}/agent/init"
 	agentRefreshPath    = "/v1/workspaces/{id}/agent/refresh-prompt"
@@ -215,18 +214,6 @@ func (c *Client) SetPermissionsSkip(ctx context.Context, wsID string, skip bool)
 	}{Skip: skip})
 	path := expandPath(permissionSkipPath, "id", wsID)
 	return c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
-}
-
-func (c *Client) AnswerQuestion(ctx context.Context, wsID string, ans QuestionAnswer) (bool, error) {
-	body, _ := json.Marshal(ans)
-	var resp struct {
-		Resolved bool `json:"resolved"`
-	}
-	path := expandPath(questionsAnswerPath, "id", wsID)
-	if err := c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &resp); err != nil {
-		return false, err
-	}
-	return resp.Resolved, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body io.Reader, out any) error {
