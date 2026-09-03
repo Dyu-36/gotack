@@ -37,10 +37,17 @@ function Remove-SourceFile {
 }
 
 # The desktop app does not expose an interactive Question surface. Strip the
-# model tool itself so the agent schema can never advertise or call it, even
-# if a future frontend accidentally reintroduces an event listener.
+# model tool itself and its coordinator dependency so the agent schema can
+# never advertise or call it, even if a future frontend accidentally
+# reintroduces an event listener.
+Update-ExactText 'internal/agent/coordinator.go' @'
+	"github.com/charmbracelet/crush/internal/question"
+'@ ''
 Update-ExactText 'internal/agent/coordinator.go' @'
 	questions   question.Service
+'@ ''
+Update-ExactText 'internal/agent/coordinator.go' @'
+	Questions   question.Service
 '@ ''
 Update-ExactText 'internal/agent/coordinator.go' @'
 		questions:    opts.Questions,
@@ -52,6 +59,9 @@ Update-ExactText 'internal/agent/coordinator.go' @'
 	}
 
 '@ ''
+Update-ExactText 'internal/app/app.go' @'
+		Questions:   app.Questions,
+'@ ''
 Update-ExactText 'internal/config/config.go' @'
 		"question",
 '@ ''
@@ -61,8 +71,8 @@ Remove-SourceFile 'internal/agent/tools/question.md'
 Remove-SourceFile 'internal/agent/tools/question_test.go'
 
 # Remove the headless REST entry points as a second boundary. The remaining
-# upstream TUI question service is not registered as an agent tool and is not
-# reachable through Gotack's server contract.
+# upstream TUI question service is not registered as an agent dependency and is
+# not reachable through Gotack's server contract.
 Update-ExactText 'internal/server/server.go' @'
 	mux.HandleFunc("POST /v1/workspaces/{id}/questions/answer", c.handlePostWorkspaceQuestionsAnswer)
 '@ ''
