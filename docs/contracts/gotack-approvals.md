@@ -95,10 +95,14 @@ them hang:
   trimmed). The spawned guard reads it on every call; a missing or malformed
   roster fails open to the interactive posture (the host re-marks on every
   remote turn).
-- In the unattended posture, ask-tier operations are denied with rule
-  `unattended-approval` and a legible reason naming the tool; reads and
-  writes inside the safe root still succeed. `guard` never blocks waiting for
-  input, so an unattended run either proceeds or fails — never hangs.
+- The `question` tool is always denied in this posture with rule
+  `unattended-question`. The denial tells the model to ask for missing data in
+  its normal assistant response, end the turn, and wait for the next message;
+  Zalo and scheduled runs never depend on a desktop form.
+- Other ask-tier operations are denied with rule `unattended-approval` and a
+  legible reason naming the tool; reads and writes inside the safe root still
+  succeed. `guard` never blocks waiting for input, so an unattended run either
+  proceeds or fails — never hangs.
 
 ## Permissions-skip reconciliation
 

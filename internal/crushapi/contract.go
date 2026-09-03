@@ -145,6 +145,10 @@ type QuestionRequest struct {
 	ConfirmDescription string         `json:"confirm_description,omitempty"`
 }
 
+type QuestionNotification struct {
+	BatchID string `json:"batch_id"`
+}
+
 type QuestionItem struct {
 	ID          string           `json:"id"`
 	Type        string           `json:"type"`

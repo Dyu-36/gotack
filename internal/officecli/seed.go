@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/bundleseed"
@@ -80,24 +78,4 @@ func (s *Seeder) CrushEnv() map[string]string {
 
 func (s *Seeder) SkillsPathArg() string {
 	return s.SkillsDir()
-}
-
-func EnsureOfficeCLIOnPath() string {
-	name := "officecli"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	if found, err := exec.LookPath(name); err == nil {
-		if abs, err := filepath.Abs(found); err == nil {
-			return abs
-		}
-		return found
-	}
-	if local := os.Getenv("LOCALAPPDATA"); local != "" && runtime.GOOS == "windows" {
-		candidate := filepath.Join(local, "OfficeCLI", name)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-	return ""
 }

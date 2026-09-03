@@ -35,7 +35,6 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | events.go | Host to UI event emission, single place |
 | office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, skills_seed.go, recall_seed.go, schedule_host.go, reflection_host.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
 | internal/ | Desktop-side implementation, one package per role: appconfig, attachments, bundleseed, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, openaioauth, permission, recall, reflection, schedule, session, skillmanage, terminal, uievents, userstrings, workspace, zalo |
-| cmd/office/ | Bundled Office MCP server over stdio; ships as office.exe |
 | cmd/guard/ | PreToolUse approval hook (destructive-command blocklist, graduated tiers); ships as guard.exe |
 | cmd/memory/ | Persistent self-editing memory MCP server over stdio; curates MEMORY.md / USER.md in the seeded context dir; ships as memory.exe |
 | cmd/skills/ | Progressive procedural-skill MCP server over stdio; ships as skills.exe |

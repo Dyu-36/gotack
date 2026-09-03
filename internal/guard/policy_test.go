@@ -126,6 +126,12 @@ func TestEvaluateTierMatrix(t *testing.T) {
 			want: DecisionDeny, reasonHas: ruleUnattendedApproval,
 		},
 		{
+			name: "question falls back to plain text unattended",
+			in:   input(t, root, "question", map[string]any{"questions": []any{}}),
+			opts: Options{WriteSafeRoot: root, Unattended: true},
+			want: DecisionDeny, reasonHas: ruleUnattendedQuestion,
+		},
+		{
 			name: "unknown tool asks interactively",
 			in:   input(t, root, "future_tool", map[string]any{}),
 			opts: Options{WriteSafeRoot: root},
@@ -154,6 +160,16 @@ func TestEvaluateTierMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestUnattendedQuestionReasonRequiresPlainTextFallback(t *testing.T) {
+	got := Evaluate(
+		input(t, t.TempDir(), "question", map[string]any{}),
+		Options{Unattended: true},
+	)
+	if got.Decision != DecisionDeny || !strings.Contains(got.Reason, "ask for the missing information directly") {
+		t.Fatalf("got %+v, want plain-text fallback instruction", got)
 	}
 }
 

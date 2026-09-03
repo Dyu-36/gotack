@@ -135,6 +135,7 @@ The UI and assistant runtime are isolated so the desktop lifecycle does not need
 | Terminal | **xterm.js** |
 | Local storage | **SQLite** |
 | Communication | **Local IPC, REST & SSE** |
+| Crush pin | **`.crush-pin`** |
 | Current packaged target | **Windows x64** |
 
 ## 📦 Installation
@@ -220,7 +221,6 @@ Tack is designed as a single-user local desktop assistant with explicit tool con
 ├── cmd/                    # Bundled local services and tools
 │   ├── guard/
 │   ├── memory/
-│   ├── office/
 │   ├── recall/
 │   └── skills/
 ├── internal/               # Go application implementation

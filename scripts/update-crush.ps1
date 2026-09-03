@@ -30,6 +30,8 @@ if (-not (Test-Path (Join-Path $crushDir '.git'))) {
 
 git -C $crushDir fetch --depth 1 origin $Commit
 git -C $crushDir checkout --detach $Commit
+git -C $crushDir reset --hard $Commit
+git -C $crushDir clean -fd
 
 $actual = (git -C $crushDir rev-parse HEAD).Trim()
 if ($actual -ne $Commit) {
