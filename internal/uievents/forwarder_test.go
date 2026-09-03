@@ -288,25 +288,6 @@ func TestForwarderReportsOnlyAdmittedLearningResults(t *testing.T) {
 	}
 }
 
-func TestForwarderEmitsQuestionResolved(t *testing.T) {
-	var c collector
-	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
-	payload, err := json.Marshal(crushapi.QuestionNotification{BatchID: "batch-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	f.handle(crushapi.StreamEvent{Kind: "question_batch_notification", Payload: payload})
-
-	events := c.of(QuestionResolved)
-	if len(events) != 1 {
-		t.Fatalf("question resolved events = %d, want 1", len(events))
-	}
-	if got := events[0].data.(crushapi.QuestionNotification).BatchID; got != "batch-1" {
-		t.Fatalf("batch id = %q, want batch-1", got)
-	}
-}
-
 func TestForwarderAppendIsSuffix(t *testing.T) {
 	var c collector
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})

@@ -17,7 +17,6 @@ func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
 
 	expected := []string{
 		"AnswerPermission",
-		"AnswerQuestion",
 		"AttachmentLimits",
 		"BackendReady",
 		"CancelPrompt",

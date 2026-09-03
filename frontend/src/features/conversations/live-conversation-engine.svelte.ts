@@ -5,8 +5,6 @@ import {
   type EngineInfo,
   type PermissionRequestPayload as Envelope,
   type PromptFilePick,
-  type QuestionRequestEvent,
-  type QuestionResolvedEvent,
   type SessionDeltaEvent,
   type SessionDoneEvent,
   type ToolActivityEvent,
@@ -25,7 +23,6 @@ export type EngineDeps = {
   engine: { value: EngineInfo | null }
   error: { value: string }
   permission: { value: Envelope | null }
-  question: { value: QuestionRequestEvent | null }
   streamingText: { value: string }
   provider: { value: string }
   model: { value: string }
@@ -133,7 +130,6 @@ export function createEngineState(deps: EngineDeps) {
             m.content = result.text
             m.seq = result.seq
             if (result.kind === 'resync') {
-
               console.warn(
                 `session:delta resync for ${event.message_id} ` +
                   `(prev seq=${prev?.seq ?? 'null'}, got ${event.seq})`,
@@ -185,20 +181,13 @@ export function createEngineState(deps: EngineDeps) {
       }),
       on<SessionDoneEvent>(events.sessionDone, (event) => {
         deps.updateConversation(event.session_id, (c) => ({ ...c, status: 'idle', updatedAt: Date.now() }))
-        if (deps.question.value?.session_id === event.session_id) deps.question.value = null
         if (event.session_id === deps.activeId.value) {
           deps.streamingText.value = ''
-
           void deps.reloadMessages(event.session_id)
         }
         if (event.error) deps.reportError(event.error, 'Agent run')
       }),
       on<Envelope>(events.permissionRequest, (event) => (deps.permission.value = event)),
-      on<QuestionRequestEvent>(events.questionRequest, (event) => (deps.question.value = event)),
-      on<QuestionResolvedEvent>(events.questionResolved, (event) => {
-        if (deps.question.value?.id === event.batch_id) deps.question.value = null
-      }),
-
       on<PromptFilePick[]>(events.promptFiles, (picks) => deps.attachPaths(picks ?? [])),
     )
   }

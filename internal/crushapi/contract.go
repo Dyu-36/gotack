@@ -136,47 +136,6 @@ type PermissionGrant struct {
 	Action     PermissionAction  `json:"action"`
 }
 
-type QuestionRequest struct {
-	ID                 string         `json:"id"`
-	SessionID          string         `json:"session_id"`
-	ToolCallID         string         `json:"tool_call_id"`
-	Questions          []QuestionItem `json:"questions"`
-	ConfirmTitle       string         `json:"confirm_title,omitempty"`
-	ConfirmDescription string         `json:"confirm_description,omitempty"`
-}
-
-type QuestionNotification struct {
-	BatchID string `json:"batch_id"`
-}
-
-type QuestionItem struct {
-	ID          string           `json:"id"`
-	Type        string           `json:"type"`
-	Label       string           `json:"label,omitempty"`
-	Question    string           `json:"question"`
-	Description string           `json:"description,omitempty"`
-	Choices     []QuestionChoice `json:"choices,omitempty"`
-}
-
-type QuestionChoice struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
-}
-
-type QuestionAnswer struct {
-	BatchRequestID string             `json:"batch_request_id"`
-	Responses      []QuestionResponse `json:"responses"`
-}
-
-type QuestionResponse struct {
-	QuestionID  string            `json:"request_id"`
-	SelectedIDs []string          `json:"selected_ids,omitempty"`
-	FillInText  string            `json:"fill_in_text,omitempty"`
-	Yes         *bool             `json:"yes,omitempty"`
-	Notes       map[string]string `json:"notes,omitempty"`
-}
-
 type RunComplete struct {
 	SessionID string `json:"session_id"`
 	RunID     string `json:"run_id,omitempty"`
