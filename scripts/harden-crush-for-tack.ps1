@@ -86,7 +86,8 @@ Update-ExactText 'internal/server/server.go' @'
 '@ ''
 
 # Rebrand every model-visible identity string while preserving upstream Go
-# module paths, legacy executable names, and the crush:// skills URI scheme.
+# module paths, legacy executable names, crush.json, built-in skill IDs, and
+# the crush:// skills URI scheme.
 Update-ExactText 'internal/agent/templates/coder.md.tpl' 'You are Crush, a powerful AI Assistant that runs in the CLI.' 'You are Tack, a powerful AI Assistant that runs in the CLI.'
 Update-ExactText 'internal/agent/templates/agentic_fetch_prompt.md.tpl' 'You are a web content analysis agent for Crush.' 'You are a web content analysis agent for Tack.'
 Update-ExactText 'internal/agent/templates/task.md.tpl' 'You are an agent for Crush.' 'You are an agent for Tack.'
@@ -105,5 +106,10 @@ Update-ExactText 'internal/agent/tools/crush_logs.md.tpl' 'Use to diagnose issue
 Update-ExactText 'internal/agent/tools/bash.md.tpl' '💘 Generated with Crush' '💘 Generated with Tack'
 Update-ExactText 'internal/agent/tools/bash.md.tpl' 'Assisted-by: Crush:{{ .ModelID }}' 'Assisted-by: Tack:{{ .ModelID }}'
 Update-ExactText 'internal/agent/tools/bash.md.tpl' 'Co-Authored-By: Crush <crush@charm.land>' 'Co-Authored-By: Tack <tack@gotack.local>'
+
+# Built-in skill IDs stay crush-* for compatibility, but their prose is part
+# of the model-visible context and must describe this product as Tack.
+Update-ExactText 'internal/skills/builtin/crush-config/SKILL.md' 'Crush' 'Tack'
+Update-ExactText 'internal/skills/builtin/crush-hooks/SKILL.md' 'Crush' 'Tack'
 
 Write-Host 'Stripped the Question agent tool and applied Tack model identity.'
