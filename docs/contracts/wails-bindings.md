@@ -18,6 +18,8 @@ an undocumented method enters the Wails surface.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `BackendReady()` | `bool` | True once the host can serve UI calls. Currently returns a constant `true`, since Wails only binds the object after startup completes. |
+| `GetAutoStart()` | `bool` | True when the per-user launch-at-login entry (`HKCU\...\CurrentVersion\Run`, value `Tack`) exists. |
+| `SetAutoStart(enabled)` | `error` | Creates or deletes that entry. The entry always launches `tack.exe --hidden`, so a login start rests in the tray. |
 
 ### Engine
 
@@ -41,6 +43,14 @@ requests a workspace. Normal UI shutdown disconnects host-owned streams and
 terminals but leaves the engine process running, so the next Gotack launch
 adopts the warm engine. `StopEngine()` remains the explicit process-stop path
 while the current host owns the process.
+
+Window lifecycle: the Wails `HideWindowOnClose` option keeps the process alive
+when the user closes the window -- the window only hides into the
+notification-area icon (`tray_windows.go`), which restores it. There is no
+in-app quit path; the process ends when Windows ends it (Task Manager, logoff,
+shutdown). `SingleInstanceLock` makes a second launch surface the first
+instance's window, except when that launch carries `--hidden` (the autostart
+entry), which leaves the running instance hidden.
 
 ### Workspace
 

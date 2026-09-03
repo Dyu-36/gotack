@@ -12,6 +12,10 @@ const (
 )
 
 const (
+	TrayShow = "Mở cửa sổ Tack"
+)
+
+const (
 	EncodingUTF16NoBOM = "UTF-16 (không BOM)"
 
 	FmtUnsupportedConversion   = "không hỗ trợ chuyển đổi %q"
