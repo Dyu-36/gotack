@@ -1,10 +1,7 @@
-import { desktop, type PermissionRequestPayload as Envelope, type QuestionRequestEvent } from '../../platform/desktop'
-
-type QuestionAnswer = { request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }
+import { desktop, type PermissionRequestPayload as Envelope } from '../../platform/desktop'
 
 export type PermissionDeps = {
   permission: { value: Envelope | null }
-  question: { value: QuestionRequestEvent | null }
   reportError: (cause: unknown, prefix?: string) => void
 }
 
@@ -46,18 +43,10 @@ export function createPermissionState(deps: PermissionDeps) {
     try { await desktop.answerPermission(id, decision) } catch (cause) { deps.reportError(cause, 'Permission response') }
   }
 
-  const answerQuestion = async (answers: QuestionAnswer[]) => {
-    const current = deps.question.value
-    if (!current) return
-    deps.question.value = null
-    try { await desktop.answerQuestion(current.id, answers) } catch (cause) { deps.reportError(cause, 'Question response') }
-  }
-
   return {
     now: { get value() { return now } },
     permissionSecondsLeft: { get value() { return permissionSecondsLeft } },
     permissionExpired: { get value() { return permissionExpired } },
     answerPermission,
-    answerQuestion,
   }
 }
