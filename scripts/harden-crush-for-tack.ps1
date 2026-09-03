@@ -65,10 +65,15 @@ Update-ExactText 'internal/app/app.go' @'
 Update-ExactText 'internal/config/config.go' @'
 		"question",
 '@ ''
+Update-ExactText 'internal/ui/chat/tools.go' @'
+	case tools.QuestionToolName:
+		item = NewQuestionToolMessageItem(sty, toolCall, result, canceled)
+'@ ''
 
 Remove-SourceFile 'internal/agent/tools/question.go'
 Remove-SourceFile 'internal/agent/tools/question.md'
 Remove-SourceFile 'internal/agent/tools/question_test.go'
+Remove-SourceFile 'internal/ui/chat/question.go'
 
 # Remove the headless REST entry points as a second boundary. The remaining
 # upstream TUI question service is not registered as an agent dependency and is
