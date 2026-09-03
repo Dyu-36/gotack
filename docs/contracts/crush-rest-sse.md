@@ -23,12 +23,11 @@ error server-side.
 
 | Key | Scope | Written by | Value | Undo |
 | --- | --- | --- | --- | --- |
-| `mcp_servers.gotack-office` | workspace | `office_seed.go` `registerOfficeTools` | `{command, type: "stdio", timeout: 30}` | `RemoveConfigField` on the same key; the host already does this when the officecli binary is absent |
 | `mcp_servers.gotack-memory` | workspace | `memory_seed.go` `registerMemoryTools` on every workspace activation | `{command, type: "stdio", timeout: 30}` | `RemoveConfigField` on the same key; the host already does this when the memory binary is absent. Tool shape in `gotack-memory-mcp.md` |
 | `mcp_servers.gotack-skills` | workspace | `skills_seed.go` `registerSkillsTools` on every workspace activation | `{command, args: ["--root", "<appconfig.Dir()>/skills"], type: "stdio", timeout: 30}` | `RemoveConfigField` on the same key; the host already does this when the skills binary is absent. Tool shape in `gotack-skills-mcp.md` |
 | `mcp_servers.gotack-recall` | workspace | `recall_seed.go` `registerRecallTools` on every workspace activation | `{command, args: ["--data-dir", "<workspace data dir>", "--index-dir", "<appconfig.Dir()>/recall/<workspace-id>"], type: "stdio", timeout: 30}` | `RemoveConfigField` on the same key; the host already does this when the recall binary, active workspace, or data directory is absent. Tool shape in `gotack-recall-mcp.md` |
-| `env` | workspace | `office_seed.go` `registerOfficeTools` | Existing environment entries plus Gotack's `PATH`, so agent shells resolve the seeded `officecli` and Python runtime | Restore the previous map. Gotack reads and merges before an atomic batch write; unrelated user keys are preserved |
-| `options.skills_paths` | workspace | `office_seed.go` `registerOfficeTools` | Existing entries, then the seeded, per-user, and current project skill directories, deduplicated without reordering | Restore the previous list. Removing the whole key would also remove user entries and is not a safe surgical rollback |
+| `env` | workspace | `office_seed.go` `registerOfficeRuntime` | Existing environment entries plus Gotack's `PATH`, so agent shells resolve the seeded `officecli` and Python runtime | Restore the previous map. Gotack reads and merges before an atomic batch write; unrelated user keys are preserved |
+| `options.skills_paths` | workspace | `office_seed.go` `registerOfficeRuntime` | Existing entries, then the seeded, per-user, and current project skill directories, deduplicated without reordering | Restore the previous list. Removing the whole key would also remove user entries and is not a safe surgical rollback |
 | `options.global_context_paths` | workspace | `context_seed.go` `registerContextPaths` on every workspace activation | `[<appconfig.Dir()>\context-prompt\snapshot-<generation>]`, an immutable projection built by `internal/contextseed` from the writable seeded directory | `RemoveConfigField`; Crush falls back to its schema defaults (`~/.config/crush/CRUSH.md`, `~/.config/AGENTS.md`). The host also removes the key itself when the seeded directory is absent |
 | `providers.<id>.{name,type,base_url,discover_models,models,api_key}` | global | `provider_overlays.go` / `provider_codex.go` | One complete Gotack-owned local provider definition, written with `SetConfigFields`; OAuth-only Codex deliberately omits model and key fields | Remove only the Gotack-owned paths, or set `disable: true`. Existing hand-written providers are never claimed unless their stable identity matches |
 | `providers.<id>.disable` | global | `settings_crush.go` / `bind_config.go` | `false` when enabled; `true` is the first engine mutation during deletion | `RemoveConfigField` only when the provider definition itself is being removed |
@@ -103,6 +102,11 @@ and `small`; a set value must contain both provider and model. Missing
 workspaces return 404, persistence failures return 500, and success is an
 empty HTTP 200 response.
 
+An interactive `question` waits at most 60 seconds. On timeout the engine
+resolves the pending batch, disables further `question` calls for that session,
+and returns a tool error instructing the model to ask for the missing data in
+its normal assistant response and end the turn.
+
 ## SSE events consumed
 
 One subscription per attached workspace:
@@ -115,7 +119,8 @@ these envelope kinds (`bind_engine.go` attach path, decoded in
 | `message` | `updated` | token deltas, tool-call activity for the transcript |
 | `run_complete` | flat payload | turn finished: final text, cancelled flag; drives session-done routing (UI, Zalo, and scheduled-run outcome bookkeeping via `internal/schedule`) |
 | `permission_request` | flat payload | pairs with the permission relay in `internal/permission` |
-| `question_batch_request` | flat payload | agent question batches surfaced in the UI |
+| `question_batch_request` | wrapped `created` payload | agent question batches surfaced in the desktop UI |
+| `question_batch_notification` | wrapped `created` payload | closes a question form after answer, cancel, or timeout |
 | `file` | flat payload | file-change notifications feeding the changes panel |
 
 Envelope shape: `data: {"type": "<kind>", "payload": {"type":
@@ -148,13 +153,12 @@ limitations:
 
 ## Rollback summary
 
-To detach Gotack-owned workspace integration, remove its four MCP entries,
+To detach Gotack-owned workspace integration, remove its three MCP entries,
 `options.global_context_paths`, and `env`. For `options.skills_paths`, restore
 the prior list or remove only Gotack's seeded/user/project additions; deleting
 the whole key can destroy unrelated user configuration.
 
 ```text
-RemoveConfigField mcp_servers.gotack-office        (workspace scope)
 RemoveConfigField mcp_servers.gotack-memory        (workspace scope)
 RemoveConfigField mcp_servers.gotack-skills        (workspace scope)
 RemoveConfigField mcp_servers.gotack-recall        (workspace scope)

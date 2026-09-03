@@ -86,7 +86,11 @@ One chat runs at most one turn at a time. A normal message:
    guard denies ask-tier operations with a legible reason instead of hanging
    on a prompt nobody can answer (ADR 0002, `gotack-approvals.md`). A failed
    mark fails the turn.
-3. Submits the text over the engine REST path and remembers the session id.
+3. Denies the interactive `question` tool with rule `unattended-question`.
+   The tool result instructs the model to ask for missing information in the
+   ordinary assistant reply and end the turn. Zalo does not render or answer
+   desktop question forms; the user's next chat message starts the next turn.
+4. Submits the text over the engine REST path and remembers the session id.
 
 Answers flow back through the unexported host completion callback into
 `Manager.Done`, which matches

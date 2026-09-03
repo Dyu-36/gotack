@@ -4,9 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -15,32 +15,13 @@ import (
 	"github.com/Dyu-36/gotack/internal/officecli"
 )
 
-const officeMCPName = "gotack-office"
+const legacyOfficeMCPName = "gotack-office"
 
 func officeBinaryName() string {
 	if runtime.GOOS == "windows" {
 		return "officecli.exe"
 	}
 	return "officecli"
-}
-
-func resolveOfficeCommand() string {
-	name := officeBinaryName()
-	if executable, err := os.Executable(); err == nil {
-		root := filepath.Dir(executable)
-		for _, candidate := range []string{
-			filepath.Join(root, "resources", name),
-			filepath.Join(root, name),
-		} {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
-			}
-		}
-	}
-	if found, err := exec.LookPath(name); err == nil {
-		return found
-	}
-	return ""
 }
 
 type officeSeeder struct {
@@ -73,7 +54,6 @@ func (s *officeSeeder) resolveOfficeSourceDir() string {
 	}
 	return ""
 }
-
 func (s *officeSeeder) resolveOfficeSkillsSourceDir() string {
 	if executable, err := os.Executable(); err == nil {
 		root := filepath.Dir(executable)
@@ -104,7 +84,6 @@ func (s *officeSeeder) startup() {
 	}
 	s.seeder.InstallPath()
 }
-
 func (s *officeSeeder) CrushEnv() map[string]string {
 	return s.seeder.CrushEnv()
 }
@@ -120,7 +99,7 @@ func (a *App) ensureOfficeSeed() {
 	a.officeSeeder.startup()
 }
 
-func (a *App) registerOfficeTools(workspaceID string) {
+func (a *App) registerOfficeRuntime(workspaceID string) {
 	if a.officeSeeder == nil {
 		return
 	}
@@ -131,21 +110,9 @@ func (a *App) registerOfficeTools(workspaceID string) {
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
 
-	command := resolveOfficeCommand()
-	if command == "" {
-		command = officecli.EnsureOfficeCLIOnPath()
+	if err := svc.api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+legacyOfficeMCPName); err != nil && a.log != nil {
+		a.log.Warn("legacy office MCP cleanup failed", "err", err)
 	}
-	if command == "" {
-		_ = svc.api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+officeMCPName)
-	} else {
-		entry := map[string]any{"command": command, "type": "stdio", "timeout": 30}
-		if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+officeMCPName, entry); err != nil {
-			if a.log != nil {
-				a.log.Warn("office tools registration failed", "err", err)
-			}
-		}
-	}
-
 	env := a.officeSeeder.CrushEnv()
 	skillsPath := a.officeSeeder.SkillsPath()
 
@@ -199,22 +166,32 @@ func mergeConfigEnv(existing, additions map[string]string) map[string]string {
 	return merged
 }
 
+func skillPathKey(path string) string {
+	key := filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	return key
+}
 func mergeSkillsPaths(existing []string, additions ...string) []string {
-	merged := existing
-	for _, add := range additions {
-		if add == "" {
-			continue
+	merged := make([]string, 0, len(existing)+len(additions))
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	appendPath := func(path string) {
+		if path == "" {
+			return
 		}
-		present := false
-		for _, path := range merged {
-			if path == add {
-				present = true
-				break
-			}
+		key := skillPathKey(path)
+		if _, ok := seen[key]; ok {
+			return
 		}
-		if !present {
-			merged = append(merged, add)
-		}
+		seen[key] = struct{}{}
+		merged = append(merged, path)
+	}
+	for _, path := range existing {
+		appendPath(path)
+	}
+	for _, path := range additions {
+		appendPath(path)
 	}
 	return merged
 }

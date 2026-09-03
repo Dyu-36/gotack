@@ -47,7 +47,7 @@ while the current host owns the process.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `ListRecentWorkspaces()` | `string[]` | Most recent first. |
-| `OpenWorkspace(path)` | `WorkspaceInfo` | Attaches in engine, switches event stream, reapplies saved settings, and registers the bundled MCP servers and skills. |
+| `OpenWorkspace(path)` | `WorkspaceInfo` | Attaches in engine, switches event stream, reapplies saved settings, and registers the bundled runtime services and skills. |
 | `EnsureAssistantWorkspace()` | `WorkspaceInfo` | Attaches the always-available default workspace (`C:\` on Windows) so startup chat has a real session context. |
 | `CurrentWorkspace()` | `WorkspaceInfo?` | Null when nothing is attached. |
 | `SelectWorkspace()` | `string` | Native directory picker; empty on cancel. |
@@ -101,7 +101,7 @@ parses those markers back out, so replayed prompts show clean text plus chips.
 Legacy binary formats (`.xls`, `.doc`, `.ppt`, OpenDocument) are converted to
 OOXML through LibreOffice `soffice` or, if absent, Microsoft Office COM before
 extraction; when neither is available the file still reaches the model as a
-path with instructions to use the `office_read` tool.
+path with instructions to use the bundled `officecli` command.
 
 PDF text is extracted with `pdftotext`, then LibreOffice, then Word COM; when
 none of them is installed the file still reaches the model as a path plus a
@@ -122,7 +122,7 @@ that metadata only; the bytes stay on disk until `SendPrompt` reads them.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `AnswerPermission(requestID, decision)` | `bool`, `error` | `decision`: `allow`, `allow_session`, `deny`. |
-| `AnswerQuestion(requestID, answers)` | `bool`, `error` | One batch response. |
+| `AnswerQuestion(requestID, answers)` | `bool`, `error` | One batch response. Interactive batches expire after 60 seconds; timeout closes the form and makes the agent ask in normal text. |
 
 ### Changes and terminal
 
@@ -244,20 +244,19 @@ again; it is not an allow-list the UI can manage.
 
 ### Bundled Office and timetable integration
 
-The packaged runtime under `build/bin/resources/` contains `officecli.exe`, a
-Python 3.12 runtime with `ortools` and `openpyxl`, the
-`officecli-xlsx|docx|pptx|...` skill tree, and the `timetable` skill copied
-from the Stack 2.2.0 implementation (schema, solver and exporter included).
-At startup the host copies the runtime and skills into `<configDir>/bin/` and
-`<configDir>/skills/`, prepends the bin directory to `PATH`, and registers the
-Office MCP server plus `options.skills_paths` through the Crush config
-endpoints. Crush can therefore invoke the Office MCP tools or execute the
-timetable solver/exporter with the bundled `python` command without separate
-user setup.
+The packaged runtime contains `officecli.exe`, the OfficeCLI skill tree, the
+`timetable` skill and its formatted Excel template. At startup the host copies
+the runtime and skills into `<configDir>/bin/` and `<configDir>/skills/`, adds
+the bin directory to `PATH`, and merges `options.skills_paths`. It also removes
+the retired `mcp_servers.gotack-office` entry from existing workspace configs.
+No Office MCP server or Office tool set is registered.
 
-The seeder resolves the platform executable name. Current release artifacts
-ship the Windows payload; a non-Windows release must provide its matching
-runtime before the Office bundle can be seeded there.
+The timetable skill accepts natural-language requirements, lets the coding
+agent choose its scheduling approach, then batch-writes six normalized columns
+into `Dữ liệu` in `assets/mau-thoi-khoa-bieu.xlsx`. The `Thời khóa biểu` sheet
+keeps the supplied Times New Roman formatting and class/teacher column layout
+and renders the written rows through formulas. There is no `problem.json`,
+requirement registry, bundled timetable solver or exporter.
 
 ## Host -> UI events
 
@@ -270,6 +269,7 @@ runtime before the Office bundle can be seeded there.
 | `tool:activity` | `{session_id, name, input, finished, tool_call_id}` |
 | `permission:request` | `PermissionRequest` |
 | `question:request` | `QuestionRequest` |
+| `question:resolved` | `{batch_id}` — closes the matching form after answer, cancel, or timeout |
 | `changes:updated` | `{session_id, path}` |
 | `terminal:data` | `{id, data}` |
 | `terminal:exit` | `{id, code?, error?}` |

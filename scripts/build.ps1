@@ -28,7 +28,6 @@ try {
     # Wails may clean build/bin, so assemble external runtime resources only
     # after the application executable has been produced.
     & (Join-Path $PSScriptRoot 'update-crush.ps1')
-    & (Join-Path $PSScriptRoot 'build-office.ps1')
     & (Join-Path $PSScriptRoot 'prepare-resources.ps1')
 
     New-Item -ItemType Directory -Force -Path $resourceDir | Out-Null

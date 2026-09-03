@@ -124,6 +124,7 @@ export type QuestionRequestEvent = {
   confirm_title?: string
   confirm_description?: string
 }
+export type QuestionResolvedEvent = { batch_id: string }
 
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }

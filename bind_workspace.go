@@ -57,7 +57,7 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 		a.startStream(scope, workspaceID)
 	}
 	a.resetZaloSessions()
-	a.registerOfficeTools(workspaceID)
+	a.registerOfficeRuntime(workspaceID)
 	a.registerMemoryTools(workspaceID)
 	a.registerSkillsTools(workspaceID)
 	a.registerRecallTools(workspaceID)

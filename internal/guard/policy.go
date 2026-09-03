@@ -9,6 +9,7 @@ const (
 	ruleContextWrite       = "memory-context-write"
 	ruleWriteOutsideRoot   = "write-outside-safe-root"
 	ruleUnattendedApproval = "unattended-approval"
+	ruleUnattendedQuestion = "unattended-question"
 	ruleReviewWhitelist    = "background-review-tool-whitelist"
 )
 
@@ -51,6 +52,12 @@ func Evaluate(in Input, o Options) Output {
 	}
 
 	if o.Unattended {
+		if in.ToolName == "question" {
+			reason := fmt.Sprintf(
+				"gotack-guard: denied by rule %q — interactive questions are disabled for unattended sessions; ask for the missing information directly in the assistant response, end the turn, and wait for the user's next message",
+				ruleUnattendedQuestion)
+			return injectSkillContext(in, o, Deny(reason, false))
+		}
 		reason := fmt.Sprintf(
 			"gotack-guard: denied by rule %q — an unattended session cannot answer an approval prompt (%s)",
 			ruleUnattendedApproval, in.ToolName)

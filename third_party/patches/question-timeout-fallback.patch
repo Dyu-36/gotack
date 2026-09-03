@@ -1,0 +1,208 @@
+diff --git a/internal/agent/tools/question.go b/internal/agent/tools/question.go
+index 57592a1..0b07282 100644
+--- a/internal/agent/tools/question.go
++++ b/internal/agent/tools/question.go
+@@ -7,16 +7,53 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"strings"
++	"sync"
++	"time"
+ 
+ 	"charm.land/fantasy"
+ 	"github.com/charmbracelet/crush/internal/question"
+ )
+ 
+-const QuestionToolName = "question"
++const (
++	QuestionToolName      = "question"
++	questionAnswerTimeout = 60 * time.Second
++)
++
++const questionFallbackInstruction = "Interactive question timed out or is disabled for this session. Do not call the question tool again. Ask the user for the missing information directly in your assistant response, end the turn, and wait for their next message."
++
++var errQuestionFallback = errors.New("question requires plain-text fallback")
+ 
+ //go:embed question.md
+ var questionDescription string
+ 
++type questionAsker interface {
++	Ask(context.Context, question.Request) ([]question.Answer, error)
++}
++
++type questionFallbackState struct {
++	timeout  time.Duration
++	disabled sync.Map
++}
++
++func (s *questionFallbackState) ask(ctx context.Context, sessionID string, svc questionAsker, req question.Request) ([]question.Answer, error) {
++	if sessionID != "" {
++		if _, disabled := s.disabled.Load(sessionID); disabled {
++			return nil, errQuestionFallback
++		}
++	}
++
++	askCtx, cancel := context.WithTimeout(ctx, s.timeout)
++	defer cancel()
++	answers, err := svc.Ask(askCtx, req)
++	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
++		if sessionID != "" {
++			s.disabled.Store(sessionID, struct{}{})
++		}
++		return nil, errQuestionFallback
++	}
++	return answers, err
++}
++
+ // QuestionParams defines the parameters for the question tool.
+ type QuestionParams struct {
+ 	Questions          []QuestionItem `json:"questions" description:"List of questions to present. Single item = no tabs, multiple = tabbed form."`
+@@ -81,6 +118,7 @@ type QuestionChoice struct {
+ 
+ // NewQuestionTool creates a new question tool.
+ func NewQuestionTool(svc question.Service) fantasy.AgentTool {
++	fallback := &questionFallbackState{timeout: questionAnswerTimeout}
+ 	return fantasy.NewAgentTool(
+ 		QuestionToolName,
+ 		questionDescription,
+@@ -121,8 +159,11 @@ func NewQuestionTool(svc question.Service) fantasy.AgentTool {
+ 				ConfirmDescription: params.ConfirmDescription,
+ 			}
+ 
+-			answers, err := svc.Ask(ctx, req)
++			answers, err := fallback.ask(ctx, sessionID, svc, req)
+ 			if err != nil {
++				if errors.Is(err, errQuestionFallback) {
++					return fantasy.NewTextErrorResponse(questionFallbackInstruction), nil
++				}
+ 				if errors.Is(err, question.ErrCancelled) {
+ 					resp := fantasy.NewTextErrorResponse("User cancelled this question")
+ 					resp.StopTurn = true
+diff --git a/internal/agent/tools/question.md b/internal/agent/tools/question.md
+index dff0f95..3776550 100644
+--- a/internal/agent/tools/question.md
++++ b/internal/agent/tools/question.md
+@@ -1,6 +1,10 @@
+ Ask the user a structured question and wait for their response. Use this
+ when you need clarification, confirmation, or a choice before proceeding.
+ 
++If the tool reports that interactive questions timed out or are disabled, do
++not call it again in that session. Ask for the missing information directly in
++your assistant response, end the turn, and wait for the user's next message.
++
+ ## How it works
+ 
+ Always provide a `questions` array with at least one item. A single item
+diff --git a/internal/agent/tools/question_test.go b/internal/agent/tools/question_test.go
+index cded0c7..7c07146 100644
+--- a/internal/agent/tools/question_test.go
++++ b/internal/agent/tools/question_test.go
+@@ -1,8 +1,10 @@
+ package tools
+ 
+ import (
++	"context"
+ 	"encoding/json"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/charmbracelet/crush/internal/question"
+ 	"github.com/stretchr/testify/require"
+@@ -74,3 +76,27 @@ func TestFormatAnswer_Skipped(t *testing.T) {
+ 	require.NoError(t, err)
+ 	require.Equal(t, "User skipped this question", resp.Content)
+ }
++
++type blockingQuestionAsker struct {
++	calls int
++}
++
++func (s *blockingQuestionAsker) Ask(ctx context.Context, _ question.Request) ([]question.Answer, error) {
++	s.calls++
++	<-ctx.Done()
++	return nil, ctx.Err()
++}
++
++func TestQuestionFallbackTimesOutAndDisablesSession(t *testing.T) {
++	require.Equal(t, 60*time.Second, questionAnswerTimeout)
++	state := &questionFallbackState{timeout: 10 * time.Millisecond}
++	svc := &blockingQuestionAsker{}
++
++	_, err := state.ask(context.Background(), "session-1", svc, question.Request{})
++	require.ErrorIs(t, err, errQuestionFallback)
++	require.Equal(t, 1, svc.calls)
++
++	_, err = state.ask(context.Background(), "session-1", svc, question.Request{})
++	require.ErrorIs(t, err, errQuestionFallback)
++	require.Equal(t, 1, svc.calls, "disabled sessions must not wait a second time")
++}
+diff --git a/internal/question/question.go b/internal/question/question.go
+index 8d26f68..d4b4774 100644
+--- a/internal/question/question.go
++++ b/internal/question/question.go
+@@ -262,6 +262,7 @@ func (s *questionService) Ask(ctx context.Context, req Request) ([]Answer, error
+ 
+ 	select {
+ 	case <-ctx.Done():
++		s.notify(req.ID)
+ 		return nil, ctx.Err()
+ 	case <-s.cancelled:
+ 		return nil, ErrCancelled
+@@ -270,6 +271,13 @@ func (s *questionService) Ask(ctx context.Context, req Request) ([]Answer, error
+ 	}
+ }
+ 
++func (s *questionService) notify(batchID string) {
++	if batchID == "" {
++		return
++	}
++	s.notificationBroker.Publish(pubsub.CreatedEvent, Notification{BatchID: batchID})
++}
++
+ // Answer resolves the pending question. Returns false if no
+ // question is pending (already answered or cancelled).
+ func (s *questionService) Answer(answers []Answer) bool {
+diff --git a/internal/question/question_test.go b/internal/question/question_test.go
+new file mode 100644
+index 0000000..17d8066
+--- /dev/null
++++ b/internal/question/question_test.go
+@@ -0,0 +1,38 @@
++package question
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestAskPublishesNotificationWhenContextExpires(t *testing.T) {
++	svc := NewService()
++	subCtx, stop := context.WithCancel(context.Background())
++	defer stop()
++	notifications := svc.SubscribeNotifications(subCtx)
++
++	askCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
++	defer cancel()
++	done := make(chan error, 1)
++	go func() {
++		_, err := svc.Ask(askCtx, Request{
++			ID: "batch-timeout",
++			Questions: []Question{{
++				Type: TypeFreeText, Text: "Missing data?", Description: "Provide the missing data.",
++			}},
++		})
++		done <- err
++	}()
++
++	select {
++	case notification := <-notifications:
++		require.Equal(t, "batch-timeout", notification.Payload.BatchID)
++	case <-time.After(time.Second):
++		t.Fatal("timed out waiting for question notification")
++	}
++
++	require.ErrorIs(t, <-done, context.DeadlineExceeded)
++}

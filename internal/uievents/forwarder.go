@@ -161,6 +161,8 @@ func (f *Forwarder) handle(ev crushapi.StreamEvent) {
 		f.handlePermission(ev.Payload)
 	case "question_batch_request":
 		f.handleQuestion(ev.Payload)
+	case "question_batch_notification":
+		f.handleQuestionResolved(ev.Payload)
 	case "file":
 		f.handleFile(ev.Payload)
 	default:
@@ -319,6 +321,20 @@ func (f *Forwarder) handleQuestion(payload json.RawMessage) {
 		return
 	}
 	f.send(QuestionRequest, q)
+}
+
+func (f *Forwarder) handleQuestionResolved(payload json.RawMessage) {
+	var notification crushapi.QuestionNotification
+	if err := json.Unmarshal(payload, &notification); err != nil {
+		if f.log != nil {
+			f.log.Debug("uievents: failed to decode question_batch_notification", "err", err)
+		}
+		return
+	}
+	if notification.BatchID == "" {
+		return
+	}
+	f.send(QuestionResolved, notification)
 }
 
 func (f *Forwarder) handleFile(payload json.RawMessage) {

@@ -168,7 +168,7 @@ func TestMergeConfigEnvPreservesUserKeys(t *testing.T) {
 	}
 }
 
-func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
+func TestRegisterOfficeRuntimePreservesExistingSkillsPaths(t *testing.T) {
 	tests := []struct {
 		name     string
 		existing func(bundled string) []string
@@ -219,10 +219,10 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 			}
 			app.link.MarkRunning()
 
-			app.registerOfficeTools("ws-1")
+			app.registerOfficeRuntime("ws-1")
 
 			if !fake.wroteSkills {
-				t.Fatalf("registerOfficeTools never wrote options.skills_paths; keys written: %v", fake.writtenKeys)
+				t.Fatalf("registerOfficeRuntime never wrote options.skills_paths; keys written: %v", fake.writtenKeys)
 			}
 			want := test.want(bundled)
 			if !reflect.DeepEqual(fake.writtenSkills, want) {
@@ -235,7 +235,7 @@ func TestRegisterOfficeToolsPreservesExistingSkillsPaths(t *testing.T) {
 	}
 }
 
-func TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs(t *testing.T) {
+func TestRegisterOfficeRuntimeAppendsUserAndProjectSkillsDirs(t *testing.T) {
 	appData := redirectAppData(t)
 	dataDir := filepath.Join(appData, "gotack")
 	bundled := filepath.Join(dataDir, "skills")
@@ -261,13 +261,21 @@ func TestRegisterOfficeToolsAppendsUserAndProjectSkillsDirs(t *testing.T) {
 		t.Fatalf("open workspace: %v", err)
 	}
 
-	app.registerOfficeTools("ws-1")
+	app.registerOfficeRuntime("ws-1")
 
 	if !fake.wroteSkills {
-		t.Fatalf("registerOfficeTools never wrote options.skills_paths; keys written: %v", fake.writtenKeys)
+		t.Fatalf("registerOfficeRuntime never wrote options.skills_paths; keys written: %v", fake.writtenKeys)
 	}
 	want := []string{"~/user/skills-a", bundled, filepath.Join(wsDir, ".agents", "skills")}
 	if !reflect.DeepEqual(fake.writtenSkills, want) {
 		t.Fatalf("written options.skills_paths = %#v, want %#v", fake.writtenSkills, want)
+	}
+}
+
+func TestMergeSkillsPathsRemovesExistingDuplicates(t *testing.T) {
+	existing := []string{"C:/gotack/skills", "C:/gotack/skills", "D:/user/skills"}
+	want := []string{"C:/gotack/skills", "D:/user/skills"}
+	if got := mergeSkillsPaths(existing); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mergeSkillsPaths(%#v) = %#v, want %#v", existing, got, want)
 	}
 }
