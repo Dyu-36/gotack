@@ -115,17 +115,6 @@ export type PermissionRequestEvent = {
 
 export type PermissionRequestPayload = { request: PermissionRequestEvent; expires_at_ms: number }
 
-export type QuestionChoice = { id: string; label: string; description?: string }
-export type QuestionRequestEvent = {
-  id: string
-  session_id: string
-  tool_call_id: string
-  questions: Array<{ id: string; type: string; label?: string; question: string; description?: string; choices?: QuestionChoice[] }>
-  confirm_title?: string
-  confirm_description?: string
-}
-export type QuestionResolvedEvent = { batch_id: string }
-
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
@@ -156,7 +145,6 @@ type BackendApp = {
   OpenGeneratedFile: (path: string) => Promise<void>
   RevealGeneratedFile: (path: string) => Promise<void>
   AnswerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => Promise<boolean>
-  AnswerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => Promise<boolean>
   ChangedFiles: (sessionID: string) => Promise<ChangedFileInfo[]>
   FileDiff: (sessionID: string, path: string) => Promise<string>
   OpenTerminal: (cwd: string) => Promise<string>
@@ -216,7 +204,6 @@ export const desktop = {
   pickPromptFiles: () => call('PickPromptFiles'), attachmentLimits: () => call('AttachmentLimits'),
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
-  answerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => call('AnswerQuestion', requestID, answers),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID),
   fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
   openTerminal: (cwd: string) => call('OpenTerminal', cwd),
