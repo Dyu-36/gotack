@@ -1,4 +1,4 @@
-import { desktop, type EngineInfo, type PermissionRequestPayload as Envelope, type QuestionRequestEvent } from '../../platform/desktop'
+import { desktop, type EngineInfo, type PermissionRequestPayload as Envelope } from '../../platform/desktop'
 import { ChatMessage, type ChatAttachment, type Conversation, type ReasoningEffort, type SessionSummary } from './types.svelte'
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
@@ -20,7 +20,6 @@ export function createLiveConversationState() {
   let error = $state('')
   let errorTimer: number | undefined
   let permission = $state<Envelope | null>(null)
-  let question = $state<QuestionRequestEvent | null>(null)
   let streamingText = $state('')
   let provider = $state('')
   let model = $state('')
@@ -71,7 +70,6 @@ export function createLiveConversationState() {
     engine: { get value() { return engine }, set value(v) { engine = v } },
     error: { get value() { return error }, set value(v) { error = v } },
     permission: { get value() { return permission }, set value(v) { permission = v } },
-    question: { get value() { return question }, set value(v) { question = v } },
     streamingText: { get value() { return streamingText }, set value(v) { streamingText = v } },
     provider: { get value() { return provider }, set value(v) { provider = v } },
     model: { get value() { return model }, set value(v) { model = v } },
@@ -89,7 +87,6 @@ export function createLiveConversationState() {
 
   const permissions = createPermissionState({
     permission: { get value() { return permission }, set value(v) { permission = v } },
-    question: { get value() { return question }, set value(v) { question = v } },
     reportError,
   })
 
@@ -106,7 +103,6 @@ export function createLiveConversationState() {
     get engine() { return engine },
     get error() { return error },
     get permission() { return permission },
-    get question() { return question },
     get streamingText() { return streamingText },
     get provider() { return provider },
     get model() { return model },
@@ -207,7 +203,6 @@ Bạn cần tôi hỗ trợ kiểm tra hay tinh chỉnh thêm phần nào không
     rename: (id: string, title: string) => messages.rename(id, title),
     delete: (id: string) => messages.remove(id),
     answerPermission: (decision: 'allow' | 'allow_session' | 'deny') => permissions.answerPermission(decision),
-    answerQuestion: (answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => permissions.answerQuestion(answers),
     loadSettings: () => engineState.loadSettings(),
     saveSettings: (s: { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }) => engineState.saveSettings(s),
   }
