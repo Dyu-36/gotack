@@ -195,7 +195,7 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 			if learningResultAdmitted(result) {
 				f.callbacks.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
 			}
-	}
+		}
 	}
 	f.schedule(msg.SessionID, msg.ID, parts)
 }
