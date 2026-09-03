@@ -118,6 +118,13 @@
     textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px'
   }
 
+  // Value can change from outside (cleared after send, restored on send error)
+  // without an input event, so the height must follow the prop, not keystrokes.
+  $effect(() => {
+    void value
+    autoResize()
+  })
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -197,15 +204,14 @@
       <textarea
         bind:this={textarea}
         value={value}
-        oninput={(event) => { onInput(event.currentTarget.value); autoResize() }}
+        oninput={(event) => onInput(event.currentTarget.value)}
         onkeydown={handleKeydown}
         onpaste={handlePaste}
         placeholder="Nhập tin nhắn hoặc dán ảnh... (Enter để gửi, Shift+Enter để xuống dòng)"
         rows="1"
-        disabled={isStreaming}
         aria-busy={!ready}
         aria-label="Nội dung tin nhắn"
-        class="w-full resize-none bg-transparent text-mm-text text-base leading-relaxed placeholder:text-mm-tertiary overflow-y-auto scroll-stable min-h-6 max-h-[var(--composer-max-h)] disabled:opacity-60 focus:outline-none focus-visible:outline-none focus:ring-0"
+        class="w-full resize-none bg-transparent text-mm-text text-base leading-relaxed placeholder:text-mm-tertiary overflow-y-auto scroll-stable min-h-6 max-h-[var(--composer-max-h)] focus:outline-none focus-visible:outline-none focus:ring-0"
       ></textarea>
     </div>
 
