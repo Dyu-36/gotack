@@ -95,6 +95,7 @@ Update-ExactText 'internal/agent/tools/crush_info.go' 'const CrushInfoToolName =
 Update-ExactText 'internal/agent/tools/crush_logs.go' 'const CrushLogsToolName = "crush_logs"' 'const CrushLogsToolName = "tack_logs"'
 Update-ExactText 'internal/config/config.go' '"crush_info"' '"tack_info"'
 Update-ExactText 'internal/config/config.go' '"crush_logs"' '"tack_logs"'
+Update-ExactText 'internal/config/config.go' 'Add Generated with Crush line to commit messages and issues and PRs' 'Add Generated with Tack line to commit messages and issues and PRs'
 
 Update-ExactText 'internal/agent/tools/crush_info.md' "Get Crush's current runtime state" "Get Tack's current runtime state"
 Update-ExactText 'internal/agent/tools/crush_logs.md.tpl' "Read Crush's internal application logs" "Read Tack's internal application logs"
