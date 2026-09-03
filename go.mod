@@ -3,6 +3,7 @@ module github.com/Dyu-36/gotack
 go 1.27.0
 
 require (
+	fyne.io/systray v1.11.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/UserExistsError/conpty v0.1.4
 	github.com/creack/pty v1.1.24
