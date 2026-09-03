@@ -10,21 +10,26 @@ Vendored upstream code is used only for contract inspection and release builds. 
   or reference that file.
 - Gotack-specific engine compatibility patches live in `third_party/patches/*.patch`
   and are applied, in filename order, on top of the pin before Crush is tested or built.
+- After the compatibility patches are applied, `scripts/harden-crush-for-tack.ps1`
+  removes the upstream interactive Question agent tool and applies Tack's
+  model-visible identity. The hardening step deliberately preserves upstream Go
+  module paths, legacy executable fallback names, and the `crush://` skills URI
+  because those are compatibility identifiers rather than assistant identity.
 - The proactive context patch preserves Crush's existing reserve for smaller
   models and caps the live conversation at 128,000 prompt-plus-completion tokens
   on larger contexts before the normal summarization/requeue path runs.
-- Contract checked: REST v1 sessions, agent/cancel, agent/refresh-prompt, config/set, config/set-batch, config/remove, config/models, config/provider-key, config/refresh-oauth, permissions, question batches, workspace SSE (`message`, `run_complete`, `file`, permission/question events).
+- Contract checked: REST v1 sessions, agent/cancel, agent/refresh-prompt, config/set, config/set-batch, config/remove, config/models, config/provider-key, config/refresh-oauth, permissions, workspace SSE (`message`, `run_complete`, `file`, permission events).
 - Desktop integration: REST + SSE only through `internal/crushapi`; Gotack never imports `third_party/crush/internal/...`.
 
 ## Distribution policy
 
 Release builds prefer a bundled engine executable at `resources/tack-engine.exe` next to `tack.exe` on Windows (or `resources/tack-engine` on Unix). If the bundle is absent, Gotack falls back to `tack-engine` or `crush` on `PATH`. A non-empty `engine_binary` setting is an explicit override and wins over both.
 
-The release job must build Crush from the exact pinned commit plus the tracked patch set above and place it in the Gotack artifact. This keeps releases deterministic while retaining the PATH fallback for developer machines.
+The release job must build Crush from the exact pinned commit plus the tracked patch set and Tack hardening step above and place it in the Gotack artifact. This keeps releases deterministic while retaining the PATH fallback for developer machines.
 
 ## Refresh procedure
 
-Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.crush-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, verifies the REST/SSE route markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.crush-pin` in the same PR.
+Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.crush-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, strips the Question agent tool, applies Tack's model identity, verifies the REST/SSE and agent-tool markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.crush-pin` in the same PR.
 
 ## Rules
 
