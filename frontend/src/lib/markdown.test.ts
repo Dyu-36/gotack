@@ -6,7 +6,7 @@ vi.mock('dompurify', () => ({
   },
 }))
 
-import { renderMarkdownBlocks } from './markdown'
+import { localFilePath, renderMarkdownBlocks } from './markdown'
 
 describe('streaming markdown blocks', () => {
   it('reuses settled block objects while the tail grows', () => {
@@ -30,5 +30,12 @@ describe('streaming markdown blocks', () => {
   it('retains reference definitions when rendering blocks independently', () => {
     const blocks = renderMarkdownBlocks('[Example][docs]\n\n[docs]: https://example.com')
     expect(blocks[0]?.html).toContain('href="https://example.com"')
+  })
+
+  it('recognizes clickable generated file targets', () => {
+    expect(localFilePath('C:\\Users\\Admin\\kết quả.xlsx')).toBe('C:\\Users\\Admin\\kết quả.xlsx')
+    expect(localFilePath('file:///C:/Users/Admin/k%E1%BA%BFt%20qu%E1%BA%A3.xlsx')).toBe('C:\\Users\\Admin\\kết quả.xlsx')
+    expect(localFilePath('https://example.com/report.xlsx')).toBeUndefined()
+    expect(localFilePath('C:\\temp\\run.exe')).toBeUndefined()
   })
 })

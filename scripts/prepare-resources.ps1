@@ -14,16 +14,23 @@ $python3Exe = Join-Path $resourcesBin 'python3.exe'
 $pythonPth = Join-Path $resourcesBin 'python312._pth'
 $uvExe = Join-Path $resourcesBin 'uv.exe'
 $officeCliExe = Join-Path $resourcesBin 'officecli.exe'
+$officeCliVersion = 'v1.0.147'
+$officeCliSha256 = '724056e5ff079c3585df79c8afc386f08ef7d5f956cf4e2723534e129aab6e80'
 
 New-Item -ItemType Directory -Force -Path $resourcesBin | Out-Null
 
-if (-not (Test-Path $officeCliExe)) {
+$officeCliReady = (Test-Path $officeCliExe) -and ((Get-FileHash $officeCliExe -Algorithm SHA256).Hash.ToLowerInvariant() -eq $officeCliSha256)
+if (-not $officeCliReady) {
     $localOfficeCli = Join-Path $env:LOCALAPPDATA 'OfficeCLI/officecli.exe'
-    if (Test-Path $localOfficeCli) {
+    if ((Test-Path $localOfficeCli) -and ((Get-FileHash $localOfficeCli -Algorithm SHA256).Hash.ToLowerInvariant() -eq $officeCliSha256)) {
         Copy-Item $localOfficeCli $officeCliExe -Force
     } else {
-        Invoke-WebRequest -Uri 'https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-win-x64.exe' -OutFile $officeCliExe
+        $officeCliUrl = "https://github.com/iOfficeAI/OfficeCLI/releases/download/$officeCliVersion/officecli-win-x64.exe"
+        Invoke-WebRequest -Uri $officeCliUrl -OutFile $officeCliExe
     }
+}
+if ((Get-FileHash $officeCliExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $officeCliSha256) {
+    throw "OfficeCLI $officeCliVersion checksum verification failed"
 }
 
 # Prefer the already-prepared runtime from Stack when the companion checkout

@@ -7,6 +7,10 @@ description: Create, analyze, proofread, and modify Office documents (.docx, .xl
 
 Built-in AI-friendly CLI for .docx, .xlsx, .pptx. Single binary bundled with Tack, no external dependencies or Office installation needed.
 
+## Delivery contract
+
+Before reporting success, close/save the document, verify the output exists and is non-empty, then read back representative content. Return a URI-encoded Markdown `file:///` link such as `[Open report](file:///C:/path/report.docx)`; never return only a raw path or a path inside backticks.
+
 ---
 
 ## Strategy

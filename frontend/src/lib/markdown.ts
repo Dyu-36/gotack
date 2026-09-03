@@ -103,8 +103,35 @@ export function renderMarkdownBlocks(
   })
 }
 
+const localFileExtension = /\.(?:csv|docx?|jpe?g|json|md|pdf|png|pptx?|txt|webp|xlsx?)$/i
+
+export function localFilePath(href: string): string | undefined {
+  const value = href.trim()
+  if (/^[a-z]:[\\/]/i.test(value) && localFileExtension.test(value)) return value
+  if (!/^file:/i.test(value)) return undefined
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'file:' || (parsed.hostname && parsed.hostname !== 'localhost')) return undefined
+    let path = decodeURIComponent(parsed.pathname)
+    if (/^\/[a-z]:\//i.test(path)) path = path.slice(1)
+    path = path.replace(/\//g, '\\')
+    return localFileExtension.test(path) ? path : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function openLocalFile(path: string): boolean {
+  const host = (window as unknown as { go?: { main?: { App?: { OpenGeneratedFile?: (path: string) => Promise<void> } } } }).go?.main?.App
+  if (typeof host?.OpenGeneratedFile !== 'function') return false
+  void host.OpenGeneratedFile(path).catch((err) => console.warn('OpenGeneratedFile failed:', err))
+  return true
+}
+
 export function openChatLink(href: string): void {
   if (!href || href.startsWith('#')) return
+  const path = localFilePath(href)
+  if (path && openLocalFile(path)) return
 
   try {
     const rt = (window as unknown as { runtime?: { BrowserOpenURL?: (url: string) => void } }).runtime
@@ -123,13 +150,20 @@ export function chatLinks(node: HTMLElement) {
   function onClick(event: MouseEvent) {
     const target = event.target as HTMLElement | null
     const anchor = target?.closest?.('a') as HTMLAnchorElement | null
-    if (!anchor) return
+    if (anchor) {
+      const href = anchor.getAttribute('href')
+      if (!href || href.startsWith('#')) return
+      event.preventDefault()
+      openChatLink(href)
+      return
+    }
 
-    const href = anchor.getAttribute('href')
-    if (!href || href.startsWith('#')) return
-
+    const code = target?.closest?.('code') as HTMLElement | null
+    if (!code || code.closest('pre')) return
+    const path = localFilePath(code.textContent ?? '')
+    if (!path) return
     event.preventDefault()
-    openChatLink(href)
+    openLocalFile(path)
   }
 
   node.addEventListener('click', onClick)

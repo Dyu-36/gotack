@@ -3,6 +3,7 @@
   import type { Message } from '../features/conversations/types.svelte'
   import { chatLinks } from '../lib/markdown'
   import { attachmentDataURL, formatAttachmentSize, isPreviewableImage } from '../features/conversations/attachments'
+  import { desktop } from '../platform/desktop'
   import AgentWorking from './AgentWorking.svelte'
   import StreamingMarkdown from './StreamingMarkdown.svelte'
 
@@ -59,13 +60,23 @@
     if (!ts) return ''
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
+
+  async function openGeneratedFile(path?: string) {
+    if (!path) return
+    try { await desktop.openGeneratedFile(path) } catch (err) { console.error('Failed to open generated file:', err) }
+  }
+
+  async function revealGeneratedFile(path?: string) {
+    if (!path) return
+    try { await desktop.revealGeneratedFile(path) } catch (err) { console.error('Failed to reveal generated file:', err) }
+  }
 </script>
 
 {#if message.role === 'user'}
   <div class="flex justify-end mb-4 group animate-fade-in pl-12 sm:pl-24">
-    <div class="max-w-[80%] sm:max-w-[75%] flex flex-col items-end">
+    <div class="max-w-[80%] sm:max-w-[75%] min-w-0 flex flex-col items-end">
       {#if message.attachments.length}
-        <div class="flex flex-wrap justify-end gap-2 mb-2" aria-label="Tệp đã gửi">
+        <div class="flex flex-wrap justify-end gap-2 mb-2 max-w-full" aria-label="Tệp đã gửi">
           {#each message.attachments as attachment (attachment.id)}
             {#if attachment.content && isPreviewableImage(attachment.mimeType)}
               <div class="sent-image" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
@@ -81,7 +92,7 @@
         </div>
       {/if}
       {#if message.content.trim()}
-        <div class="bg-mm-user-bubble text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed shadow-xs whitespace-pre-wrap break-words">
+        <div class="user-bubble bg-mm-user-bubble text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed shadow-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere] [tab-size:2] max-w-full max-h-[420px] overflow-y-auto scroll-stable">
           {message.content}
         </div>
       {/if}
@@ -100,7 +111,7 @@
       </div>
     </div>
   </div>
-{:else if message.role === 'assistant' && (message.content.trim() || isStreaming)}
+{:else if message.role === 'assistant' && (message.content.trim() || message.attachments.length || isStreaming)}
   <div class="flex items-start gap-3 mb-5 group animate-fade-in pr-8 sm:pr-20">
     <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
       <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
@@ -114,7 +125,21 @@
         <AgentWorking label="Đang suy nghĩ…" />
       {/if}
 
-      {#if message.content}
+      {#if message.attachments.length}
+        <div class="mt-2 flex flex-col gap-2" aria-label="Tệp kết quả">
+          {#each message.attachments as attachment (attachment.id)}
+            <div class="generated-file">
+              <button type="button" class="generated-file-main" disabled={!attachment.path} onclick={() => openGeneratedFile(attachment.path)}>
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h6" /></svg>
+                <span class="min-w-0 text-left"><span class="block truncate font-medium">{attachment.fileName}</span><span class="block text-2xs opacity-70">{formatAttachmentSize(attachment.size)}</span></span>
+              </button>
+              {#if attachment.path}<button type="button" class="generated-file-reveal" onclick={() => revealGeneratedFile(attachment.path)} title="Hiện trong thư mục">Thư mục</button>{/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if message.content} 
         <div class="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {#if message.createdAt}
             <span class="text-xs text-mm-secondary">{formatTime(message.createdAt)}</span>
@@ -166,5 +191,21 @@
     color: var(--mm-text);
     font-size: 12px;
     text-align: left;
+  }
+  .generated-file { display: flex; max-width: min(420px, 78vw); align-items: stretch; border: 1px solid var(--mm-border); border-radius: 10px; background: var(--mm-panel); overflow: hidden; }
+  .generated-file-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 9px 11px; color: var(--mm-text); font-size: 12px; cursor: pointer; }
+  .generated-file-main:hover { background: color-mix(in srgb, var(--mm-panel) 82%, var(--mm-text)); }
+  .generated-file-main:disabled { cursor: default; opacity: .65; }
+  .generated-file-reveal { border-left: 1px solid var(--mm-border); padding: 0 10px; color: var(--mm-secondary); font-size: 11px; cursor: pointer; }
+  .generated-file-reveal:hover { color: var(--mm-text); background: color-mix(in srgb, var(--mm-panel) 82%, var(--mm-text)); }
+  .user-bubble {
+    scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+  }
+  .user-bubble::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.35);
+    border-radius: 3px;
+  }
+  .user-bubble::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.55);
   }
 </style>

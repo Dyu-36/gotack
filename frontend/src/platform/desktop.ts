@@ -12,7 +12,7 @@ export type EngineInfo = {
 
 export type WorkspaceInfo = { path: string; workspace_id: string; is_default: boolean }
 export type SessionInfo = { id: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
-export type AttachmentInfo = { file_name: string; mime_type: string; size: number; content?: string }
+export type AttachmentInfo = { file_name: string; mime_type: string; size: number; content?: string; path?: string }
 
 export type PromptAttachment = { file_name: string; mime_type?: string; content?: string; path?: string }
 export type PromptFilePick = { file_name: string; mime_type: string; size: number; path: string }
@@ -153,6 +153,8 @@ type BackendApp = {
   CancelPrompt: (id: string) => Promise<void>
   PickPromptFiles: () => Promise<PromptFilePick[]>
   AttachmentLimits: () => Promise<AttachmentLimitsInfo>
+  OpenGeneratedFile: (path: string) => Promise<void>
+  RevealGeneratedFile: (path: string) => Promise<void>
   AnswerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => Promise<boolean>
   AnswerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => Promise<boolean>
   ChangedFiles: (sessionID: string) => Promise<ChangedFileInfo[]>
@@ -212,6 +214,7 @@ export const desktop = {
   selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), ensureAssistantWorkspace: () => call('EnsureAssistantWorkspace'), currentWorkspace: () => call('CurrentWorkspace'),
   listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string, attachments: PromptAttachment[] = []) => call('SendPrompt', id, text, attachments), cancelPrompt: (id: string) => call('CancelPrompt', id),
   pickPromptFiles: () => call('PickPromptFiles'), attachmentLimits: () => call('AttachmentLimits'),
+  openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
   answerQuestion: (requestID: string, answers: Array<{ request_id: string; selected_ids?: string[]; fill_in_text?: string; yes?: boolean | null }>) => call('AnswerQuestion', requestID, answers),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID),

@@ -153,8 +153,19 @@ Verified: `validate` returns `no errors found`, `B5` resolves to `135000`. This 
 
 **Native `import` command (preferred for CSV/TSV).** Fastest path; loads a CSV into a sheet in one call. `--header` sets AutoFilter + freeze pane on row 1. Widths and `numFmt` still need a follow-up pass (per D-12 in Dashboard skill).
 
+For a simple flat-table export, this is the mandatory fast path: create the workbook, import once, close/save, then read back headers and representative rows. Do not probe for Python, write a batch-generator script, or consult help when this documented syntax fits. If import reports success but readback is empty, treat it as failure and use only a previously tested batch fallback.
+
 ```bash
-officecli import "$FILE" /Sheet1 --file data.csv --header
+# Tested flat-table recipe (OfficeCLI 1.0.147): close the resident created by `create`
+# before importing, then close/save and read back representative cells.
+officecli create "$FILE"
+officecli close "$FILE"
+officecli import "$FILE" /Sheet1 data.csv --header
+officecli set "$FILE" /Sheet1 --prop name="Phân công"
+officecli close "$FILE"
+officecli get "$FILE" "/Phân công/A1:D5" --json
+
+# Other supported forms
 officecli import "$FILE" /Sheet1 --file data.tsv --format tsv --header
 officecli import "$FILE" /Sheet1 --stdin --start-cell B2 < data.csv
 ```

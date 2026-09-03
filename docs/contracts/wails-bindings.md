@@ -51,6 +51,8 @@ while the current host owns the process.
 | `EnsureAssistantWorkspace()` | `WorkspaceInfo` | Attaches the always-available default workspace (`C:\` on Windows) so startup chat has a real session context. |
 | `CurrentWorkspace()` | `WorkspaceInfo?` | Null when nothing is attached. |
 | `SelectWorkspace()` | `string` | Native directory picker; empty on cancel. |
+| `OpenGeneratedFile(path)` | `error` | Opens an existing allowlisted document/image with the OS default application. Rejects relative, device, network, directory, executable, and missing paths. |
+| `RevealGeneratedFile(path)` | `error` | Opens the containing folder and selects the same validated file. |
 
 Security-relevant default: every workspace keeps Crush permission prompts
 enabled. Only an explicit saved `"auto_approve": true` setting skips them. The
@@ -84,7 +86,7 @@ webview as base64. `SendPrompt` removes `@[...]` and `@"..."` tags from the
 visible text and turns each one into an attachment.
 When `text` is empty but attachments are provided, the backend automatically composes
 a Vietnamese review prompt ("Hãy xem và xử lý tệp/các tệp đính kèm sau:").
-`MessageInfo.attachments[]`: `{file_name, mime_type, size, content?}`. The UI
+`MessageInfo.attachments[]`: `{file_name, mime_type, size, content?, path?}`. `path` remains host-only metadata until the user clicks Open or Reveal. The UI
 file picker accepts multiple files; pasting clipboard image data into the
 composer adds the image to the same pending attachment list.
 `MessageInfo.tool_calls[]`: `{id, name, input?, finished}`. Replay reuses the
