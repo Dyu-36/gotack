@@ -1,6 +1,6 @@
 ---
 name: timetable
-description: "Tạo hoặc điều chỉnh thời khóa biểu trường học từ dữ liệu và yêu cầu tự nhiên; tự chọn cách xếp lịch rồi điền kết quả vào mẫu Excel định dạng sẵn. Dùng khi người dùng yêu cầu tạo TKB, xếp lịch học, xếp lịch dạy hoặc chuẩn hóa phân công chuyên môn."
+description: "Tạo hoặc điều chỉnh thời khóa biểu trường học từ dữ liệu và yêu cầu tự nhiên; tự chọn cách xếp lịch rồi điền kết quả vào mẫu Excel định dạng sẵn. Luôn dùng skill này khi người dùng nhắc tạo TKB, xếp lịch học, xếp lịch dạy, xếp tiết, phân công giảng dạy, chuẩn hóa phân công chuyên môn, kể cả khi không nói chữ 'thời khóa biểu' mà chỉ gửi dữ liệu giáo viên, môn, lớp. Also use for school timetable or class-scheduling requests made in English."
 ---
 
 # Tạo thời khóa biểu
@@ -22,11 +22,13 @@ Luôn trả một file Excel `.xlsx` dựa trên mẫu ví dụ:
 ```text
 <skill_dir>/assets/mau-thoi-khoa-bieu.xlsx
 ```
-File này chỉ mang tính chất tham khảo, có thể thêm cột / hàng tùy theo input
+File này chỉ mang tính chất tham khảo, có thể thêm cột / hàng tùy theo input.
+
 Mẫu có hai sheet:
 
 - `Dữ liệu`: vùng duy nhất được ghi kết quả.
 - `Thời khóa biểu`: bảng trình bày, tự lấy dữ liệu bằng công thức; không sửa trực tiếp.
+
 ## Dữ liệu ghi vào Excel
 
 Chuẩn hóa mỗi tiết thành một dòng với đúng sáu cột:
@@ -58,5 +60,6 @@ Ví dụ một dòng: `2	Sáng	1	6A	Toán	Nguyễn Văn A`.
 ## Quy tắc
 
 - Dùng lệnh `officecli` trong shell.
-- Không gọi `officecli set` từng ô riêng lẻ; gom các phép ghi vào `officecli batch`.
-- Không dùng lại file kết quả của lần chạy trước.
+- Gom mọi phép ghi vào `officecli batch`, không gọi `set` từng ô riêng lẻ: mỗi ô một lệnh là một round-trip shell riêng, hàng trăm ô sẽ rất chậm và dễ làm file hỏng giữa chừng.
+- Mỗi lần chạy copy lại từ file mẫu, không dùng lại file kết quả của lần chạy trước: dữ liệu sót lại có thể nằm ngoài vùng bị ghi đè và tạo ra tiết "ma" trong lịch mới.
+- Không sửa file mẫu gốc trong skill: đây là asset dùng chung cho mọi lần chạy.
