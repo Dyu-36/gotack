@@ -22,7 +22,7 @@ function Update-ExactText {
         Set-Content -Path $path -Value $text -NoNewline
         return
     }
-    if ($New -ne '' -and $text.Contains($New)) {
+    if ($New -eq '' -or $text.Contains($New)) {
         return
     }
     throw "Expected Crush source marker not found in ${RelativePath}: $Old"
