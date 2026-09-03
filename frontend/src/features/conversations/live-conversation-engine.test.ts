@@ -30,7 +30,6 @@ describe('createEngineState model selection', () => {
       engine: { value: null },
       error: { value: '' },
       permission: { value: null },
-      question: { value: null },
       streamingText: { value: '' },
       provider: { value: 'openai' },
       model: { value: 'gpt-4o' },
