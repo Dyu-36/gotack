@@ -9,7 +9,7 @@ Quy trình xếp thời khóa biểu gồm 5 bước tuần tự:
 
 ---
 
-## Bước 1: Nêu các loại thông tin cần thu thập
+## 1: Các loại thông tin cần thu thập
 Chủ động thu thập và ghi nhận các thông tin:
 1. **Phân công chuyên môn**: Danh sách giáo viên, môn dạy, lớp dạy, số tiết cần dạy trong tuần.
 2. **Khung thời gian học**: Các ngày học trong tuần, buổi học (Sáng/Chiều) và số tiết mỗi buổi.
@@ -17,10 +17,10 @@ Chủ động thu thập và ghi nhận các thông tin:
    - Ngày nghỉ cố định, buổi bận của giáo viên.
    - Tiết cố định (Chào cờ, Sinh hoạt lớp...).
    - Ràng buộc môn học (tiết đôi, cách ngày, giới hạn số tiết/buổi...).
-
+*Không cần thu thập theo thứ tự, chỉ cần thu thập đủ thông tin là được*
 ---
 
-## Bước 2: Chuẩn hóa phân công chuyên môn thành dạng chuẩn bằng file excel
+## 2: Chuẩn hóa phân công chuyên môn thành dạng chuẩn bằng file excel
 Chuẩn hóa thông tin vào file excel `<run_dir>/phan-cong-chuan-hoa.xlsx` (sheet `Phân công`) theo cấu trúc:
 
 ```text
