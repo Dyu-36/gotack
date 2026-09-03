@@ -1,0 +1,23 @@
+{
+  "skill_name": "timetable",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Mình cần xếp thời khóa biểu cho khối 6 trường THCS Minh Khai. Có 3 lớp 6A, 6B, 6C, học sáng từ thứ 2 đến thứ 6, mỗi buổi 5 tiết. Phân công như sau: cô Lan dạy Toán 6A và 6B (8 tiết), thầy Hùng dạy Toán 6C và Tin cả 3 lớp (7 tiết), cô Mai dạy Văn cả 3 lớp (12 tiết), thầy Phong dạy Anh cả 3 lớp (9 tiết), cô Hà dạy Khoa học tự nhiên cả 3 lớp (12 tiết), thầy Đạt dạy Sử-Địa cả 3 lớp (9 tiết), cô Thu dạy GDCD và Công nghệ cả 3 lớp (6 tiết), thầy Quang dạy Thể dục cả 3 lớp (6 tiết), cô Diệu dạy Âm nhạc và Mĩ thuật cả 3 lớp (6 tiết). Môn chính cố gắng không xếp quá 2 tiết liền nhau nhé.",
+      "expected_output": "File thoi-khoa-bieu.xlsx dựa trên mẫu: sheet Dữ liệu có đúng 75 dòng hợp lệ (6 cột chuẩn), sheet Thời khóa biểu tự lấy dữ liệu bằng công thức; đủ số tiết từng môn, không trùng lớp và không trùng giáo viên; không sửa file mẫu gốc.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Cô gửi bảng phân công khối 10, em xếp giúp cô thời khóa biểu nhé. Trường học thứ 2 đến thứ 6, buổi sáng 5 tiết, có 2 lớp 10A1 và 10A2 (mỗi lớp 25 tiết/tuần). Môn học mỗi lớp: Toán 4, Văn 4, Anh 4, Lý 2, Hóa 2, Sinh 2, Sử 1, Địa 1, GDCD 1, Tin 1, Công nghệ 1, Thể dục 2. Giáo viên: thầy Hải dạy Toán cả 2 lớp, cô Nga dạy Văn cả 2 lớp, thầy Tuấn dạy Anh cả 2 lớp, cô Yến dạy Lý và Hóa cả 2 lớp, thầy Sơn dạy Sinh và Sử cả 2 lớp, cô Hạnh dạy Địa và GDCD cả 2 lớp, thầy Khánh dạy Tin và Công nghệ cả 2 lớp, thầy Duy dạy Thể dục cả 2 lớp. Lưu ý: cô Yến chủ nhiệm 10A1 nên ưu tiên xếp Lý/Hóa của 10A1 vào hai tiết đầu thứ 2; Thể dục không xếp hai ngày liền nhau.",
+      "expected_output": "File thoi-khoa-bieu.xlsx với 50 dòng dữ liệu hợp lệ; lớp 10A1 có Lý hoặc Hóa ở tiết 1-2 thứ 2; Thể dục mỗi lớp không rơi vào hai ngày liên tiếp; các ràng buộc bắt buộc không bị tự ý bỏ qua.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Mình đã có thời khóa biểu tuần này rồi nhưng thầy Phong báo nghỉ dạy chiều thứ 4. Hiện tại chiều thứ 4 lớp 7A đang học Tiếng Anh tiết 1 của thầy Phong, lớp 7B học Văn tiết 2 của cô Mai. Bạn chuyển tiết Anh của 7A sang chiều thứ 5 tiết 3 (chỗ đó 7A đang trống) và giữ nguyên mọi thứ khác giúp mình, xuất lại file Excel.",
+      "expected_output": "File thoi-khoa-bieu.xlsx mới được tạo lại từ mẫu với dữ liệu điều chỉnh: 7A không còn tiết nào chiều thứ 4, tiết Anh 7A nằm ở chiều thứ 5 tiết 3, các tiết khác không thay đổi; kiểm tra không trùng lớp/trùng giáo viên sau khi chuyển.",
+      "files": []
+    }
+  ]
+}
