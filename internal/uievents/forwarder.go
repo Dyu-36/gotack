@@ -159,10 +159,6 @@ func (f *Forwarder) handle(ev crushapi.StreamEvent) {
 		f.handleRunComplete(ev.Payload)
 	case "permission_request":
 		f.handlePermission(ev.Payload)
-	case "question_batch_request":
-		f.handleQuestion(ev.Payload)
-	case "question_batch_notification":
-		f.handleQuestionResolved(ev.Payload)
 	case "file":
 		f.handleFile(ev.Payload)
 	default:
@@ -199,13 +195,12 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 			if learningResultAdmitted(result) {
 				f.callbacks.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
 			}
-		}
+	}
 	}
 	f.schedule(msg.SessionID, msg.ID, parts)
 }
 
 func learningResultAdmitted(result crushapi.ToolResult) bool {
-
 	if result.ToolCallID == "" {
 		return false
 	}
@@ -258,7 +253,6 @@ func deltaSuffix(previous, current string) string {
 	if strings.HasPrefix(current, previous) {
 		return current[len(previous):]
 	}
-
 	return current
 }
 
@@ -310,31 +304,6 @@ func (f *Forwarder) handlePermission(payload json.RawMessage) {
 		expiresAt = f.callbacks.PermissionPending(req)
 	}
 	f.send(PermissionRequest, PermissionRequestPayload{Request: req, ExpiresAt: expiresAt})
-}
-
-func (f *Forwarder) handleQuestion(payload json.RawMessage) {
-	var q crushapi.QuestionRequest
-	if err := json.Unmarshal(payload, &q); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode question_batch_request", "err", err)
-		}
-		return
-	}
-	f.send(QuestionRequest, q)
-}
-
-func (f *Forwarder) handleQuestionResolved(payload json.RawMessage) {
-	var notification crushapi.QuestionNotification
-	if err := json.Unmarshal(payload, &notification); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode question_batch_notification", "err", err)
-		}
-		return
-	}
-	if notification.BatchID == "" {
-		return
-	}
-	f.send(QuestionResolved, notification)
 }
 
 func (f *Forwarder) handleFile(payload json.RawMessage) {
