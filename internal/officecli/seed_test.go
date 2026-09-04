@@ -107,13 +107,13 @@ func TestSeedPrunesRemovedSkillAssets(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
-	if err := os.MkdirAll(filepath.Join(source, "skills", "timetable", "runtime"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(source, "skills", "timetable"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(source, binaryName), []byte("officecli"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	staleSource := filepath.Join(source, "skills", "timetable", "runtime", "solver.py")
+	staleSource := filepath.Join(source, "skills", "timetable", "legacy.py")
 	if err := os.WriteFile(staleSource, []byte("legacy"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestSeedPrunesRemovedSkillAssets(t *testing.T) {
 	if err := seeder.Seed(source); err != nil {
 		t.Fatalf("second Seed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(seeder.SkillsDir(), "timetable", "runtime", "solver.py")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(seeder.SkillsDir(), "timetable", "legacy.py")); !os.IsNotExist(err) {
 		t.Fatalf("stale installed skill file still exists: %v", err)
 	}
 }

@@ -263,14 +263,16 @@ the bin directory to `PATH`, and merges `options.skills_paths`. It also removes
 the retired `mcp_servers.gotack-office` entry from existing workspace configs.
 No Office MCP server or Office tool set is registered.
 
-The timetable skill accepts natural-language requirements, normalizes confirmed
-requirements into `runtime/problem.schema.json`, and invokes the bundled
-`runtime/solver.py`. Scheduling is always OR-Tools CP-SAT: hard constraints are
-mandatory assumptions, soft constraints contribute weighted penalties, and
-`INFEASIBLE` conflicts are mapped back to business descriptions. The runner
-owns the 90-second solver deadline, heartbeat/progress output, post-validation,
-and writes the six normalized columns into `Dữ liệu` in
-`assets/mau-thoi-khoa-bieu.xlsx` only after all hard constraints validate.
+The timetable skill accepts natural-language requirements and reads the source
+workbook directly. The agent may create task-specific scratch Python scripts and
+models the current problem directly with the bundled Python + OR-Tools CP-SAT
+environment; there is no timetable-specific `problem.json`, schema, or bundled
+solver runner. User/source requirements remain the source of truth: every hard
+constraint must be represented in the model and independently checked again
+after solving. `FEASIBLE`/`OPTIMAL` only proves the constraints actually encoded
+in that model. After the source-level validation passes, the agent writes the six
+normalized columns into `Dữ liệu` in `assets/mau-thoi-khoa-bieu.xlsx` and
+re-opens the workbook before delivery.
 
 ## Host -> UI events
 
