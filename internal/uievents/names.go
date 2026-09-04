@@ -5,6 +5,7 @@ const (
 	SessionDelta      = "session:delta"
 	SessionDone       = "session:done"
 	ToolActivity      = "tool:activity"
+	TaskProgress      = "task:progress"
 	PermissionRequest = "permission:request"
 	ChangesUpdated    = "changes:updated"
 	TerminalData      = "terminal:data"

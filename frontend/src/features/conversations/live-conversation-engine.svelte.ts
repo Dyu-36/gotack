@@ -8,6 +8,7 @@ import {
   type SessionDeltaEvent,
   type SessionDoneEvent,
   type ToolActivityEvent,
+  type TaskProgressEvent,
 } from '../../platform/desktop'
 import { setAttachmentLimit } from './attachments'
 import { applyDelta } from './merge-delta'
@@ -176,6 +177,24 @@ export function createEngineState(deps: EngineDeps) {
             m.content = content
             return { ...c, messages: [...c.messages, m] }
           }
+          return c
+        })
+      }),
+      on<TaskProgressEvent>(events.taskProgress, (event) => {
+        deps.updateConversation(event.session_id, (c) => {
+          const id = `task:timetable:${event.run_id || event.session_id}`
+          let m = c.messages.find((x) => x.id === id)
+          if (!m) {
+            m = new ChatMessage(id, 'assistant')
+            m.kind = 'task'
+            c = { ...c, messages: [...c.messages, m] }
+          }
+          m.taskState = event.state
+          m.taskElapsedSeconds = event.elapsed_seconds
+          m.taskLimitSeconds = event.limit_seconds || 90
+          m.taskSoftViolationCount = event.soft_violation_count ?? 0
+          m.taskPenalty = event.penalty
+          c.updatedAt = Date.now()
           return c
         })
       }),

@@ -42,23 +42,14 @@ Tên giáo viên | Môn | Lớp | Số tiết cần dạy trong tuần
 ---
 
 ## Bước 4: Xếp lịch
-Sử dụng dữ liệu đã chốt để xếp lịch, bắt buộc tuân thủ các ràng buộc cứng:
-- **Không trùng giáo viên**: Cùng một tiết, một giáo viên không dạy nhiều lớp.
-- **Không trùng lớp**: Cùng một tiết, một lớp không học nhiều môn.
-- **Đúng số tiết**: Xếp đủ số tiết theo phân công chuyên môn đã chốt.
-- Tối ưu các yêu cầu bắt buộc và yêu cầu nên có đã thống nhất.
+Khi xếp lịch, bắt buộc dùng OR-Tools CP-SAT, không tự viết DFS/backtracking: **hard constraints** luôn bắt buộc; **soft constraints** chỉ được đưa vào hàm mục tiêu dưới dạng penalty và không được làm mô hình infeasible, mặc định nếu user không nói gì thì tất cả đều là hard constraints. Nếu solver trả `INFEASIBLE`, dùng assumptions/unsat core để nêu nhóm hard constraints xung đột; nếu trả `FEASIBLE/OPTIMAL`, xác nhận toàn bộ hard constraints đã đạt và liệt kê các soft constraints bị vi phạm cùng penalty.
+
+Chuyển dữ liệu đã chốt thành `problem.json` theo `<skill_dir>/runtime/problem.schema.json`, đặt `output_xlsx`, rồi chạy runner đóng gói bằng `python -u <skill_dir>/runtime/solver.py <problem.json>`. Không tự viết solver thay thế. Chỉ coi `OPTIMAL`, `FEASIBLE`, `INFEASIBLE` là kết quả nghiệp vụ; trạng thái kỹ thuật khác không được suy diễn thành vô nghiệm.
 
 ---
 
 ## Bước 5: Chuẩn hóa output
-1. Copy file mẫu `<skill_dir>/assets/mau-thoi-khoa-bieu.xlsx` sang `<run_dir>/thoi-khoa-bieu.xlsx` (không sửa file mẫu).
-2. Điền dữ liệu lịch đã xếp vào sheet `Dữ liệu` theo đúng 6 cột:
-   ```text
-   Thứ | Buổi | Tiết | Lớp | Môn | Giáo viên
-   ```
-   *(Sheet `Thời khóa biểu` tự động cập nhật bảng hiển thị theo công thức).*
-3. Kiểm tra tính toàn vẹn của file (đủ tiết, không trùng, không ô lỗi) và đóng/lưu file hoàn tất.
-4. Trả kết quả cho người dùng kèm link Markdown `[Mở thời khóa biểu](file:///...)`.
+Runner chỉ ghi `output_xlsx` sau khi post-validation xác nhận toàn bộ hard constraints. Với `OPTIMAL/FEASIBLE`, dùng chính file Excel runner đã tạo từ `<skill_dir>/assets/mau-thoi-khoa-bieu.xlsx`; không tự ghi lại lịch bằng script khác. Với `INFEASIBLE`, không tạo lịch giả mà nêu nhóm hard constraints đang xung đột bằng mô tả nghiệp vụ. Trả kết quả cho người dùng kèm link Markdown `[Mở thời khóa biểu](file:///...)` khi có file hợp lệ.
 
 ---
 
