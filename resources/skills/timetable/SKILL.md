@@ -10,12 +10,12 @@ description: "Tạo hoặc điều chỉnh thời khóa biểu trường học t
 - File người dùng cung cấp và yêu cầu của người dùng là **source of truth**.
 - Đọc trực tiếp toàn bộ dữ liệu Excel liên quan, gồm phân công chuyên môn, khung thời gian và các dòng ghi chú/ràng buộc.
 - Chuẩn hóa trong quá trình xử lý: tên giáo viên, môn, lớp, số tiết và cách diễn đạt constraint nếu cần.
-- Nếu người dùng đã nói rõ dữ liệu đã đúng hoặc đã xác nhận trước đó thì **không hỏi xác nhận lại**. Chỉ hỏi khi có điểm mơ hồ làm thay đổi một hard constraint.
-- Có thể tạo file/script tạm trong thư mục làm việc để kiểm tra và chuẩn hóa dữ liệu; không cần tạo `problem.json` hay một schema trung gian.
+- Nếu người dùng đã nói rõ dữ liệu đã đúng hoặc đã xác nhận trước đó thì **không hỏi xác nhận lại**. 
+- Có thể tạo file/script tạm trong thư mục làm việc để kiểm tra và chuẩn hóa dữ liệu.
 
 ## 2. Hard constraints và soft constraints
 
-- Mặc định mọi yêu cầu là **hard constraint**, trừ khi người dùng nói rõ là `nên`, `ưu tiên`, `mong muốn` hoặc tương đương.
+- Mặc định mọi yêu cầu nếu không được phân chia rõ ràng là **hard constraint**, trừ khi người dùng nói rõ là `nên`, `ưu tiên`, `mong muốn` hoặc tương đương.
 - Không được tự bỏ, nới lỏng hoặc đổi hard constraint thành soft constraint để tạo được lịch.
 - Với constraint gồm nhiều mệnh đề, phải giữ **đầy đủ từng mệnh đề** khi mô hình hóa và khi kiểm tra kết quả.
   - Ví dụ: `T.Hòng dạy từ Thứ 2 đến Thứ 6; riêng Thứ 4 chỉ dạy 2 tiết` nghĩa là vừa phải dạy đủ 5 ngày, vừa phải có **đúng 2 tiết vào Thứ 4**. Không được chỉ kiểm tra điều kiện dạy đủ 5 ngày.
@@ -25,7 +25,7 @@ description: "Tạo hoặc điều chỉnh thời khóa biểu trường học t
 
 ## 3. Xếp lịch bằng CP-SAT
 
-- Dùng **OR-Tools CP-SAT**. Không tự viết DFS/backtracking cho bài toán xếp lịch.
+- Dùng **OR-Tools CP-SAT**.
 - Tự viết Python phù hợp trực tiếp với bài toán hiện tại; có thể tạo nhiều script tạm có mục đích rõ ràng như:
   - đọc/kiểm tra input;
   - thử feasibility;
@@ -33,7 +33,7 @@ description: "Tạo hoặc điều chỉnh thời khóa biểu trường học t
   - validate;
   - ghi Excel.
 - Có thể thử nhanh các giả thuyết hoặc phương án bằng một model nhỏ trước khi chạy bản cuối.
-- Biểu diễn constraint trực tiếp trong code CP-SAT; không bị giới hạn bởi danh sách `constraint type` cố định.
+- Biểu diễn constraint trực tiếp trong code CP-SAT.
 - Nếu solver trả `INFEASIBLE`, xác định hard constraints xung đột và báo lại cho người dùng. Không tạo lịch giả.
 - `FEASIBLE` hoặc `OPTIMAL` chỉ chứng minh các constraint **đã được encode trong model** là thỏa mãn; chưa được phép kết luận "100% đúng" cho đến khi kiểm tra lại toàn bộ checklist nguồn.
 
@@ -45,17 +45,13 @@ Trước khi giao file, đọc lại lời giải và kiểm tra tối thiểu:
 - không trùng lớp cùng một slot;
 - không trùng giáo viên cùng một slot;
 - từng hard constraint trong checklist nguồn;
-- các soft constraint nào không đạt thì phải nêu rõ, không gọi là hard failure.
-
+- các soft constraint nào không đạt thì phải nêu rõ.
 Validator phải kiểm tra **ý nghĩa gốc** của constraint, không chỉ lặp lại một phiên bản đã bị làm yếu trong model.
 
 Ví dụ: `Không xếp toàn bộ các tiết trong một buổi đều là môn Nặng` không thể kiểm tra đơn giản bằng `số tiết Nặng <= 3` nếu buổi đó chỉ có đúng 3 tiết; trường hợp 3/3 tiết Nặng vẫn vi phạm câu gốc.
 
 Nếu bất kỳ hard constraint nào fail:
-
-- không được báo `100% PASS`;
-- không giao file như một lịch hợp lệ;
-- sửa model và solve lại, hoặc báo rõ cho người dùng rằng các hard constraints hiện tại không thể đồng thời thỏa mãn.
+- Báo rõ cho người dùng rằng các hard constraints hiện tại không thể đồng thời thỏa mãn.
 
 ## 5. Tạo và giao file Excel
 
