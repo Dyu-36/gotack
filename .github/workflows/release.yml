@@ -58,7 +58,7 @@ jobs:
 
       - name: Load Crush pin
         shell: pwsh
-        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .crush-pin -Raw).Trim())
+        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .tack-pin -Raw).Trim())
 
       - name: Verify source
         shell: pwsh

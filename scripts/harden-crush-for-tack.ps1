@@ -113,4 +113,53 @@ Update-ExactText 'internal/agent/tools/bash.md.tpl' 'Co-Authored-By: Crush <crus
 Update-ExactText 'internal/skills/builtin/crush-config/SKILL.md' 'Crush' 'Tack'
 Update-ExactText 'internal/skills/builtin/crush-hooks/SKILL.md' 'Crush' 'Tack'
 
-Write-Host 'Stripped the Question agent tool and applied Tack model identity.'
+# Rebrand workspace default data directory from .crush to .tack
+Update-ExactText 'internal/config/config.go' 'defaultDataDirectory = ".crush"' 'defaultDataDirectory = ".tack"'
+Update-ExactText 'internal/fsext/fileutil.go' @'
+		".crush":           true,
+'@ @'
+		".crush":           true,
+		".tack":            true,
+'@
+Update-ExactText 'internal/fsext/ls.go' @'
+	".crush":          true,
+'@ @'
+	".crush":          true,
+	".tack":           true,
+'@
+Update-ExactText 'internal/fsext/ls.go' @'
+		for _, ignoreFile := range []string{".gitignore", ".crushignore"} {
+'@ @'
+		for _, ignoreFile := range []string{".gitignore", ".crushignore", ".tackignore"} {
+'@
+Update-ExactText 'internal/commands/commands.go' @'
+		{
+			path:   filepath.Join(home.Dir(), ".crush", "commands"),
+			prefix: userCommandPrefix,
+		},
+'@ @'
+		{
+			path:   filepath.Join(home.Dir(), ".tack", "commands"),
+			prefix: userCommandPrefix,
+		},
+		{
+			path:   filepath.Join(home.Dir(), ".crush", "commands"),
+			prefix: userCommandPrefix,
+		},
+'@
+Update-ExactText 'internal/cmd/stats.go' @'
+	if outputDataDir == "" {
+		outputDataDir = ".crush"
+	}
+'@ @'
+	if outputDataDir == "" {
+		outputDataDir = ".tack"
+	}
+'@
+Update-ExactText 'internal/cmd/stats.go' @'
+			if filepath.Base(dir) == ".crush" {
+'@ @'
+			if filepath.Base(dir) == ".tack" || filepath.Base(dir) == ".crush" {
+'@
+
+Write-Host 'Stripped the Question agent tool and applied Tack model identity and data directory.'

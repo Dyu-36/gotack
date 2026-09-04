@@ -50,6 +50,8 @@ func (s *Service) open(ctx context.Context, path, dataDir string) (Descriptor, e
 		return Descriptor{}, err
 	}
 
+	_ = MigrateLegacyDataDir(clean)
+
 	ws, err := s.findOrCreate(ctx, clean, dataDir)
 	if err != nil {
 		return Descriptor{}, err
@@ -123,4 +125,24 @@ func samePath(a, b string) bool {
 		return strings.EqualFold(ca, cb)
 	}
 	return ca == cb
+}
+
+// MigrateLegacyDataDir checks if a legacy .crush directory exists in the workspace
+// and renames it to .tack if .tack does not already exist.
+func MigrateLegacyDataDir(workspacePath string) error {
+	if workspacePath == "" {
+		return nil
+	}
+	legacyDir := filepath.Join(workspacePath, ".crush")
+	targetDir := filepath.Join(workspacePath, ".tack")
+
+	info, err := os.Stat(legacyDir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	if _, err := os.Stat(targetDir); err == nil {
+		// Target .tack directory already exists; do not overwrite.
+		return nil
+	}
+	return os.Rename(legacyDir, targetDir)
 }

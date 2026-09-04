@@ -3,7 +3,7 @@
 This document is the contract for everything the desktop host writes into the
 Crush engine's configuration, and every REST endpoint and SSE event it
 consumes. The wire shapes are pinned against the Crush commit recorded in
-`.crush-pin`; `scripts/update-crush.ps1` refreshes the vendored copy and
+`.tack-pin`; `scripts/update-crush.ps1` refreshes the vendored copy and
 `internal/crushapi` speaks to the engine only over this boundary (AGENTS.md
 hard rule 2: no imports of `third_party/crush/internal/...`).
 
