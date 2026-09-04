@@ -117,7 +117,7 @@
         class:text-emerald-600={!isRunning}
         class:dark:text-emerald-400={!isRunning}
       >
-        {isRunning ? 'đang chạy' : 'hoàn thành'}
+        {isRunning ? 'đang chạy' : 'đã trả kết quả'}
       </span>
 
       <svg

@@ -43,7 +43,7 @@
 
     <div class="flex items-center gap-2 shrink-0">
       <span class="status-pill text-xs px-2 py-0.5 rounded font-medium bg-emerald-500-15 text-emerald-600 dark:text-emerald-400">
-        hoàn thành
+        đã xử lý
       </span>
 
       <svg

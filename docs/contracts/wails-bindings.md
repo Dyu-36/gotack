@@ -263,12 +263,14 @@ the bin directory to `PATH`, and merges `options.skills_paths`. It also removes
 the retired `mcp_servers.gotack-office` entry from existing workspace configs.
 No Office MCP server or Office tool set is registered.
 
-The timetable skill accepts natural-language requirements, lets the coding
-agent choose its scheduling approach, then batch-writes six normalized columns
-into `Dữ liệu` in `assets/mau-thoi-khoa-bieu.xlsx`. The `Thời khóa biểu` sheet
-keeps the supplied Times New Roman formatting and class/teacher column layout
-and renders the written rows through formulas. There is no `problem.json`,
-requirement registry, bundled timetable solver or exporter.
+The timetable skill accepts natural-language requirements, normalizes confirmed
+requirements into `runtime/problem.schema.json`, and invokes the bundled
+`runtime/solver.py`. Scheduling is always OR-Tools CP-SAT: hard constraints are
+mandatory assumptions, soft constraints contribute weighted penalties, and
+`INFEASIBLE` conflicts are mapped back to business descriptions. The runner
+owns the 90-second solver deadline, heartbeat/progress output, post-validation,
+and writes the six normalized columns into `Dữ liệu` in
+`assets/mau-thoi-khoa-bieu.xlsx` only after all hard constraints validate.
 
 ## Host -> UI events
 
@@ -279,6 +281,7 @@ requirement registry, bundled timetable solver or exporter.
 | `session:delta` | `{session_id, message_id, text, append, seq}` — `seq` starts at 1 per message; a gap forces a frontend resync from `text` |
 | `session:done` | `{session_id, text?, error?, cancelled}` |
 | `tool:activity` | `{session_id, name, input, finished, tool_call_id}` |
+| `task:progress` | `{session_id, run_id?, state, elapsed_seconds, limit_seconds, solutions?, penalty?, result_status?, hard_constraints_satisfied?, soft_violation_count?}` — business task lifecycle only; no shell/PID details |
 | `permission:request` | `PermissionRequest` |
 | `question:request` | `QuestionRequest` |
 | `question:resolved` | `{batch_id}` — closes the matching form after answer, cancel, or timeout |

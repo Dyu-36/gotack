@@ -118,6 +118,7 @@ these envelope kinds (`bind_engine.go` attach path, decoded in
 | --- | --- | --- |
 | `message` | `updated` | token deltas, tool-call activity for the transcript |
 | `run_complete` | flat payload | turn finished: final text, cancelled flag; drives session-done routing (UI, Zalo, and scheduled-run outcome bookkeeping via `internal/schedule`) |
+| `task_progress` | `updated` | sanitized timetable lifecycle (`searching`, `optimizing`, `optimal`, `feasible`, `infeasible`, `timed_out`, `failed`) with elapsed time/penalty; never includes shell ID, PID, or command |
 | `permission_request` | flat payload | pairs with the permission relay in `internal/permission` |
 | `question_batch_request` | wrapped `created` payload | agent question batches surfaced in the desktop UI |
 | `question_batch_notification` | wrapped `created` payload | closes a question form after answer, cancel, or timeout |
