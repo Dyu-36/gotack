@@ -53,11 +53,11 @@ function extract(file, pattern, description) {
 }
 
 function checkCrushPin() {
-  // Single tracked owner: the repository-root `.crush-pin` file. The
+  // Single tracked owner: the repository-root `.tack-pin` file. The
   // workflows and scripts/update-crush.ps1 read it at run time.
-  const pinText = readFileSync(path.join(repoRoot, '.crush-pin'), 'utf8').trim()
+  const pinText = readFileSync(path.join(repoRoot, '.tack-pin'), 'utf8').trim()
   if (!/^[0-9a-f]{40}$/.test(pinText)) {
-    fail(`.crush-pin must contain exactly one 40-character lowercase SHA, got "${pinText}".`)
+    fail(`.tack-pin must contain exactly one 40-character lowercase SHA, got "${pinText}".`)
   }
 
   // Drift guard: the previous owners must not grow a hardcoded SHA again, or
@@ -72,13 +72,13 @@ function checkCrushPin() {
     const text = readFileSync(path.join(repoRoot, file), 'utf8')
     const match = text.match(sha)
     if (match) {
-      fail(`${file} contains a hardcoded Crush SHA (${match[0]}). The pin has one owner: .crush-pin.`)
+      fail(`${file} contains a hardcoded Crush SHA (${match[0]}). The pin has one owner: .tack-pin.`)
     }
   }
 
   // The documents reference the owning file instead of a SHA.
-  extract('third_party/README.md', /\.crush-pin/, 'reference to the .crush-pin owner')
-  extract('README.md', /\| Crush pin \| \*\*`\.crush-pin`\*\*/, 'README Crush pin row pointing at .crush-pin')
+  extract('third_party/README.md', /\.tack-pin/, 'reference to the .tack-pin owner')
+  extract('README.md', /\| Crush pin \| \*\*`\.tack-pin`\*\*/, 'README Crush pin row pointing at .tack-pin')
 }
 
 checkImplementationFileSize()

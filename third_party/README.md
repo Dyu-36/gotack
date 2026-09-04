@@ -5,7 +5,7 @@ Vendored upstream code is used only for contract inspection and release builds. 
 ## Crush pin
 
 - Upstream: `https://github.com/charmbracelet/crush`
-- Pinned commit: the single tracked owner is `.crush-pin` at the repository
+- Pinned commit: the single tracked owner is `.tack-pin` at the repository
   root. The workflows, `scripts/update-crush.ps1`, and this document all read
   or reference that file.
 - Gotack-specific engine compatibility patches live in `third_party/patches/*.patch`
@@ -29,7 +29,7 @@ The release job must build Crush from the exact pinned commit plus the tracked p
 
 ## Refresh procedure
 
-Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.crush-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, strips the Question agent tool, applies Tack's model identity, verifies the REST/SSE and agent-tool markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.crush-pin` in the same PR.
+Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.tack-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, strips the Question agent tool, applies Tack's model identity, verifies the REST/SSE and agent-tool markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.tack-pin` in the same PR.
 
 ## Rules
 

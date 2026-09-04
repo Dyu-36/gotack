@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
 if (-not $Commit) {
-    $pinFile = Join-Path $repoRoot '.crush-pin'
+    $pinFile = Join-Path $repoRoot '.tack-pin'
     if (-not (Test-Path $pinFile)) {
         throw "No -Commit given and $pinFile does not exist."
     }
