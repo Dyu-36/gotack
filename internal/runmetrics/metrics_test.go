@@ -1,6 +1,7 @@
 package runmetrics
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -40,10 +41,10 @@ func TestWriterRejectsNegativeSpanAndWritesRedactedShape(t *testing.T) {
 	dir := t.TempDir()
 	writer := New(dir, slog.Default())
 	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: map[string]int64{"stream": -1}}))
-	writer.Append(&crushapi.RunTelemetry{RunID: "run-1", CacheStatus: "unreported", StablePrefixHMAC: "digest", StablePrefixBytes: 42})
+	writer.Append(&crushapi.RunTelemetry{RunID: "run-1", CacheStatus: "unreported", StablePrefixHMAC: strings.Repeat("A", 43), StablePrefixBytes: 42})
 	content, err := os.ReadFile(writer.path)
 	require.NoError(t, err)
-	require.Contains(t, string(content), `"stable_prefix_hmac":"digest"`)
+	require.Contains(t, string(content), `"stable_prefix_hmac":"`+strings.Repeat("A", 43)+`"`)
 	require.NotContains(t, string(content), "prompt")
 }
 
@@ -187,16 +188,16 @@ func TestRedactionPreservesAllSafeFields(t *testing.T) {
 		TotalMicros:         200000,
 		FirstSemantic:       "text",
 		CacheStatus:         "hit",
-		ServiceTier:         "pro",
+		ServiceTier:         "priority",
 		ProviderRequestID:   "req-secret",
 		EstimatedUsage:      true,
 		Compacted:           false,
 		PrefixChangedReason: "model_switch",
-		StablePrefixHMAC:    "abc123",
+		StablePrefixHMAC:    strings.Repeat("A", 43),
 		StablePrefixBytes:   1024,
-		DynamicSuffixHMAC:   "def456",
+		DynamicSuffixHMAC:   strings.Repeat("A", 43),
 		DynamicSuffixBytes:  512,
-		RequestShapeHMAC:    "ghi789",
+		RequestShapeHMAC:    strings.Repeat("A", 43),
 		RequestShapeBytes:   2048,
 	}
 	dir := t.TempDir()
@@ -212,4 +213,40 @@ func TestRedactionPreservesAllSafeFields(t *testing.T) {
 	require.Contains(t, string(content), `"cache_status":"hit"`)
 	require.Contains(t, string(content), `"prefix_changed_reason":"model_switch"`)
 	require.NotContains(t, string(content), "req-secret")
+}
+
+func TestRejectedTelemetryNeverEchoesInput(t *testing.T) {
+	const canary = "SYNTHETIC_SECRET_CANARY"
+	for _, mutate := range []func(*crushapi.RunTelemetry){
+		func(v *crushapi.RunTelemetry) { v.CacheStatus = canary },
+		func(v *crushapi.RunTelemetry) { v.PrefixChangedReason = canary },
+		func(v *crushapi.RunTelemetry) { v.SpansMicros = map[string]int64{canary: -1} },
+		func(v *crushapi.RunTelemetry) { v.StablePrefixHMAC = canary },
+		func(v *crushapi.RunTelemetry) { v.ReasoningEffort = canary },
+	} {
+		var logs bytes.Buffer
+		writer := New(t.TempDir(), slog.New(slog.NewJSONHandler(&logs, nil)))
+		value := &crushapi.RunTelemetry{CacheStatus: "unreported"}
+		mutate(value)
+		require.Error(t, Validate(value))
+		writer.Append(value)
+		require.NotContains(t, logs.String(), canary)
+		require.Contains(t, logs.String(), "rejected invalid telemetry")
+		_, err := os.Stat(writer.path)
+		require.ErrorIs(t, err, os.ErrNotExist)
+	}
+}
+
+func TestRedactionOwnsNestedDataAndPreservesAbsence(t *testing.T) {
+	zero := int64(0)
+	original := &crushapi.RunTelemetry{CacheStatus: "miss", SpansMicros: map[string]int64{"stream": 7}, CachedInputTokens: &zero}
+	copy := redactSensitive(original)
+	copy.SpansMicros["stream"] = 9
+	*copy.CachedInputTokens = 12
+	require.Equal(t, int64(7), original.SpansMicros["stream"])
+	require.Zero(t, *original.CachedInputTokens)
+	require.Nil(t, copy.UncachedInputTokens)
+	encoded, err := json.Marshal(copy)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "uncached_input_tokens")
 }
