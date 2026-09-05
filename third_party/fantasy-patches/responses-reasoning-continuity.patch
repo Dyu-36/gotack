@@ -1,8 +1,285 @@
-Set-PSReadLineOption: C:\Users\Admin\OneDrive - Hanoi University of Science and Technology\Documents\PowerShell\Microsoft.PowerShell_profile.ps1:32
-Line |
-  32 |      Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | The predictive suggestion feature cannot be enabled because the console output doesn't support virtual terminal processing or it's redirected.
+diff --git a/providers/openai/openai_test.go b/providers/openai/openai_test.go
+index 4a29f83..39fb8a8 100644
+--- a/providers/openai/openai_test.go
++++ b/providers/openai/openai_test.go
+@@ -4678,39 +4678,262 @@ func TestResponsesToPrompt_ReasoningWithStore(t *testing.T) {
+ 		},
+ 	}
+ 
+-	t.Run("store true skips reasoning", func(t *testing.T) {
++	t.Run("store true emits reasoning item; rejection is upstream", func(t *testing.T) {
+ 		t.Parallel()
+ 
++		// toResponsesPrompt itself emits the encrypted reasoning item
++		// regardless of store: requests combining replayed encrypted
++		// reasoning with store=true are rejected deterministically by
++		// validateReasoningReplayPrompt before any HTTP call.
+ 		input, warnings := toResponsesPrompt(prompt, "system", true)
+ 		require.Empty(t, warnings)
+ 
+-		// With store=true: user, assistant text (reasoning
+-		// skipped), follow-up user.
+-		require.Len(t, input, 3)
++		// user, reasoning, assistant text, follow-up user.
++		require.Len(t, input, 4)
++		require.NotNil(t, input[1].OfReasoning)
++		require.Equal(t, reasoningItemID, input[1].OfReasoning.ID)
++	})
++
++	t.Run("store false replays encrypted reasoning", func(t *testing.T) {
++		t.Parallel()
++
++		input, warnings := toResponsesPrompt(prompt, "system", false)
++		require.Empty(t, warnings)
++
++		// With store=false: user, reasoning item, assistant text,
++		// follow-up user.
++		require.Len(t, input, 4)
++		require.NotNil(t, input[1].OfReasoning)
++		require.Equal(t, reasoningItemID, input[1].OfReasoning.ID)
++		require.True(t, input[1].OfReasoning.EncryptedContent.Valid())
++		require.Equal(t, encryptedContent, input[1].OfReasoning.EncryptedContent.Value)
++		require.Empty(t, input[1].OfReasoning.Summary)
++	})
++}
++
++func TestResponsesPromptReplaysEncryptedReasoning(t *testing.T) {
++	t.Parallel()
++
++	encryptedOne := "gAAAAABone-synthetic-encrypted-payload"
++	encryptedTwo := "gAAAAABtwo-synthetic-encrypted-payload"
++
++	prompt := fantasy.Prompt{
++		{
++			Role: fantasy.MessageRoleUser,
++			Content: []fantasy.MessagePart{
++				fantasy.TextPart{Text: "Run the plan"},
++			},
++		},
++		{
++			Role: fantasy.MessageRoleAssistant,
++			Content: []fantasy.MessagePart{
++				fantasy.ReasoningPart{
++					Text: "reasoning display text",
++					ProviderOptions: fantasy.ProviderOptions{
++						Name: &ResponsesReasoningMetadata{
++							ItemID:           "rs_step_one",
++							EncryptedContent: &encryptedOne,
++							Summary:          []string{"summary must not be replayed"},
++						},
++					},
++				},
++				fantasy.ToolCallPart{ToolCallID: "call_1", ToolName: "step_one", Input: `{}`},
++				fantasy.ReasoningPart{
++					ProviderOptions: fantasy.ProviderOptions{
++						Name: &ResponsesReasoningMetadata{
++							ItemID:           "rs_step_two",
++							EncryptedContent: &encryptedTwo,
++						},
++					},
++				},
++				fantasy.ToolCallPart{ToolCallID: "call_2", ToolName: "step_two", Input: `{}`},
++			},
++		},
++	}
++
++	input, warnings := toResponsesPrompt(prompt, "developer", false)
++	require.Empty(t, warnings)
++	require.Len(t, input, 5)
++
++	// Both encrypted reasoning items are replayed in relative order,
++	// each immediately before the function call that depended on it.
++	require.NotNil(t, input[0].OfMessage)
++	require.NotNil(t, input[1].OfReasoning)
++	require.Equal(t, "rs_step_one", input[1].OfReasoning.ID)
++	require.True(t, input[1].OfReasoning.EncryptedContent.Valid())
++	require.Equal(t, encryptedOne, input[1].OfReasoning.EncryptedContent.Value)
++	require.Empty(t, input[1].OfReasoning.Summary)
++
++	require.NotNil(t, input[2].OfFunctionCall)
++	require.Equal(t, "call_1", input[2].OfFunctionCall.CallID)
++
++	require.NotNil(t, input[3].OfReasoning)
++	require.Equal(t, "rs_step_two", input[3].OfReasoning.ID)
++	require.True(t, input[3].OfReasoning.EncryptedContent.Valid())
++	require.Equal(t, encryptedTwo, input[3].OfReasoning.EncryptedContent.Value)
++	require.Empty(t, input[3].OfReasoning.Summary)
++
++	require.NotNil(t, input[4].OfFunctionCall)
++	require.Equal(t, "call_2", input[4].OfFunctionCall.CallID)
++
++	// Reasoning display text and summaries must never be replayed as
++	// assistant message text.
++	for _, item := range input[1:] {
++		require.Nil(t, item.OfMessage,
++			"replayed reasoning turns must not produce assistant text items")
++	}
++	encoded, err := json.Marshal(input)
++	require.NoError(t, err)
++	require.NotContains(t, string(encoded), "reasoning display text")
++	require.NotContains(t, string(encoded), "summary must not be replayed")
++}
++
++func TestValidateReasoningReplay(t *testing.T) {
++	t.Parallel()
++
++	encryptedOne := "gAAAAABone-synthetic-encrypted-payload"
++	encryptedTwo := "gAAAAABtwo-synthetic-encrypted-payload"
+ 
+-		// Verify no reasoning item leaked through.
+-		for _, item := range input {
+-			require.Nil(t, item.OfReasoning,
+-				"reasoning items must not appear when store=true")
++	assistantReasoning := func(itemID string, encryptedContent string) fantasy.Message {
++		return fantasy.Message{
++			Role: fantasy.MessageRoleAssistant,
++			Content: []fantasy.MessagePart{
++				fantasy.ReasoningPart{
++					ProviderOptions: fantasy.ProviderOptions{
++						Name: &ResponsesReasoningMetadata{
++							ItemID:           itemID,
++							EncryptedContent: &encryptedContent,
++						},
++					},
++				},
++			},
+ 		}
++	}
++
++	t.Run("duplicate item id is a deterministic error", func(t *testing.T) {
++		t.Parallel()
++
++		prompt := fantasy.Prompt{
++			assistantReasoning("rs_dup", encryptedOne),
++			assistantReasoning("rs_dup", encryptedTwo),
++		}
++
++		err := validateReasoningReplayPrompt(prompt, false)
++		require.EqualError(t, err, duplicateReasoningItemIDError)
++
++		// The same rejection applies on the request path, before any
++		// HTTP traffic.
++		_, _, err = testResponsesLM().prepareParams(testCall(prompt, &ResponsesProviderOptions{Store: new(false)}))
++		require.EqualError(t, err, duplicateReasoningItemIDError)
+ 	})
+ 
+-	t.Run("store false skips reasoning", func(t *testing.T) {
++	t.Run("store true with replayed encrypted reasoning is rejected", func(t *testing.T) {
+ 		t.Parallel()
+ 
+-		input, warnings := toResponsesPrompt(prompt, "system", false)
++		prompt := fantasy.Prompt{assistantReasoning("rs_one", encryptedOne)}
++
++		err := validateReasoningReplayPrompt(prompt, true)
++		require.EqualError(t, err, reasoningReplayStoreError)
++
++		_, _, err = testResponsesLM().prepareParams(testCall(prompt, &ResponsesProviderOptions{Store: new(true)}))
++		require.EqualError(t, err, reasoningReplayStoreError)
++	})
++
++	t.Run("unique encrypted reasoning with store false passes", func(t *testing.T) {
++		t.Parallel()
++
++		prompt := fantasy.Prompt{
++			assistantReasoning("rs_one", encryptedOne),
++			assistantReasoning("rs_two", encryptedTwo),
++		}
++
++		require.NoError(t, validateReasoningReplayPrompt(prompt, false))
++
++		_, warnings, err := testResponsesLM().prepareParams(testCall(prompt, &ResponsesProviderOptions{Store: new(false)}))
++		require.NoError(t, err)
+ 		require.Empty(t, warnings)
++	})
+ 
+-		// With store=false: user, assistant text, follow-up user.
+-		require.Len(t, input, 3)
++	t.Run("non-eligible reasoning is ignored", func(t *testing.T) {
++		t.Parallel()
+ 
+-		for _, item := range input {
+-			require.Nil(t, item.OfReasoning,
+-				"reasoning items must not appear when store=false")
++		prompt := fantasy.Prompt{
++			{
++				Role: fantasy.MessageRoleAssistant,
++				Content: []fantasy.MessagePart{
++					fantasy.ReasoningPart{Text: "reasoning without provider options"},
++				},
++			},
++			{
++				Role: fantasy.MessageRoleAssistant,
++				Content: []fantasy.MessagePart{
++					fantasy.ReasoningPart{
++						ProviderOptions: fantasy.ProviderOptions{
++							Name: &ResponsesReasoningMetadata{ItemID: "rs_no_cipher"},
++						},
++					},
++				},
++			},
+ 		}
++
++		// Not replayable reasoning neither triggers the duplicate error
++		// nor the store=true rejection.
++		require.NoError(t, validateReasoningReplayPrompt(prompt, false))
++		require.NoError(t, validateReasoningReplayPrompt(prompt, true))
+ 	})
+ }
+ 
++func TestResponsesPromptKeepsEncryptedOnlyAssistantMessage(t *testing.T) {
++	t.Parallel()
++
++	encryptedContent := "gAAAAABthree-synthetic-encrypted-payload"
++
++	prompt := fantasy.Prompt{
++		{
++			Role: fantasy.MessageRoleUser,
++			Content: []fantasy.MessagePart{
++				fantasy.TextPart{Text: "What is 2+2?"},
++			},
++		},
++		{
++			// Encrypted-only assistant turn: no thinking text, no
++			// tool calls. The encrypted reasoning item is the only
++			// content.
++			Role: fantasy.MessageRoleAssistant,
++			Content: []fantasy.MessagePart{
++				fantasy.ReasoningPart{
++					ProviderOptions: fantasy.ProviderOptions{
++						Name: &ResponsesReasoningMetadata{
++							ItemID:           "rs_encrypted_only",
++							EncryptedContent: &encryptedContent,
++						},
++					},
++				},
++			},
++		},
++		{
++			Role: fantasy.MessageRoleUser,
++			Content: []fantasy.MessagePart{
++				fantasy.TextPart{Text: "And 3+3?"},
++			},
++		},
++	}
++
++	input, warnings := toResponsesPrompt(prompt, "system", false)
++	require.Empty(t, warnings)
++
++	// The assistant message must not be dropped as empty: its
++	// encrypted reasoning item counts as visible assistant content.
++	require.Len(t, input, 3)
++	require.NotNil(t, input[0].OfMessage)
++	require.NotNil(t, input[1].OfReasoning)
++	require.Equal(t, "rs_encrypted_only", input[1].OfReasoning.ID)
++	require.True(t, input[1].OfReasoning.EncryptedContent.Valid())
++	require.Equal(t, encryptedContent, input[1].OfReasoning.EncryptedContent.Value)
++	require.Empty(t, input[1].OfReasoning.Summary)
++	require.NotNil(t, input[2].OfMessage)
++}
++
+ func TestResponsesStream_RequiresTerminalEventBeforeFinish(t *testing.T) {
+ 	t.Parallel()
+ 
 diff --git a/providers/openai/responses_language_model.go b/providers/openai/responses_language_model.go
 index 72ea3a1..09c15b3 100644
 --- a/providers/openai/responses_language_model.go
@@ -108,4 +385,3 @@ index 72ea3a1..09c15b3 100644
  func toResponsesTools(tools []fantasy.Tool, toolChoice *fantasy.ToolChoice, options *ResponsesProviderOptions) ([]responses.ToolUnionParam, responses.ResponseNewParamsToolChoiceUnion, []fantasy.CallWarning) {
  	warnings := make([]fantasy.CallWarning, 0)
  	var openaiTools []responses.ToolUnionParam
-

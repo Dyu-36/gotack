@@ -6,7 +6,7 @@
   "patches": [
     {
       "file": "responses-reasoning-continuity.patch",
-      "sha256": "cf9d60c8f88ca89bdb07ad31b7d530a9e4dcec46c7774bbdf500239828dffaf1",
+      "sha256": "8d455a58ac1f4223ffce76bf0fb1fb420b467311c70143f5ffadfb12d00c35a4",
       "upstream_status": "not-submitted",
       "release_eligible": false
     }
