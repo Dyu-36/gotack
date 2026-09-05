@@ -59,10 +59,14 @@ func (a *App) registerContextPaths(workspaceID string) {
 	}
 	dir, snapshotErr := a.contextSeeder.BuildPromptSnapshot()
 	if snapshotErr != nil {
+		// A failed refresh keeps the previously committed revision: the
+		// engine keeps serving the last snapshot registered in its
+		// config (content-addressed directories are immutable, so that
+		// revision is still intact). Clearing the registration here
+		// would silently drop the user's context on a transient error.
 		if a.log != nil {
-			a.log.Warn("context prompt snapshot failed", "err", snapshotErr)
+			a.log.Warn("context prompt snapshot failed; keeping committed revision", "err", snapshotErr)
 		}
-		a.clearContextPath(ctx, svc.api, workspaceID)
 		return
 	}
 	if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "options.global_context_paths", []string{dir}); err != nil {

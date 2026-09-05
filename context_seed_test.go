@@ -94,6 +94,55 @@ func TestRegisterContextPathsRefreshesAgentFromSnapshot(t *testing.T) {
 	}
 }
 
+func TestRegisterContextPathsFailureKeepsPreviousRegistration(t *testing.T) {
+	dataDir := t.TempDir()
+	seeder := contextseed.New(dataDir, nil)
+	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seeder.ContextDir(), "TACK_CORE.md"), []byte("core"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &contextRegistrationAPI{t: t}
+	api := crushapi.NewClient(&http.Client{Transport: fake})
+	app := NewApp()
+	app.ctx = context.Background()
+	app.contextSeeder = seeder
+	app.swapConn(func(c *conn) *conn {
+		c.api = api
+		c.ws = workspace.NewService(api)
+		c.sess = session.NewService(api, c.ws)
+		return c
+	})
+	scope, started := app.link.BeginConnect(context.Background())
+	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+		t.Fatal("link rejected test connect scope")
+	}
+	app.link.MarkRunning()
+
+	app.registerContextPaths("ws-1")
+	if got, want := fake.calls, []string{"set", "refresh"}; !equalStrings(got, want) {
+		t.Fatalf("initial registration calls = %v, want %v", got, want)
+	}
+	registered := append([]string(nil), fake.contextPath...)
+
+	// Corrupt the snapshot identity key so the next snapshot build fails
+	// while the context source is still present. The registration must be
+	// preserved: no config removal, no refresh against a lost context.
+	if err := os.WriteFile(filepath.Join(dataDir, "context-prompt", ".identity-key"), []byte("not-hex"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake.calls = nil
+	app.registerContextPaths("ws-1")
+	if len(fake.calls) != 0 {
+		t.Fatalf("failed refresh mutated registration: %v", fake.calls)
+	}
+	if !equalStrings(fake.contextPath, registered) {
+		t.Fatalf("registered context path changed: %v vs %v", fake.contextPath, registered)
+	}
+}
+
 func equalStrings(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
