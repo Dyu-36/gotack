@@ -6,5 +6,9 @@
     "proactive-auto-compact.patch",
     "prompt-context-refresh.patch"
   ],
-  "input_pipeline": []
+  "input_pipeline": [
+    "input-pipeline-telemetry-trace.patch",
+    "input-pipeline-telemetry-agent.patch",
+    "input-pipeline-telemetry-contract-tests.patch"
+  ]
 }
