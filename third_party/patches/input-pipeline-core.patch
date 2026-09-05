@@ -1,5 +1,5 @@
 diff --git a/internal/agent/agent.go b/internal/agent/agent.go
-index 368d99d..d7ef45f 100644
+index 368d99d..c7331c9 100644
 --- a/internal/agent/agent.go
 +++ b/internal/agent/agent.go
 @@ -20,6 +20,7 @@ import (
@@ -208,7 +208,15 @@ index 368d99d..d7ef45f 100644
  			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
  			// Reset streamed content so the retried response doesn't
  			// concatenate with partial content from the failed attempt.
-@@ -1061,6 +1116,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1014,6 +1069,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return createMsgErr
+ 		},
+ 		OnStepFinish: func(stepResult fantasy.StepResult) error {
++			trace.RecordStep()
+ 			for _, w := range stepResult.Warnings {
+ 				slog.Warn("Provider warning", "type", w.Type, "message", w.Message)
+ 			}
+@@ -1061,6 +1117,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			if call.MaxInputTokens > 0 && !estimated && usage.InputTokens > 0 {
  				aggregateInputTokens += usage.InputTokens
  			}
@@ -222,7 +230,7 @@ index 368d99d..d7ef45f 100644
  			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
  			extractHyperCredits(stepResult.ProviderMetadata)
  			_, sessionErr := a.sessions.Save(ctx, updatedSession)
-@@ -1070,6 +1132,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1070,6 +1133,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			currentSession = updatedSession
  			return a.messages.Update(genCtx, *currentAssistant)
  		},
@@ -238,7 +246,7 @@ index 368d99d..d7ef45f 100644
  		StopWhen: []fantasy.StopCondition{
  			func(_ []fantasy.StepResult) bool {
  				cw := int64(largeModel.CatwalkCfg.ContextWindow)
-@@ -1092,6 +1163,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1092,6 +1164,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			},
  		},
  	})
@@ -246,7 +254,7 @@ index 368d99d..d7ef45f 100644
  
  	a.eventPromptResponded(call.SessionID, time.Since(startTime).Truncate(time.Second))
  
-@@ -1221,6 +1293,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1221,6 +1294,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	}
  
  	if shouldSummarize {
@@ -254,7 +262,7 @@ index 368d99d..d7ef45f 100644
  		a.activeRequests.Del(call.SessionID)
  		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {
  			return nil, summarizeErr
-@@ -1345,6 +1418,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1345,6 +1419,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	mu.Unlock()
  	if outerOwesRunComplete {
  		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
@@ -262,7 +270,7 @@ index 368d99d..d7ef45f 100644
  		if currentAssistant != nil {
  			complete.MessageID = currentAssistant.ID
  			complete.Text = currentAssistant.Content().String()
-@@ -1379,7 +1453,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
+@@ -1379,7 +1454,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
  		return nil
  	}
  
@@ -274,7 +282,7 @@ index 368d99d..d7ef45f 100644
  
  	genCtx, cancel := context.WithCancel(ctx)
  	ac := &activeCancel{cancel: cancel}
-@@ -1555,18 +1632,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
+@@ -1555,18 +1633,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
  	return msg, nil
  }
  
@@ -298,7 +306,7 @@ index 368d99d..d7ef45f 100644
  	// Collect all tool call IDs present in assistant messages and all tool
  	// result IDs present in tool messages. This lets us detect both orphaned
  	// tool results (result without a call) and orphaned tool calls (call
-@@ -1586,12 +1657,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1586,12 +1658,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
  		}
  	}
  
@@ -316,7 +324,7 @@ index 368d99d..d7ef45f 100644
  			continue
  		}
  		if m.Role == message.Tool {
-@@ -1600,6 +1675,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1600,6 +1676,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
  			}
  			continue
  		}
@@ -333,7 +341,7 @@ index 368d99d..d7ef45f 100644
  		aiMsgs := m.ToAIMessage()
  		if !supportsImages {
  			for i := range aiMsgs {
-@@ -1632,7 +1717,149 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1632,7 +1718,149 @@ If not, please feel free to ignore. Again do not mention this message to the use
  		})
  	}
  
@@ -1656,10 +1664,10 @@ index 0000000..e4ed80b
 +}
 diff --git a/internal/agent/runtrace.go b/internal/agent/runtrace.go
 new file mode 100644
-index 0000000..8b0c31c
+index 0000000..dd3255b
 --- /dev/null
 +++ b/internal/agent/runtrace.go
-@@ -0,0 +1,544 @@
+@@ -0,0 +1,556 @@
 +package agent
 +
 +import (
@@ -1796,8 +1804,10 @@ index 0000000..8b0c31c
 +	reasoningEffort string
 +
 +	cacheStatus         notify.CacheStatus
-+	cachedInputTokens   *int64
-+	uncachedInputTokens *int64
++	cachedInputTokens   int64
++	uncachedInputTokens int64
++	usageReported       bool
++	stepCount           int
 +
 +	compacted bool
 +
@@ -1983,32 +1993,44 @@ index 0000000..8b0c31c
 +	t.changeReasons[reason] = struct{}{}
 +}
 +
-+// RecordCacheUsage applies provider-reported cache token fields to the
-+// tri-state cache status. A nil field means the provider did not report
-+// it; a non-nil zero is a reported zero. The status only moves off
-+// "unreported" when at least one cache field was actually reported, and
-+// reported zeros preserve "miss" instead of erasing it.
++// RecordCacheUsage accumulates provider-reported token usage for the run.
++// A nil field means the provider did not report it for that request; a
++// non-nil zero is a reported zero. Sums across steps because the telemetry
++// is run-scoped. The status only moves off "unreported" when at least one
++// cache field was actually reported, and reported zeros preserve "miss"
++// instead of erasing it.
 +func (t *RunTrace) RecordCacheUsage(cached, uncached *int64) {
 +	if t == nil {
 +		return
 +	}
 +	t.mu.Lock()
 +	defer t.mu.Unlock()
-+	if cached != nil && *cached > 0 {
++	if cached != nil {
++		t.cachedInputTokens += *cached
++		t.usageReported = true
++	}
++	if uncached != nil {
++		t.uncachedInputTokens += *uncached
++		t.usageReported = true
++	}
++	switch {
++	case t.cachedInputTokens > 0:
 +		t.cacheStatus = notify.CacheHit
-+	} else if cached != nil || uncached != nil {
-+		// At least one field was reported; a reported zero with no
-+		// positive cache read is a miss. Both-nil keeps unreported.
++	case t.usageReported:
 +		t.cacheStatus = notify.CacheMiss
 +	}
-+	if cached != nil && t.cachedInputTokens == nil {
-+		v := *cached
-+		t.cachedInputTokens = &v
++}
++
++// RecordStep accounts for one completed provider step. Attempt is the
++// number of provider requests issued for the run: completed steps plus
++// retries.
++func (t *RunTrace) RecordStep() {
++	if t == nil {
++		return
 +	}
-+	if uncached != nil && t.uncachedInputTokens == nil {
-+		v := *uncached
-+		t.uncachedInputTokens = &v
-+	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	t.stepCount++
 +}
 +
 +// FingerprintRequest captures the sanitized request-shape projection at
@@ -2057,7 +2079,7 @@ index 0000000..8b0c31c
 +		Provider:        t.provider,
 +		Model:           t.model,
 +		ReasoningEffort: t.reasoningEffort,
-+		Attempt:         t.retryCount + 1,
++		Attempt:         t.retryCount + t.stepCount,
 +		RetryCount:      t.retryCount,
 +		TotalMicros:     time.Since(t.anchor).Microseconds(),
 +		FirstSemantic:   t.firstSemantic,
@@ -2076,13 +2098,11 @@ index 0000000..8b0c31c
 +		}
 +		telemetry.SpansMicros = spans
 +	}
-+	if t.cachedInputTokens != nil {
-+		v := *t.cachedInputTokens
-+		telemetry.CachedInputTokens = &v
-+	}
-+	if t.uncachedInputTokens != nil {
-+		v := *t.uncachedInputTokens
-+		telemetry.UncachedInputTokens = &v
++	if t.usageReported {
++		cached := t.cachedInputTokens
++		uncached := t.uncachedInputTokens
++		telemetry.CachedInputTokens = &cached
++		telemetry.UncachedInputTokens = &uncached
 +	}
 +	if t.compacted {
 +		telemetry.Compacted = true
@@ -2206,10 +2226,10 @@ index 0000000..8b0c31c
 +}
 diff --git a/internal/agent/runtrace_test.go b/internal/agent/runtrace_test.go
 new file mode 100644
-index 0000000..abf6c64
+index 0000000..6db02d0
 --- /dev/null
 +++ b/internal/agent/runtrace_test.go
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,296 @@
 +package agent
 +
 +import (
@@ -2276,7 +2296,17 @@ index 0000000..abf6c64
 +	require.Empty(t, snap.PrefixChangedReason)
 +	require.Nil(t, snap.SpansMicros)
 +	require.False(t, snap.Compacted)
-+	require.Equal(t, 1, snap.Attempt, "initial attempt is 1 with no retries")
++	require.Equal(t, 0, snap.Attempt, "no provider request completed, so no attempt is counted")
++}
++
++func TestRunTraceAttemptCountsStepsPlusRetries(t *testing.T) {
++	trace := newRunTrace("")
++	trace.RecordStep()
++	trace.RecordRetry(1500 * time.Microsecond)
++	trace.RecordStep()
++	snap := trace.Snapshot()
++	require.Equal(t, 1, snap.RetryCount)
++	require.Equal(t, 3, snap.Attempt, "attempt is total provider requests: steps plus retries")
 +}
 +
 +func TestRunTraceCacheStatusTriState(t *testing.T) {
@@ -2318,9 +2348,10 @@ index 0000000..abf6c64
 +	trace := newRunTrace("")
 +	trace.RecordRetry(1500 * time.Microsecond)
 +	trace.RecordRetry(2 * time.Millisecond)
++	trace.RecordStep()
 +	snap := trace.Snapshot()
 +	require.Equal(t, 2, snap.RetryCount)
-+	require.Equal(t, 3, snap.Attempt)
++	require.Equal(t, 3, snap.Attempt, "one completed step plus two retries")
 +	require.Equal(t, int64(3500), snap.RetryDelayMicros)
 +}
 +
@@ -2449,6 +2480,7 @@ index 0000000..abf6c64
 +			trace.MarkFirstSemantic("reasoning")
 +			trace.MarkFirstSemantic("text")
 +			trace.RecordRetry(time.Millisecond)
++			trace.RecordStep()
 +			trace.AddChangeReason("mcp")
 +			_ = trace.Snapshot()
 +		}()
@@ -2457,7 +2489,7 @@ index 0000000..abf6c64
 +	snap := trace.Snapshot()
 +	require.Equal(t, "reasoning", snap.FirstSemantic)
 +	require.Equal(t, 8, snap.RetryCount)
-+	require.Equal(t, 9, snap.Attempt)
++	require.Equal(t, 16, snap.Attempt)
 +}
 +
 +func TestLoadOrCreateHMACKeyCreatesAndReloads(t *testing.T) {
