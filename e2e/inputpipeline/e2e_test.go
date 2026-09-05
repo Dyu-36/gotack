@@ -25,8 +25,13 @@ import (
 
 func TestMain(m *testing.M) {
 	if len(os.Args) >= 3 && len(os.Args) <= 4 && os.Args[1] == "--gotack-e2e-mcp" {
-		auditFile, instance, err := serveMCPArgs(os.Args[2:])
-		if err != nil {
+		// An optional second argument names the instance so two servers
+		// can advertise distinct instructions for ordering proofs.
+		auditFile, instance := os.Args[2], ""
+		if len(os.Args) == 4 {
+			instance = os.Args[3]
+		}
+		if instance != "" && instance != "alpha" && instance != "bravo" {
 			os.Exit(2)
 		}
 		if serveMCPInstance(os.Stdin, os.Stdout, auditMCP(auditFile), instance) != nil {
