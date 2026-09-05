@@ -96,8 +96,8 @@ func isolatedEnv(t testing.TB, root, proxy string) []string {
 		"HOME": root, "USERPROFILE": root, "HOMEDRIVE": filepath.VolumeName(root),
 		"HOMEPATH":                           strings.TrimPrefix(root, filepath.VolumeName(root)),
 		"CRUSH_DISABLE_PROVIDER_AUTO_UPDATE": "1", "CRUSH_DISABLE_METRICS": "1",
-		"CRUSH_DISABLE_UPDATE_CHECK":          "1",
-		"CATWALK_URL": proxy, "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "ALL_PROXY": proxy,
+		"CRUSH_DISABLE_UPDATE_CHECK": "1",
+		"CATWALK_URL":                proxy, "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "ALL_PROXY": proxy,
 		"NO_PROXY": "127.0.0.1,localhost", "NO_COLOR": "1", "TERM": "dumb", "AWS_EC2_METADATA_DISABLED": "true",
 	}
 	for key, dir := range map[string]string{
