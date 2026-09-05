@@ -183,6 +183,11 @@ func Validate(telemetry *crushapi.RunTelemetry) error {
 			return errors.New("telemetry_usage_invalid")
 		}
 	}
+	for _, offset := range []*int64{telemetry.FirstReasoningMicros, telemetry.FirstToolMicros, telemetry.FirstTextMicros} {
+		if offset != nil && *offset < 0 {
+			return errors.New("telemetry_semantic_timing_invalid")
+		}
+	}
 	for _, digest := range []string{telemetry.StablePrefixHMAC, telemetry.DynamicSuffixHMAC, telemetry.RequestShapeHMAC} {
 		if digest == "" {
 			continue

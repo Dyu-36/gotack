@@ -147,31 +147,37 @@ type RunComplete struct {
 }
 
 type RunTelemetry struct {
-	RunID               string           `json:"run_id,omitempty"`
-	Provider            string           `json:"provider,omitempty"`
-	Model               string           `json:"model,omitempty"`
-	ReasoningEffort     string           `json:"reasoning_effort,omitempty"`
-	Attempt             int              `json:"attempt"`
-	RetryCount          int              `json:"retry_count"`
-	RetryDelayMicros    int64            `json:"retry_delay_us,omitempty"`
-	SpansMicros         map[string]int64 `json:"spans_us,omitempty"`
-	TotalMicros         int64            `json:"total_us"`
-	FirstSemantic       string           `json:"first_semantic,omitempty"`
-	CacheStatus         string           `json:"cache_status"`
-	CachedInputTokens   *int64           `json:"cached_input_tokens,omitempty"`
-	UncachedInputTokens *int64           `json:"uncached_input_tokens,omitempty"`
-	ServiceTier         string           `json:"service_tier,omitempty"`
-	ProviderRequestID   string           `json:"provider_request_id,omitempty"`
-	EstimatedUsage      bool             `json:"estimated_usage,omitempty"`
-	Compacted           bool             `json:"compacted,omitempty"`
-	PrefixChangedReason string           `json:"prefix_changed_reason,omitempty"`
-	ChangeReasons       []string         `json:"change_reasons,omitempty"`
-	StablePrefixHMAC    string           `json:"stable_prefix_hmac,omitempty"`
-	StablePrefixBytes   int              `json:"stable_prefix_bytes,omitempty"`
-	DynamicSuffixHMAC   string           `json:"dynamic_suffix_hmac,omitempty"`
-	DynamicSuffixBytes  int              `json:"dynamic_suffix_bytes,omitempty"`
-	RequestShapeHMAC    string           `json:"request_shape_hmac,omitempty"`
-	RequestShapeBytes   int              `json:"request_shape_bytes,omitempty"`
+	RunID            string           `json:"run_id,omitempty"`
+	Provider         string           `json:"provider,omitempty"`
+	Model            string           `json:"model,omitempty"`
+	ReasoningEffort  string           `json:"reasoning_effort,omitempty"`
+	Attempt          int              `json:"attempt"`
+	RetryCount       int              `json:"retry_count"`
+	RetryDelayMicros int64            `json:"retry_delay_us,omitempty"`
+	SpansMicros      map[string]int64 `json:"spans_us,omitempty"`
+	TotalMicros      int64            `json:"total_us"`
+	FirstSemantic    string           `json:"first_semantic,omitempty"`
+	// Per-kind one-shot semantic offsets. Pointer semantics: nil means
+	// the kind never appeared this run (absent, never zero); a non-nil
+	// zero is a real sub-microsecond offset.
+	FirstReasoningMicros *int64   `json:"first_reasoning_us,omitempty"`
+	FirstToolMicros      *int64   `json:"first_tool_us,omitempty"`
+	FirstTextMicros      *int64   `json:"first_text_us,omitempty"`
+	CacheStatus          string   `json:"cache_status"`
+	CachedInputTokens    *int64   `json:"cached_input_tokens,omitempty"`
+	UncachedInputTokens  *int64   `json:"uncached_input_tokens,omitempty"`
+	ServiceTier          string   `json:"service_tier,omitempty"`
+	ProviderRequestID    string   `json:"provider_request_id,omitempty"`
+	EstimatedUsage       bool     `json:"estimated_usage,omitempty"`
+	Compacted            bool     `json:"compacted,omitempty"`
+	PrefixChangedReason  string   `json:"prefix_changed_reason,omitempty"`
+	ChangeReasons        []string `json:"change_reasons,omitempty"`
+	StablePrefixHMAC     string   `json:"stable_prefix_hmac,omitempty"`
+	StablePrefixBytes    int      `json:"stable_prefix_bytes,omitempty"`
+	DynamicSuffixHMAC    string   `json:"dynamic_suffix_hmac,omitempty"`
+	DynamicSuffixBytes   int      `json:"dynamic_suffix_bytes,omitempty"`
+	RequestShapeHMAC     string   `json:"request_shape_hmac,omitempty"`
+	RequestShapeBytes    int      `json:"request_shape_bytes,omitempty"`
 }
 
 type TaskProgress struct {

@@ -24,8 +24,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if len(os.Args) == 3 && os.Args[1] == "--gotack-e2e-mcp" {
-		if serveMCP(os.Stdin, os.Stdout, auditMCP(os.Args[2])) != nil {
+	if len(os.Args) >= 3 && len(os.Args) <= 4 && os.Args[1] == "--gotack-e2e-mcp" {
+		auditFile, instance, err := serveMCPArgs(os.Args[2:])
+		if err != nil {
+			os.Exit(2)
+		}
+		if serveMCPInstance(os.Stdin, os.Stdout, auditMCP(auditFile), instance) != nil {
 			os.Exit(2)
 		}
 		os.Exit(0)
@@ -143,14 +147,23 @@ func writeFixtureConfig(t testing.TB, root string, p *fakeProvider, withMCP bool
 		config["mcp"] = map[string]any{"e2e": map[string]any{"type": "stdio", "command": executable,
 			"args": []string{"--gotack-e2e-mcp", filepath.Join(root, "mcp-audit.txt")}, "timeout": 10}}
 	}
+	must(t, os.MkdirAll(filepath.Join(root, "global-config"), 0o700), "fixture_config_dir_failed")
 	data, err := json.Marshal(config)
 	must(t, err, "fixture_config_encoding_failed")
 	must(t, os.WriteFile(filepath.Join(root, "global-config", "crush.json"), data, 0o600), "fixture_config_write_failed")
 }
 func startEngine(t testing.TB, root string, p *fakeProvider, withMCP bool, modelOptions ...map[string]any) *engineHarness {
 	t.Helper()
-	env := isolatedEnv(t, root, p.proxy.URL)
 	writeFixtureConfig(t, root, p, withMCP, modelOptions...)
+	return startEngineExistingConfig(t, root, p)
+}
+
+// startEngineExistingConfig starts the engine against the fixture config
+// already written into the root; tests that need custom config shapes
+// write their own config first.
+func startEngineExistingConfig(t testing.TB, root string, p *fakeProvider) *engineHarness {
+	t.Helper()
+	env := isolatedEnv(t, root, p.proxy.URL)
 	workspace, db := filepath.Join(root, "workspace"), filepath.Join(root, "workspace-data")
 	must(t, os.MkdirAll(workspace, 0o700), "workspace_directory_failed")
 	pipe := `\\.\pipe\gotack-e2e-` + newID(t)
