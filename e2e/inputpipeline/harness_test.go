@@ -89,7 +89,7 @@ func TestResponseFixtureLifecycle(t *testing.T) {
 }
 func TestFakeProviderActuallyCapturesAndRetries(t *testing.T) {
 	p := newFakeProvider()
-	defer p.server.Close()
+	defer p.close()
 	p.arm("unit", modeRetry)
 	hc := &http.Client{Timeout: time.Second}
 	for i := 0; i < 2; i++ {
@@ -173,7 +173,7 @@ func TestMCPSafeAuditFile(t *testing.T) {
 }
 func TestAuxiliaryCallsCannotSatisfyCapture(t *testing.T) {
 	p := newFakeProvider()
-	defer p.server.Close()
+	defer p.close()
 	p.arm("unit", modeText)
 	req, _ := http.NewRequest(http.MethodPost, p.server.URL+"/v1/responses", strings.NewReader(
 		`{"model":"gpt-5-fixture-title","stream":false,"input":[{"role":"user","content":"synthetic"}]}`))
@@ -194,7 +194,7 @@ func TestAuxiliaryCallsCannotSatisfyCapture(t *testing.T) {
 }
 func TestFakeMalformedStream(t *testing.T) {
 	p := newFakeProvider()
-	defer p.server.Close()
+	defer p.close()
 	p.arm("unit", modeMalformed)
 	req, _ := http.NewRequest(http.MethodPost, p.server.URL+"/v1/responses", strings.NewReader(
 		`{"model":"gpt-5-fixture-main","stream":true,"input":[{"role":"user","content":"synthetic"}]}`))
@@ -213,5 +213,30 @@ func TestFakeMalformedStream(t *testing.T) {
 	expectCode(t, err, "sse_schema_invalid")
 	if p.counts("unit").Requests != 1 {
 		t.Fatal("malformed_fixture_not_exercised")
+	}
+}
+
+func TestEgressGuardSeparatesDeniedUpdateFromProviderTraffic(t *testing.T) {
+	p := newFakeProvider()
+	defer p.close()
+	p.arm("unit", modeText)
+	for _, probe := range []struct {
+		method, host string
+		invalid      int
+	}{
+		{http.MethodConnect, "api.github.com:443", 0},
+		{http.MethodConnect, "unapproved.invalid:443", 1},
+		{http.MethodGet, "api.github.com:443", 2},
+	} {
+		req := httptest.NewRequest(probe.method, "http://"+probe.host, nil)
+		req.Host = probe.host
+		response := httptest.NewRecorder()
+		p.denyEgress(response, req)
+		if response.Code != http.StatusForbidden || p.counts("unit").Invalid != probe.invalid {
+			t.Fatal("egress_guard_policy_invalid")
+		}
+		if p.counts("unit").Requests != 0 {
+			t.Fatal("egress_satisfied_provider_capture")
+		}
 	}
 }
