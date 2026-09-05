@@ -21,10 +21,15 @@ unlisted, nested, or escaping patch paths are errors. The order is:
 5. Contract checks, then build/test.
 
 The compatibility inventory is ChatGPT subscription OAuth, Hermes skill
-refresh, proactive auto-compaction, and prompt context refresh. The current
-`input_pipeline` list is empty. There is no accepted
-`zz-input-pipeline-windows.patch`; earlier prose describing one was a prototype
-claim, not a replayable artifact. Alphabetical names do not define phase order.
+refresh, proactive auto-compaction, and prompt context refresh. The
+`input_pipeline` inventory is, in manifest order: the core input-pipeline
+patch (RunTrace spans, provider-option merge, todo reminder, ordered
+context groups), the telemetry patch (per-run prompt generation change
+reasons, per-kind first semantic timings, final prepared-request
+fingerprint), and the history-anchor patch (bounded compaction anchor
+preservation). There is no accepted `zz-input-pipeline-windows.patch`;
+earlier prose describing one was a prototype claim, not a replayable
+artifact. Alphabetical names do not define phase order.
 
 Hardening removes the Question agent tool/routes and applies Tack's
 model-visible identity. It preserves upstream module paths, legacy executable

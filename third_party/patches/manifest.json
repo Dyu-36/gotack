@@ -7,6 +7,8 @@
     "prompt-context-refresh.patch"
   ],
   "input_pipeline": [
-    "input-pipeline-core.patch"
+    "input-pipeline-core.patch",
+    "input-pipeline-telemetry.patch",
+    "input-pipeline-history-anchor.patch"
   ]
 }

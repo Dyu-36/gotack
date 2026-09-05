@@ -153,6 +153,9 @@ shape:
   "spans_us": {"ready_wait": 0, "stream": 0},
   "total_us": 0,
   "first_semantic": "text|tool_call|reasoning",
+  "first_reasoning_us": null,
+  "first_tool_us": null,
+  "first_text_us": null,
   "cache_status": "hit|miss|unreported",
   "cached_input_tokens": null,
   "uncached_input_tokens": null,
@@ -170,6 +173,34 @@ shape:
   "request_shape_bytes": 0
 }
 ```
+
+Semantic timing (PR0): `first_semantic` names the first semantic output
+kind of the run (`text`, `tool_call`, or `reasoning`). The three separate
+`first_reasoning_us` / `first_tool_us` / `first_text_us` members carry each
+kind's own one-shot monotonic offset as nullable integers: an event that
+never happened is absent (null/omitted), never zero, and a sub-millisecond
+event that rounds to zero microseconds is still a real (non-null) zero.
+A tool-only run therefore leaves `first_text_us` absent instead of
+reporting a zero text TTFT.
+
+Request fingerprint timing (PR0): `request_shape_hmac` is computed after
+every wire-affecting request transformation — prompt/history preparation,
+the ephemeral todo reminder, queued-prompt folding, provider media
+workarounds, cache-control options, and the final tool set including
+canonical per-tool schemas, history shape and attachment metadata. The
+digest input excludes credentials, encrypted reasoning ciphertext, raw
+tool outputs and session/message identifiers. Multi-step tool loops
+overwrite the projection per step, so the published fingerprint describes
+the final request of the run.
+
+Change reasons (PR0/PR2): `prefix_changed_reason` and `change_reasons`
+are derived from labeled prompt-generation diffs (template, model,
+context, skills, date, git) plus per-run tool-set, MCP-instruction and
+todo-reminder digests — never from comparing final prompt hashes. Template
+and base-policy changes map to `context`. The primary reason follows the
+fixed precedence model_switch > compaction > context > skills > tool_set;
+dynamic-only changes (date, git_status, mcp, todo) appear only in
+`change_reasons` and leave the primary reason empty for that diff.
 
 Security invariants:
 - `provider_request_id` is always redacted in the JSONL writer
