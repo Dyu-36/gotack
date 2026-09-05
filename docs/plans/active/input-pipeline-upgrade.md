@@ -167,6 +167,8 @@ skip or a weaker assertion.
 | `node --test scripts/input-pipeline/gate.test.mjs` | PASS (12 tests) |
 | `pnpm --dir frontend check` / `test` | PASS (0 errors / 39 tests) |
 | Nested patched-engine focused tests (agent, agent/prompt, message) | PASS |
+| Nested patched-engine full `go test ./...` | One failure: `internal/fsext` `TestGlobWithDoubleStar`, verified failing on the pristine pin with no patches (pre-existing upstream Windows glob behavior, outside this milestone); all other nested packages PASS (`-p 2`; higher parallelism OOMs the machine) |
+| Nested patched-engine `go vet ./...` | One pre-existing upstream finding in pinned `internal/csync/maps.go` (lock-by-value), untouched by all patches |
 | `go test -race` on Windows | BLOCKED_ENVIRONMENT (no CGO compiler; re-probed) |
 | Live Responses acceptance | BLOCKED_LIVE_ACCEPTANCE (no owner budget) |
 | Fantasy upstream/pin authorization | BLOCKED_OWNER_AUTH |
