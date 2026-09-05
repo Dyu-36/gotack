@@ -48,8 +48,8 @@ func TestBundledTimetableTemplateContract(t *testing.T) {
 	}
 	for _, cell := range []string{"C4", "D4", "Q25", "R25"} {
 		formula, err := book.GetCellFormula("Thời khóa biểu", cell)
-		if err != nil || !strings.Contains(formula, "Dữ liệu") {
-			t.Fatalf("formula %s = %q, err = %v", cell, formula, err)
+		if err != nil || formula != "" {
+			t.Fatalf("expected raw template cell %s to have no formula, got %q, err = %v", cell, formula, err)
 		}
 	}
 }
