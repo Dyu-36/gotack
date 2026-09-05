@@ -62,10 +62,30 @@ When the active model or provider changes:
 
 ## Compaction
 
-After compaction:
-- Keep ordered reasoning items of the latest valid assistant anchor
-- Remove items that fell within the compacted range
-- Emit compaction metadata in telemetry (tokens before/after, messages evicted)
+After compaction the history selection keeps, in chronological order
+before the summary:
+- The **latest complete valid assistant anchor group**: the assistant
+  message plus every tool-result message that follows it up to the next
+  assistant message. The group is complete when every tool call in the
+  assistant message has a corresponding result inside the group.
+- An assistant turn without tool calls is complete on its own.
+- An incomplete group (a run cancelled between a tool call and its
+  result) is never anchored; selection walks back to the latest earlier
+  complete turn. If no complete turn exists, only the summary remains.
+- No reasoning item is duplicated and no function call or result is
+  orphaned by the boundary: each retained item replays exactly once.
+- The committed summary message renders as user-role context after the
+  anchor group.
+
+Recovery: the session's committed summary pointer is the commit point of
+a compaction. A summary message that exists without being referenced by
+the committed pointer (a crash between summary creation and the session
+save) is excluded from model history — the next summarize attempt starts
+clean instead of replaying a half-committed summary.
+
+The LLM summary algorithm, thresholds and summary role are unchanged by
+this contract; the hybrid compaction workstream remains blocked
+(ImplementPlan section 9).
 
 ## Forbidden Operations
 
