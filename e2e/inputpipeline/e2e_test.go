@@ -244,6 +244,7 @@ func sendTurn(t *testing.T, h *engineHarness, p *fakeProvider, session string, m
 	must(t, err, "matching_terminal_missing")
 	counts := p.counts(run)
 	t.Logf("e2e_evidence requests=%d retries=%d tool_responses=%d tool_results=%d invalid=%d", counts.Requests, counts.Retries, counts.ToolResponses, counts.ToolResults, counts.Invalid)
+	t.Logf("e2e_rejections route=%d auth=%d schema=%d", counts.RejectedRoute, counts.RejectedAuth, counts.RejectedSchema)
 	must(t, checkCapture(counts, 1), "provider_capture_invalid")
 	return terminal, counts
 }

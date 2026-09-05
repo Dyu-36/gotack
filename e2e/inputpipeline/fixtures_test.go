@@ -34,22 +34,28 @@ const (
 )
 
 type captureCounts struct {
-	Requests      int
-	Retries       int
-	ToolResponses int
-	ToolResults   int
-	Invalid       int
+	Requests       int
+	Retries        int
+	ToolResponses  int
+	ToolResults    int
+	Invalid        int
+	RejectedRoute  int
+	RejectedAuth   int
+	RejectedSchema int
 }
 
 type fakeProvider struct {
-	server    *httptest.Server
-	mu        sync.Mutex
-	active    string
-	mode      providerMode
-	runs      map[string]captureCounts
-	auxiliary int
-	serial    int
-	rejected  int
+	server         *httptest.Server
+	mu             sync.Mutex
+	active         string
+	mode           providerMode
+	runs           map[string]captureCounts
+	auxiliary      int
+	serial         int
+	rejected       int
+	rejectedRoute  int
+	rejectedAuth   int
+	rejectedSchema int
 }
 
 func newFakeProvider() *fakeProvider {
@@ -68,6 +74,9 @@ func (p *fakeProvider) counts(run string) captureCounts {
 	defer p.mu.Unlock()
 	c := p.runs[run]
 	c.Invalid += p.rejected
+	c.RejectedRoute = p.rejectedRoute
+	c.RejectedAuth = p.rejectedAuth
+	c.RejectedSchema = p.rejectedSchema
 	return c
 }
 
@@ -128,8 +137,14 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// This also rejects proxy traffic: the harness never forwards it upstream.
-	if r.Method != http.MethodPost || r.URL.Path != "/v1/responses" || r.URL.IsAbs() ||
-		r.Header.Get("Authorization") != "Bearer synthetic-test-key" {
+	if r.Method != http.MethodPost || r.URL.Path != "/v1/responses" || r.URL.IsAbs() {
+		p.rejectedRoute++
+		p.rejected++
+		rejectProvider(w)
+		return
+	}
+	if r.Header.Get("Authorization") != "Bearer synthetic-test-key" {
+		p.rejectedAuth++
 		p.rejected++
 		rejectProvider(w)
 		return
@@ -137,6 +152,7 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
 	req, schemaErr := validateRequest(body)
 	if err != nil || schemaErr != nil {
+		p.rejectedSchema++
 		p.rejected++
 		rejectProvider(w)
 		return
