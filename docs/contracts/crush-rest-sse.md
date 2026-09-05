@@ -161,6 +161,7 @@ shape:
   "estimated_usage": false,
   "compacted": false,
   "prefix_changed_reason": "git_status|date|mcp|skills|context|tool_set|compaction|model_switch|none",
+  "change_reasons": ["context", "skills"],
   "stable_prefix_hmac": "base64url-digest",
   "stable_prefix_bytes": 0,
   "dynamic_suffix_hmac": "base64url-digest",
@@ -173,6 +174,11 @@ shape:
 Security invariants:
 - `provider_request_id` is always redacted in the JSONL writer
 - Prompt text, ciphertext, OAuth tokens, and raw session UUIDs are never persisted
+- `change_reasons` is the optional sorted, unique list of every change observed
+  in the run (the primary `prefix_changed_reason` plus dynamic-only reasons
+  such as `date`, `todo`, `mcp`, and first-observation `initial`); a stable
+  prefix reason never appears only in `change_reasons`, and dynamic-only
+  changes leave `prefix_changed_reason` empty or `none`
 - HMAC keys are 32-byte random, created atomically per install, stored 0600
 
 ## Seeding and context ownership

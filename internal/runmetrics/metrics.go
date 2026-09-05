@@ -23,6 +23,15 @@ var validPrefixReasons = map[string]bool{
 	"context": true, "tool_set": true, "compaction": true, "model_switch": true, "none": true,
 }
 
+// change_reasons covers every primary reason plus changes that only affect
+// dynamic lanes or multi-change runs: initial observation, todo state, and
+// provider-option edits never move prefix_changed_reason off its precedence.
+var validChangeReasons = map[string]bool{
+	"git_status": true, "date": true, "mcp": true, "skills": true,
+	"context": true, "tool_set": true, "compaction": true, "model_switch": true,
+	"none": true, "initial": true, "todo": true, "provider_options": true,
+}
+
 var validCacheStatuses = map[string]bool{
 	"hit": true, "miss": true, "unreported": true,
 }
@@ -142,6 +151,20 @@ func Validate(telemetry *crushapi.RunTelemetry) error {
 	}
 	if telemetry.PrefixChangedReason != "" && !validPrefixReasons[telemetry.PrefixChangedReason] {
 		return errors.New("telemetry_prefix_reason_invalid")
+	}
+	for i, reason := range telemetry.ChangeReasons {
+		if reason == "" || !validChangeReasons[reason] {
+			return errors.New("telemetry_change_reason_invalid")
+		}
+		if i > 0 {
+			previous := telemetry.ChangeReasons[i-1]
+			if previous == reason {
+				return errors.New("telemetry_change_reason_duplicate")
+			}
+			if previous > reason {
+				return errors.New("telemetry_change_reason_unsorted")
+			}
+		}
 	}
 	if telemetry.RunID != "" && !idPattern.MatchString(telemetry.RunID) {
 		return fmt.Errorf("invalid run_id format")

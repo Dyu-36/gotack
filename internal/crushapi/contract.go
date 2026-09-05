@@ -165,6 +165,7 @@ type RunTelemetry struct {
 	EstimatedUsage      bool             `json:"estimated_usage,omitempty"`
 	Compacted           bool             `json:"compacted,omitempty"`
 	PrefixChangedReason string           `json:"prefix_changed_reason,omitempty"`
+	ChangeReasons       []string         `json:"change_reasons,omitempty"`
 	StablePrefixHMAC    string           `json:"stable_prefix_hmac,omitempty"`
 	StablePrefixBytes   int              `json:"stable_prefix_bytes,omitempty"`
 	DynamicSuffixHMAC   string           `json:"dynamic_suffix_hmac,omitempty"`
