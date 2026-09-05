@@ -73,7 +73,9 @@ func runBenchArm(b *testing.B, p *fakeProvider, pair int, arm, cacheKey string) 
 	switch arm {
 	case "A":
 	case "B":
-		modelOptions = map[string]any{"openai": map[string]any{"prompt_cache_key": cacheKey}}
+		// The engine's provider-options layers merge as flat option maps;
+		// provider-name wrapping would be an inert nested key.
+		modelOptions = map[string]any{"prompt_cache_key": cacheKey}
 	default:
 		b.Fatal("benchmark_arm_invalid")
 	}
