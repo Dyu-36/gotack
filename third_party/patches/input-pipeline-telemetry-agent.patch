@@ -1,0 +1,366 @@
+diff --git a/internal/agent/agent.go b/internal/agent/agent.go
+index 368d99d..7845b26 100644
+--- a/internal/agent/agent.go
++++ b/internal/agent/agent.go
+@@ -116,6 +116,7 @@ type SessionAgentCall struct {
+ 	// session that may be busy) MUST set it; SessionID alone is
+ 	// ambiguous when concurrent turns share the same session.
+ 	RunID            string
++	trace            *runTrace
+ 	Prompt           string
+ 	ProviderOptions  fantasy.ProviderOptions
+ 	Attachments      []message.Attachment
+@@ -487,6 +488,7 @@ func (a *sessionAgent) publishCanceledQueueDrops(drops []SessionAgentCall) {
+ 			SessionID: d.SessionID,
+ 			RunID:     d.RunID,
+ 			Cancelled: true,
++			Telemetry: d.trace.telemetry(),
+ 		})
+ 	}
+ }
+@@ -601,6 +603,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	if err := ValidateCall(call); err != nil {
+ 		return nil, err
+ 	}
++	if call.trace == nil {
++		call.trace = runTraceFromContext(ctx)
++	}
++	ctx = withRunTrace(ctx, call.trace)
+ 
+ 	// genCtx/cancel are the run context and its cancel func, created under
+ 	// the per-session dispatch mutex below so a concurrent Cancel can observe
+@@ -641,6 +647,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			SessionID: call.SessionID,
+ 			RunID:     call.RunID,
+ 			Cancelled: true,
++			Telemetry: call.trace.telemetry(),
+ 		}
+ 		if err := a.persistCanceledTurn(ctx, call, false); err != nil {
+ 			complete.Error = err.Error()
+@@ -724,12 +731,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	)
+ 
+ 	sessionLock := sync.Mutex{}
++	historyStart := time.Now()
+ 	currentSession, err := a.sessions.Get(ctx, call.SessionID)
+ 	if err != nil {
++		traceSpan(ctx, "history_load", historyStart)
+ 		return nil, fmt.Errorf("failed to get session: %w", err)
+ 	}
+ 
+ 	msgs, err := a.getSessionMessages(ctx, currentSession)
++	traceSpan(ctx, "history_load", historyStart)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to get session messages: %w", err)
+ 	}
+@@ -739,7 +749,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	// response to the caller. Use a detached context so the title
+ 	// goroutine survives Run's cancel.
+ 	if !hasUserTextMessage(msgs) {
+-		titleCtx := context.WithoutCancel(ctx)
++		titleCtx := withoutRunTrace(context.WithoutCancel(ctx))
+ 		go a.GenerateTitle(titleCtx, call.SessionID, call.Prompt)
+ 	}
+ 
+@@ -804,6 +814,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 		} else if ctx.Err() != nil {
+ 			complete.Cancelled = true
+ 		}
++		complete.Telemetry = call.trace.telemetry()
+ 		// Prefer the per-call hook when supplied so the coordinator
+ 		// can coalesce retries (e.g. unauthorized → re-auth → retry)
+ 		// into a single user-visible terminal event. The fallback
+@@ -814,7 +825,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 		a.publishRunComplete(ctx, call, complete)
+ 	}()
+ 
++	promptStart := time.Now()
+ 	history, files := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
++	traceSpan(ctx, "prompt_prepare", promptStart)
+ 
+ 	startTime := time.Now()
+ 	a.eventPromptSent(call.SessionID)
+@@ -826,6 +839,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	// Don't send MaxOutputTokens if 0, or when the selected backend does not
+ 	// accept the field (notably ChatGPT's subscription-backed Codex endpoint).
+ 	maxOutputTokens := maxOutputTokensForModel(largeModel, call.MaxOutputTokens)
++	if call.trace != nil {
++		call.trace.setRequestShape(len(history), len(call.Attachments), len(agentTools), maxOutputTokens,
++			call.Temperature, call.TopP, call.FrequencyPenalty, call.PresencePenalty, call.TopK)
++	}
+ 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
+ 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
+ 		Files:            files,
+@@ -911,6 +928,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return callContext, prepared, err
+ 		},
+ 		OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
++			if call.trace != nil {
++				call.trace.markSemantic("reasoning", time.Now())
++			}
+ 			currentAssistant.AppendReasoningContent(reasoning.Text)
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+@@ -939,6 +959,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+ 		OnTextDelta: func(id string, text string) error {
++			if text != "" && call.trace != nil {
++				call.trace.markSemantic("text", time.Now())
++			}
+ 			// Strip leading newline from initial text content. This is is
+ 			// particularly important in non-interactive mode where leading
+ 			// newlines are very visible.
+@@ -950,6 +973,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+ 		OnToolInputStart: func(id string, toolName string) error {
++			if call.trace != nil {
++				call.trace.markSemantic("tool", time.Now())
++			}
+ 			toolCall := message.ToolCall{
+ 				ID:               id,
+ 				Name:             toolName,
+@@ -962,6 +988,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return a.messages.Update(ctx, *currentAssistant)
+ 		},
+ 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
++			if call.trace != nil {
++				call.trace.recordRetry(delay)
++			}
+ 			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
+ 			// Reset streamed content so the retried response doesn't
+ 			// concatenate with partial content from the failed attempt.
+@@ -1014,6 +1043,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return createMsgErr
+ 		},
+ 		OnStepFinish: func(stepResult fantasy.StepResult) error {
++			if call.trace != nil {
++				call.trace.markStepFinish(time.Now())
++			}
+ 			for _, w := range stepResult.Warnings {
+ 				slog.Warn("Provider warning", "type", w.Type, "message", w.Message)
+ 			}
+@@ -1058,6 +1090,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 				return getSessionErr
+ 			}
+ 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
++			if call.trace != nil {
++				call.trace.recordStepUsage(usage.InputTokens, usage.CacheReadTokens, estimated)
++			}
+ 			if call.MaxInputTokens > 0 && !estimated && usage.InputTokens > 0 {
+ 				aggregateInputTokens += usage.InputTokens
+ 			}
+@@ -1221,10 +1256,16 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	}
+ 
+ 	if shouldSummarize {
++		if call.trace != nil {
++			call.trace.setCompacted()
++		}
+ 		a.activeRequests.Del(call.SessionID)
++		summarizeStart := time.Now()
+ 		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {
++			traceSpan(ctx, "summarize", summarizeStart)
+ 			return nil, summarizeErr
+ 		}
++		traceSpan(ctx, "summarize", summarizeStart)
+ 		// If the agent wasn't done...
+ 		if len(currentAssistant.ToolCalls()) > 0 {
+ 			existing, ok := a.messageQueue.Get(call.SessionID)
+@@ -1352,6 +1393,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 		if ctx.Err() != nil {
+ 			complete.Cancelled = true
+ 		}
++		complete.Telemetry = call.trace.telemetry()
+ 		a.publishRunComplete(ctx, call, complete)
+ 	}
+ 	return a.Run(ctx, firstQueuedMessage)
+diff --git a/internal/agent/coordinator.go b/internal/agent/coordinator.go
+index 6a4e27d..30079fc 100644
+--- a/internal/agent/coordinator.go
++++ b/internal/agent/coordinator.go
+@@ -173,10 +173,10 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator,
+ 	skillTracker := skills.NewTracker(activeSkills)
+ 
+ 	c := &coordinator{
+-		cfg:          opts.Config,
+-		sessions:     opts.Sessions,
+-		messages:     opts.Messages,
+-		permissions:  opts.Permissions,
++		cfg:         opts.Config,
++		sessions:    opts.Sessions,
++		messages:    opts.Messages,
++		permissions: opts.Permissions,
+ 
+ 		history:      opts.History,
+ 		filetracker:  opts.FileTracker,
+@@ -225,9 +225,16 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
+ // dispatchMu; when nil (the in-process/local path) no accept tracking
+ // applies.
+ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
++	runID := RunIDFromContext(ctx)
++	trace := newRunTrace(runID)
++	ctx = withRunTrace(ctx, trace)
++
++	readyStart := time.Now()
+ 	if err := c.readyWg.Wait(); err != nil {
++		traceSpan(ctx, "ready_wait", readyStart)
+ 		return nil, err
+ 	}
++	traceSpan(ctx, "ready_wait", readyStart)
+ 
+ 	// MCP servers connect asynchronously (see mcp.Initialize).
+ 	//
+@@ -244,9 +251,12 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 	// server's own connect timeout, so a hung server cannot stall the run
+ 	// indefinitely.
+ 	if !c.interactive {
++		mcpStart := time.Now()
+ 		if err := mcp.WaitForInit(ctx); err != nil {
++			traceSpan(ctx, "mcp_wait", mcpStart)
+ 			return nil, fmt.Errorf("failed to wait for MCP initialization: %w", err)
+ 		}
++		traceSpan(ctx, "mcp_wait", mcpStart)
+ 	}
+ 
+ 	// refresh models before each run
+@@ -264,6 +274,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 	if !ok {
+ 		return nil, errModelProviderNotConfigured
+ 	}
++	trace.setIdentity(model.ModelCfg.Provider, model.ModelCfg.Model, effectiveReasoningEffort(model))
+ 
+ 	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
+ 
+@@ -296,7 +307,6 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 	// back. Both attempts in the retry chain reuse the same RunID;
+ 	// the coalesce closure publishes the final outcome under that
+ 	// same correlator.
+-	runID := RunIDFromContext(ctx)
+ 	maxInputTokens := MaxInputTokensFromContext(ctx)
+ 	run := func() (*fantasy.AgentResult, error) {
+ 		return c.currentAgent.Run(ctx, SessionAgentCall{
+@@ -315,6 +325,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 			OnComplete:       onComplete,
+ 			Accepted:         accept,
+ 			OnAuthRefresh:    c.makeAuthRefreshCallback(providerCfg),
++			trace:            trace,
+ 		})
+ 	}
+ 	beforeLoaded := c.skillTracker.LoadedNames()
+@@ -738,7 +749,6 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
+ 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
+ 	)
+ 
+-
+ 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
+ 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
+ 		allTools = append(
+@@ -880,18 +890,18 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
+ 	}
+ 
+ 	return Model{
+-			Model:               largeModel,
+-			CatwalkCfg:          *largeCatwalkModel,
+-			ModelCfg:            largeModelCfg,
+-			FlatRate:            largeProviderCfg.FlatRate,
+-			OmitMaxOutputTokens: omitMaxOutputTokens(largeProviderCfg),
+-		}, Model{
+-			Model:               smallModel,
+-			CatwalkCfg:          *smallCatwalkModel,
+-			ModelCfg:            smallModelCfg,
+-			FlatRate:            smallProviderCfg.FlatRate,
+-			OmitMaxOutputTokens: omitMaxOutputTokens(smallProviderCfg),
+-		}, nil
++		Model:               largeModel,
++		CatwalkCfg:          *largeCatwalkModel,
++		ModelCfg:            largeModelCfg,
++		FlatRate:            largeProviderCfg.FlatRate,
++		OmitMaxOutputTokens: omitMaxOutputTokens(largeProviderCfg),
++	}, Model{
++		Model:               smallModel,
++		CatwalkCfg:          *smallCatwalkModel,
++		ModelCfg:            smallModelCfg,
++		FlatRate:            smallProviderCfg.FlatRate,
++		OmitMaxOutputTokens: omitMaxOutputTokens(smallProviderCfg),
++	}, nil
+ }
+ 
+ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
+@@ -930,10 +940,7 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
+ 	opts := []openai.Option{
+ 		openai.WithAPIKey(apiKey),
+ 		openai.WithUseResponsesAPI(),
+-	}
+-	if c.cfg.Config().Options.Debug {
+-		httpClient := log.NewHTTPClient()
+-		opts = append(opts, openai.WithHTTPClient(httpClient))
++		openai.WithHTTPClient(tracedHTTPClient(c.cfg.Config().Options.Debug)),
+ 	}
+ 	if len(headers) > 0 {
+ 		opts = append(opts, openai.WithHeaders(headers))
+@@ -991,12 +998,12 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers
+ 		)
+ 		httpClient = copilot.NewClient(isSubAgent, c.cfg.Config().Options.Debug)
+ 	}
+-	if httpClient == nil && c.cfg.Config().Options.Debug {
+-		httpClient = log.NewHTTPClient()
+-	}
+-	if httpClient != nil {
+-		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
++	if httpClient == nil {
++		httpClient = tracedHTTPClient(c.cfg.Config().Options.Debug)
++	} else {
++		httpClient = wrapRunTraceHTTPClient(httpClient)
+ 	}
++	opts = append(opts, openaicompat.WithHTTPClient(httpClient))
+ 
+ 	if len(headers) > 0 {
+ 		opts = append(opts, openaicompat.WithHeaders(headers))
+@@ -1014,10 +1021,7 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
+ 	opts := []azure.Option{
+ 		azure.WithBaseURL(baseURL),
+ 		azure.WithAPIKey(apiKey),
+ 		azure.WithUseResponsesAPI(),
+-	}
+-	if c.cfg.Config().Options.Debug {
+-		httpClient := log.NewHTTPClient()
+-		opts = append(opts, azure.WithHTTPClient(httpClient))
++		azure.WithHTTPClient(tracedHTTPClient(c.cfg.Config().Options.Debug)),
+ 	}
+ 	if options == nil {
+ 		options = make(map[string]string)
+@@ -1216,22 +1220,32 @@ func (c *coordinator) Model() Model {
+ }
+ 
+ func (c *coordinator) UpdateModels(ctx context.Context) error {
++	refreshStart := time.Now()
++	defer traceSpan(ctx, "model_refresh", refreshStart)
++
+ 	// build the models again so we make sure we get the latest config
++	modelStart := time.Now()
+ 	large, small, err := c.buildAgentModels(ctx, false)
++	traceSpan(ctx, "model_build", modelStart)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	c.currentAgent.SetModels(large, small)
++	skillStart := time.Now()
+ 	if err := c.refreshSkills(ctx, large.Model.Provider(), large.Model.Model()); err != nil {
++		traceSpan(ctx, "skill_scan", skillStart)
+ 		return fmt.Errorf("failed to refresh skills: %w", err)
+ 	}
++	traceSpan(ctx, "skill_scan", skillStart)
+ 
+ 	agentCfg, ok := c.cfg.Config().Agents[config.AgentCoder]
+ 	if !ok {
+ 		return errCoderAgentNotConfigured
+ 	}
+ 
++	toolStart := time.Now()
+ 	tools, err := c.buildTools(ctx, agentCfg, false)
++	traceSpan(ctx, "tool_build", toolStart)
+ 	if err != nil {
+ 		return err
+ 	}
