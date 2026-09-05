@@ -2,10 +2,12 @@ package runmetrics
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,8 +28,12 @@ var validCacheStatuses = map[string]bool{
 }
 
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{0,256}$`)
+var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9_./:\-]{0,128}$`)
+var keyMu sync.Mutex
 
 func EnsureKey(dataDir string) (string, error) {
+	keyMu.Lock()
+	defer keyMu.Unlock()
 	if dataDir == "" {
 		return "", errors.New("runmetrics: data directory must not be empty")
 	}
@@ -47,13 +53,13 @@ func EnsureKey(dataDir string) (string, error) {
 	if _, err := rand.Read(key); err != nil {
 		return "", fmt.Errorf("generate run metrics key: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return EnsureKey(dataDir)
-	}
+	// Publish only fully written bytes. A second process must never observe a
+	// partially written key and silently switch fingerprint identity.
+	file, err := os.CreateTemp(dataDir, ".run-metrics-key-*")
 	if err != nil {
 		return "", fmt.Errorf("create run metrics key: %w", err)
 	}
+	defer os.Remove(file.Name())
 	if _, err := file.Write(key); err != nil {
 		_ = file.Close()
 		return "", fmt.Errorf("write run metrics key: %w", err)
@@ -64,6 +70,12 @@ func EnsureKey(dataDir string) (string, error) {
 	}
 	if err := file.Close(); err != nil {
 		return "", fmt.Errorf("close run metrics key: %w", err)
+	}
+	if err := os.Link(file.Name(), path); err != nil {
+		if existing, readErr := os.ReadFile(path); readErr == nil && len(existing) == 32 {
+			return path, nil
+		}
+		return "", errors.New("runmetrics: key publication unavailable")
 	}
 	return path, nil
 }
@@ -97,7 +109,7 @@ func (writer *Writer) Append(telemetry *crushapi.RunTelemetry) {
 	}
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(writer.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(writer.path), 0o700); err != nil {
 		writer.log.Warn("runmetrics: failed to create log directory", "err", err)
 		return
 	}
@@ -114,34 +126,87 @@ func (writer *Writer) Append(telemetry *crushapi.RunTelemetry) {
 }
 
 func Validate(telemetry *crushapi.RunTelemetry) error {
+	if telemetry == nil {
+		return errors.New("telemetry_missing")
+	}
 	if telemetry.TotalMicros < 0 || telemetry.RetryDelayMicros < 0 {
 		return errors.New("telemetry durations must be non-negative")
 	}
 	for name, duration := range telemetry.SpansMicros {
-		if duration < 0 {
-			return fmt.Errorf("telemetry span %q must be non-negative", name)
+		if !validSpans[name] || duration < 0 {
+			return errors.New("telemetry_span_invalid")
 		}
 	}
 	if !validCacheStatuses[telemetry.CacheStatus] {
-		return fmt.Errorf("unknown cache status %q", telemetry.CacheStatus)
+		return errors.New("telemetry_cache_status_invalid")
 	}
 	if telemetry.PrefixChangedReason != "" && !validPrefixReasons[telemetry.PrefixChangedReason] {
-		return fmt.Errorf("unknown prefix changed reason %q", telemetry.PrefixChangedReason)
+		return errors.New("telemetry_prefix_reason_invalid")
 	}
 	if telemetry.RunID != "" && !idPattern.MatchString(telemetry.RunID) {
 		return fmt.Errorf("invalid run_id format")
 	}
-	if telemetry.Provider != "" && len(telemetry.Provider) > 128 {
+	if !labelPattern.MatchString(telemetry.Provider) {
 		return fmt.Errorf("provider identifier too long")
 	}
-	if telemetry.Model != "" && len(telemetry.Model) > 128 {
+	if !labelPattern.MatchString(telemetry.Model) {
 		return fmt.Errorf("model identifier too long")
 	}
+	if telemetry.Attempt < 0 || telemetry.RetryCount < 0 || telemetry.StablePrefixBytes < 0 || telemetry.DynamicSuffixBytes < 0 || telemetry.RequestShapeBytes < 0 {
+		return errors.New("telemetry_count_invalid")
+	}
+	for _, count := range []*int64{telemetry.CachedInputTokens, telemetry.UncachedInputTokens} {
+		if count != nil && *count < 0 {
+			return errors.New("telemetry_usage_invalid")
+		}
+	}
+	for _, digest := range []string{telemetry.StablePrefixHMAC, telemetry.DynamicSuffixHMAC, telemetry.RequestShapeHMAC} {
+		if digest == "" {
+			continue
+		}
+		decoded, err := base64.RawURLEncoding.DecodeString(digest)
+		if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != digest {
+			return errors.New("telemetry_hmac_invalid")
+		}
+	}
+	if !enum(telemetry.FirstSemantic, "", "text", "tool_call", "reasoning") ||
+		!enum(telemetry.ReasoningEffort, "", "none", "minimal", "low", "medium", "high", "xhigh", "max") ||
+		!enum(telemetry.ServiceTier, "", "auto", "default", "flex", "priority", "scale", "standard") {
+		return errors.New("telemetry_label_invalid")
+	}
 	return nil
+}
+
+var validSpans = map[string]bool{
+	"ready_wait": true, "mcp_wait": true, "local_preparation": true,
+	"model_refresh": true, "skill_scan": true, "tool_build": true,
+	"history_load": true, "prompt_prepare": true, "request_encode": true,
+	"request_write": true, "request_write_to_first_byte": true,
+	"first_byte_to_first_sse": true, "first_sse_to_first_reasoning": true,
+	"first_sse_to_first_tool": true, "first_sse_to_first_text": true,
+	"stream": true, "summarize": true, "retry_delay": true,
+}
+
+func enum(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func redactSensitive(telemetry *crushapi.RunTelemetry) *crushapi.RunTelemetry {
 	out := *telemetry
 	out.ProviderRequestID = ""
+	out.SpansMicros = maps.Clone(telemetry.SpansMicros)
+	if telemetry.CachedInputTokens != nil {
+		n := *telemetry.CachedInputTokens
+		out.CachedInputTokens = &n
+	}
+	if telemetry.UncachedInputTokens != nil {
+		n := *telemetry.UncachedInputTokens
+		out.UncachedInputTokens = &n
+	}
 	return &out
 }
