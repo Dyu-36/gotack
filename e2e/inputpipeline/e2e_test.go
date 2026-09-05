@@ -119,14 +119,19 @@ func writeFixtureConfig(t testing.TB, root string, p *fakeProvider, withMCP bool
 		return map[string]any{"id": id, "name": id, "context_window": 200000, "default_max_tokens": 4096}
 	}
 	main := model(mainModel)
+	large := map[string]any{"provider": "e2e", "model": mainModel}
 	if len(modelOptions) > 0 && modelOptions[0] != nil {
-		main["provider_options"] = modelOptions[0]
+		// Selected-model overrides under config "models" are the layer the
+		// engine reads model-level provider options from; provider catalog
+		// entries decode into the upstream catwalk schema, which has no
+		// provider_options field.
+		large["provider_options"] = modelOptions[0]
 	}
 	config := map[string]any{
 		"providers": map[string]any{"e2e": map[string]any{"name": "Synthetic E2E", "type": "openai",
 			"base_url": p.server.URL + "/v1", "api_key": "synthetic-test-key", "discover_models": false,
 			"models": []any{main, model(titleModel)}}},
-		"models": map[string]any{"large": map[string]any{"provider": "e2e", "model": mainModel},
+		"models": map[string]any{"large": large,
 			"small": map[string]any{"provider": "e2e", "model": titleModel}},
 		"options": map[string]any{"disable_metrics": true, "disable_provider_auto_update": true,
 			"disable_default_providers": true, "disable_auto_summarize": true},
@@ -339,9 +344,11 @@ func TestE2EProviderOptionsPreserved(t *testing.T) {
 	success(t, terminal)
 	if len(c.Include) != 2 ||
 		c.Include[0] != "file_search_call.results" || c.Include[1] != "reasoning.encrypted_content" {
+		t.Logf("DEBUG include=%v summary=%q", c.Include, c.ReasoningSummary)
 		t.Fatal("provider_options_include_clobbered")
 	}
 	if c.ReasoningSummary != "concise" {
+		t.Logf("DEBUG include=%v summary=%q", c.Include, c.ReasoningSummary)
 		t.Fatal("provider_options_summary_clobbered")
 	}
 }
@@ -370,6 +377,7 @@ func TestE2EInvalidOptionsPreNetwork(t *testing.T) {
 	}, run, session)
 	must(t, err, "matching_terminal_missing")
 	if terminal.Error == "" || terminal.Cancelled || terminal.Text != "" {
+		t.Logf("DEBUG error=%q text=%q cancelled=%v", terminal.Error, terminal.Text, terminal.Cancelled)
 		t.Fatal("invalid_options_not_rejected")
 	}
 	if c := p.counts(run); c.Requests != 0 {
@@ -393,6 +401,10 @@ func TestE2ETodoReminderReflectsState(t *testing.T) {
 	}
 	if !strings.Contains(c.LastInputText, "synthetic-task-alpha") ||
 		!strings.Contains(c.LastInputText, "synthetic-task-beta") {
+		t.Logf("DEBUG reminder_alpha=%v reminder_beta=%v input_len=%d",
+			strings.Contains(c.LastInputText, "synthetic-task-alpha"),
+			strings.Contains(c.LastInputText, "synthetic-task-beta"),
+			len(c.LastInputText))
 		t.Fatal("todo_reminder_missing_real_state")
 	}
 	if strings.Contains(c.LastInputText, "currently empty") {
