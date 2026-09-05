@@ -31,6 +31,8 @@ jobs:
       - name: Test fail-closed orchestration
         run: node --test scripts/input-pipeline/gate.test.mjs
       - name: Test Gotack
+        id: gotack_tests
+        continue-on-error: true
         run: go test ./...
       - name: Check repository invariants
         run: node scripts/check-repository-invariants.mjs
@@ -46,4 +48,9 @@ jobs:
             ${{ runner.temp }}/gotack-input-pipeline-*/provenance.json
             ${{ runner.temp }}/gotack-input-pipeline-*/tests.jsonl
             ${{ runner.temp }}/gotack-input-pipeline-*/result.json
-          if-no-files-found: error
+            ${{ runner.temp }}/gotack-input-pipeline-*/failure.json
+          if-no-files-found: warn
+      - name: Enforce Gotack test result
+        if: always() && steps.gotack_tests.outcome != 'success'
+        shell: pwsh
+        run: throw 'go test ./... failed earlier in this job; E2E still ran to preserve independent evidence.'
