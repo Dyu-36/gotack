@@ -323,3 +323,116 @@ func TestE2ERejectMalformedProvider(t *testing.T) {
 		t.Fatal("malformed_stream_false_pass")
 	}
 }
+
+// The provider-option merge must union user configuration with the required
+// encrypted-reasoning include instead of clobbering it, and an explicit user
+// reasoning summary must reach the wire verbatim.
+func TestE2EProviderOptionsPreserved(t *testing.T) {
+	p := newFakeProvider()
+	t.Cleanup(p.close)
+	options := map[string]any{"openai": map[string]any{
+		"include":           []any{"file_search_call.results"},
+		"reasoning_summary": "concise",
+	}}
+	h := startEngine(t, t.TempDir(), p, false, options)
+	terminal, c := sendTurn(t, h, p, freshSession(t, h), modeText)
+	success(t, terminal)
+	if len(c.Include) != 2 ||
+		c.Include[0] != "file_search_call.results" || c.Include[1] != "reasoning.encrypted_content" {
+		t.Fatal("provider_options_include_clobbered")
+	}
+	if c.ReasoningSummary != "concise" {
+		t.Fatal("provider_options_summary_clobbered")
+	}
+}
+
+// Invalid Responses options must fail model preparation before any network
+// attempt: the terminal reports an error and the provider saw zero requests.
+func TestE2EInvalidOptionsPreNetwork(t *testing.T) {
+	p := newFakeProvider()
+	t.Cleanup(p.close)
+	options := map[string]any{"openai": map[string]any{"reasoning_summary": "none"}}
+	h := startEngine(t, t.TempDir(), p, false, options)
+	run := newID(t)
+	p.arm(run, modeText)
+	session := freshSession(t, h)
+	must(t, h.client.SendPromptWithAttachments(h.ctx, h.workspace, session, "Run the synthetic fixture.", run, nil), "prompt_submit_failed")
+	terminal, err := waitTerminal(h.ctx, func(ctx context.Context) ([]byte, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case event, ok := <-h.events:
+			if !ok {
+				return nil, errors.New("stream_closed")
+			}
+			return event.Payload, nil
+		}
+	}, run, session)
+	must(t, err, "matching_terminal_missing")
+	if terminal.Error == "" || terminal.Cancelled || terminal.Text != "" {
+		t.Fatal("invalid_options_not_rejected")
+	}
+	if c := p.counts(run); c.Requests != 0 {
+		t.Fatal("invalid_options_reached_network")
+	}
+}
+
+// The todo reminder must reflect the session's real state at the next model
+// call after tool updates, survive a restart from persistence, and never be
+// persisted as a synthetic transcript message.
+func TestE2ETodoReminderReflectsState(t *testing.T) {
+	p := newFakeProvider()
+	t.Cleanup(p.close)
+	root := t.TempDir()
+	h := startEngine(t, root, p, false)
+	session := freshSession(t, h)
+	terminal, c := sendTurn(t, h, p, session, modeTodo)
+	success(t, terminal)
+	if c.Requests != 2 || c.ToolResponses != 1 || c.ToolResults != 1 {
+		t.Fatal("todo_tool_loop_count_invalid")
+	}
+	if !strings.Contains(c.LastInputText, "synthetic-task-alpha") ||
+		!strings.Contains(c.LastInputText, "synthetic-task-beta") {
+		t.Fatal("todo_reminder_missing_real_state")
+	}
+	if strings.Contains(c.LastInputText, "currently empty") {
+		t.Fatal("todo_reminder_false_empty")
+	}
+	h.stop()
+
+	h = startEngine(t, root, p, false)
+	must(t, h.client.SetCurrentSession(h.ctx, h.workspace, session), "restart_current_session_failed")
+	run := newID(t)
+	p.arm(run, modeText)
+	must(t, h.client.SendPromptWithAttachments(h.ctx, h.workspace, session, "Run the synthetic fixture.", run, nil), "restart_prompt_submit_failed")
+	terminal, err := waitTerminal(h.ctx, func(ctx context.Context) ([]byte, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case event, ok := <-h.events:
+			if !ok {
+				return nil, errors.New("stream_closed")
+			}
+			return event.Payload, nil
+		}
+	}, run, session)
+	must(t, err, "restart_matching_terminal_missing")
+	success(t, terminal)
+	c = p.counts(run)
+	if !strings.Contains(c.LastInputText, "synthetic-task-alpha") ||
+		!strings.Contains(c.LastInputText, "synthetic-task-beta") {
+		t.Fatal("todo_state_lost_after_restart")
+	}
+	h.stop()
+	messages, err := h.client.Messages(h.ctx, h.workspace, session)
+	must(t, err, "restart_history_read_failed")
+	if len(messages) == 0 {
+		t.Fatal("restart_history_missing")
+	}
+	transcript, err := json.Marshal(messages)
+	must(t, err, "restart_history_encode_failed")
+	if strings.Contains(string(transcript), "system_reminder") ||
+		strings.Contains(string(transcript), "currently empty") {
+		t.Fatal("synthetic_reminder_persisted_to_transcript")
+	}
+}
