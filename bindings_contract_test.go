@@ -16,12 +16,14 @@ func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
 	}
 
 	expected := []string{
+		"AcceptContextMigration",
 		"AnswerPermission",
 		"AttachmentLimits",
 		"BackendReady",
 		"CancelPrompt",
 		"ChangedFiles",
 		"CloseTerminal",
+		"ContextMigrationPreview",
 		"CreateSession",
 		"CurrentWorkspace",
 		"DeleteProvider",
@@ -50,6 +52,7 @@ func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
 		"ResizeTerminal",
 		"RevealGeneratedFile",
 		"RevealProviderAPIKey",
+		"RollbackContextMigration",
 		"SaveSettings",
 		"SaveZaloConfig",
 		"SelectWorkspace",

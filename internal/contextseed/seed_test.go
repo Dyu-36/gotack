@@ -187,32 +187,28 @@ func TestSeedRejectsMalformedReportWithoutChangingUserFile(t *testing.T) {
 	}
 }
 
-func TestRepoTrackedTackContext(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "context", "TACK.md"))
+func TestRepoTrackedLayeredContext(t *testing.T) {
+	root := filepath.Join("..", "..", "resources", "context")
+	data, err := os.ReadFile(filepath.Join(root, managedCoreName))
 	if err != nil {
-		t.Fatalf("resources/context/TACK.md must exist in the repo: %v", err)
+		t.Fatalf("resources/context/%s must exist: %v", managedCoreName, err)
 	}
 	text := string(data)
-
 	if strings.Contains(text, "{{") {
-		t.Errorf("TACK.md contains a Go template directive; context files are not template-executed")
+		t.Errorf("%s contains a template directive", managedCoreName)
 	}
-	if !strings.Contains(text, "Tack") {
-		t.Errorf("TACK.md must name the Tack persona")
-	}
-	if strings.Contains(text, "permissions in auto-approved mode") {
-		t.Error("TACK.md must not claim blanket auto-approval; interactive approval is the default")
-	}
-	for _, marker := range []string{
-		"## Core Principles",
-		"## Task Management",
-		"### Full Filesystem and Folder Access",
-		"### Desktop and Screen Capture on Windows",
-		"### Automatic Media and Document Delivery",
-		"## Implementation Methodology",
-	} {
-		if !strings.Contains(text, marker) {
-			t.Errorf("TACK.md lost the parity marker %q", marker)
+	for _, marker := range []string{"Tack", "Windows", "Zalo", "memory", "skills"} {
+		if !strings.Contains(strings.ToLower(text), strings.ToLower(marker)) {
+			t.Errorf("%s lost Gotack marker %q", managedCoreName, marker)
 		}
+	}
+	if strings.Contains(text, "## Implementation Methodology") {
+		t.Error("generic coding methodology belongs in the engine template, not TACK_CORE.md")
+	}
+	if _, err := os.Stat(filepath.Join(root, userContextName)); err != nil {
+		t.Fatalf("resources/context/%s must exist: %v", userContextName, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, legacyContextName)); !os.IsNotExist(err) {
+		t.Fatalf("new installs must not ship %s", legacyContextName)
 	}
 }

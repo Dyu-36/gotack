@@ -117,7 +117,7 @@ these envelope kinds (`bind_engine.go` attach path, decoded in
 | Kind | Lifecycle | Use |
 | --- | --- | --- |
 | `message` | `updated` | token deltas, tool-call activity for the transcript |
-| `run_complete` | flat payload | turn finished: final text, cancelled flag; drives session-done routing (UI, Zalo, and scheduled-run outcome bookkeeping via `internal/schedule`) |
+| `run_complete` | flat payload | turn finished: final text, cancelled flag; optional `telemetry` field with run-level latency data; drives session-done routing (UI, Zalo, and scheduled-run outcome bookkeeping via `internal/schedule`) |
 | `task_progress` | `updated` | sanitized timetable lifecycle (`searching`, `optimizing`, `optimal`, `feasible`, `infeasible`, `timed_out`, `failed`) with elapsed time/penalty; never includes shell ID, PID, or command |
 | `permission_request` | flat payload | pairs with the permission relay in `internal/permission` |
 | `question_batch_request` | wrapped `created` payload | agent question batches surfaced in the desktop UI |
@@ -131,7 +131,47 @@ wrapper; the decoder handles both. Malformed envelopes are dropped, never
 fatal. Rule: SSE is the only path state takes to the UI and to host reactions
 — no polling of REST routes where an event exists (AGENTS.md hard rule 5).
 
-## Seeding and release-platform limitation
+### Telemetry payload (PR0)
+
+The `run_complete` event carries an optional `telemetry` field. Old consumers
+that do not recognize this field silently ignore it (Go `omitempty` +
+pointer). The shape:
+
+```json
+{
+  "run_id": "string",
+  "provider": "string",
+  "model": "string",
+  "reasoning_effort": "string",
+  "attempt": 1,
+  "retry_count": 0,
+  "retry_delay_us": 0,
+  "spans_us": {"ready_wait": 0, "stream": 0},
+  "total_us": 0,
+  "first_semantic": "text|tool_call|reasoning",
+  "cache_status": "hit|miss|unreported",
+  "cached_input_tokens": null,
+  "uncached_input_tokens": null,
+  "service_tier": "string",
+  "provider_request_id": "REDACTED",
+  "estimated_usage": false,
+  "compacted": false,
+  "prefix_changed_reason": "git_status|date|mcp|skills|context|tool_set|compaction|model_switch|none",
+  "stable_prefix_hmac": "base64url-digest",
+  "stable_prefix_bytes": 0,
+  "dynamic_suffix_hmac": "base64url-digest",
+  "dynamic_suffix_bytes": 0,
+  "request_shape_hmac": "base64url-digest",
+  "request_shape_bytes": 0
+}
+```
+
+Security invariants:
+- `provider_request_id` is always redacted in the JSONL writer
+- Prompt text, ciphertext, OAuth tokens, and raw session UUIDs are never persisted
+- HMAC keys are 32-byte random, created atomically per install, stored 0600
+
+## Seeding and context ownership
 
 The Office runtime (`internal/officecli`) and the persona context
 (`internal/contextseed`) are seeded from directories shipped next to the
@@ -139,9 +179,9 @@ executable into `appconfig.Dir()` (`%AppData%\gotack` on Windows). Honest
 limitations:
 
 - Release packaging currently builds a Windows `amd64` ZIP. Both seeders are
-  platform-neutral: context uses the tracked `TACK.md` marker and Office uses
-  the platform executable name. A future non-Windows release must ship the
-  matching runtime payload.
+  platform-neutral: context uses the tracked `TACK_CORE.md` / `USER.md` markers
+  and Office uses the platform executable name. A future non-Windows release
+  must ship the matching runtime payload.
 - `options.global_context_paths` is rewritten on every workspace activation
   with one immutable snapshot path. The host does not merge additional global
   context directories; files intended for the persona projection must be
@@ -151,6 +191,21 @@ limitations:
   preserved when untracked or size-modified; managed runtime files are
   replaceable. A malformed seed report fails before copying, and report
   replacement itself is atomic.
+
+### Context ownership model (PR4)
+
+Two-layer ownership:
+- **TACK_CORE.md** (managed): product identity, Windows/Office/Zalo capabilities,
+  guard, memory/recall/skills. Updated atomically by Gotack releases.
+- **USER.md** (user-owned): personal preferences, project rules, custom
+  instructions. Preserved across updates.
+
+Migration from legacy `TACK.md`:
+- Stock legacy (hash matches shipped stock): auto-migrate atomically, backup
+  to `.migration-backup/`, rollback available.
+- Modified legacy: status `migration_pending`, user must approve. Never
+  overwritten.
+- Snapshot contains exactly one policy owner: managed core OR legacy, never both.
 
 ## Rollback summary
 

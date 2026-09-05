@@ -235,4 +235,3 @@ func TestOpenMigratesCrushToTackBeforeOpening(t *testing.T) {
 		t.Errorf("expected .tack/crush.db to exist after Open(): %v", err)
 	}
 }
-
