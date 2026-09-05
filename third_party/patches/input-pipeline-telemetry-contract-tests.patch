@@ -1,0 +1,345 @@
+diff --git a/internal/agent/notify/notify.go b/internal/agent/notify/notify.go
+index 0150235..1e1bc8f 100644
+--- a/internal/agent/notify/notify.go
++++ b/internal/agent/notify/notify.go
+@@ -49,6 +49,36 @@ type Notification struct {
+ 	AWSSOURL string
+ }
+ 
++// RunTelemetry contains privacy-safe timing and request-shape metadata for a
++// single top-level run. It deliberately carries no prompt text, message
++// content, tool arguments/results, credentials, or response bodies.
++type RunTelemetry struct {
++	RunID               string
++	Provider            string
++	Model               string
++	ReasoningEffort     string
++	Attempt             int
++	RetryCount          int
++	RetryDelayMicros    int64
++	SpansMicros         map[string]int64
++	TotalMicros         int64
++	FirstSemantic       string
++	CacheStatus         string
++	CachedInputTokens   *int64
++	UncachedInputTokens *int64
++	ServiceTier         string
++	ProviderRequestID   string
++	EstimatedUsage      bool
++	Compacted           bool
++	PrefixChangedReason string
++	StablePrefixHMAC    string
++	StablePrefixBytes   int
++	DynamicSuffixHMAC   string
++	DynamicSuffixBytes  int
++	RequestShapeHMAC    string
++	RequestShapeBytes   int
++}
++
+ // RunComplete is the authoritative end-of-run signal for a session.
+ // It is published exactly once per top-level agent run (per
+ // [sessionAgent.Run] invocation that actually executed) after all
+@@ -75,4 +105,5 @@ type RunComplete struct {
+ 	Text      string
+ 	Error     string
+ 	Cancelled bool
++	Telemetry *RunTelemetry
+ }
+diff --git a/internal/agent/runtrace_test.go b/internal/agent/runtrace_test.go
+new file mode 100644
+index 0000000..f94e865
+--- /dev/null
++++ b/internal/agent/runtrace_test.go
+@@ -0,0 +1,116 @@
++package agent
++
++import (
++	"bytes"
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func TestRunTraceResponsesTelemetry(t *testing.T) {
++	keyPath := filepath.Join(t.TempDir(), "run-metrics.key")
++	if err := os.WriteFile(keyPath, bytes.Repeat([]byte{0x2a}, 32), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv(runMetricsKeyFileEnv, keyPath)
++
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Header().Set("Content-Type", "text/event-stream")
++		w.Header().Set("X-Request-ID", "req_fixture")
++		flusher, ok := w.(http.Flusher)
++		if !ok {
++			t.Fatal("response writer is not a flusher")
++		}
++		_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\"}\n\n")
++		flusher.Flush()
++		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"service_tier\":\"standard\",\"usage\":{\"input_tokens\":42,\"input_tokens_details\":{\"cached_tokens\":0}}}}\n\n")
++		flusher.Flush()
++	}))
++	defer server.Close()
++
++	trace := newRunTrace("run_fixture")
++	trace.setIdentity("fixture", "gpt-5-fixture", "medium")
++	maxOutput := int64(2048)
++	trace.setRequestShape(3, 1, 2, &maxOutput, nil, nil, nil, nil, nil)
++
++	req, err := http.NewRequestWithContext(withRunTrace(context.Background(), trace), http.MethodPost, server.URL, http.NoBody)
++	if err != nil {
++		t.Fatal(err)
++	}
++	client := wrapRunTraceHTTPClient(server.Client())
++	resp, err := client.Do(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, readErr := io.Copy(io.Discard, resp.Body)
++	closeErr := resp.Body.Close()
++	if readErr != nil || closeErr != nil {
++		t.Fatal("failed to consume response")
++	}
++	trace.markSemantic("text", time.Now())
++	trace.markStepFinish(time.Now())
++
++	telemetry := trace.telemetry()
++	if telemetry == nil {
++		t.Fatal("telemetry missing")
++	}
++	if telemetry.RunID != "run_fixture" || telemetry.Provider != "fixture" || telemetry.Model != "gpt-5-fixture" {
++		t.Fatalf("identity mismatch: %#v", telemetry)
++	}
++	if telemetry.Attempt != 1 || telemetry.RetryCount != 0 {
++		t.Fatalf("attempt mismatch: %#v", telemetry)
++	}
++	if telemetry.CacheStatus != "miss" || telemetry.CachedInputTokens == nil || *telemetry.CachedInputTokens != 0 {
++		t.Fatalf("cache miss was not preserved: %#v", telemetry)
++	}
++	if telemetry.UncachedInputTokens == nil || *telemetry.UncachedInputTokens != 42 {
++		t.Fatalf("uncached tokens mismatch: %#v", telemetry)
++	}
++	if telemetry.ProviderRequestID != "req_fixture" || telemetry.ServiceTier != "standard" {
++		t.Fatalf("provider metadata mismatch: %#v", telemetry)
++	}
++	if telemetry.RequestShapeHMAC == "" || telemetry.RequestShapeBytes == 0 {
++		t.Fatalf("request shape fingerprint missing: %#v", telemetry)
++	}
++	if telemetry.FirstSemantic != "text" || telemetry.TotalMicros < 0 {
++		t.Fatalf("semantic timing mismatch: %#v", telemetry)
++	}
++	for name, duration := range telemetry.SpansMicros {
++		if duration < 0 {
++			t.Fatalf("negative span %s=%d", name, duration)
++		}
++	}
++	if _, ok := telemetry.SpansMicros["request_write_to_first_byte"]; !ok {
++		t.Fatalf("write-to-first-byte span missing: %#v", telemetry.SpansMicros)
++	}
++	if _, ok := telemetry.SpansMicros["first_byte_to_first_sse"]; !ok {
++		t.Fatalf("first-byte-to-SSE span missing: %#v", telemetry.SpansMicros)
++	}
++}
++
++func TestRunTraceCacheTriStateAndMasking(t *testing.T) {
++	trace := newRunTrace("run_fixture")
++	trace.captureCompletedFrame([]byte(`{"type":"response.completed","response":{"usage":{"input_tokens":9,"input_tokens_details":{}}}}`))
++	if got := trace.telemetry().CacheStatus; got != "unreported" {
++		t.Fatalf("omitted cached_tokens must stay unreported, got %q", got)
++	}
++
++	ctx := withRunTrace(context.Background(), trace)
++	if runTraceFromContext(ctx) != trace {
++		t.Fatal("trace context missing")
++	}
++	if runTraceFromContext(withoutRunTrace(ctx)) != nil {
++		t.Fatal("auxiliary context did not mask trace")
++	}
++
++	trace.recordRetry(25 * time.Millisecond)
++	telemetry := trace.telemetry()
++	if telemetry.RetryCount != 1 || telemetry.RetryDelayMicros != 25_000 {
++		t.Fatalf("retry telemetry mismatch: %#v", telemetry)
++	}
++}
+diff --git a/internal/proto/proto.go b/internal/proto/proto.go
+index 171fb79..aba131a 100644
+--- a/internal/proto/proto.go
++++ b/internal/proto/proto.go
+@@ -76,12 +76,43 @@ type CurrentSession struct {
+ // SessionID may arrive first, and filtering by SessionID alone
+ // would terminate the caller before its own turn ran.
+ type RunComplete struct {
+-	SessionID string `json:"session_id"`
+-	RunID     string `json:"run_id,omitempty"`
+-	MessageID string `json:"message_id"`
+-	Text      string `json:"text,omitempty"`
+-	Error     string `json:"error,omitempty"`
+-	Cancelled bool   `json:"cancelled,omitempty"`
++	SessionID string        `json:"session_id"`
++	RunID     string        `json:"run_id,omitempty"`
++	MessageID string        `json:"message_id"`
++	Text      string        `json:"text,omitempty"`
++	Error     string        `json:"error,omitempty"`
++	Cancelled bool          `json:"cancelled,omitempty"`
++	Telemetry *RunTelemetry `json:"telemetry,omitempty"`
++}
++
++// RunTelemetry is the wire representation of privacy-safe input-pipeline
++// timing and request-shape measurements. String fields are identifiers or
++// enumerated metadata; no prompt or response content is included.
++type RunTelemetry struct {
++	RunID               string           `json:"run_id,omitempty"`
++	Provider            string           `json:"provider,omitempty"`
++	Model               string           `json:"model,omitempty"`
++	ReasoningEffort     string           `json:"reasoning_effort,omitempty"`
++	Attempt             int              `json:"attempt"`
++	RetryCount          int              `json:"retry_count"`
++	RetryDelayMicros    int64            `json:"retry_delay_us,omitempty"`
++	SpansMicros         map[string]int64 `json:"spans_us,omitempty"`
++	TotalMicros         int64            `json:"total_us"`
++	FirstSemantic       string           `json:"first_semantic,omitempty"`
++	CacheStatus         string           `json:"cache_status"`
++	CachedInputTokens   *int64           `json:"cached_input_tokens,omitempty"`
++	UncachedInputTokens *int64           `json:"uncached_input_tokens,omitempty"`
++	ServiceTier         string           `json:"service_tier,omitempty"`
++	ProviderRequestID   string           `json:"provider_request_id,omitempty"`
++	EstimatedUsage      bool             `json:"estimated_usage,omitempty"`
++	Compacted           bool             `json:"compacted,omitempty"`
++	PrefixChangedReason string           `json:"prefix_changed_reason,omitempty"`
++	StablePrefixHMAC    string           `json:"stable_prefix_hmac,omitempty"`
++	StablePrefixBytes   int              `json:"stable_prefix_bytes,omitempty"`
++	DynamicSuffixHMAC   string           `json:"dynamic_suffix_hmac,omitempty"`
++	DynamicSuffixBytes  int              `json:"dynamic_suffix_bytes,omitempty"`
++	RequestShapeHMAC    string           `json:"request_shape_hmac,omitempty"`
++	RequestShapeBytes   int              `json:"request_shape_bytes,omitempty"`
+ }
+ 
+ // SkillInfo describes a visible skill exposed to a frontend.
+diff --git a/internal/server/events.go b/internal/server/events.go
+index 32abcfe..59de98b 100644
+--- a/internal/server/events.go
++++ b/internal/server/events.go
+@@ -145,6 +145,7 @@ func wrapEvent(ev any) *pubsub.Payload {
+ 				Text:      e.Payload.Text,
+ 				Error:     e.Payload.Error,
+ 				Cancelled: e.Payload.Cancelled,
++				Telemetry: runTelemetryToProto(e.Payload.Telemetry),
+ 			},
+ 		})
+ 	case pubsub.Event[proto.ConfigChanged]:
+@@ -169,6 +170,27 @@ func wrapEvent(ev any) *pubsub.Payload {
+ 	}
+ }
+ 
++func runTelemetryToProto(in *notify.RunTelemetry) *proto.RunTelemetry {
++	if in == nil {
++		return nil
++	}
++	spans := make(map[string]int64, len(in.SpansMicros))
++	for name, duration := range in.SpansMicros {
++		spans[name] = duration
++	}
++	return &proto.RunTelemetry{
++		RunID: in.RunID, Provider: in.Provider, Model: in.Model, ReasoningEffort: in.ReasoningEffort,
++		Attempt: in.Attempt, RetryCount: in.RetryCount, RetryDelayMicros: in.RetryDelayMicros,
++		SpansMicros: spans, TotalMicros: in.TotalMicros, FirstSemantic: in.FirstSemantic,
++		CacheStatus: in.CacheStatus, CachedInputTokens: in.CachedInputTokens, UncachedInputTokens: in.UncachedInputTokens,
++		ServiceTier: in.ServiceTier, ProviderRequestID: in.ProviderRequestID, EstimatedUsage: in.EstimatedUsage,
++		Compacted: in.Compacted, PrefixChangedReason: in.PrefixChangedReason,
++		StablePrefixHMAC: in.StablePrefixHMAC, StablePrefixBytes: in.StablePrefixBytes,
++		DynamicSuffixHMAC: in.DynamicSuffixHMAC, DynamicSuffixBytes: in.DynamicSuffixBytes,
++		RequestShapeHMAC: in.RequestShapeHMAC, RequestShapeBytes: in.RequestShapeBytes,
++	}
++}
++
+ // envelope marshals the inner event and wraps it in a pubsub.Payload.
+ func envelope(payloadType pubsub.PayloadType, inner any) *pubsub.Payload {
+ 	raw, err := json.Marshal(inner)
+diff --git a/internal/server/events_test.go b/internal/server/events_test.go
+index e2dd21a..a59ac75 100644
+--- a/internal/server/events_test.go
++++ b/internal/server/events_test.go
+@@ -95,6 +95,8 @@ func TestSkillsEventToProto_RoundTrip(t *testing.T) {
+ // message events arrive out of order.
+ func TestRunCompleteToProto_RoundTrip(t *testing.T) {
+ 	t.Parallel()
++	cached := int64(0)
++	uncached := int64(42)
+ 
+ 	src := pubsub.Event[notify.RunComplete]{
+ 		Type: pubsub.UpdatedEvent,
+@@ -105,6 +107,12 @@ func TestRunCompleteToProto_RoundTrip(t *testing.T) {
+ 			Text:      "VERDICT: APPROVED",
+ 			Error:     "",
+ 			Cancelled: false,
++			Telemetry: &notify.RunTelemetry{
++				RunID: "run-42", Provider: "fixture", Model: "gpt-5-fixture",
++				Attempt: 1, RetryCount: 0, SpansMicros: map[string]int64{"stream": 7}, TotalMicros: 9,
++				FirstSemantic: "text", CacheStatus: "miss", CachedInputTokens: &cached, UncachedInputTokens: &uncached,
++				ServiceTier: "standard", ProviderRequestID: "req_fixture", RequestShapeHMAC: "shape", RequestShapeBytes: 12,
++			},
+ 		},
+ 	}
+ 
+@@ -123,6 +131,15 @@ func TestRunCompleteToProto_RoundTrip(t *testing.T) {
+ 	require.Equal(t, "VERDICT: APPROVED", decoded.Payload.Text)
+ 	require.Empty(t, decoded.Payload.Error)
+ 	require.False(t, decoded.Payload.Cancelled)
++	require.NotNil(t, decoded.Payload.Telemetry)
++	require.Equal(t, "run-42", decoded.Payload.Telemetry.RunID)
++	require.Equal(t, "fixture", decoded.Payload.Telemetry.Provider)
++	require.Equal(t, "gpt-5-fixture", decoded.Payload.Telemetry.Model)
++	require.Equal(t, "miss", decoded.Payload.Telemetry.CacheStatus)
++	require.Equal(t, int64(0), *decoded.Payload.Telemetry.CachedInputTokens)
++	require.Equal(t, int64(42), *decoded.Payload.Telemetry.UncachedInputTokens)
++	require.Equal(t, int64(7), decoded.Payload.Telemetry.SpansMicros["stream"])
++	require.Equal(t, "shape", decoded.Payload.Telemetry.RequestShapeHMAC)
+ }
+ 
+ // TestAgentErrorToProto_PreservesRunID verifies that an async agent
+diff --git a/internal/workspace/client_workspace.go b/internal/workspace/client_workspace.go
+index 31699ef..1069bb2 100644
+--- a/internal/workspace/client_workspace.go
++++ b/internal/workspace/client_workspace.go
+@@ -1188,6 +1188,7 @@ func (w *ClientWorkspace) translateEvent(ev any) tea.Msg {
+ 				Text:      e.Payload.Text,
+ 				Error:     e.Payload.Error,
+ 				Cancelled: e.Payload.Cancelled,
++				Telemetry: runTelemetryFromProto(e.Payload.Telemetry),
+ 			},
+ 		}
+ 	case pubsub.Event[proto.SkillsEvent]:
+@@ -1211,6 +1212,27 @@ func (w *ClientWorkspace) translateEvent(ev any) tea.Msg {
+ 	}
+ }
+ 
++func runTelemetryFromProto(in *proto.RunTelemetry) *notify.RunTelemetry {
++	if in == nil {
++		return nil
++	}
++	spans := make(map[string]int64, len(in.SpansMicros))
++	for name, duration := range in.SpansMicros {
++		spans[name] = duration
++	}
++	return &notify.RunTelemetry{
++		RunID: in.RunID, Provider: in.Provider, Model: in.Model, ReasoningEffort: in.ReasoningEffort,
++		Attempt: in.Attempt, RetryCount: in.RetryCount, RetryDelayMicros: in.RetryDelayMicros,
++		SpansMicros: spans, TotalMicros: in.TotalMicros, FirstSemantic: in.FirstSemantic,
++		CacheStatus: in.CacheStatus, CachedInputTokens: in.CachedInputTokens, UncachedInputTokens: in.UncachedInputTokens,
++		ServiceTier: in.ServiceTier, ProviderRequestID: in.ProviderRequestID, EstimatedUsage: in.EstimatedUsage,
++		Compacted: in.Compacted, PrefixChangedReason: in.PrefixChangedReason,
++		StablePrefixHMAC: in.StablePrefixHMAC, StablePrefixBytes: in.StablePrefixBytes,
++		DynamicSuffixHMAC: in.DynamicSuffixHMAC, DynamicSuffixBytes: in.DynamicSuffixBytes,
++		RequestShapeHMAC: in.RequestShapeHMAC, RequestShapeBytes: in.RequestShapeBytes,
++	}
++}
++
+ func protoToMCPEventType(t proto.MCPEventType) mcp.EventType {
+ 	switch t {
+ 	case proto.MCPEventStateChanged:
