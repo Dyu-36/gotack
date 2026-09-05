@@ -46,9 +46,11 @@ func SetEnabled(on bool) error {
 		if err != nil {
 			return fmt.Errorf("autostart: resolve executable: %w", err)
 		}
-		key, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+		// A fresh Windows profile is not required to already contain the Run
+		// key. CreateKey opens it when present and creates it when absent.
+		key, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 		if err != nil {
-			return fmt.Errorf("autostart: open run key: %w", err)
+			return fmt.Errorf("autostart: open or create run key: %w", err)
 		}
 		defer key.Close()
 		if err := key.SetStringValue(valueName, commandLine(exe)); err != nil {
@@ -58,6 +60,11 @@ func SetEnabled(on bool) error {
 	}
 
 	key, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if errors.Is(err, registry.ErrNotExist) {
+		// Disabling is idempotent. A missing shared Run key already means the
+		// Tack value is absent and must not be treated as a failure.
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("autostart: open run key: %w", err)
 	}
