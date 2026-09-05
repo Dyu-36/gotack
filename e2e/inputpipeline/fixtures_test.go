@@ -34,14 +34,15 @@ const (
 )
 
 type captureCounts struct {
-	Requests       int
-	Retries        int
-	ToolResponses  int
-	ToolResults    int
-	Invalid        int
-	RejectedRoute  int
-	RejectedAuth   int
-	RejectedSchema int
+	Requests        int
+	Retries         int
+	ToolResponses   int
+	ToolResults     int
+	Invalid         int
+	RejectedRoute   int
+	RejectedAuth    int
+	RejectedSchema  int
+	CacheKeyRequest int
 }
 
 type fakeProvider struct {
@@ -103,6 +104,7 @@ func (p *fakeProvider) counts(run string) captureCounts {
 type responseRequest struct {
 	Model  string                       `json:"model"`
 	Stream bool                         `json:"stream"`
+	Cache  string                       `json:"prompt_cache_key"`
 	Input  []map[string]json.RawMessage `json:"input"`
 	Tools  []struct {
 		Type string `json:"type"`
@@ -189,6 +191,9 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	c := p.runs[p.active]
 	c.Requests++
+	if req.Cache != "" {
+		c.CacheKeyRequest++
+	}
 	p.serial++
 	defer func() { p.runs[p.active] = c }()
 	if p.mode == modeRetry && c.Requests == 1 {

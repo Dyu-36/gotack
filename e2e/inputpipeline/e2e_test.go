@@ -54,7 +54,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func newID(t *testing.T) string {
+func newID(t testing.TB) string {
 	t.Helper()
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -65,7 +65,7 @@ func newID(t *testing.T) string {
 	s := hex.EncodeToString(b[:])
 	return s[:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:]
 }
-func must(t *testing.T, err error, code string) {
+func must(t testing.TB, err error, code string) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(code)
@@ -80,7 +80,7 @@ type engineHarness struct {
 	stop      func()
 }
 
-func isolatedEnv(t *testing.T, root, proxy string) []string {
+func isolatedEnv(t testing.TB, root, proxy string) []string {
 	t.Helper()
 	system := os.Getenv("SystemRoot")
 	if system == "" {
@@ -113,15 +113,19 @@ func isolatedEnv(t *testing.T, root, proxy string) []string {
 	}
 	return env
 }
-func writeFixtureConfig(t *testing.T, root string, p *fakeProvider, withMCP bool) {
+func writeFixtureConfig(t testing.TB, root string, p *fakeProvider, withMCP bool, modelOptions ...map[string]any) {
 	t.Helper()
 	model := func(id string) map[string]any {
 		return map[string]any{"id": id, "name": id, "context_window": 200000, "default_max_tokens": 4096}
 	}
+	main := model(mainModel)
+	if len(modelOptions) > 0 && modelOptions[0] != nil {
+		main["provider_options"] = modelOptions[0]
+	}
 	config := map[string]any{
 		"providers": map[string]any{"e2e": map[string]any{"name": "Synthetic E2E", "type": "openai",
 			"base_url": p.server.URL + "/v1", "api_key": "synthetic-test-key", "discover_models": false,
-			"models": []any{model(mainModel), model(titleModel)}}},
+			"models": []any{main, model(titleModel)}}},
 		"models": map[string]any{"large": map[string]any{"provider": "e2e", "model": mainModel},
 			"small": map[string]any{"provider": "e2e", "model": titleModel}},
 		"options": map[string]any{"disable_metrics": true, "disable_provider_auto_update": true,
@@ -137,10 +141,10 @@ func writeFixtureConfig(t *testing.T, root string, p *fakeProvider, withMCP bool
 	must(t, err, "fixture_config_encoding_failed")
 	must(t, os.WriteFile(filepath.Join(root, "global-config", "crush.json"), data, 0o600), "fixture_config_write_failed")
 }
-func startEngine(t *testing.T, root string, p *fakeProvider, withMCP bool) *engineHarness {
+func startEngine(t testing.TB, root string, p *fakeProvider, withMCP bool, modelOptions ...map[string]any) *engineHarness {
 	t.Helper()
 	env := isolatedEnv(t, root, p.proxy.URL)
-	writeFixtureConfig(t, root, p, withMCP)
+	writeFixtureConfig(t, root, p, withMCP, modelOptions...)
 	workspace, db := filepath.Join(root, "workspace"), filepath.Join(root, "workspace-data")
 	must(t, os.MkdirAll(workspace, 0o700), "workspace_directory_failed")
 	pipe := `\\.\pipe\gotack-e2e-` + newID(t)
@@ -215,7 +219,7 @@ func startEngine(t *testing.T, root string, p *fakeProvider, withMCP bool) *engi
 	must(t, client.SetPermissionsSkip(ctx, ws.ID, true), "fixture_permission_failed")
 	return &engineHarness{client: client, events: events, workspace: ws.ID, ctx: ctx, stop: stop}
 }
-func freshSession(t *testing.T, h *engineHarness) string {
+func freshSession(t testing.TB, h *engineHarness) string {
 	t.Helper()
 	session, err := h.client.CreateSession(h.ctx, h.workspace, "synthetic-e2e")
 	must(t, err, "session_create_failed")
@@ -225,7 +229,7 @@ func freshSession(t *testing.T, h *engineHarness) string {
 	must(t, h.client.SetCurrentSession(h.ctx, h.workspace, session.ID), "current_session_failed")
 	return session.ID
 }
-func sendTurn(t *testing.T, h *engineHarness, p *fakeProvider, session string, mode providerMode) (terminalPayload, captureCounts) {
+func sendTurn(t testing.TB, h *engineHarness, p *fakeProvider, session string, mode providerMode) (terminalPayload, captureCounts) {
 	t.Helper()
 	run := newID(t)
 	p.arm(run, mode)
