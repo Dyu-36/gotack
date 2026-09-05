@@ -6,13 +6,35 @@ Authority: `ImplementPlan.md`, `WebPlan.md`, `AGENTS.md`, and
 ## Owner decision and boundary
 
 The owner's latest explicit instruction is to implement directly on `main`,
-without creating a Gotack branch or worktree. This overrides only the older
-branch instructions in `WebPlan.md` sections 4, 5, and 19. Phase order, safety,
-evidence, and owner Windows acceptance requirements still apply.
+without creating a Gotack branch or worktree. The 2026-09-05 owner instruction
+also overrides all older per-phase stops, owner-test pauses and sequential
+checkpoint handoffs in ImplementPlan/WebPlan. Implement every remaining phase
+continuously, with independent agents assigned explicit file ownership; run
+consolidated acceptance after integration. Safety, architecture, provenance and
+release acceptance requirements remain mandatory. Hybrid/local compaction is
+outside this milestone. Live paid calls have no authorized budget.
 
-Current checkpoint: Phase 0A harness/provenance candidate. Do not start Phase
-0B or claim PR0-PR5/release completion before the Phase 0A Windows evidence is
-accepted. Hybrid/local compaction remains outside this milestone.
+Current execution starts at `cc48aeeabbbdbf61e9a089a736d39bb01408d613` on main.
+Pre-existing owner edits in wails-bindings.md, timetable_template_test.go and
+the timetable skill/template must be preserved. Older evidence below is historical,
+not acceptance of this candidate. Status vocabulary: IMPLEMENTED means code exists;
+PASS means an executed check passed; FAIL, BLOCKED, UNVERIFIED and OUT_OF_SCOPE
+are distinct and must never be converted into PASS.
+
+## Current progress ledger
+
+| Scope | Status | Evidence / next work |
+| --- | --- | --- |
+| Phase 0A | UNVERIFIED | Reproduce current Responses fixture diagnostics and repair harness |
+| PR0 | UNVERIFIED | Engine producer and redacted consumer integration assigned |
+| PR1 | UNVERIFIED | Engine paths, options and todo correctness assigned |
+| PR2 | UNVERIFIED | Typed prompt snapshot and skill ownership assigned |
+| PR4 | UNVERIFIED | Durable migration, host and UI assigned; temp profiles only |
+| PR5 | UNVERIFIED | Reasoning persistence/replay and durable Fantasy provenance assigned |
+| PR3 | UNVERIFIED | Replace fabricated benchmark data; default OFF, no rollout without evidence |
+| Live Responses | BLOCKED | BLOCKED_LIVE_ACCEPTANCE: no approved paid request budget |
+| Hybrid compaction | OUT_OF_SCOPE | Only bounded PR5 anchor selection is authorized |
+| Release | UNVERIFIED | Consolidated candidate gates have not yet run |
 
 The starting Gotack commit was `b6dcf68320b708df7a5e3c8e1750689cf5621ec1`.
 The Crush pin is owned by `.tack-pin`; the owner's ignored `third_party/crush`
