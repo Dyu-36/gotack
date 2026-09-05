@@ -56,7 +56,7 @@ Nếu bất kỳ hard constraint nào fail:
 ## 5. Tạo và giao file Excel
 
 - Dùng `<skill_dir>/assets/mau-thoi-khoa-bieu.xlsx` làm template đầu ra khi phù hợp.
-- Copy template rồi ghi dữ liệu lịch vào đúng cấu trúc của workbook; không tạo lại format từ đầu nếu không cần.
+- Copy template rồi ghi trực tiếp dữ liệu lịch dạng text/raw values vào các ô trên sheet 'Thời khóa biểu' (môn học, giáo viên từng lớp); không dùng công thức tham chiếu ràng buộc; không tạo lại format từ đầu nếu không cần.
 - Sau khi ghi, mở lại file và kiểm tra dữ liệu thực tế trong workbook trước khi giao.
 - Phải lưu/đóng file, đảm bảo file tồn tại và không rỗng.
 - Trả link Markdown dạng `[Mở thời khóa biểu](file:///...)` với đường dẫn tuyệt đối và URI-encode ký tự đặc biệt khi cần.
