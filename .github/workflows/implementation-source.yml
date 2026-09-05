@@ -1,0 +1,81 @@
+name: Input pipeline implementation source
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/implementation-source.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Bundle exact source and offline dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:GITHUB_WORKSPACE
+          $out = Join-Path $env:RUNNER_TEMP 'implementation-source'
+          $src = Join-Path $env:RUNNER_TEMP 'implementation-checkouts'
+          New-Item -ItemType Directory -Force $out, $src | Out-Null
+          function Invoke-Native([string]$File, [string[]]$Arguments) {
+            & $File @Arguments
+            if ($LASTEXITCODE -ne 0) { throw 'Source preparation command failed.' }
+          }
+          $pin = (Get-Content (Join-Path $root '.tack-pin') -Raw).Trim()
+          if ($pin -notmatch '^[a-f0-9]{40}$') { throw 'Invalid Crush pin.' }
+          $gotackCommit = (& git -C $root rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve Gotack commit.' }
+          Invoke-Native git @('-C', $root, 'archive', '--format=zip', '-o', (Join-Path $out 'gotack.zip'), 'HEAD')
+          $crush = Join-Path $src 'crush'
+          Invoke-Native git @('init', '--quiet', '--template=', $crush)
+          Invoke-Native git @('-C', $crush, 'config', 'core.autocrlf', 'false')
+          Invoke-Native git @('-C', $crush, 'fetch', '--depth=1', 'https://github.com/charmbracelet/crush.git', $pin)
+          Invoke-Native git @('-C', $crush, 'checkout', '--detach', 'FETCH_HEAD')
+          Invoke-Native git @('-C', $crush, 'archive', '--format=zip', '-o', (Join-Path $out 'crush-pin.zip'), 'HEAD')
+          & (Join-Path $root 'scripts/apply-crush-patches.ps1') -CrushDir $crush
+          if (-not $?) { throw 'Compatibility replay failed.' }
+          $fantasyMatch = [regex]::Match((Get-Content (Join-Path $crush 'go.mod') -Raw), '(?m)^\s*charm\.land/fantasy\s+(v\S+)')
+          if (-not $fantasyMatch.Success) { throw 'Fantasy version missing.' }
+          $fantasyVersion = $fantasyMatch.Groups[1].Value
+          $fantasy = Join-Path $src 'fantasy'
+          Invoke-Native git @('init', '--quiet', '--template=', $fantasy)
+          Invoke-Native git @('-C', $fantasy, 'config', 'core.autocrlf', 'false')
+          Invoke-Native git @('-C', $fantasy, 'fetch', '--depth=1', 'https://github.com/charmbracelet/fantasy.git', ('refs/tags/' + $fantasyVersion))
+          Invoke-Native git @('-C', $fantasy, 'checkout', '--detach', 'FETCH_HEAD')
+          $fantasyCommit = (& git -C $fantasy rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve Fantasy commit.' }
+          $env:GOWORK = 'off'
+          $env:GOFLAGS = ''
+          foreach ($entry in @(@{ Name='gotack'; Dir=$root }, @{ Name='crush'; Dir=$crush }, @{ Name='fantasy'; Dir=$fantasy })) {
+            Push-Location $entry.Dir
+            try { Invoke-Native go @('mod', 'vendor') } finally { Pop-Location }
+            $archive = Join-Path $out ($entry.Name + '-offline.zip')
+            Invoke-Native tar @('-a', '-c', '-f', $archive, '--exclude=.git', '-C', $entry.Dir, '.')
+          }
+          @{ gotack_commit=$gotackCommit; crush_pin=$pin; fantasy_version=$fantasyVersion; fantasy_commit=$fantasyCommit } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $out 'source-provenance.json')
+          $version = [regex]::Match((Get-Content (Join-Path $root 'go.mod') -Raw), '(?m)^go\s+(\S+)').Groups[1].Value
+          $releases = Invoke-RestMethod 'https://go.dev/dl/?mode=json&include=all'
+          $release = $releases | Where-Object version -eq ('go' + $version) | Select-Object -First 1
+          $linux = $release.files | Where-Object { $_.os -eq 'linux' -and $_.arch -eq 'amd64' -and $_.kind -eq 'archive' } | Select-Object -First 1
+          if (-not $linux) { throw 'Official authoring toolchain not found.' }
+          $toolchain = Join-Path $out 'go-authoring-linux-amd64.tar.gz'
+          Invoke-WebRequest ('https://go.dev/dl/' + $linux.filename) -OutFile $toolchain
+          if ((Get-FileHash $toolchain -Algorithm SHA256).Hash.ToLowerInvariant() -ne $linux.sha256) { throw 'Toolchain checksum mismatch.' }
+          $linux | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $out 'toolchain-provenance.json')
+      - name: Upload repository source only
+        uses: actions/upload-artifact@v4
+        with:
+          name: input-pipeline-implementation-source
+          path: ${{ runner.temp }}/implementation-source/*
+          retention-days: 1
+          if-no-files-found: error
