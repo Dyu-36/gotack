@@ -12,6 +12,12 @@ export const requiredTests = Object.freeze([
   'TestE2EProviderOptionsPreserved',
   'TestE2EInvalidOptionsPreNetwork',
   'TestE2ETodoReminderReflectsState',
+  'TestE2ERunTelemetryFreshRetryAndToolLoop',
+  'TestE2ETelemetryStablePrefixStableAcrossTurns',
+  'TestE2ECanonicalPromptAcrossRestarts',
+  'TestE2EMCPInstructionOrderDeterministic',
+  'TestE2ECompactionPreservesLatestAnchorGroup',
+  'TestE2EPromptCanaryStaysInAllowedSinks',
 ]);
 export const testPackage = 'github.com/Dyu-36/gotack/e2e/inputpipeline';
 export class GateError extends Error {
