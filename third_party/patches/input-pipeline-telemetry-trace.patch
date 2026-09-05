@@ -1,0 +1,498 @@
+diff --git a/internal/agent/runtrace.go b/internal/agent/runtrace.go
+new file mode 100644
+index 0000000..d3ef37c
+--- /dev/null
++++ b/internal/agent/runtrace.go
+@@ -0,0 +1,492 @@
++package agent
++
++import (
++	"bytes"
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/json"
++	"io"
++	"net/http"
++	"net/http/httptrace"
++	"os"
++	"sync"
++	"time"
++
++	"github.com/charmbracelet/crush/internal/agent/notify"
++	crushlog "github.com/charmbracelet/crush/internal/log"
++)
++
++const runMetricsKeyFileEnv = "TACK_RUN_METRICS_KEY_FILE"
++
++type runTraceContextKey struct{}
++
++type runTrace struct {
++	mu sync.Mutex
++
++	start time.Time
++	runID string
++
++	provider        string
++	model           string
++	reasoningEffort string
++	attempt         int
++	retryCount      int
++	retryDelay      time.Duration
++	spans           map[string]time.Duration
++	firstByte       time.Time
++	firstSSE        time.Time
++	firstSemanticAt time.Time
++	firstSemantic   string
++	lastStepFinish  time.Time
++
++	cacheReported bool
++	cachedTokens  int64
++	inputTokens   int64
++	serviceTier   string
++	requestID     string
++	estimated     bool
++	compacted     bool
++	prefixReason  string
++
++	requestShapeHMAC  string
++	requestShapeBytes int
++	key               []byte
++}
++
++func newRunTrace(runID string) *runTrace {
++	t := &runTrace{
++		start: time.Now(),
++		runID: runID,
++		spans: make(map[string]time.Duration),
++	}
++	if path := os.Getenv(runMetricsKeyFileEnv); path != "" {
++		if key, err := os.ReadFile(path); err == nil && len(key) == 32 {
++			t.key = append([]byte(nil), key...)
++		}
++	}
++	return t
++}
++
++func withRunTrace(ctx context.Context, trace *runTrace) context.Context {
++	if trace == nil {
++		return ctx
++	}
++	return context.WithValue(ctx, runTraceContextKey{}, trace)
++}
++
++// withoutRunTrace preserves every other context value while explicitly
++// masking run telemetry. Auxiliary model calls (for example title generation)
++// must not be counted as attempts of the user's run.
++func withoutRunTrace(ctx context.Context) context.Context {
++	return context.WithValue(ctx, runTraceContextKey{}, (*runTrace)(nil))
++}
++
++func runTraceFromContext(ctx context.Context) *runTrace {
++	if ctx == nil {
++		return nil
++	}
++	trace, _ := ctx.Value(runTraceContextKey{}).(*runTrace)
++	return trace
++}
++
++func traceSpan(ctx context.Context, name string, start time.Time) {
++	if trace := runTraceFromContext(ctx); trace != nil {
++		trace.addSpan(name, time.Since(start))
++	}
++}
++
++func (t *runTrace) addSpan(name string, duration time.Duration) {
++	if t == nil || duration < 0 || name == "" {
++		return
++	}
++	t.mu.Lock()
++	t.spans[name] += duration
++	t.mu.Unlock()
++}
++
++func (t *runTrace) setIdentity(provider, model, reasoningEffort string) {
++	if t == nil {
++		return
++	}
++	if len(provider) > 128 {
++		provider = provider[:128]
++	}
++	if len(model) > 128 {
++		model = model[:128]
++	}
++	t.mu.Lock()
++	t.provider = provider
++	t.model = model
++	t.reasoningEffort = reasoningEffort
++	t.mu.Unlock()
++}
++
++// setRequestShape fingerprints only structural metadata. It intentionally does
++// not include prompt text, attachments, message bodies, credentials, tool
++// arguments, or provider response content.
++func (t *runTrace) setRequestShape(historyCount, attachmentCount, toolCount int, maxOutput *int64, temperature, topP, frequencyPenalty, presencePenalty *float64, topK *int64) {
++	if t == nil || len(t.key) != 32 {
++		return
++	}
++	t.mu.Lock()
++	shape := struct {
++		Provider        string `json:"provider"`
++		Model           string `json:"model"`
++		HistoryCount    int    `json:"history_count"`
++		AttachmentCount int    `json:"attachment_count"`
++		ToolCount       int    `json:"tool_count"`
++		MaxOutput       int64  `json:"max_output"`
++		HasMaxOutput    bool   `json:"has_max_output"`
++		HasTemperature  bool   `json:"has_temperature"`
++		HasTopP         bool   `json:"has_top_p"`
++		HasTopK         bool   `json:"has_top_k"`
++		HasFreqPenalty  bool   `json:"has_frequency_penalty"`
++		HasPresPenalty  bool   `json:"has_presence_penalty"`
++		ReasoningEffort string `json:"reasoning_effort"`
++	}{
++		Provider: t.provider, Model: t.model, HistoryCount: historyCount,
++		AttachmentCount: attachmentCount, ToolCount: toolCount, HasMaxOutput: maxOutput != nil,
++		HasTemperature: temperature != nil, HasTopP: topP != nil, HasTopK: topK != nil,
++		HasFreqPenalty: frequencyPenalty != nil, HasPresPenalty: presencePenalty != nil,
++		ReasoningEffort: t.reasoningEffort,
++	}
++	if maxOutput != nil {
++		shape.MaxOutput = *maxOutput
++	}
++	key := append([]byte(nil), t.key...)
++	t.mu.Unlock()
++
++	encoded, err := json.Marshal(shape)
++	if err != nil {
++		return
++	}
++	mac := hmac.New(sha256.New, key)
++	_, _ = mac.Write(encoded)
++	t.mu.Lock()
++	t.requestShapeHMAC = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
++	t.requestShapeBytes = len(encoded)
++	t.mu.Unlock()
++}
++
++func (t *runTrace) beginAttempt() {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	t.attempt++
++	t.mu.Unlock()
++}
++
++func (t *runTrace) markFirstByte(at, wroteAt time.Time) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	if t.firstByte.IsZero() {
++		t.firstByte = at
++	}
++	if !wroteAt.IsZero() && !at.Before(wroteAt) {
++		t.spans["request_write_to_first_byte"] += at.Sub(wroteAt)
++	}
++	t.mu.Unlock()
++}
++
++func (t *runTrace) markFirstSSE(at time.Time) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	if !t.firstSSE.IsZero() {
++		t.mu.Unlock()
++		return
++	}
++	t.firstSSE = at
++	if !t.firstByte.IsZero() && !at.Before(t.firstByte) {
++		t.spans["first_byte_to_first_sse"] = at.Sub(t.firstByte)
++	}
++	t.mu.Unlock()
++}
++
++func (t *runTrace) markSemantic(kind string, at time.Time) {
++	if t == nil || kind == "" {
++		return
++	}
++	t.mu.Lock()
++	if t.firstSemanticAt.IsZero() {
++		t.firstSemanticAt = at
++		t.firstSemantic = kind
++		if !t.firstSSE.IsZero() && !at.Before(t.firstSSE) {
++			t.spans["first_sse_to_first_"+kind] = at.Sub(t.firstSSE)
++		}
++	}
++	t.mu.Unlock()
++}
++
++func (t *runTrace) markStepFinish(at time.Time) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	t.lastStepFinish = at
++	t.mu.Unlock()
++}
++
++func (t *runTrace) recordRetry(delay time.Duration) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	t.retryCount++
++	if delay > 0 {
++		t.retryDelay += delay
++	}
++	t.mu.Unlock()
++}
++
++// recordStepUsage is a fallback for providers whose wire response does not
++// expose cache usage. OpenAI Responses wire metadata remains authoritative for
++// hit/miss because a reported zero must be distinguishable from an omitted
++// field.
++func (t *runTrace) recordStepUsage(input, cached int64, estimated bool) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	if !t.cacheReported && cached > 0 {
++		t.cacheReported = true
++		t.cachedTokens += cached
++		t.inputTokens += input
++	}
++	if estimated {
++		t.estimated = true
++	}
++	t.mu.Unlock()
++}
++
++func (t *runTrace) setCompacted() {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	t.compacted = true
++	t.prefixReason = "compaction"
++	t.mu.Unlock()
++}
++
++func (t *runTrace) captureHeaders(h http.Header) {
++	if t == nil {
++		return
++	}
++	requestID := h.Get("x-request-id")
++	if requestID == "" {
++		requestID = h.Get("openai-request-id")
++	}
++	if len(requestID) > 256 {
++		requestID = requestID[:256]
++	}
++	t.mu.Lock()
++	if t.requestID == "" {
++		t.requestID = requestID
++	}
++	t.mu.Unlock()
++}
++
++func (t *runTrace) captureCompletedFrame(data []byte) {
++	if t == nil || len(data) == 0 {
++		return
++	}
++	var event struct {
++		Type     string `json:"type"`
++		Response struct {
++			ServiceTier string `json:"service_tier"`
++			Usage       *struct {
++				InputTokens        int64 `json:"input_tokens"`
++				InputTokensDetails *struct {
++					CachedTokens *int64 `json:"cached_tokens"`
++				} `json:"input_tokens_details"`
++			} `json:"usage"`
++		} `json:"response"`
++	}
++	if json.Unmarshal(data, &event) != nil || (event.Type != "response.completed" && event.Type != "response.incomplete") {
++		return
++	}
++	t.mu.Lock()
++	if event.Response.ServiceTier != "" && len(event.Response.ServiceTier) <= 64 {
++		t.serviceTier = event.Response.ServiceTier
++	}
++	if event.Response.Usage != nil && event.Response.Usage.InputTokensDetails != nil && event.Response.Usage.InputTokensDetails.CachedTokens != nil {
++		t.cacheReported = true
++		t.inputTokens += event.Response.Usage.InputTokens
++		t.cachedTokens += *event.Response.Usage.InputTokensDetails.CachedTokens
++	}
++	t.mu.Unlock()
++}
++
++func (t *runTrace) telemetry() *notify.RunTelemetry {
++	if t == nil {
++		return nil
++	}
++	now := time.Now()
++	t.mu.Lock()
++	defer t.mu.Unlock()
++
++	spans := make(map[string]int64, len(t.spans)+1)
++	for name, duration := range t.spans {
++		if duration < 0 {
++			continue
++		}
++		spans[name] = duration.Microseconds()
++	}
++	if !t.firstSSE.IsZero() {
++		end := t.lastStepFinish
++		if end.IsZero() || end.Before(t.firstSSE) {
++			end = now
++		}
++		stream := end.Sub(t.firstSSE)
++		if stream < 0 {
++			stream = 0
++		}
++		spans["stream"] = stream.Microseconds()
++	}
++
++	cacheStatus := "unreported"
++	var cached, uncached *int64
++	if t.cacheReported {
++		cachedValue := t.cachedTokens
++		uncachedValue := t.inputTokens - t.cachedTokens
++		if uncachedValue < 0 {
++			uncachedValue = 0
++		}
++		cached, uncached = &cachedValue, &uncachedValue
++		if cachedValue > 0 {
++			cacheStatus = "hit"
++		} else {
++			cacheStatus = "miss"
++		}
++	}
++
++	total := now.Sub(t.start)
++	if total < 0 {
++		total = 0
++	}
++	return &notify.RunTelemetry{
++		RunID: t.runID, Provider: t.provider, Model: t.model, ReasoningEffort: t.reasoningEffort,
++		Attempt: t.attempt, RetryCount: t.retryCount, RetryDelayMicros: t.retryDelay.Microseconds(),
++		SpansMicros: spans, TotalMicros: total.Microseconds(), FirstSemantic: t.firstSemantic,
++		CacheStatus: cacheStatus, CachedInputTokens: cached, UncachedInputTokens: uncached,
++		ServiceTier: t.serviceTier, ProviderRequestID: t.requestID, EstimatedUsage: t.estimated,
++		Compacted: t.compacted, PrefixChangedReason: t.prefixReason,
++		RequestShapeHMAC: t.requestShapeHMAC, RequestShapeBytes: t.requestShapeBytes,
++	}
++}
++
++type runTraceTransport struct {
++	base http.RoundTripper
++}
++
++func (transport runTraceTransport) RoundTrip(req *http.Request) (*http.Response, error) {
++	base := transport.base
++	if base == nil {
++		base = http.DefaultTransport
++	}
++	trace := runTraceFromContext(req.Context())
++	if trace == nil {
++		return base.RoundTrip(req)
++	}
++	trace.beginAttempt()
++	var wroteAt time.Time
++	clientTrace := &httptrace.ClientTrace{
++		WroteRequest: func(httptrace.WroteRequestInfo) {
++			wroteAt = time.Now()
++		},
++		GotFirstResponseByte: func() {
++			trace.markFirstByte(time.Now(), wroteAt)
++		},
++	}
++	resp, err := base.RoundTrip(req.WithContext(httptrace.WithClientTrace(req.Context(), clientTrace)))
++	if resp != nil {
++		trace.captureHeaders(resp.Header)
++		resp.Body = &runTraceBody{ReadCloser: resp.Body, trace: trace}
++	}
++	return resp, err
++}
++
++type runTraceBody struct {
++	io.ReadCloser
++	trace *runTrace
++	buf   []byte
++}
++
++func (body *runTraceBody) Read(p []byte) (int, error) {
++	n, err := body.ReadCloser.Read(p)
++	if n > 0 {
++		body.observe(p[:n])
++	}
++	return n, err
++}
++
++func (body *runTraceBody) observe(chunk []byte) {
++	if body.trace == nil || len(chunk) == 0 {
++		return
++	}
++	// The telemetry parser retains only incomplete framing bytes. If a provider
++	// emits an unusually large frame, abandon telemetry parsing for that frame
++	// instead of retaining arbitrary model content; the application stream is
++	// left untouched.
++	const maxTelemetryFrame = 2 << 20
++	if len(body.buf)+len(chunk) > maxTelemetryFrame {
++		body.buf = body.buf[:0]
++		return
++	}
++	body.buf = append(body.buf, chunk...)
++	for {
++		idx := bytes.Index(body.buf, []byte("\n\n"))
++		sepLen := 2
++		if idx < 0 {
++			idx = bytes.Index(body.buf, []byte("\r\n\r\n"))
++			sepLen = 4
++		}
++		if idx < 0 {
++			return
++		}
++		frame := body.buf[:idx]
++		body.buf = body.buf[idx+sepLen:]
++		if len(frame) == 0 {
++			continue
++		}
++		body.trace.markFirstSSE(time.Now())
++		for _, line := range bytes.Split(frame, []byte("\n")) {
++			line = bytes.TrimSpace(line)
++			if !bytes.HasPrefix(line, []byte("data:")) {
++				continue
++			}
++			data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
++			if len(data) == 0 || bytes.Equal(data, []byte("[DONE]")) {
++				continue
++			}
++			body.trace.captureCompletedFrame(data)
++		}
++	}
++}
++
++func tracedHTTPClient(debug bool) *http.Client {
++	client := &http.Client{Transport: http.DefaultTransport}
++	if debug {
++		client = crushlog.NewHTTPClient()
++	}
++	return wrapRunTraceHTTPClient(client)
++}
++
++func wrapRunTraceHTTPClient(client *http.Client) *http.Client {
++	if client == nil {
++		client = &http.Client{}
++	}
++	base := client.Transport
++	if base == nil {
++		base = http.DefaultTransport
++	}
++	client.Transport = runTraceTransport{base: base}
++	return client
++}
