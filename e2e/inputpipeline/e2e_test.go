@@ -437,12 +437,14 @@ func TestE2ETodoReminderReflectsState(t *testing.T) {
 		!strings.Contains(c.LastInputText, "synthetic-task-beta") {
 		t.Fatal("todo_state_lost_after_restart")
 	}
-	h.stop()
+	// The transcript read is a live REST call: it must happen while the
+	// restarted engine is still running.
 	messages, err := h.client.Messages(h.ctx, h.workspace, session)
 	must(t, err, "restart_history_read_failed")
 	if len(messages) == 0 {
 		t.Fatal("restart_history_missing")
 	}
+	h.stop()
 	transcript, err := json.Marshal(messages)
 	must(t, err, "restart_history_encode_failed")
 	if strings.Contains(string(transcript), "system_reminder") ||
