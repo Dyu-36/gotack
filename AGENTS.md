@@ -29,12 +29,13 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 
 | Path | Role |
 | --- | --- |
-| main.go | Wails entry point: window options, embeds frontend/dist |
+| main.go | Wails entry point: window options (hide-on-close, single instance, `--hidden` start), embeds frontend/dist |
 | app.go | App object bound to the UI, lifecycle and service wiring |
-| bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, files, OAuth, and Zalo. `bind_host.go` holds the two one-method groups (`BackendReady`, `SelectWorkspace`) that were previously a file each |
+| tray_windows.go, tray_other.go | Notification-area icon (`fyne.io/systray`); closing the window only hides it and the tray restores it. Windows implementation plus the non-Windows compile stub |
+| bind_*.go | Wails-bound API groups: host, engine, workspace, session, permission, changes, terminal, config, files, OAuth, and Zalo. `bind_host.go` holds the one-method groups (`BackendReady`, `SelectWorkspace`) and the autostart toggle (`GetAutoStart`, `SetAutoStart`) |
 | events.go | Host to UI event emission, single place |
 | office_seed.go, context_seed.go, guard_seed.go, memory_seed.go, skills_seed.go, recall_seed.go, schedule_host.go, reflection_host.go, settings_crush.go | package main helpers that are not bound methods; they take `*App` only for config and resource seeding |
-| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, bundleseed, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, openaioauth, permission, recall, reflection, schedule, session, skillmanage, terminal, uievents, userstrings, workspace, zalo |
+| internal/ | Desktop-side implementation, one package per role: appconfig, attachments, autostart, bundleseed, changes, contextseed, crushapi, engine, enginelink, guard, logging, mcp, memory, office, officecli, openaioauth, permission, recall, reflection, schedule, session, skillmanage, terminal, uievents, userstrings, workspace, zalo |
 | cmd/guard/ | PreToolUse approval hook (destructive-command blocklist, graduated tiers); ships as guard.exe |
 | cmd/memory/ | Persistent self-editing memory MCP server over stdio; curates MEMORY.md / USER.md in the seeded context dir; ships as memory.exe |
 | cmd/skills/ | Progressive procedural-skill MCP server over stdio; ships as skills.exe |

@@ -36,6 +36,19 @@ type ToolActivityPayload struct {
 	ToolCallID string          `json:"tool_call_id"`
 }
 
+type TaskProgressPayload struct {
+	SessionID                string `json:"session_id"`
+	RunID                    string `json:"run_id,omitempty"`
+	State                    string `json:"state"`
+	ElapsedSeconds           int    `json:"elapsed_seconds"`
+	LimitSeconds             int    `json:"limit_seconds"`
+	Solutions                int    `json:"solutions,omitempty"`
+	Penalty                  *int   `json:"penalty,omitempty"`
+	ResultStatus             string `json:"result_status,omitempty"`
+	HardConstraintsSatisfied *bool  `json:"hard_constraints_satisfied,omitempty"`
+	SoftViolationCount       int    `json:"soft_violation_count,omitempty"`
+}
+
 type ChangesUpdatedPayload struct {
 	SessionID string `json:"session_id"`
 	Path      string `json:"path"`
@@ -80,6 +93,7 @@ type Callbacks struct {
 	RunDone              func(SessionDonePayload)
 	AssistantIteration   func(sessionID, messageID string, hasToolCalls bool)
 	LearningToolExecuted func(sessionID, toolCallID, toolName string)
+	RunTelemetry         func(*crushapi.RunTelemetry)
 }
 
 type Forwarder struct {
@@ -157,6 +171,8 @@ func (f *Forwarder) handle(ev crushapi.StreamEvent) {
 		}
 	case "run_complete":
 		f.handleRunComplete(ev.Payload)
+	case "task_progress":
+		f.handleTaskProgress(ev.Payload)
 	case "permission_request":
 		f.handlePermission(ev.Payload)
 	case "file":
@@ -195,7 +211,7 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 			if learningResultAdmitted(result) {
 				f.callbacks.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
 			}
-	}
+		}
 	}
 	f.schedule(msg.SessionID, msg.ID, parts)
 }
@@ -285,10 +301,38 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 		f.emitDeltas(f.drain(rc.SessionID))
 	}
 	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
+	if rc.Telemetry != nil && f.callbacks.RunTelemetry != nil {
+		f.callbacks.RunTelemetry(rc.Telemetry)
+	}
 	if f.callbacks.RunDone != nil {
 		f.callbacks.RunDone(done)
 	}
 	f.send(SessionDone, done)
+}
+
+func (f *Forwarder) handleTaskProgress(payload json.RawMessage) {
+	var progress crushapi.TaskProgress
+	if err := json.Unmarshal(payload, &progress); err != nil {
+		if f.log != nil {
+			f.log.Debug("uievents: failed to decode task_progress", "err", err)
+		}
+		return
+	}
+	if progress.SessionID == "" {
+		return
+	}
+	f.send(TaskProgress, TaskProgressPayload{
+		SessionID:                progress.SessionID,
+		RunID:                    progress.RunID,
+		State:                    progress.State,
+		ElapsedSeconds:           progress.ElapsedSeconds,
+		LimitSeconds:             progress.LimitSeconds,
+		Solutions:                progress.Solutions,
+		Penalty:                  progress.Penalty,
+		ResultStatus:             progress.ResultStatus,
+		HardConstraintsSatisfied: progress.HardConstraintsSatisfied,
+		SoftViolationCount:       progress.SoftViolationCount,
+	})
 }
 
 func (f *Forwarder) handlePermission(payload json.RawMessage) {

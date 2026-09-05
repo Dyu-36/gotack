@@ -58,7 +58,7 @@ jobs:
 
       - name: Load Crush pin
         shell: pwsh
-        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .crush-pin -Raw).Trim())
+        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .tack-pin -Raw).Trim())
 
       - name: Verify source
         shell: pwsh
@@ -168,4 +168,9 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$env:GITHUB_REF_NAME" "artifacts\tack-$env:GITHUB_REF_NAME-windows-amd64.zip" --verify-tag --generate-notes --title "Tack $env:GITHUB_REF_NAME"
+        run: |
+          if (gh release view "$env:GITHUB_REF_NAME" 2>$null) {
+            gh release upload "$env:GITHUB_REF_NAME" "artifacts\tack-$env:GITHUB_REF_NAME-windows-amd64.zip" --clobber
+          } else {
+            gh release create "$env:GITHUB_REF_NAME" "artifacts\tack-$env:GITHUB_REF_NAME-windows-amd64.zip" --verify-tag --generate-notes --title "Tack $env:GITHUB_REF_NAME"
+          }

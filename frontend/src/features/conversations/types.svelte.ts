@@ -15,9 +15,14 @@ export class ChatMessage {
   content = $state('')
   attachments = $state<ChatAttachment[]>([])
   seq = 0
-  kind: 'message' | 'tool' = 'message'
+  kind: 'message' | 'tool' | 'task' = 'message'
   toolName?: string
   toolFinished?: boolean
+  taskState?: 'searching' | 'optimizing' | 'optimal' | 'feasible' | 'infeasible' | 'timed_out' | 'failed'
+  taskElapsedSeconds?: number
+  taskLimitSeconds?: number
+  taskSoftViolationCount?: number
+  taskPenalty?: number
   createdAt = Date.now()
 
   constructor(id: string, role: MessageRole, createdAt?: number) {

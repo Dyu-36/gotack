@@ -18,6 +18,8 @@ an undocumented method enters the Wails surface.
 | Method | Result | Notes |
 | --- | --- | --- |
 | `BackendReady()` | `bool` | True once the host can serve UI calls. Currently returns a constant `true`, since Wails only binds the object after startup completes. |
+| `GetAutoStart()` | `bool` | True when the per-user launch-at-login entry (`HKCU\...\CurrentVersion\Run`, value `Tack`) exists. |
+| `SetAutoStart(enabled)` | `error` | Creates or deletes that entry. The entry always launches `tack.exe --hidden`, so a login start rests in the tray. |
 
 ### Engine
 
@@ -41,6 +43,14 @@ requests a workspace. Normal UI shutdown disconnects host-owned streams and
 terminals but leaves the engine process running, so the next Gotack launch
 adopts the warm engine. `StopEngine()` remains the explicit process-stop path
 while the current host owns the process.
+
+Window lifecycle: the Wails `HideWindowOnClose` option keeps the process alive
+when the user closes the window -- the window only hides into the
+notification-area icon (`tray_windows.go`), which restores it. There is no
+in-app quit path; the process ends when Windows ends it (Task Manager, logoff,
+shutdown). `SingleInstanceLock` makes a second launch surface the first
+instance's window, except when that launch carries `--hidden` (the autostart
+entry), which leaves the running instance hidden.
 
 ### Workspace
 
@@ -253,12 +263,16 @@ the bin directory to `PATH`, and merges `options.skills_paths`. It also removes
 the retired `mcp_servers.gotack-office` entry from existing workspace configs.
 No Office MCP server or Office tool set is registered.
 
-The timetable skill accepts natural-language requirements, lets the coding
-agent choose its scheduling approach, then batch-writes six normalized columns
-into `Dữ liệu` in `assets/mau-thoi-khoa-bieu.xlsx`. The `Thời khóa biểu` sheet
-keeps the supplied Times New Roman formatting and class/teacher column layout
-and renders the written rows through formulas. There is no `problem.json`,
-requirement registry, bundled timetable solver or exporter.
+The timetable skill accepts natural-language requirements and reads the source
+workbook directly. The agent may create task-specific scratch Python scripts and
+models the current problem directly with the bundled Python + OR-Tools CP-SAT
+environment; there is no timetable-specific `problem.json`, schema, or bundled
+solver runner. User/source requirements remain the source of truth: every hard
+constraint must be represented in the model and independently checked again
+after solving. `FEASIBLE`/`OPTIMAL` only proves the constraints actually encoded
+in that model. After the source-level validation passes, the agent writes the six
+normalized columns into `Dữ liệu` in `assets/mau-thoi-khoa-bieu.xlsx` and
+re-opens the workbook before delivery.
 
 ## Host -> UI events
 
@@ -269,6 +283,7 @@ requirement registry, bundled timetable solver or exporter.
 | `session:delta` | `{session_id, message_id, text, append, seq}` — `seq` starts at 1 per message; a gap forces a frontend resync from `text` |
 | `session:done` | `{session_id, text?, error?, cancelled}` |
 | `tool:activity` | `{session_id, name, input, finished, tool_call_id}` |
+| `task:progress` | `{session_id, run_id?, state, elapsed_seconds, limit_seconds, solutions?, penalty?, result_status?, hard_constraints_satisfied?, soft_violation_count?}` — business task lifecycle only; no shell/PID details |
 | `permission:request` | `PermissionRequest` |
 | `question:request` | `QuestionRequest` |
 | `question:resolved` | `{batch_id}` — closes the matching form after answer, cancel, or timeout |

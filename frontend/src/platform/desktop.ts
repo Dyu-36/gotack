@@ -118,11 +118,25 @@ export type PermissionRequestPayload = { request: PermissionRequestEvent; expire
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
+export type TaskProgressEvent = {
+  session_id: string
+  run_id?: string
+  state: 'searching' | 'optimizing' | 'optimal' | 'feasible' | 'infeasible' | 'timed_out' | 'failed'
+  elapsed_seconds: number
+  limit_seconds: number
+  solutions?: number
+  penalty?: number
+  result_status?: string
+  hard_constraints_satisfied?: boolean
+  soft_violation_count?: number
+}
 export type TerminalDataEvent = { id: string; data: string }
 export type TerminalExitEvent = { id: string; code?: number; error?: string }
 
 type BackendApp = {
   BackendReady: () => Promise<boolean>
+  GetAutoStart: () => Promise<boolean>
+  SetAutoStart: (enabled: boolean) => Promise<void>
   EngineStatus: () => Promise<EngineInfo>
   StartEngine: () => Promise<EngineInfo>
   StopEngine: () => Promise<EngineInfo>
@@ -198,6 +212,7 @@ function call<K extends keyof BackendApp>(method: K, ...args: Parameters<Backend
 export const desktop = {
   available: () => app() !== null,
   backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
+  getAutoStart: () => call('GetAutoStart'), setAutoStart: (enabled: boolean) => call('SetAutoStart', enabled),
   engineStatus: () => call('EngineStatus'), startEngine: () => call('StartEngine'), stopEngine: () => call('StopEngine'), reconnectEngine: () => call('ReconnectEngine'),
   selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), ensureAssistantWorkspace: () => call('EnsureAssistantWorkspace'), currentWorkspace: () => call('CurrentWorkspace'),
   listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string, attachments: PromptAttachment[] = []) => call('SendPrompt', id, text, attachments), cancelPrompt: (id: string) => call('CancelPrompt', id),
