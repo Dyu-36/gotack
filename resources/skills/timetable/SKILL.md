@@ -1,6 +1,6 @@
 ---
 name: timetable
-description: "Tạo hoặc điều chỉnh thời khóa biểu trường học từ dữ liệu Excel và yêu cầu người dùng. Dùng khi người dùng yêu cầu tạo TKB, xếp lịch dạy/học, phân công chuyên môn hoặc gửi danh sách giáo viên, lớp, môn. Đọc dữ liệu trực tiếp, dùng OR-Tools CP-SAT để mô hình hóa bài toán hiện tại, kiểm tra đầy đủ hard constraints trước khi giao file. Also use for school timetable or class-scheduling requests in English."
+description: "Tạo hoặc điều chỉnh thời khóa biểu trường học từ dữ liệu Excel và yêu cầu người dùng. Dùng khi người dùng yêu cầu tạo TKB, xếp lịch dạy/học, phân công chuyên môn, chuẩn hóa bảng phân công hoặc gửi danh sách giáo viên, lớp, môn. Đọc dữ liệu trực tiếp, dùng OR-Tools CP-SAT để mô hình hóa bài toán hiện tại, kiểm tra đầy đủ hard constraints trước khi giao file. Also use for school timetable or class-scheduling requests in English."
 ---
 
 # Kỹ năng Xếp Thời Khóa Biểu
@@ -13,7 +13,15 @@ description: "Tạo hoặc điều chỉnh thời khóa biểu trường học t
 - Nếu người dùng đã nói rõ dữ liệu đã đúng hoặc đã xác nhận trước đó thì **không hỏi xác nhận lại**. 
 - Có thể tạo file/script tạm trong thư mục làm việc để kiểm tra và chuẩn hóa dữ liệu.
 
-## 2. Hard constraints và soft constraints
+## 2. Chuẩn hóa phân công chuyên môn
+
+- Khi người dùng yêu cầu chuẩn hóa phân công, hoặc trước khi xếp lịch mà dữ liệu phân công chưa ở dạng chuẩn: tạo `phan-cong-chuan-hoa.xlsx` từ template `<skill_dir>/assets/phan-cong-chuan-hoa.xlsx`.
+- File đầu ra đúng **một sheet `Phân công`, bốn cột `Tên giáo viên | Môn | Lớp | Số tiết`**; mỗi dòng một cặp giáo viên–môn–lớp; ghi raw values vào ô có sẵn, không thêm công thức.
+- Chuẩn hóa khi ghi: tách lớp ghép thành từng lớp một dòng (7AB tách thành 7A và 7B — số tiết chia đều trừ khi đề bài nói rõ, ghi cách tách để người dùng kiểm); viết đủ tên môn viết tắt khi chắc chắn; mục còn mơ hồ thì kèm cảnh báo, không tự chốt.
+- Giao file bằng link `file:///` rồi **dừng xin người dùng chốt**; nếu người dùng chỉ yêu cầu chuẩn hóa thì không xếp lịch trong lượt đó.
+- Nếu người dùng thay đổi phân công sau khi đã chốt, xác nhận cũ hết hiệu lực: cập nhật, giao lại file và xin chốt lại trước khi xếp lịch.
+
+## 3. Hard constraints và soft constraints
 
 - Mặc định mọi yêu cầu nếu không được phân chia rõ ràng là **hard constraint**, trừ khi người dùng nói rõ là `nên`, `ưu tiên`, `mong muốn` hoặc tương đương.
 - Không được tự bỏ, nới lỏng hoặc đổi hard constraint thành soft constraint để tạo được lịch.
@@ -23,7 +31,7 @@ description: "Tạo hoặc điều chỉnh thời khóa biểu trường học t
   1. logic tương ứng trong model;
   2. kiểm tra lại sau khi có lời giải.
 
-## 3. Xếp lịch bằng CP-SAT
+## 4. Xếp lịch bằng CP-SAT
 
 - Dùng **OR-Tools CP-SAT**.
 - Tự viết Python phù hợp trực tiếp với bài toán hiện tại; có thể tạo nhiều script tạm có mục đích rõ ràng như:
@@ -37,7 +45,7 @@ description: "Tạo hoặc điều chỉnh thời khóa biểu trường học t
 - Nếu solver trả `INFEASIBLE`, xác định hard constraints xung đột và báo lại cho người dùng. Không tạo lịch giả.
 - `FEASIBLE` hoặc `OPTIMAL` chỉ chứng minh các constraint **đã được encode trong model** là thỏa mãn; chưa được phép kết luận "100% đúng" cho đến khi kiểm tra lại toàn bộ checklist nguồn.
 
-## 4. Kiểm tra bắt buộc sau khi solve
+## 5. Kiểm tra bắt buộc sau khi solve
 
 Trước khi giao file, đọc lại lời giải và kiểm tra tối thiểu:
 
@@ -53,7 +61,7 @@ Ví dụ: `Không xếp toàn bộ các tiết trong một buổi đều là mô
 Nếu bất kỳ hard constraint nào fail:
 - Báo rõ cho người dùng rằng các hard constraints hiện tại không thể đồng thời thỏa mãn.
 
-## 5. Tạo và giao file Excel
+## 6. Tạo và giao file Excel
 
 - Dùng `<skill_dir>/assets/mau-thoi-khoa-bieu.xlsx` làm template đầu ra khi phù hợp.
 - Copy template rồi ghi trực tiếp dữ liệu lịch dạng text/raw values vào các ô trên sheet 'Thời khóa biểu' (môn học, giáo viên từng lớp); không dùng công thức tham chiếu ràng buộc; không tạo lại format từ đầu nếu không cần.
