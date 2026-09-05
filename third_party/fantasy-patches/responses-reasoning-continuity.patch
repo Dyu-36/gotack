@@ -1,0 +1,111 @@
+Set-PSReadLineOption: C:\Users\Admin\OneDrive - Hanoi University of Science and Technology\Documents\PowerShell\Microsoft.PowerShell_profile.ps1:32
+Line |
+  32 |      Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | The predictive suggestion feature cannot be enabled because the console output doesn't support virtual terminal processing or it's redirected.
+diff --git a/providers/openai/responses_language_model.go b/providers/openai/responses_language_model.go
+index 72ea3a1..09c15b3 100644
+--- a/providers/openai/responses_language_model.go
++++ b/providers/openai/responses_language_model.go
+@@ -122,6 +122,8 @@ func getResponsesModelConfig(modelID string) responsesModelConfig {
+ const (
+ 	previousResponseIDHistoryError = "cannot combine previous_response_id with replayed conversation history; use either previous_response_id (server-side chaining) or explicit message replay, not both"
+ 	previousResponseIDStoreError   = "previous_response_id requires store to be true; the current response will not be stored and cannot be used for further chaining"
++	reasoningReplayStoreError      = "cannot replay encrypted reasoning with store enabled; explicit reasoning replay requires store=false"
++	duplicateReasoningItemIDError  = "duplicate OpenAI Responses reasoning item id in replayed history"
+ )
+ 
+ func (o responsesLanguageModel) prepareParams(call fantasy.Call) (*responses.ResponseNewParams, []fantasy.CallWarning, error) {
+@@ -175,6 +177,9 @@ func (o responsesLanguageModel) prepareParams(call fantasy.Call) (*responses.Res
+ 	}
+ 
+ 	storeEnabled := openaiOptions != nil && openaiOptions.Store != nil && *openaiOptions.Store
++	if err := validateReasoningReplayPrompt(call.Prompt, storeEnabled); err != nil {
++		return nil, warnings, err
++	}
+ 	input, inputWarnings := toResponsesPrompt(call.Prompt, modelConfig.systemMessageMode, storeEnabled)
+ 	warnings = append(warnings, inputWarnings...)
+ 
+@@ -556,13 +561,28 @@ func toResponsesPrompt(prompt fantasy.Prompt, systemMessageMode string, store bo
+ 					// recognised Responses API input type; skip.
+ 					continue
+ 				case fantasy.ContentTypeReasoning:
+-					// Reasoning items are always skipped during replay.
+-					// When store is enabled, the API already has them
+-					// persisted server-side. When store is disabled, the
+-					// item IDs are ephemeral and referencing them causes
+-					// "Item not found" errors. In both cases, replaying
+-					// reasoning inline is not supported by the API.
+-					continue
++					reasoningPart, ok := fantasy.AsContentType[fantasy.ReasoningPart](c)
++					if !ok {
++						warnings = append(warnings, fantasy.CallWarning{
++							Type:    fantasy.CallWarningTypeOther,
++							Message: "assistant reasoning part does not have the right type",
++						})
++						continue
++					}
++					metadata := GetReasoningMetadata(reasoningPart.ProviderOptions)
++					if metadata == nil || metadata.ItemID == "" || metadata.EncryptedContent == nil || *metadata.EncryptedContent == "" {
++						// Display summaries and provider reasoning text are not
++						// assistant text and cannot be reconstructed into an opaque
++						// Responses reasoning item. Only the exact encrypted item is
++						// eligible for explicit stateless replay.
++						continue
++					}
++					reasoning := responses.ResponseReasoningItemParam{
++						ID:               metadata.ItemID,
++						Summary:          []responses.ResponseReasoningItemSummaryParam{},
++						EncryptedContent: param.NewOpt(*metadata.EncryptedContent),
++					}
++					input = append(input, responses.ResponseInputItemUnionParam{OfReasoning: &reasoning})
+ 				}
+ 			}
+ 
+@@ -683,13 +703,44 @@ func hasVisibleResponsesUserContent(content responses.ResponseInputMessageConten
+ func hasVisibleResponsesAssistantContent(items []responses.ResponseInputItemUnionParam, startIdx int) bool {
+ 	// Check if we added any assistant content parts from this message
+ 	for i := startIdx; i < len(items); i++ {
+-		if items[i].OfMessage != nil || items[i].OfFunctionCall != nil || items[i].OfItemReference != nil {
++		if items[i].OfMessage != nil || items[i].OfFunctionCall != nil || items[i].OfItemReference != nil || items[i].OfReasoning != nil {
+ 			return true
+ 		}
+ 	}
+ 	return false
+ }
+ 
++// validateReasoningReplayPrompt rejects unsafe or ambiguous replay before an
++// HTTP request can be constructed. Item IDs are provider identities, so
++// silently deduplicating them could attach an encrypted item to the wrong
++// assistant/tool segment.
++func validateReasoningReplayPrompt(prompt fantasy.Prompt, store bool) error {
++	seen := make(map[string]struct{})
++	for _, msg := range prompt {
++		if msg.Role != fantasy.MessageRoleAssistant {
++			continue
++		}
++		for _, content := range msg.Content {
++			reasoning, ok := fantasy.AsContentType[fantasy.ReasoningPart](content)
++			if !ok {
++				continue
++			}
++			metadata := GetReasoningMetadata(reasoning.ProviderOptions)
++			if metadata == nil || metadata.ItemID == "" || metadata.EncryptedContent == nil || *metadata.EncryptedContent == "" {
++				continue
++			}
++			if store {
++				return errors.New(reasoningReplayStoreError)
++			}
++			if _, exists := seen[metadata.ItemID]; exists {
++				return errors.New(duplicateReasoningItemIDError)
++			}
++			seen[metadata.ItemID] = struct{}{}
++		}
++	}
++	return nil
++}
++
+ func toResponsesTools(tools []fantasy.Tool, toolChoice *fantasy.ToolChoice, options *ResponsesProviderOptions) ([]responses.ToolUnionParam, responses.ResponseNewParamsToolChoiceUnion, []fantasy.CallWarning) {
+ 	warnings := make([]fantasy.CallWarning, 0)
+ 	var openaiTools []responses.ToolUnionParam
+
