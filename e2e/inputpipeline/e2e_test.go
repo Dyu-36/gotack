@@ -3,201 +3,318 @@
 package inputpipeline
 
 import (
-	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/crushapi"
-	"github.com/stretchr/testify/require"
 )
 
-const (
-	healthTimeout = 30 * time.Second
-	turnTimeout   = 120 * time.Second
-)
-
-func engineBinary() string {
-	if v := os.Getenv("TACK_ENGINE_BINARY"); v != "" {
-		return v
-	}
-	candidates := []string{
-		"tack-engine.exe",
-		"tack-engine",
-		"crush",
-	}
-	for _, c := range candidates {
-		if p, err := exec.LookPath(c); err == nil {
-			return p
+func TestMain(m *testing.M) {
+	if len(os.Args) == 3 && os.Args[1] == "--gotack-e2e-mcp" {
+		if serveMCP(os.Stdin, os.Stdout, auditMCP(os.Args[2])) != nil {
+			os.Exit(2)
 		}
+		os.Exit(0)
 	}
-	return ""
-}
-
-func skipIfNoEngine(t *testing.T) {
-	t.Helper()
-	if engineBinary() == "" {
-		t.Skip("E2E requires TACK_ENGINE_BINARY or engine on PATH; set with: $env:TACK_ENGINE_BINARY='path/to/tack-engine.exe'")
+	// Direct go test is also fail-closed; the wrapper is not the only guard.
+	if runtime.GOOS != "windows" {
+		fmt.Fprintln(os.Stderr, "input-pipeline: required_platform_windows")
+		os.Exit(1)
 	}
+	root, node := os.Getenv("TACK_E2E_REPO_ROOT"), os.Getenv("TACK_E2E_NODE")
+	binary, provenance := os.Getenv("TACK_ENGINE_BINARY"), os.Getenv("TACK_ENGINE_PROVENANCE")
+	if !filepath.IsAbs(root) || !filepath.IsAbs(node) || !filepath.IsAbs(provenance) || requireBinary(binary) != nil {
+		fmt.Fprintln(os.Stderr, "input-pipeline: explicit_artifacts_required")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cmd := exec.CommandContext(ctx, node, filepath.Join(root, "scripts", "input-pipeline", "run.mjs"),
+		"--skip-build", "--verify-only", "--binary", binary, "--provenance", provenance)
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	err := cmd.Run()
+	cancel()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "input-pipeline: provenance_verification_failed")
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
 }
 
-func setupTempWorkspace(t *testing.T) string {
+func newID(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	dataDir := filepath.Join(dir, "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	return dir
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		t.Fatal("random_id_unavailable")
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	s := hex.EncodeToString(b[:])
+	return s[:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:]
+}
+func must(t *testing.T, err error, code string) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(code)
+	} // Never echo REST paths, IDs, provider payloads, or child stderr.
 }
 
-func waitForHealth(ctx context.Context, endpoint string) error {
-	deadline := time.Now().Add(healthTimeout)
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s/v1/health", endpoint), nil)
-		if err != nil {
-			continue
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == 200 {
-				return nil
+type engineHarness struct {
+	client    *crushapi.Client
+	events    <-chan crushapi.StreamEvent
+	workspace string
+	ctx       context.Context
+	stop      func()
+}
+
+func isolatedEnv(t *testing.T, root, proxy string) []string {
+	t.Helper()
+	system := os.Getenv("SystemRoot")
+	if system == "" {
+		system = os.Getenv("SYSTEMROOT")
+	}
+	if !filepath.IsAbs(system) {
+		t.Fatal("windows_system_root_missing")
+	}
+	values := map[string]string{
+		"SystemRoot": system, "WINDIR": system, "SystemDrive": filepath.VolumeName(system),
+		"COMSPEC": filepath.Join(system, "System32", "cmd.exe"), "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+		"PATH": filepath.Join(system, "System32") + ";" + system,
+		"HOME": root, "USERPROFILE": root, "HOMEDRIVE": filepath.VolumeName(root),
+		"HOMEPATH":                           strings.TrimPrefix(root, filepath.VolumeName(root)),
+		"CRUSH_DISABLE_PROVIDER_AUTO_UPDATE": "1", "CRUSH_DISABLE_METRICS": "1",
+		"CATWALK_URL": proxy, "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "ALL_PROXY": proxy,
+		"NO_PROXY": "127.0.0.1,localhost", "NO_COLOR": "1", "TERM": "dumb", "AWS_EC2_METADATA_DISABLED": "true",
+	}
+	for key, dir := range map[string]string{
+		"APPDATA": "config", "LOCALAPPDATA": "local", "XDG_CONFIG_HOME": "config", "XDG_DATA_HOME": "global-data",
+		"XDG_CACHE_HOME": "cache", "CRUSH_GLOBAL_CONFIG": "global-config", "CRUSH_GLOBAL_DATA": "global-data",
+		"TEMP": "temp", "TMP": "temp", "TMPDIR": "temp",
+	} {
+		values[key] = filepath.Join(root, dir)
+		must(t, os.MkdirAll(values[key], 0o700), "isolated_directory_failed")
+	}
+	env := make([]string, 0, len(values))
+	for key, value := range values {
+		env = append(env, key+"="+value)
+	}
+	return env
+}
+func writeFixtureConfig(t *testing.T, root string, p *fakeProvider, withMCP bool) {
+	t.Helper()
+	model := func(id string) map[string]any {
+		return map[string]any{"id": id, "name": id, "context_window": 200000, "default_max_tokens": 4096}
+	}
+	config := map[string]any{
+		"providers": map[string]any{"e2e": map[string]any{"name": "Synthetic E2E", "type": "openai",
+			"base_url": p.server.URL + "/v1", "api_key": "synthetic-test-key", "discover_models": false,
+			"models": []any{model(mainModel), model(titleModel)}}},
+		"models": map[string]any{"large": map[string]any{"provider": "e2e", "model": mainModel},
+			"small": map[string]any{"provider": "e2e", "model": titleModel}},
+		"options": map[string]any{"disable_metrics": true, "disable_provider_auto_update": true,
+			"disable_default_providers": true, "disable_auto_summarize": true},
+	}
+	if withMCP {
+		executable, err := os.Executable()
+		must(t, err, "mcp_fixture_executable_missing")
+		config["mcp"] = map[string]any{"e2e": map[string]any{"type": "stdio", "command": executable,
+			"args": []string{"--gotack-e2e-mcp", filepath.Join(root, "mcp-audit.txt")}, "timeout": 10}}
+	}
+	data, err := json.Marshal(config)
+	must(t, err, "fixture_config_encoding_failed")
+	must(t, os.WriteFile(filepath.Join(root, "global-config", "crush.json"), data, 0o600), "fixture_config_write_failed")
+}
+func startEngine(t *testing.T, root string, p *fakeProvider, withMCP bool) *engineHarness {
+	t.Helper()
+	env := isolatedEnv(t, root, p.server.URL)
+	writeFixtureConfig(t, root, p, withMCP)
+	workspace, db := filepath.Join(root, "workspace"), filepath.Join(root, "workspace-data")
+	must(t, os.MkdirAll(workspace, 0o700), "workspace_directory_failed")
+	pipe := `\\.\pipe\gotack-e2e-` + newID(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, os.Getenv("TACK_ENGINE_BINARY"), "server", "--host", "npipe://"+pipe,
+		"--data-dir", filepath.Join(root, "server-data"))
+	cmd.Dir, cmd.Env = workspace, env
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	cmd.WaitDelay = 5 * time.Second
+	must(t, cmd.Start(), "engine_start_failed")
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	var once sync.Once
+	var hc *http.Client
+	var detach func()
+	stop := func() {
+		once.Do(func() {
+			if detach != nil {
+				detach()
 			}
-		}
-		time.Sleep(500 * time.Millisecond)
+			select {
+			case <-done:
+			default:
+				killCtx, killCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				killer := exec.CommandContext(killCtx, filepath.Join(os.Getenv("SystemRoot"), "System32", "taskkill.exe"),
+					"/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F")
+				killer.Stdout, killer.Stderr = io.Discard, io.Discard
+				killErr := killer.Run()
+				killCancel()
+				if killErr != nil {
+					t.Error("engine_tree_cleanup_unverified")
+					_ = cmd.Process.Kill()
+				}
+			}
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Error("engine_cleanup_timeout")
+			}
+			if hc != nil {
+				hc.CloseIdleConnections()
+			}
+		})
 	}
-	return fmt.Errorf("health check timed out after %v", healthTimeout)
+	t.Cleanup(stop)
+	var err error
+	hc, err = crushapi.Dial(ctx, crushapi.Endpoint{Network: "npipe", Address: pipe})
+	must(t, err, "pipe_transport_failed")
+	readyCtx, readyCancel := context.WithTimeout(ctx, 20*time.Second)
+	err = waitReady(readyCtx, func(probeCtx context.Context) error {
+		select {
+		case <-done:
+			return errors.New("engine_exited")
+		default:
+		}
+		return crushapi.Ping(hc, probeCtx)
+	})
+	readyCancel()
+	must(t, err, "engine_not_ready")
+	client := crushapi.NewClient(hc)
+	ws, err := client.CreateWorkspaceWithDataDir(ctx, workspace, db, true)
+	must(t, err, "workspace_create_failed")
+	if ws.ID == "" {
+		t.Fatal("workspace_id_missing")
+	}
+	events, stopStream, err := client.Stream(ctx, ws.ID, "run_complete")
+	must(t, err, "sse_attach_failed")
+	detach = stopStream
+	must(t, client.InitAgent(ctx, ws.ID, false), "agent_init_failed")
+	must(t, client.SetPermissionsSkip(ctx, ws.ID, true), "fixture_permission_failed")
+	return &engineHarness{client: client, events: events, workspace: ws.ID, ctx: ctx, stop: stop}
 }
-
+func freshSession(t *testing.T, h *engineHarness) string {
+	t.Helper()
+	session, err := h.client.CreateSession(h.ctx, h.workspace, "synthetic-e2e")
+	must(t, err, "session_create_failed")
+	if session.ID == "" {
+		t.Fatal("session_id_missing")
+	}
+	must(t, h.client.SetCurrentSession(h.ctx, h.workspace, session.ID), "current_session_failed")
+	return session.ID
+}
+func sendTurn(t *testing.T, h *engineHarness, p *fakeProvider, session string, mode providerMode) (terminalPayload, captureCounts) {
+	t.Helper()
+	run := newID(t)
+	p.arm(run, mode)
+	must(t, h.client.SendPromptWithAttachments(h.ctx, h.workspace, session, "Run the synthetic fixture.", run, nil), "prompt_submit_failed")
+	terminal, err := waitTerminal(h.ctx, func(ctx context.Context) ([]byte, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case event, ok := <-h.events:
+			if !ok {
+				return nil, errors.New("stream_closed")
+			}
+			return event.Payload, nil
+		}
+	}, run, session)
+	must(t, err, "matching_terminal_missing")
+	counts := p.counts(run)
+	must(t, checkCapture(counts, 1), "provider_capture_invalid")
+	t.Logf("e2e_evidence requests=%d retries=%d tool_responses=%d tool_results=%d", counts.Requests, counts.Retries, counts.ToolResponses, counts.ToolResults)
+	return terminal, counts
+}
+func success(t *testing.T, terminal terminalPayload) {
+	t.Helper()
+	if terminal.Error != "" || terminal.Cancelled || terminal.Text != fixtureAnswer {
+		t.Fatal("terminal_outcome_invalid")
+	}
+}
 func TestE2EInputPipelineFreshTurn(t *testing.T) {
-	skipIfNoEngine(t)
-
-	workspaceDir := setupTempWorkspace(t)
-	engine := engineBinary()
-
-	ctx, cancel := context.WithTimeout(context.Background(), turnTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, engine, "server")
-	cmd.Dir = workspaceDir
-	cmd.Env = append(os.Environ(),
-		"TACK_DATA_DIR="+filepath.Join(workspaceDir, "data"),
-	)
-
-	stdout, err := cmd.StdoutPipe()
-	require.NoError(t, err)
-	require.NoError(t, cmd.Start())
-	defer cmd.Process.Kill()
-
-	scanner := bufio.NewScanner(stdout)
-	endpoint := ""
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, "listening") || strings.Contains(line, "pipe") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				endpoint = strings.TrimSpace(parts[1])
-			}
-			break
-		}
+	p := newFakeProvider()
+	t.Cleanup(p.server.Close)
+	h := startEngine(t, t.TempDir(), p, false)
+	terminal, c := sendTurn(t, h, p, freshSession(t, h), modeText)
+	success(t, terminal)
+	if c.Requests != 1 {
+		t.Fatal("fresh_turn_request_count_invalid")
 	}
-
-	if endpoint == "" {
-		t.Skip("could not detect engine endpoint from stdout")
-	}
-
-	require.NoError(t, waitForHealth(ctx, endpoint))
-
-	sessionResp, err := http.Post(
-		fmt.Sprintf("http://%s/v1/workspaces/test/sessions", endpoint),
-		"application/json",
-		strings.NewReader(`{"title":"e2e-bench"}`),
-	)
-	require.NoError(t, err)
-	defer sessionResp.Body.Close()
-
-	var session struct {
-		ID string `json:"id"`
-	}
-	require.NoError(t, json.NewDecoder(sessionResp.Body).Decode(&session))
-	require.NotEmpty(t, session.ID)
-
-	t.Logf("E2E fresh turn: session=%s endpoint=%s", session.ID, endpoint)
 }
-
-func TestE2ETelemetryPassthrough(t *testing.T) {
-	skipIfNoEngine(t)
-
-	telemetry := &crushapi.RunTelemetry{
-		RunID:             "e2e-telemetry-test",
-		CacheStatus:       "unreported",
-		TotalMicros:       123456,
-		Attempt:           1,
-		ProviderRequestID: "should-be-redacted",
-	}
-
-	data, err := json.Marshal(telemetry)
-	require.NoError(t, err)
-	require.NotContains(t, string(data), "prompt")
-	require.Contains(t, string(data), "run_id")
-
-	var decoded crushapi.RunTelemetry
-	require.NoError(t, json.Unmarshal(data, &decoded))
-	require.Equal(t, "e2e-telemetry-test", decoded.RunID)
-}
-
-func TestE2EFakeProviderCapture(t *testing.T) {
-	skipIfNoEngine(t)
-
-	captured := make(chan []byte, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/responses", func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		captured <- body
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"resp-1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":5}}`)
-	})
-
-	server := &http.Server{Handler: mux, Addr: "127.0.0.1:0"}
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	go server.Serve(ln)
-	defer server.Close()
-	defer ln.Close()
-
-	port := ln.Addr().(*net.TCPAddr).Port
-	t.Logf("Fake provider listening on port %d", port)
-}
-
 func TestE2ERetryBehavior(t *testing.T) {
-	attempts := 0
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/responses", func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		if attempts == 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(429)
-			fmt.Fprint(w, `{"error":{"type":"rate_limit_error","message":"rate limited"}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"resp-retry","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok after retry"}]}],"usage":{"input_tokens":10,"output_tokens":5}}`)
-	})
-
-	server := &http.Server{Handler: mux, Addr: "127.0.0.1:0"}
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	go server.Serve(ln)
-	defer server.Close()
-	defer ln.Close()
-
-	require.Equal(t, 0, attempts)
+	p := newFakeProvider()
+	t.Cleanup(p.server.Close)
+	h := startEngine(t, t.TempDir(), p, false)
+	terminal, c := sendTurn(t, h, p, freshSession(t, h), modeRetry)
+	success(t, terminal)
+	if c.Requests != 2 || c.Retries != 1 {
+		t.Fatal("retry_count_invalid")
+	}
+}
+func TestE2EToolLoopAndRestart(t *testing.T) {
+	p := newFakeProvider()
+	t.Cleanup(p.server.Close)
+	root := t.TempDir()
+	h := startEngine(t, root, p, true)
+	session := freshSession(t, h)
+	terminal, c := sendTurn(t, h, p, session, modeTool)
+	success(t, terminal)
+	if c.Requests != 2 || c.ToolResponses != 1 || c.ToolResults != 1 {
+		t.Fatal("tool_loop_count_invalid")
+	}
+	h.stop()
+	audit, err := os.ReadFile(filepath.Join(root, "mcp-audit.txt"))
+	must(t, err, "mcp_audit_missing")
+	if strings.Count(string(audit), "call\n") != 1 || !strings.Contains(string(audit), "initialize\n") {
+		t.Fatal("mcp_call_not_proven")
+	}
+	h = startEngine(t, root, p, true)
+	messages, err := h.client.Messages(h.ctx, h.workspace, session)
+	must(t, err, "restart_history_read_failed")
+	if len(messages) == 0 {
+		t.Fatal("restart_history_missing")
+	}
+	must(t, h.client.SetCurrentSession(h.ctx, h.workspace, session), "restart_current_session_failed")
+	terminal, c = sendTurn(t, h, p, session, modeReplay)
+	success(t, terminal)
+	if c.Requests != 1 || c.ToolResults != 1 {
+		t.Fatal("restart_replay_invalid")
+	}
+	h.stop()
+	audit, err = os.ReadFile(filepath.Join(root, "mcp-audit.txt"))
+	must(t, err, "restart_mcp_audit_missing")
+	if strings.Count(string(audit), "call\n") != 1 {
+		t.Fatal("restart_duplicated_tool_execution")
+	}
+}
+func TestE2ERejectMalformedProvider(t *testing.T) {
+	p := newFakeProvider()
+	t.Cleanup(p.server.Close)
+	h := startEngine(t, t.TempDir(), p, false)
+	terminal, _ := sendTurn(t, h, p, freshSession(t, h), modeMalformed)
+	if terminal.Error == "" || terminal.Text != "" || terminal.Cancelled {
+		t.Fatal("malformed_stream_false_pass")
+	}
 }

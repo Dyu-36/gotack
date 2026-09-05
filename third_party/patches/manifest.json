@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "compatibility": [
+    "chatgpt-subscription-oauth.patch",
+    "hermes-skill-refresh.patch",
+    "proactive-auto-compact.patch",
+    "prompt-context-refresh.patch"
+  ],
+  "input_pipeline": []
+}

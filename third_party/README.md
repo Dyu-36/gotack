@@ -1,70 +1,116 @@
 # third_party
 
-Vendored upstream code is used only for contract inspection and release builds. It is not part of the Gotack Go module and remains ignored by the parent repository.
+Upstream engine source is used for contract inspection and release builds. It
+is ignored by the parent repository and is not part of the Gotack Go module.
+Desktop integration is REST + SSE through `internal/crushapi`; never import
+`third_party/crush/internal/...` into Gotack.
 
-## Crush pin
+## Pin and ordered recipe
 
-- Upstream: `https://github.com/charmbracelet/crush`
-- Pinned commit: the single tracked owner is `.tack-pin` at the repository
-  root. The workflows, `scripts/update-crush.ps1`, and this document all read
-  or reference that file.
-- Gotack-specific engine compatibility patches live in `third_party/patches/*.patch`
-  and are applied, in filename order, on top of the pin before Crush is tested or built.
-- After the compatibility patches are applied, `scripts/harden-crush-for-tack.ps1`
-  removes the upstream interactive Question agent tool and applies Tack's
-  model-visible identity. The hardening step deliberately preserves upstream Go
-  module paths, legacy executable fallback names, and the `crush://` skills URI
-  because those are compatibility identifiers rather than assistant identity.
-- The proactive context patch preserves Crush's existing reserve for smaller
-  models and caps the live conversation at 128,000 prompt-plus-completion tokens
-  on larger contexts before the normal summarization/requeue path runs.
-- Contract checked: REST v1 sessions, agent/cancel, agent/refresh-prompt, config/set, config/set-batch, config/remove, config/models, config/provider-key, config/refresh-oauth, permissions, workspace SSE (`message`, `run_complete`, `file`, permission events).
-- Desktop integration: REST + SSE only through `internal/crushapi`; Gotack never imports `third_party/crush/internal/...`.
+The single tracked Crush pin owner is the repository-root `.tack-pin`.
+The upstream is `https://github.com/charmbracelet/crush`.
 
-## Distribution policy
+`third_party/patches/manifest.json` declares two ordered arrays. Every tracked
+`.patch` in this directory must occur exactly once; missing, duplicate,
+unlisted, nested, or escaping patch paths are errors. The order is:
 
-Release builds prefer a bundled engine executable at `resources/tack-engine.exe` next to `tack.exe` on Windows (or `resources/tack-engine` on Unix). If the bundle is absent, Gotack falls back to `tack-engine` or `crush` on `PATH`. A non-empty `engine_binary` setting is an explicit override and wins over both.
+1. Clean pinned Crush source.
+2. `compatibility` patches, in manifest order.
+3. `scripts/harden-crush-for-tack.ps1`.
+4. `input_pipeline` patches, in manifest order.
+5. Contract checks, then build/test.
 
-The release job must build Crush from the exact pinned commit plus the tracked patch set and Tack hardening step above and place it in the Gotack artifact. This keeps releases deterministic while retaining the PATH fallback for developer machines.
+The compatibility inventory is ChatGPT subscription OAuth, Hermes skill
+refresh, proactive auto-compaction, and prompt context refresh. The current
+`input_pipeline` list is empty. There is no accepted
+`zz-input-pipeline-windows.patch`; earlier prose describing one was a prototype
+claim, not a replayable artifact. Alphabetical names do not define phase order.
 
-## Refresh procedure
+Hardening removes the Question agent tool/routes and applies Tack's
+model-visible identity. It preserves upstream module paths, legacy executable
+fallback names, and the `crush://` compatibility URI. The proactive context
+patch and existing compaction thresholds remain unchanged by Phase 0A.
 
-Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.tack-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, strips the Question agent tool, applies Tack's model identity, verifies the REST/SSE and agent-tool markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.tack-pin` in the same PR.
+`apply-crush-patches.ps1 -SkipInputPipeline` actually omits only the final
+phase, and reports that omission. Such a build is not accepted by the required
+input-pipeline gate. Missing manifest/patch/hardening inputs fail closed.
 
-## Patch workflow
+## Isolated replay and E2E
 
-Patches are applied in filename order. The current patch set:
+Use PowerShell 7 from a clean, committed Gotack checkout:
 
-1. `chatgpt-subscription-oauth.patch` — ChatGPT OAuth subscription support
-2. `hermes-skill-refresh.patch` — Hermes skill refresh endpoint
-3. `proactive-auto-compact.patch` — Proactive auto-compaction threshold
-4. `prompt-context-refresh.patch` — Prompt context refresh endpoint
-
-### Input pipeline patch (zz-input-pipeline-windows.patch)
-
-The durable input pipeline patch lives at `third_party/patches/zz-input-pipeline-windows.patch` and is applied last (alphabetical `zz-` prefix ensures this). It contains:
-- Ordering, path identity, and provider-option merge fixes (PR1)
-- Todo reminder state reflection (PR1)
-- Stable prefix / dynamic suffix split (PR2)
-- `prompt_cache_key` experiment gate (PR3)
-
-This patch is **not generated** while the engine checkout is still being modified. Generate it with:
 ```powershell
-git -C third_party/crush diff --binary <base-commit> > third_party/patches/zz-input-pipeline-windows.patch
+node --test scripts/input-pipeline/gate.test.mjs
+./scripts/test-input-pipeline-e2e.ps1
 ```
 
-### Fantasy patch workflow
+The script resolves the repository root itself. It creates a unique directory
+under `RUNNER_TEMP` (or the OS temp directory), fetches the exact pin into a new
+upstream repository, and never uses the owner's ignored `third_party/crush`.
+No Gotack branch or worktree is created. The command checks each native exit
+status, bounds subprocess duration, and builds the engine from root `.` using
+`go build -mod=readonly -trimpath -o <absolute-binary> .`.
 
-Fantasy patches (e.g., `fantasy-v0.41.3-reasoning.patch`) follow a separate track:
-- Pinned via upstream commit in the Fantasy repository
-- Applied only when the Fantasy version is updated
-- Must not be generated while the Fantasy checkout is modified
+The provenance receipt contains the Gotack commit, Crush pin, ordered patch
+SHA256s, manifest and replay-script SHA256s (including hardening), Fantasy
+version/checksum read from both the module graph and binary, build settings,
+build command, absolute binary path, and binary SHA256. It is a reproducibility
+receipt, not a cryptographic attestation by an independent build service.
 
-## Rules
+A two-step invocation is supported:
 
-- Upstream source is read-only for desktop needs; desktop-only behavior belongs in `internal/`.
-- Gotack talks to Crush over REST + SSE only.
-- Go forbids importing `third_party/crush/internal/...` from another module, so the wire contract is re-declared in `internal/crushapi`.
-- Never advance the pin without re-running the route/contract checks and the Gotack smoke suite.
-- Never generate engine patches while the engine checkout is being modified.
-- Input pipeline patch is default-off; CI may exercise shape but product defaults keep it disabled.
+```powershell
+./scripts/test-input-pipeline-e2e.ps1 -BuildOnly
+# Use the two exact absolute paths printed by the successful build:
+./scripts/test-input-pipeline-e2e.ps1 -SkipBuild `
+  -EngineBinary '<absolute-binary>' -Provenance '<absolute-provenance.json>'
+```
+
+`SkipBuild` never searches PATH. It verifies the receipt against the current
+commit, current recipe, and the actual binary metadata/hash. An old receipt,
+missing binary, uncommitted gate input, skipped phase, or Fantasy replacement
+is an error. It does not mutate the owner's global Go settings/toolchain.
+
+The required Windows tests drive a real executable via a unique named pipe,
+create workspace/session IDs through REST, attach SSE before prompting, and
+wait for the matching terminal event. The local fake Responses server handles
+text, 429/retry, a real MCP tool loop, replay after restart using the same
+isolated database, and malformed-stream rejection. Primary and title model
+calls are distinguished explicitly. No live provider credentials are inherited.
+The child profile/config/cache/temp paths are isolated; provider discovery and
+metrics are disabled, and the fake endpoint never proxies external requests.
+This is fixture isolation, not a system-wide firewall or arbitrary-code sandbox.
+
+Only `provenance.json`, `tests.jsonl`, and `result.json` are evidence artifacts.
+Captured requests remain in memory. Child stdout/stderr and engine profile
+contents are not exported. The MCP audit contains only initialize/call counts.
+Do not upload engine logs, profiles, request bodies, or environment dumps.
+The unique upstream build directory/receipt remain in OS temp for inspection;
+remove only that exact generated directory when it is no longer needed.
+
+The JSON post-check requires every named acceptance test to RUN and PASS, a
+passing package, and zero unexpected skips. Build-only success, unit fixtures,
+scaffold tests, and a workflow definition are not E2E acceptance evidence.
+`.github/workflows/input-pipeline.yml` invokes the Windows gate; its actual run
+status and any branch-protection requirements must be verified separately.
+
+## Release and patch maintenance
+
+Product binary lookup is unchanged: a bundled `resources/tack-engine.exe`
+next to `tack.exe` is preferred; the existing explicit override and developer
+PATH fallback remain product behavior. The E2E harness has a stricter policy.
+
+The existing `scripts/update-crush.ps1` is the deliberate developer refresh
+entrypoint, not the isolated E2E entrypoint. Do not run it over the owner's
+known-dirty ignored engine tree during this milestone. Do not advance the pin
+without rebasing affected patches and rerunning contract/build/tests.
+
+Generate future phase patches from an isolated clean-pin replay after the
+compatibility and hardening steps. Include reviewed staged additions in the
+diff so new source/tests are not lost. Produce UTF-8/LF, not PowerShell 5.1
+redirection that may create UTF-16. Register each patch in the correct manifest
+phase. A scratch checkout or untracked diff is never a release artifact.
+
+Fantasy changes follow their separately approved upstream/pin workflow. A
+local `replace` is not a release solution. Only the optional cache experiment
+is default-off; do not label all correctness fixes as optional/default-off.

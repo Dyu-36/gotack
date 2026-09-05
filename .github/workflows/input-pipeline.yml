@@ -1,0 +1,49 @@
+name: Input pipeline Windows gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  input-pipeline:
+    name: Clean-pin executable REST SSE fixtures
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Test fail-closed orchestration
+        run: node --test scripts/input-pipeline/gate.test.mjs
+      - name: Test Gotack
+        run: go test ./...
+      - name: Check repository invariants
+        run: node scripts/check-repository-invariants.mjs
+      - name: Replay, build and exercise isolated engine
+        shell: pwsh
+        run: ./scripts/test-input-pipeline-e2e.ps1
+      - name: Upload safe gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: input-pipeline-evidence
+          path: |
+            ${{ runner.temp }}/gotack-input-pipeline-*/provenance.json
+            ${{ runner.temp }}/gotack-input-pipeline-*/tests.jsonl
+            ${{ runner.temp }}/gotack-input-pipeline-*/result.json
+          if-no-files-found: error
