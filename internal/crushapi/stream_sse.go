@@ -108,15 +108,19 @@ func decodeEnvelope(line string, allow map[string]struct{}) (StreamEvent, bool) 
 		return StreamEvent{}, false
 	}
 	if _, ok := allow[env.Type]; len(allow) > 0 && !ok {
-
 		return StreamEvent{}, false
 	}
+
+	// Most lifecycle events are wrapped as {type, payload:{type,payload}}, but
+	// terminal and permission events are intentionally flat. Decoding a flat
+	// JSON object into innerEvent succeeds with zero-valued fields, so success
+	// alone cannot distinguish the two shapes. Only unwrap when both wrapper
+	// fields are actually present; otherwise preserve the original payload.
 	var inner innerEvent
 	if len(env.Payload) > 0 {
-		if err := json.Unmarshal(env.Payload, &inner); err != nil {
-
-			return StreamEvent{Kind: env.Type, Event: "", Payload: env.Payload}, true
+		if err := json.Unmarshal(env.Payload, &inner); err == nil && inner.Type != "" && len(inner.Payload) > 0 {
+			return StreamEvent{Kind: env.Type, Event: inner.Type, Payload: inner.Payload}, true
 		}
 	}
-	return StreamEvent{Kind: env.Type, Event: inner.Type, Payload: inner.Payload}, true
+	return StreamEvent{Kind: env.Type, Event: "", Payload: env.Payload}, true
 }
