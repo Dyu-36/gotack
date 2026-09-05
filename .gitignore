@@ -79,6 +79,10 @@ Desktop.ini
 # ==========================================
 # Project Specific
 # ==========================================
+# Workspace runtime data directories
+/.tack/
+/.crush/
+
 # Vendored upstream source (own git history)
 /third_party/crush/
 

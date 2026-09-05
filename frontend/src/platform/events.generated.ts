@@ -9,6 +9,7 @@ export const events = {
   promptFiles: "prompt:files",
   sessionDelta: "session:delta",
   sessionDone: "session:done",
+  taskProgress: "task:progress",
   terminalData: "terminal:data",
   terminalExit: "terminal:exit",
   toolActivity: "tool:activity",

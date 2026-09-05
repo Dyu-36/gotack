@@ -137,12 +137,53 @@ type PermissionGrant struct {
 }
 
 type RunComplete struct {
-	SessionID string `json:"session_id"`
-	RunID     string `json:"run_id,omitempty"`
-	MessageID string `json:"message_id"`
-	Text      string `json:"text,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Cancelled bool   `json:"cancelled,omitempty"`
+	SessionID string        `json:"session_id"`
+	RunID     string        `json:"run_id,omitempty"`
+	MessageID string        `json:"message_id"`
+	Text      string        `json:"text,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	Cancelled bool          `json:"cancelled,omitempty"`
+	Telemetry *RunTelemetry `json:"telemetry,omitempty"`
+}
+
+type RunTelemetry struct {
+	RunID               string           `json:"run_id,omitempty"`
+	Provider            string           `json:"provider,omitempty"`
+	Model               string           `json:"model,omitempty"`
+	ReasoningEffort     string           `json:"reasoning_effort,omitempty"`
+	Attempt             int              `json:"attempt"`
+	RetryCount          int              `json:"retry_count"`
+	RetryDelayMicros    int64            `json:"retry_delay_us,omitempty"`
+	SpansMicros         map[string]int64 `json:"spans_us,omitempty"`
+	TotalMicros         int64            `json:"total_us"`
+	FirstSemantic       string           `json:"first_semantic,omitempty"`
+	CacheStatus         string           `json:"cache_status"`
+	CachedInputTokens   *int64           `json:"cached_input_tokens,omitempty"`
+	UncachedInputTokens *int64           `json:"uncached_input_tokens,omitempty"`
+	ServiceTier         string           `json:"service_tier,omitempty"`
+	ProviderRequestID   string           `json:"provider_request_id,omitempty"`
+	EstimatedUsage      bool             `json:"estimated_usage,omitempty"`
+	Compacted           bool             `json:"compacted,omitempty"`
+	PrefixChangedReason string           `json:"prefix_changed_reason,omitempty"`
+	StablePrefixHMAC    string           `json:"stable_prefix_hmac,omitempty"`
+	StablePrefixBytes   int              `json:"stable_prefix_bytes,omitempty"`
+	DynamicSuffixHMAC   string           `json:"dynamic_suffix_hmac,omitempty"`
+	DynamicSuffixBytes  int              `json:"dynamic_suffix_bytes,omitempty"`
+	RequestShapeHMAC    string           `json:"request_shape_hmac,omitempty"`
+	RequestShapeBytes   int              `json:"request_shape_bytes,omitempty"`
+}
+
+type TaskProgress struct {
+	SessionID                string `json:"session_id"`
+	RunID                    string `json:"run_id,omitempty"`
+	State                    string `json:"state"`
+	ElapsedSeconds           int    `json:"elapsed_seconds"`
+	LimitSeconds             int    `json:"limit_seconds"`
+	Solutions                int    `json:"solutions,omitempty"`
+	Penalty                  *int   `json:"penalty,omitempty"`
+	ResultStatus             string `json:"result_status,omitempty"`
+	HardConstraintsSatisfied *bool  `json:"hard_constraints_satisfied,omitempty"`
+	SoftViolationCount       int    `json:"soft_violation_count,omitempty"`
 }
 
 type partWrapper struct {

@@ -1,11 +1,15 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$CrushDir
+    [string]$CrushDir,
+    [string]$PatchDir = "",
+    [switch]$SkipInputPipeline
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$patchDir = Join-Path $repoRoot 'third_party/patches'
+if ($PatchDir -eq "") {
+    $patchDir = Join-Path $repoRoot 'third_party/patches'
+}
 $hardeningScript = Join-Path $PSScriptRoot 'harden-crush-for-tack.ps1'
 
 if (-not (Test-Path (Join-Path $CrushDir '.git'))) {

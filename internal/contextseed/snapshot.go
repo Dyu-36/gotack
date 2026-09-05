@@ -53,7 +53,14 @@ func (s *Seeder) BuildPromptSnapshot() (string, error) {
 		if rel == "." {
 			return nil
 		}
-		if rel == ".seed-report.json" {
+		if rel == ".seed-report.json" || rel == stockManifestName {
+			return nil
+		}
+		status := s.MigrationStatus()
+		if (status.Mode == MigrationPending || status.Mode == MigrationLegacy) && (rel == managedCoreName || rel == userContextName) {
+			return nil
+		}
+		if status.Mode == MigrationLayered && rel == legacyContextName {
 			return nil
 		}
 		if isMemoryPath(rel) {
@@ -111,6 +118,20 @@ func (s *Seeder) snapshotMemoryFile(source, rel string, entry os.DirEntry, stagi
 		return nil
 	}
 	return writePromptFile(filepath.Join(staging, rel), []byte(content), entry)
+}
+
+func (s *Seeder) SnapshotOwner() string {
+	ctxDir := s.ContextDir()
+	status := s.MigrationStatus()
+	if status.Mode == MigrationPending || status.Mode == MigrationLegacy {
+		if _, err := os.Stat(filepath.Join(ctxDir, legacyContextName)); err == nil {
+			return "legacy"
+		}
+	}
+	if _, err := os.Stat(filepath.Join(ctxDir, managedCoreName)); err == nil {
+		return "managed"
+	}
+	return "none"
 }
 
 func copyPromptFile(source, destination string, entry os.DirEntry) error {

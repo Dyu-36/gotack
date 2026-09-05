@@ -19,6 +19,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/reflection"
+	"github.com/Dyu-36/gotack/internal/runmetrics"
 	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/terminal"
@@ -26,6 +27,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/userstrings"
 	"github.com/Dyu-36/gotack/internal/workspace"
 	"github.com/Dyu-36/gotack/internal/zalo"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type conn struct {
@@ -55,6 +57,7 @@ type App struct {
 	scheduler *schedule.Scheduler
 
 	reflection *reflection.Tracker
+	runMetrics *runmetrics.Writer
 
 	conn atomic.Pointer[conn]
 }
@@ -105,6 +108,7 @@ func (a *App) startup(ctx context.Context) {
 		a.log = slog.Default()
 	}
 	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
+	a.runMetrics = runmetrics.New(appconfig.LogDir(), a.log)
 	a.link = enginelink.NewLink(a.sup)
 
 	a.officeSeeder = newOfficeSeeder(a.log)
@@ -140,6 +144,18 @@ func (a *App) startup(ctx context.Context) {
 	if a.zalo.Status().Configured {
 		a.zalo.Start()
 	}
+
+	startTray(a)
+}
+
+// showMainWindow surfaces the main window from the tray. It runs on tray or
+// second-instance goroutines, so it only calls the Wails runtime, which
+// marshals into the main thread's message loop.
+func (a *App) showMainWindow() {
+	if a.ctx == nil {
+		return
+	}
+	wailsruntime.WindowShow(a.ctx)
 }
 
 func (a *App) shutdown(ctx context.Context) {

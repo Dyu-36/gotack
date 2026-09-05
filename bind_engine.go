@@ -84,6 +84,11 @@ func (a *App) connect(scope context.Context) {
 			RunDone:              a.runDone,
 			AssistantIteration:   a.assistantIteration,
 			LearningToolExecuted: a.learningToolExecuted,
+			RunTelemetry: func(telemetry *crushapi.RunTelemetry) {
+				if a.runMetrics != nil {
+					a.runMetrics.Append(telemetry)
+				}
+			},
 		}
 		if relay := a.permsFromConn(); relay != nil {
 			callbacks.PermissionPending = relay.Pending

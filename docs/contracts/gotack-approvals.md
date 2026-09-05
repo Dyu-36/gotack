@@ -9,7 +9,7 @@ wire contract. The authority is decision 0002 (approval posture) and decision
 
 ## Hook wire contract
 
-The wire shapes are pinned against the Crush commit recorded in `.crush-pin`.
+The wire shapes are pinned against the Crush commit recorded in `.tack-pin`.
 They mirror `internal/hooks` in the vendored engine (`Payload` on stdin, the
 `parseStdout` envelope on stdout). Gotack does not import those packages; the
 shapes are redeclared in `internal/guard/wire.go`.

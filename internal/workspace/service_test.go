@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -131,5 +133,105 @@ func TestOpenWithDataDirPassesPersistenceDirectory(t *testing.T) {
 	}
 	if gotDataDir != dataDir {
 		t.Fatalf("data_dir = %q, want %q", gotDataDir, dataDir)
+	}
+}
+
+func TestMigrateLegacyDataDir_RenamesCrushToTack(t *testing.T) {
+	wsDir := t.TempDir()
+	crushDir := filepath.Join(wsDir, ".crush")
+	if err := os.MkdirAll(crushDir, 0o755); err != nil {
+		t.Fatalf("failed to create .crush dir: %v", err)
+	}
+	dbFile := filepath.Join(crushDir, "crush.db")
+	if err := os.WriteFile(dbFile, []byte("sqlite-data"), 0o644); err != nil {
+		t.Fatalf("failed to create dummy db: %v", err)
+	}
+
+	if err := MigrateLegacyDataDir(wsDir); err != nil {
+		t.Fatalf("MigrateLegacyDataDir error = %v", err)
+	}
+
+	if _, err := os.Stat(crushDir); !os.IsNotExist(err) {
+		t.Errorf("expected .crush to be moved, but it still exists")
+	}
+	tackDir := filepath.Join(wsDir, ".tack")
+	if info, err := os.Stat(tackDir); err != nil || !info.IsDir() {
+		t.Errorf("expected .tack directory to exist, err = %v", err)
+	}
+	migratedDB := filepath.Join(tackDir, "crush.db")
+	content, err := os.ReadFile(migratedDB)
+	if err != nil || string(content) != "sqlite-data" {
+		t.Errorf("expected migrated crush.db with content, got err = %v, content = %q", err, string(content))
+	}
+}
+
+func TestMigrateLegacyDataDir_PreservesExistingTack(t *testing.T) {
+	wsDir := t.TempDir()
+	crushDir := filepath.Join(wsDir, ".crush")
+	tackDir := filepath.Join(wsDir, ".tack")
+	_ = os.MkdirAll(crushDir, 0o755)
+	_ = os.MkdirAll(tackDir, 0o755)
+	_ = os.WriteFile(filepath.Join(crushDir, "old.txt"), []byte("old"), 0o644)
+	_ = os.WriteFile(filepath.Join(tackDir, "new.txt"), []byte("new"), 0o644)
+
+	if err := MigrateLegacyDataDir(wsDir); err != nil {
+		t.Fatalf("MigrateLegacyDataDir error = %v", err)
+	}
+
+	// Should not overwrite .tack
+	content, err := os.ReadFile(filepath.Join(tackDir, "new.txt"))
+	if err != nil || string(content) != "new" {
+		t.Errorf(".tack content corrupted or missing: %v", err)
+	}
+}
+
+func TestMigrateLegacyDataDir_NoOpWhenNoCrush(t *testing.T) {
+	wsDir := t.TempDir()
+	if err := MigrateLegacyDataDir(wsDir); err != nil {
+		t.Fatalf("unexpected error on empty workspace: %v", err)
+	}
+	tackDir := filepath.Join(wsDir, ".tack")
+	if _, err := os.Stat(tackDir); !os.IsNotExist(err) {
+		t.Errorf(".tack should not be created if .crush did not exist")
+	}
+}
+
+func TestOpenMigratesCrushToTackBeforeOpening(t *testing.T) {
+	workspaceDir := t.TempDir()
+	crushDir := filepath.Join(workspaceDir, ".crush")
+	_ = os.MkdirAll(crushDir, 0o755)
+	_ = os.WriteFile(filepath.Join(crushDir, "crush.db"), []byte("sample-db"), 0o644)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ws-1", "path": workspaceDir})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	api := crushapi.NewClient(&http.Client{Transport: transport})
+	service := NewService(api)
+
+	if _, err := service.Open(context.Background(), workspaceDir); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	if _, err := os.Stat(crushDir); !os.IsNotExist(err) {
+		t.Errorf("expected .crush to be migrated, but it still exists")
+	}
+	tackDir := filepath.Join(workspaceDir, ".tack")
+	if _, err := os.Stat(filepath.Join(tackDir, "crush.db")); err != nil {
+		t.Errorf("expected .tack/crush.db to exist after Open(): %v", err)
 	}
 }

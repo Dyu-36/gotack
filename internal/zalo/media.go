@@ -216,6 +216,7 @@ public class ScreenCap {
 }
 "@; Add-Type -TypeDefinition $code -ReferencedAssemblies System.Drawing; [ScreenCap]::Capture('` + escaped + `')`
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	hideConsoleWindow(cmd)
 	if outputBytes, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("lỗi khi chụp màn hình: %w: %s", err, strings.TrimSpace(string(outputBytes)))
 	}

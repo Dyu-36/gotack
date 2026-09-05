@@ -62,6 +62,9 @@
   let chatgptOAuthStatus = $state<ChatGPTOAuthStatus | null>(null)
   let isLoggingInChatGPT = $state(false)
 
+  let autoStart = $state(false)
+  let autoStartBusy = $state(false)
+
   $effect(() => {
     selectedTheme = theme
     selectedProvider = provider
@@ -70,7 +73,30 @@
     if (catalog.status === 'idle') void catalog.refresh()
     void loadZalo()
     void loadChatGPTOAuthStatus()
+    void loadAutoStart()
   })
+
+  async function loadAutoStart() {
+    try {
+      autoStart = await desktop.getAutoStart()
+    } catch {
+      autoStart = false
+    }
+  }
+
+  async function toggleAutoStart() {
+    const next = !autoStart
+    autoStartBusy = true
+    try {
+      await desktop.setAutoStart(next)
+      autoStart = next
+      toast.success(next ? 'Đã bật khởi động cùng Windows' : 'Đã tắt khởi động cùng Windows')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      autoStartBusy = false
+    }
+  }
 
   async function loadChatGPTOAuthStatus() {
     try {
@@ -466,6 +492,16 @@
               </button>
             {/each}
           </div>
+
+          <div class="section-title">Ứng dụng</div>
+          <label class="toggle-row">
+            <span>
+              <strong>Khởi động cùng Windows</strong>
+              <small>Tack chạy ẩn trong khay hệ thống ngay khi đăng nhập để Zalo bot luôn trực.</small>
+            </span>
+            <input type="checkbox" checked={autoStart} disabled={autoStartBusy} onchange={toggleAutoStart} />
+          </label>
+          <p class="hint">Đóng cửa sổ chỉ ẩn Tack xuống khay — Zalo bot và tiến trình vẫn chạy ngầm. Muốn tắt hẳn, End Task tiến trình Tack trong Task Manager.</p>
         </section>
       {/if}
     </div>

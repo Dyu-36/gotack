@@ -32,6 +32,13 @@ func (s *Seeder) Seed(sourceDir string) error {
 	if err := os.MkdirAll(s.ContextDir(), 0o755); err != nil {
 		return fmt.Errorf("create context dir: %w", err)
 	}
+	if _, coreErr := os.Stat(filepath.Join(sourceDir, managedCoreName)); coreErr == nil {
+		if _, manifestErr := os.Stat(filepath.Join(sourceDir, stockManifestName)); manifestErr == nil {
+			return s.seedLayered(sourceDir)
+		}
+	}
+	// Compatibility for old/custom resource bundles that still contain only
+	// legacy TACK.md. Current Gotack releases always take the layered path.
 	options := bundleseed.Options{
 		ExistingFiles: bundleseed.UserEditableFiles,
 		OnPreserve:    s.logPreserved,

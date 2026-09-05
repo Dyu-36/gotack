@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/runmetrics"
 )
 
 type Supervisor struct {
@@ -51,6 +52,11 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 
 	ep := appconfig.PipeEndpoint()
 	cmd := exec.Command(bin, "server")
+	if keyPath, keyErr := runmetrics.EnsureKey(appconfig.Dir()); keyErr != nil {
+		s.log.Warn("engine: cannot prepare telemetry key", "err", keyErr)
+	} else {
+		cmd.Env = append(os.Environ(), "TACK_RUN_METRICS_KEY_FILE="+keyPath)
+	}
 	configureProcAttr(cmd)
 
 	logPath := filepath.Join(appconfig.LogDir(), "tack-engine.log")

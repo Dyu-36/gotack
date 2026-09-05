@@ -16,10 +16,10 @@ function Update-ExactText {
     if (-not (Test-Path $path)) {
         throw "Required Crush source file not found: $RelativePath"
     }
-    $text = Get-Content $path -Raw
+    $text = [IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
     if ($text.Contains($Old)) {
         $text = $text.Replace($Old, $New)
-        Set-Content -Path $path -Value $text -NoNewline
+        [IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))
         return
     }
     if ($New -eq '' -or $text.Contains($New)) {
@@ -103,7 +103,8 @@ Update-ExactText 'internal/agent/tools/crush_logs.md.tpl' "Read Crush's internal
 Update-ExactText 'internal/agent/tools/crush_logs.md.tpl' "Returns recent log entries from Crush's internal log file" "Returns recent log entries from Tack's internal log file"
 Update-ExactText 'internal/agent/tools/crush_logs.md.tpl' 'Use to diagnose issues with Crush itself' 'Use to diagnose issues with Tack itself'
 
-Update-ExactText 'internal/agent/tools/bash.md.tpl' '💘 Generated with Crush' '💘 Generated with Tack'
+$heartEmoji = [char]::ConvertFromUtf32(0x1F498)
+Update-ExactText 'internal/agent/tools/bash.md.tpl' "$heartEmoji Generated with Crush" "$heartEmoji Generated with Tack"
 Update-ExactText 'internal/agent/tools/bash.md.tpl' 'Assisted-by: Crush:{{ .ModelID }}' 'Assisted-by: Tack:{{ .ModelID }}'
 Update-ExactText 'internal/agent/tools/bash.md.tpl' 'Co-Authored-By: Crush <crush@charm.land>' 'Co-Authored-By: Tack <tack@gotack.local>'
 
@@ -112,4 +113,53 @@ Update-ExactText 'internal/agent/tools/bash.md.tpl' 'Co-Authored-By: Crush <crus
 Update-ExactText 'internal/skills/builtin/crush-config/SKILL.md' 'Crush' 'Tack'
 Update-ExactText 'internal/skills/builtin/crush-hooks/SKILL.md' 'Crush' 'Tack'
 
-Write-Host 'Stripped the Question agent tool and applied Tack model identity.'
+# Rebrand workspace default data directory from .crush to .tack
+Update-ExactText 'internal/config/config.go' 'defaultDataDirectory = ".crush"' 'defaultDataDirectory = ".tack"'
+Update-ExactText 'internal/fsext/fileutil.go' @'
+		".crush":           true,
+'@ @'
+		".crush":           true,
+		".tack":            true,
+'@
+Update-ExactText 'internal/fsext/ls.go' @'
+	".crush":          true,
+'@ @'
+	".crush":          true,
+	".tack":           true,
+'@
+Update-ExactText 'internal/fsext/ls.go' @'
+		for _, ignoreFile := range []string{".gitignore", ".crushignore"} {
+'@ @'
+		for _, ignoreFile := range []string{".gitignore", ".crushignore", ".tackignore"} {
+'@
+Update-ExactText 'internal/commands/commands.go' @'
+		{
+			path:   filepath.Join(home.Dir(), ".crush", "commands"),
+			prefix: userCommandPrefix,
+		},
+'@ @'
+		{
+			path:   filepath.Join(home.Dir(), ".tack", "commands"),
+			prefix: userCommandPrefix,
+		},
+		{
+			path:   filepath.Join(home.Dir(), ".crush", "commands"),
+			prefix: userCommandPrefix,
+		},
+'@
+Update-ExactText 'internal/cmd/stats.go' @'
+	if outputDataDir == "" {
+		outputDataDir = ".crush"
+	}
+'@ @'
+	if outputDataDir == "" {
+		outputDataDir = ".tack"
+	}
+'@
+Update-ExactText 'internal/cmd/stats.go' @'
+			if filepath.Base(dir) == ".crush" {
+'@ @'
+			if filepath.Base(dir) == ".tack" || filepath.Base(dir) == ".crush" {
+'@
+
+Write-Host 'Stripped the Question agent tool and applied Tack model identity and data directory.'
