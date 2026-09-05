@@ -20,6 +20,8 @@ func (s *Seeder) PromptContextRoot() string {
 }
 
 func (s *Seeder) BuildPromptSnapshot() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	source := s.ContextDir()
 	if info, err := os.Stat(source); err != nil || !info.IsDir() {
 		if err == nil {
@@ -42,6 +44,16 @@ func (s *Seeder) BuildPromptSnapshot() (string, error) {
 		}
 	}()
 
+	status, err := s.loadMigrationStatus()
+	if err != nil {
+		return "", err
+	}
+	if status.Mode == MigrationStaged {
+		status, err = s.recoverStage(status)
+		if err != nil {
+			return "", fmt.Errorf("recover context migration: %w", err)
+		}
+	}
 	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -56,11 +68,10 @@ func (s *Seeder) BuildPromptSnapshot() (string, error) {
 		if rel == ".seed-report.json" || rel == stockManifestName {
 			return nil
 		}
-		status := s.MigrationStatus()
-		if (status.Mode == MigrationPending || status.Mode == MigrationLegacy) && (rel == managedCoreName || rel == userContextName) {
+		if (status.Mode == MigrationPending || status.Mode == MigrationLegacy || status.Mode == MigrationRolledBack) && (rel == managedCoreName || rel == userContextName) {
 			return nil
 		}
-		if status.Mode == MigrationLayered && rel == legacyContextName {
+		if status.Mode == MigrationCommitted && rel == legacyContextName {
 			return nil
 		}
 		if isMemoryPath(rel) {
@@ -121,9 +132,14 @@ func (s *Seeder) snapshotMemoryFile(source, rel string, entry os.DirEntry, stagi
 }
 
 func (s *Seeder) SnapshotOwner() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	ctxDir := s.ContextDir()
-	status := s.MigrationStatus()
-	if status.Mode == MigrationPending || status.Mode == MigrationLegacy {
+	status, err := s.loadMigrationStatus()
+	if err != nil {
+		return "none"
+	}
+	if status.Mode == MigrationPending || status.Mode == MigrationLegacy || status.Mode == MigrationRolledBack {
 		if _, err := os.Stat(filepath.Join(ctxDir, legacyContextName)); err == nil {
 			return "legacy"
 		}

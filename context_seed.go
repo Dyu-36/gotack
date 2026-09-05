@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
@@ -93,38 +91,6 @@ func (a *App) clearContextPath(ctx context.Context, api *crushapi.Client, worksp
 	if err := api.RefreshPromptContext(ctx, workspaceID); err != nil && a.log != nil {
 		a.log.Warn("context prompt refresh after removal failed", "err", err)
 	}
-}
-
-// ContextMigrationPreview returns the user-reviewable legacy/core/user files.
-func (a *App) ContextMigrationPreview() (contextseed.MigrationPreview, error) {
-	if a.contextSeeder == nil {
-		return contextseed.MigrationPreview{}, errors.New("context seeder is not initialized")
-	}
-	return a.contextSeeder.PreviewMigration()
-}
-
-// AcceptContextMigration switches a modified legacy install only after the
-// caller supplies the reviewed USER.md text.
-func (a *App) AcceptContextMigration(resolvedUser string) (contextseed.MigrationStatus, error) {
-	if a.contextSeeder == nil {
-		return contextseed.MigrationStatus{}, errors.New("context seeder is not initialized")
-	}
-	status, err := a.contextSeeder.AcceptMigration(resolvedUser)
-	if err == nil {
-		a.refreshCurrentContextSnapshot()
-	}
-	return status, err
-}
-
-func (a *App) RollbackContextMigration(token string) (contextseed.MigrationStatus, error) {
-	if a.contextSeeder == nil {
-		return contextseed.MigrationStatus{}, errors.New("context seeder is not initialized")
-	}
-	status, err := a.contextSeeder.RollbackMigration(token)
-	if err == nil {
-		a.refreshCurrentContextSnapshot()
-	}
-	return status, err
 }
 
 func (a *App) refreshCurrentContextSnapshot() {

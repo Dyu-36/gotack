@@ -1,6 +1,9 @@
 {
   "version": 1,
-  "legacy_stock_sha256": [
-    "20465a0eab1eb1c36653bcd5aea0fff1bfa3cdceb25c1ec1b341a52a1c121af3"
+	"legacy_stocks": [
+		{
+			"sha256": "20465a0eab1eb1c36653bcd5aea0fff1bfa3cdceb25c1ec1b341a52a1c121af3",
+			"path": "legacy/TACK-v1.md"
+		}
   ]
 }
