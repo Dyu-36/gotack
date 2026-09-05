@@ -74,7 +74,7 @@ func TestHarnessNegativeControls(t *testing.T) {
 func TestResponseFixtureLifecycle(t *testing.T) {
 	for _, tool := range []string{"", "mcp_e2e_fixture_echo"} {
 		w := httptest.NewRecorder()
-		writeResponse(w, true, "test", tool, fixtureAnswer)
+		writeResponse(w, true, "test", tool, "{}", fixtureAnswer)
 		events, err := readCompleteFrames(w.Body.Bytes())
 		if err != nil || len(events) < 7 || !w.Flushed {
 			t.Fatal("fixture_lifecycle_invalid")

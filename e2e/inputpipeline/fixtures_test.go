@@ -31,6 +31,7 @@ const (
 	modeTool      providerMode = "tool"
 	modeReplay    providerMode = "replay"
 	modeMalformed providerMode = "malformed"
+	modeTodo      providerMode = "todo"
 )
 
 type captureCounts struct {
@@ -43,6 +44,12 @@ type captureCounts struct {
 	RejectedAuth    int
 	RejectedSchema  int
 	CacheKeyRequest int
+	// Wire projections of the last main-model request of the run. These are
+	// read back for option-merge and todo-reminder assertions; no request
+	// body is ever written to logs or artifacts.
+	Include          []string
+	ReasoningSummary string
+	LastInputText    string
 }
 
 type fakeProvider struct {
@@ -102,11 +109,15 @@ func (p *fakeProvider) counts(run string) captureCounts {
 }
 
 type responseRequest struct {
-	Model  string                       `json:"model"`
-	Stream bool                         `json:"stream"`
-	Cache  string                       `json:"prompt_cache_key"`
-	Input  []map[string]json.RawMessage `json:"input"`
-	Tools  []struct {
+	Model     string   `json:"model"`
+	Stream    bool     `json:"stream"`
+	Cache     string   `json:"prompt_cache_key"`
+	Include   []string `json:"include"`
+	Reasoning *struct {
+		Summary string `json:"summary"`
+	} `json:"reasoning"`
+	Input []map[string]json.RawMessage `json:"input"`
+	Tools []struct {
 		Type string `json:"type"`
 		Name string `json:"name"`
 	} `json:"tools"`
@@ -116,6 +127,44 @@ func jsonString(value json.RawMessage) string {
 	var s string
 	_ = json.Unmarshal(value, &s)
 	return s
+}
+
+// inputText concatenates every user-visible text fragment of a request's
+// input items so assertions can look for reminder content without parsing
+// the whole prompt.
+func inputText(req responseRequest) string {
+	var b strings.Builder
+	for _, item := range req.Input {
+		var content json.RawMessage
+		if raw, ok := item["content"]; ok {
+			content = raw
+		} else {
+			continue
+		}
+		var text string
+		if json.Unmarshal(content, &text) == nil {
+			b.WriteString(text)
+			continue
+		}
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(content, &parts) == nil {
+			for _, part := range parts {
+				b.WriteString(part.Text)
+			}
+		}
+	}
+	return b.String()
+}
+func hasFunctionCallOutput(req responseRequest) bool {
+	for _, item := range req.Input {
+		if jsonString(item["type"]) == "function_call_output" {
+			return true
+		}
+	}
+	return false
 }
 func validateRequest(data []byte) (responseRequest, error) {
 	var req responseRequest
@@ -181,7 +230,7 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Model == titleModel {
 		p.auxiliary++
-		writeResponse(w, req.Stream, fmt.Sprintf("title_%d", p.auxiliary), "", "fixture-title")
+		writeResponse(w, req.Stream, fmt.Sprintf("title_%d", p.auxiliary), "", "", "fixture-title")
 		return
 	}
 	if p.active == "" {
@@ -194,6 +243,11 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 	if req.Cache != "" {
 		c.CacheKeyRequest++
 	}
+	c.Include = req.Include
+	if req.Reasoning != nil {
+		c.ReasoningSummary = req.Reasoning.Summary
+	}
+	c.LastInputText = inputText(req)
 	p.serial++
 	defer func() { p.runs[p.active] = c }()
 	if p.mode == modeRetry && c.Requests == 1 {
@@ -211,6 +265,7 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	toolName := ""
+	toolArgs := "{}"
 	if p.mode == modeTool && c.Requests == 1 {
 		for _, tool := range req.Tools {
 			if tool.Type == "function" && strings.HasSuffix(tool.Name, "fixture_echo") {
@@ -231,13 +286,36 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.ToolResults++
+	} else if p.mode == modeTodo && c.Requests == 1 {
+		for _, tool := range req.Tools {
+			if tool.Type == "function" && strings.HasSuffix(tool.Name, "todos") {
+				toolName = tool.Name
+				break
+			}
+		}
+		if toolName == "" {
+			c.Invalid++
+			rejectProvider(w)
+			return
+		}
+		toolArgs = `{"todos":[` +
+			`{"content":"synthetic-task-alpha","status":"pending","active_form":"Doing alpha"},` +
+			`{"content":"synthetic-task-beta","status":"in_progress","active_form":"Doing beta"}]}`
+		c.ToolResponses++
+	} else if p.mode == modeTodo {
+		if !hasFunctionCallOutput(req) {
+			c.Invalid++
+			rejectProvider(w)
+			return
+		}
+		c.ToolResults++
 	}
-	writeResponse(w, true, fmt.Sprintf("main_%d", p.serial), toolName, fixtureAnswer)
+	writeResponse(w, true, fmt.Sprintf("main_%d", p.serial), toolName, toolArgs, fixtureAnswer)
 }
 
 // The fake exercises the actual Responses event lifecycle, not chat completions
 // or a one-shot JSON body masquerading as an SSE stream.
-func writeResponse(w http.ResponseWriter, stream bool, suffix, toolName, text string) {
+func writeResponse(w http.ResponseWriter, stream bool, suffix, toolName, toolArgs, text string) {
 	model := mainModel
 	if strings.HasPrefix(suffix, "title") {
 		model = titleModel
@@ -302,10 +380,10 @@ func writeResponse(w http.ResponseWriter, stream bool, suffix, toolName, text st
 		emit("response.content_part.done", f)
 	} else {
 		f := field()
-		f["delta"] = "{}"
+		f["delta"] = toolArgs
 		emit("response.function_call_arguments.delta", f)
 		f = field()
-		f["arguments"] = "{}"
+		f["arguments"] = toolArgs
 		f["name"] = toolName
 		emit("response.function_call_arguments.done", f)
 	}
