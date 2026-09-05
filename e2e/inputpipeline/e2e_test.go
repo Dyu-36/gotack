@@ -335,10 +335,12 @@ func TestE2ERejectMalformedProvider(t *testing.T) {
 func TestE2EProviderOptionsPreserved(t *testing.T) {
 	p := newFakeProvider()
 	t.Cleanup(p.close)
-	options := map[string]any{"openai": map[string]any{
+	options := map[string]any{
+		// The engine's provider-options layers merge as flat option maps;
+		// provider-name wrapping would be an inert nested key.
 		"include":           []any{"file_search_call.results"},
 		"reasoning_summary": "concise",
-	}}
+	}
 	h := startEngine(t, t.TempDir(), p, false, options)
 	terminal, c := sendTurn(t, h, p, freshSession(t, h), modeText)
 	success(t, terminal)
@@ -358,7 +360,7 @@ func TestE2EProviderOptionsPreserved(t *testing.T) {
 func TestE2EInvalidOptionsPreNetwork(t *testing.T) {
 	p := newFakeProvider()
 	t.Cleanup(p.close)
-	options := map[string]any{"openai": map[string]any{"reasoning_summary": "none"}}
+	options := map[string]any{"reasoning_summary": "none"}
 	h := startEngine(t, t.TempDir(), p, false, options)
 	run := newID(t)
 	p.arm(run, modeText)
