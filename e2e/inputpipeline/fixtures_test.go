@@ -427,23 +427,6 @@ func writeResponse(w http.ResponseWriter, stream bool, suffix, toolName, toolArg
 }
 
 // JSON-RPC stdout only. Audit records contain no arguments, IDs, or tool output.
-// serveMCPArgs resolves the fixture MCP identity: an optional second
-// argument names the instance so two servers can advertise distinct
-// instructions for ordering proofs.
-func serveMCPArgs(args []string) (auditFile, instance string, err error) {
-	if len(args) == 0 || len(args) > 2 {
-		return "", "", errors.New("mcp_args_invalid")
-	}
-	auditFile = args[0]
-	if len(args) == 2 {
-		instance = args[1]
-		if instance != "alpha" && instance != "bravo" {
-			return "", "", errors.New("mcp_instance_invalid")
-		}
-	}
-	return auditFile, instance, nil
-}
-
 func serveMCP(in io.Reader, out io.Writer, audit func(string) error) error {
 	return serveMCPInstance(in, out, audit, "")
 }
