@@ -51,6 +51,8 @@ func requireTelemetry(t *testing.T, complete crushapi.RunComplete, attempts, ret
 		t.Fatal("run_telemetry_identity_invalid")
 	}
 	if m.Attempt != attempts || m.RetryCount != retries || m.RetryDelayMicros < 0 {
+		raw, _ := json.Marshal(m)
+		t.Logf("DEBUG telemetry=%s", raw)
 		t.Fatal("run_telemetry_attempt_invalid")
 	}
 	if m.FirstSemantic != firstSemantic {
