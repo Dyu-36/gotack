@@ -139,7 +139,7 @@ func writeFixtureConfig(t *testing.T, root string, p *fakeProvider, withMCP bool
 }
 func startEngine(t *testing.T, root string, p *fakeProvider, withMCP bool) *engineHarness {
 	t.Helper()
-	env := isolatedEnv(t, root, p.server.URL)
+	env := isolatedEnv(t, root, p.proxy.URL)
 	writeFixtureConfig(t, root, p, withMCP)
 	workspace, db := filepath.Join(root, "workspace"), filepath.Join(root, "workspace-data")
 	must(t, os.MkdirAll(workspace, 0o700), "workspace_directory_failed")
@@ -256,7 +256,7 @@ func success(t *testing.T, terminal terminalPayload) {
 }
 func TestE2EInputPipelineFreshTurn(t *testing.T) {
 	p := newFakeProvider()
-	t.Cleanup(p.server.Close)
+	t.Cleanup(p.close)
 	h := startEngine(t, t.TempDir(), p, false)
 	terminal, c := sendTurn(t, h, p, freshSession(t, h), modeText)
 	success(t, terminal)
@@ -266,7 +266,7 @@ func TestE2EInputPipelineFreshTurn(t *testing.T) {
 }
 func TestE2ERetryBehavior(t *testing.T) {
 	p := newFakeProvider()
-	t.Cleanup(p.server.Close)
+	t.Cleanup(p.close)
 	h := startEngine(t, t.TempDir(), p, false)
 	terminal, c := sendTurn(t, h, p, freshSession(t, h), modeRetry)
 	success(t, terminal)
@@ -276,7 +276,7 @@ func TestE2ERetryBehavior(t *testing.T) {
 }
 func TestE2EToolLoopAndRestart(t *testing.T) {
 	p := newFakeProvider()
-	t.Cleanup(p.server.Close)
+	t.Cleanup(p.close)
 	root := t.TempDir()
 	h := startEngine(t, root, p, true)
 	session := freshSession(t, h)
@@ -312,7 +312,7 @@ func TestE2EToolLoopAndRestart(t *testing.T) {
 }
 func TestE2ERejectMalformedProvider(t *testing.T) {
 	p := newFakeProvider()
-	t.Cleanup(p.server.Close)
+	t.Cleanup(p.close)
 	h := startEngine(t, t.TempDir(), p, false)
 	terminal, _ := sendTurn(t, h, p, freshSession(t, h), modeMalformed)
 	if terminal.Error == "" || terminal.Text != "" || terminal.Cancelled {

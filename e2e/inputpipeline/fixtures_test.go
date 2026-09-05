@@ -46,6 +46,7 @@ type captureCounts struct {
 
 type fakeProvider struct {
 	server         *httptest.Server
+	proxy          *httptest.Server
 	mu             sync.Mutex
 	active         string
 	mode           providerMode
@@ -61,7 +62,26 @@ type fakeProvider struct {
 func newFakeProvider() *fakeProvider {
 	p := &fakeProvider{runs: make(map[string]captureCounts)}
 	p.server = httptest.NewServer(http.HandlerFunc(p.serve))
+	p.proxy = httptest.NewServer(http.HandlerFunc(p.denyEgress))
 	return p
+}
+
+// The pinned app unconditionally checks GitHub releases in the background.
+// Deny that known auxiliary CONNECT without classifying it as a malformed model
+// request. All other egress is a fixture failure; no proxy request is forwarded.
+func (p *fakeProvider) denyEgress(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if r.Method != http.MethodConnect || r.Host != "api.github.com:443" {
+		p.rejected++
+		p.rejectedRoute++
+	}
+	w.WriteHeader(http.StatusForbidden)
+}
+
+func (p *fakeProvider) close() {
+	p.server.Close()
+	p.proxy.Close()
 }
 func (p *fakeProvider) arm(run string, mode providerMode) {
 	p.mu.Lock()
