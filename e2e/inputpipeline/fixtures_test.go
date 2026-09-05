@@ -20,8 +20,8 @@ import (
 const fixtureAnswer = "fixture-answer"
 const fixtureToolOutput = "fixture-ok"
 const fixtureCallID = "call_fixture_echo"
-const mainModel = "fixture-main"
-const titleModel = "fixture-title"
+const mainModel = "gpt-5-fixture-main"
+const titleModel = "gpt-5-fixture-title"
 
 type providerMode string
 
