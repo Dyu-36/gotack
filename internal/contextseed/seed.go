@@ -5,13 +5,16 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/Dyu-36/gotack/internal/bundleseed"
 )
 
 type Seeder struct {
-	dataDir string
-	log     *slog.Logger
+	dataDir   string
+	log       *slog.Logger
+	mu        sync.Mutex
+	sourceDir string
 }
 
 func New(dataDir string, log *slog.Logger) *Seeder {
