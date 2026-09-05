@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "upstream": "https://github.com/charmbracelet/fantasy",
+  "base_version": "v0.41.3",
+  "base_commit": "f06034c7824ffddc4394d4cefa5ed5132a186b1b",
+  "patches": [
+    {
+      "file": "responses-reasoning-continuity.patch",
+      "sha256": "cf9d60c8f88ca89bdb07ad31b7d530a9e4dcec46c7774bbdf500239828dffaf1",
+      "upstream_status": "not-submitted",
+      "release_eligible": false
+    }
+  ]
+}
