@@ -341,7 +341,7 @@ func writeResponse(w http.ResponseWriter, stream bool, suffix, toolName, toolArg
 	if toolName != "" {
 		itemID = "fc_" + suffix
 		item = map[string]any{"id": itemID, "type": "function_call", "call_id": fixtureCallID,
-			"name": toolName, "arguments": "{}", "status": "completed"}
+			"name": toolName, "arguments": toolArgs, "status": "completed"}
 	}
 	response := map[string]any{"id": "resp_" + suffix, "object": "response", "created_at": 1,
 		"model": model, "status": "completed", "error": nil, "incomplete_details": nil,
