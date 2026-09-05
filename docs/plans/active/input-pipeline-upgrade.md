@@ -48,9 +48,11 @@ driver), `3c1de3e` (migration UI), `a3b9002` (change_reasons), `c6522d4`
 (fantasy tests), `7796ca8` (wire-proof E2E tests), `12c0908` (checkpoint
 ledger), `437ee9a` (engine input-pipeline patch), `5008a26` (todo reminder at
 model-call boundary + options at the selected-model layer), `1554cbd`
-(flat option layers in fixtures), `46fcada`/`a4…` (gated synthetic item
-diagnostics), `7751877` (benchmark schedule subcommand), plus the tool-item
-and transcript-read-order fixture fixes.
+(flat option layers in fixtures), `46fcada`/`d8fb10b`/`9878038` (gated
+synthetic item diagnostics), `749c817` (tool-item streamed arguments),
+`ceda015` (transcript read order), `7751877` (benchmark schedule
+subcommand), `f614c39` (bench treatment flat layer), `8518393` (return the
+owner's timetable edits to uncommitted state).
 
 The starting Gotack commit was `b6dcf68320b708df7a5e3c8e1750689cf5621ec1`.
 The Crush pin is owned by `.tack-pin`; the owner's ignored `third_party/crush`
