@@ -120,11 +120,19 @@ export function report(input, { seed, workload, synthetic = true, expectedPairs 
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const [input, output, workload, pairText, seedText] = process.argv.slice(2);
-    check(input && output, 'benchmark_artifacts_required');
-    const records = fs.readFileSync(input, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
-    const result = report(records, { workload, expectedPairs: Number(pairText), seed: Number(seedText), synthetic: true });
-    fs.writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' });
-    console.log(`Benchmark: ${result.independent_pairs} independent pairs; synthetic=true; no-rollout; cache OFF.`);
+    const [command, a1, a2, a3, a4] = process.argv.slice(2);
+    if (command === 'schedule') {
+      // Emitted by the benchmark driver so the runner and the report can
+      // never disagree about pairing or seed handling.
+      check(a1 !== undefined && a2 !== undefined, 'schedule_args_required');
+      process.stdout.write(`${JSON.stringify(pairedSchedule(Number(a1), Number(a2)))}\n`);
+    } else {
+      const [input, output, workload, pairText, seedText] = [command, a1, a2, a3, a4];
+      check(input && output, 'benchmark_artifacts_required');
+      const records = fs.readFileSync(input, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+      const result = report(records, { workload, expectedPairs: Number(pairText), seed: Number(seedText), synthetic: true });
+      fs.writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' });
+      console.log(`Benchmark: ${result.independent_pairs} independent pairs; synthetic=true; no-rollout; cache OFF.`);
+    }
   } catch (error) { console.error(error?.code || 'benchmark_artifact_invalid'); process.exitCode = 1; }
 }

@@ -57,7 +57,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Provenance verification failed.' }
 
 # The paired schedule comes from the reporting statistics core so the runner
 # and the report can never disagree about pairing or seed handling.
-$schedule = & $node --input-type=module -e "import { pathToFileURL } from 'node:url'; const m = await import(pathToFileURL(process.argv[1]).href); process.stdout.write(JSON.stringify(m.pairedSchedule(Number(process.argv[2]), Number(process.argv[3]))));" $benchmarkMjs $Pairs $Seed
+$schedule = & $node $benchmarkMjs schedule $Pairs $Seed
 if ($LASTEXITCODE -ne 0 -or -not $schedule) { throw 'Schedule generation failed.' }
 $scheduleText = ($schedule -join '').Trim()
 
