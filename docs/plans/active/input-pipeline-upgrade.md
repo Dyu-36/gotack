@@ -32,7 +32,7 @@ exists), PASS (executed check passed), FAIL, BLOCKED, UNVERIFIED, OUT_OF_SCOPE.
 | --- | --- | --- |
 | Phase 0A | PASS (baseline engine) | Real Windows clean-pin replay/build + 5 required executable E2E tests passed twice on the unpatched baseline (`d0ada5ba…` provenance) |
 | PR0 consumer | IMPLEMENTED + unit PASS | runmetrics Writer/validation/redaction wired via `bind_engine.go`; optional sorted `change_reasons` with allowlist validation; contract doc updated |
-| PR0 engine | IMPLEMENTED | `input-pipeline-core.patch`: RunTrace with monotonic spans (ready_wait/mcp_wait/model_refresh/history_load/prompt_prepare/stream), one-shot first semantic, tri-state cache, domain-separated HMAC request fingerprints (unavailable stays unavailable), sorted unique `change_reasons`; telemetry recorded by the benchmark driver against the patched engine. Transport-level HTTP TTFB spans need Fantasy upstream hooks — those metrics stay absent (null), never zero |
+| PR0 engine | IMPLEMENTED | `input-pipeline-core.patch`: RunTrace with monotonic spans (ready_wait/mcp_wait/model_refresh/history_load/prompt_prepare/stream plus the OnChunk-derived `request_write_to_first_byte` TTFB), one-shot first semantic, tri-state cache with run-scoped token sums, run-scoped `attempt` (completed steps plus retries), domain-separated HMAC request fingerprints (unavailable stays unavailable), sorted unique `change_reasons`. Run-level semantics align with the merged remote telemetry E2E coverage (fresh/retry/tool-loop). The socket-byte to first-SSE split (`first_byte_to_first_sse`) still needs a Fantasy transport hook and stays absent (null), never zero. A parallel remote PR0 patch series (`9cd9d27`) was superseded by this patch and removed from the manifest during the merge |
 | PR1 | IMPLEMENTED (wire-proofed) | Engine: ordered context groups, Windows-canonical rendered paths, provider-options layers merged as flat maps with pre-network validation (`auto\|concise\|detailed`, union include with `reasoning.encrypted_content`, explicit null omits), todo reminder re-rendered from a fresh session snapshot at every model-call boundary inside `PrepareStep` as ephemeral user-role context. Gate-required E2E wire proofs PASS: options preserved, invalid options rejected with zero provider requests, todo reminder reflects real state + survives restart + never persisted. Remaining: 20-restart canonical-prompt wire proof and MCP instruction-order proof not run; `prefix_changed_reason`/`change_reasons` auto-record only `initial`/`compaction` (no automatic generation-diff detection yet) |
 | PR2 | PARTIAL | Ordered prompt groups/sorting and `skills.Manager` single-source present in the engine patch; content-addressed snapshot generation and same-size context edit rebuild detection NOT implemented (`context-prompt/snapshot-<timestamp>` instability from Plan §0.3 remains) |
 | PR4 | IMPLEMENTED (host+UI) | Transactional migration, Wails bind methods, desktop.ts bridge, ContextMigrationPanel UI, ADR 0006, contract + layout docs; `go build`, focused tests, frontend check/test/build all PASS. Portable agent-browser flow UNVERIFIED (owner gate); migration tests only on temp profiles |
@@ -52,7 +52,11 @@ model-call boundary + options at the selected-model layer), `1554cbd`
 synthetic item diagnostics), `749c817` (tool-item streamed arguments),
 `ceda015` (transcript read order), `7751877` (benchmark schedule
 subcommand), `f614c39` (bench treatment flat layer), `8518393` (return the
-owner's timetable edits to uncommitted state).
+owner's timetable edits to uncommitted state), `af0407f` (merge of the
+remote PR0 telemetry lane: hardening opt-out + telemetry E2E coverage
+kept, superseded telemetry patches removed), `6f7efa6` (TTFB span +
+adopted telemetry coverage), `de2738b` (run-scoped attempt and token
+semantics).
 
 The starting Gotack commit was `b6dcf68320b708df7a5e3c8e1750689cf5621ec1`.
 The Crush pin is owned by `.tack-pin`; the owner's ignored `third_party/crush`
