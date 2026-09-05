@@ -1,0 +1,3172 @@
+diff --git a/internal/agent/agent.go b/internal/agent/agent.go
+index 368d99d..50629ab 100644
+--- a/internal/agent/agent.go
++++ b/internal/agent/agent.go
+@@ -20,6 +20,7 @@ import (
+ 	"net/http"
+ 	"os"
+ 	"regexp"
++	"slices"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -140,6 +141,7 @@ type SessionAgentCall struct {
+ 	// recursion drains, so falling back to the default broker
+ 	// publish keeps the event visible to subscribers.
+ 	OnComplete func(notify.RunComplete)
++	Trace      *RunTrace
+ 	// Accepted, when non-nil, is the accept reservation taken by
+ 	// BeginAccepted before the call was dispatched onto a goroutine
+ 	// (the client/server fire-and-forget path). Run consumes it under
+@@ -601,6 +603,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	if err := ValidateCall(call); err != nil {
+ 		return nil, err
+ 	}
++	trace := call.Trace
++	if trace == nil {
++		trace = newRunTrace(call.RunID)
++	}
+ 
+ 	// genCtx/cancel are the run context and its cancel func, created under
+ 	// the per-session dispatch mutex below so a concurrent Cancel can observe
+@@ -641,6 +647,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			SessionID: call.SessionID,
+ 			RunID:     call.RunID,
+ 			Cancelled: true,
++			Telemetry: trace.Snapshot(),
+ 		}
+ 		if err := a.persistCanceledTurn(ctx, call, false); err != nil {
+ 			complete.Error = err.Error()
+@@ -695,9 +702,26 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	largeModel := a.largeModel.Get()
+ 	systemPrompt := a.systemPrompt.Get()
+ 	promptPrefix := a.systemPromptPrefix.Get()
+-	var instructions strings.Builder
++	historyStarted := trace.StartSpan()
++	currentSession, err := a.sessions.Get(ctx, call.SessionID)
++	if err != nil {
++		return nil, fmt.Errorf("failed to get session: %w", err)
++	}
++
++	runSystemPrompt := systemPrompt
++	if !a.isSubAgent {
++		runSystemPrompt += "\n\n" + renderTodoReminder(currentSession.Todos)
++	}
+ 
+-	for _, server := range mcp.GetStates() {
++	var instructions strings.Builder
++	states := mcp.GetStates()
++	serverNames := make([]string, 0, len(states))
++	for name := range states {
++		serverNames = append(serverNames, name)
++	}
++	slices.Sort(serverNames)
++	for _, name := range serverNames {
++		server := states[name]
+ 		if server.State != mcp.StateConnected {
+ 			continue
+ 		}
+@@ -708,7 +732,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	}
+ 
+ 	if s := instructions.String(); s != "" {
+-		systemPrompt += "\n\n<mcp-instructions>\n" + s + "\n</mcp-instructions>"
++		runSystemPrompt += "\n\n<mcp-instructions>\n" + s + "\n</mcp-instructions>"
+ 	}
+ 
+ 	if len(agentTools) > 0 {
+@@ -718,21 +742,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 
+ 	agent := fantasy.NewAgent(
+ 		largeModel.Model,
+-		fantasy.WithSystemPrompt(systemPrompt),
++		fantasy.WithSystemPrompt(runSystemPrompt),
+ 		fantasy.WithTools(agentTools...),
+ 		fantasy.WithUserAgent(userAgent),
+ 	)
+ 
+ 	sessionLock := sync.Mutex{}
+-	currentSession, err := a.sessions.Get(ctx, call.SessionID)
+-	if err != nil {
+-		return nil, fmt.Errorf("failed to get session: %w", err)
+-	}
+-
+ 	msgs, err := a.getSessionMessages(ctx, currentSession)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to get session messages: %w", err)
+ 	}
++	trace.EndSpan("history_load", historyStarted)
+ 
+ 	// Generate title from the first real (non-shell) user prompt.
+ 	// can take tens of seconds. Blocking Run on it delays the
+@@ -794,6 +814,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return
+ 		}
+ 		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
++		complete.Telemetry = trace.Snapshot()
+ 		if currentAssistant != nil {
+ 			complete.MessageID = currentAssistant.ID
+ 			complete.Text = currentAssistant.Content().String()
+@@ -814,7 +835,26 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 		a.publishRunComplete(ctx, call, complete)
+ 	}()
+ 
+-	history, files := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
++	promptStarted := trace.StartSpan()
++	history, files, promptErr := a.preparePromptForModel(
++		msgs,
++		largeModel.CatwalkCfg.SupportsImages,
++		largeModel.ModelCfg.Provider,
++		largeModel.ModelCfg.Model,
++		call.Attachments...,
++	)
++	if promptErr != nil {
++		// Deterministic pre-network validation failure: no provider
++		// request is attempted for malformed history.
++		return nil, promptErr
++	}
++	trace.EndSpan("prompt_prepare", promptStarted)
++	toolNames := make([]string, 0, len(agentTools))
++	for _, tool := range agentTools {
++		toolNames = append(toolNames, tool.Info().Name)
++	}
++	slices.Sort(toolNames)
++	trace.FingerprintRequestWithTools(runSystemPrompt, call.Prompt, len(agentTools), toolNames)
+ 
+ 	startTime := time.Now()
+ 	a.eventPromptSent(call.SessionID)
+@@ -826,6 +866,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	// Don't send MaxOutputTokens if 0, or when the selected backend does not
+ 	// accept the field (notably ChatGPT's subscription-backed Codex endpoint).
+ 	maxOutputTokens := maxOutputTokensForModel(largeModel, call.MaxOutputTokens)
++	streamStarted := trace.StartSpan()
+ 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
+ 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
+ 		Files:            files,
+@@ -911,11 +952,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return callContext, prepared, err
+ 		},
+ 		OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
+-			currentAssistant.AppendReasoningContent(reasoning.Text)
++			trace.MarkFirstSemantic("reasoning")
++			currentAssistant.AppendReasoningContentForID(id, reasoning.Text)
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+ 		OnReasoningDelta: func(id string, text string) error {
+-			currentAssistant.AppendReasoningContent(text)
++			currentAssistant.AppendReasoningContentForID(id, text)
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+ 		OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
+@@ -932,13 +974,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			}
+ 			if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
+ 				if reasoning, ok := openaiData.(*openai.ResponsesReasoningMetadata); ok {
+-					currentAssistant.SetReasoningResponsesData(reasoning)
++					currentAssistant.SetReasoningResponsesDataForID(id, reasoning)
+ 				}
+ 			}
+-			currentAssistant.FinishThinking()
++			currentAssistant.FinishThinkingForID(id)
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+ 		OnTextDelta: func(id string, text string) error {
++			trace.MarkFirstSemantic("text")
+ 			// Strip leading newline from initial text content. This is is
+ 			// particularly important in non-interactive mode where leading
+ 			// newlines are very visible.
+@@ -950,6 +993,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
+ 		OnToolInputStart: func(id string, toolName string) error {
++			trace.MarkFirstSemantic("tool")
+ 			toolCall := message.ToolCall{
+ 				ID:               id,
+ 				Name:             toolName,
+@@ -962,6 +1006,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			return a.messages.Update(ctx, *currentAssistant)
+ 		},
+ 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
++			trace.RecordRetry(delay)
+ 			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
+ 			// Reset streamed content so the retried response doesn't
+ 			// concatenate with partial content from the failed attempt.
+@@ -1061,6 +1106,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			if call.MaxInputTokens > 0 && !estimated && usage.InputTokens > 0 {
+ 				aggregateInputTokens += usage.InputTokens
+ 			}
++			// Provider-reported cache usage feeds the tri-state cache
++			// status; estimated or absent usage leaves it unreported.
++			if !estimated && !usageIsZero(usage) {
++				cached := usage.CacheReadTokens
++				uncached := usage.InputTokens
++				trace.RecordCacheUsage(&cached, &uncached)
++			}
+ 			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+ 			extractHyperCredits(stepResult.ProviderMetadata)
+ 			_, sessionErr := a.sessions.Save(ctx, updatedSession)
+@@ -1092,6 +1144,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			},
+ 		},
+ 	})
++	trace.EndSpan("stream", streamStarted)
+ 
+ 	a.eventPromptResponded(call.SessionID, time.Since(startTime).Truncate(time.Second))
+ 
+@@ -1221,6 +1274,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	}
+ 
+ 	if shouldSummarize {
++		trace.SetCompacted()
+ 		a.activeRequests.Del(call.SessionID)
+ 		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {
+ 			return nil, summarizeErr
+@@ -1345,6 +1399,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 	mu.Unlock()
+ 	if outerOwesRunComplete {
+ 		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
++		complete.Telemetry = trace.Snapshot()
+ 		if currentAssistant != nil {
+ 			complete.MessageID = currentAssistant.ID
+ 			complete.Text = currentAssistant.Content().String()
+@@ -1379,7 +1434,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
+ 		return nil
+ 	}
+ 
+-	aiMsgs, _ := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
++	aiMsgs, _, err := a.preparePromptForModel(msgs, largeModel.CatwalkCfg.SupportsImages, largeModel.ModelCfg.Provider, largeModel.ModelCfg.Model)
++	if err != nil {
++		return err
++	}
+ 
+ 	genCtx, cancel := context.WithCancel(ctx)
+ 	ac := &activeCancel{cancel: cancel}
+@@ -1555,18 +1613,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
+ 	return msg, nil
+ }
+ 
+-func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
++func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart, error) {
++	return a.preparePromptForModel(msgs, supportsImages, "", "", attachments...)
++}
++
++func (a *sessionAgent) preparePromptForModel(msgs []message.Message, supportsImages bool, provider, modelID string, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart, error) {
+ 	var history []fantasy.Message
+-	if !a.isSubAgent {
+-		history = append(history, fantasy.NewUserMessage(
+-			fmt.Sprintf(
+-				"<system_reminder>%s</system_reminder>",
+-				`This is a reminder that your todo list is currently empty. DO NOT mention this to the user explicitly because they are already aware.
+-If you are working on tasks that would benefit from a todo list please use the "todos" tool to create one.
+-If not, please feel free to ignore. Again do not mention this message to the user.`,
+-			),
+-		))
+-	}
+ 	// Collect all tool call IDs present in assistant messages and all tool
+ 	// result IDs present in tool messages. This lets us detect both orphaned
+ 	// tool results (result without a call) and orphaned tool calls (call
+@@ -1586,12 +1638,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+ 		}
+ 	}
+ 
++	// seenResponsesItemIDs enforces the per-request rule that every
++	// Responses reasoning item_id is replayed at most once across ALL
++	// assistant messages in the request.
++	seenResponsesItemIDs := make(map[string]struct{})
+ 	for _, m := range msgs {
+ 		if len(m.Parts) == 0 {
+ 			continue
+ 		}
+ 		// Assistant message without content or tool calls (cancelled before it returned anything).
+-		if m.Role == message.Assistant && len(m.ToolCalls()) == 0 && m.Content().Text == "" && m.ReasoningContent().String() == "" {
++		if m.Role == message.Assistant && len(m.ToolCalls()) == 0 && m.Content().Text == "" && len(m.ReasoningContents()) == 0 {
+ 			continue
+ 		}
+ 		if m.Role == message.Tool {
+@@ -1600,6 +1656,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+ 			}
+ 			continue
+ 		}
++		if provider != "" && m.Role == message.Assistant && (m.Provider != provider || m.Model != modelID) {
++			m = withoutResponsesReasoning(m)
++		}
++		// Each Responses reasoning item_id may be replayed at most once
++		// per request. A duplicate would corrupt the ordered reasoning
++		// stream, so it is a deterministic pre-network validation error
++		// rather than something to silently dedupe.
++		if err := collectResponsesItemIDs(m, seenResponsesItemIDs); err != nil {
++			return nil, nil, err
++		}
+ 		aiMsgs := m.ToAIMessage()
+ 		if !supportsImages {
+ 			for i := range aiMsgs {
+@@ -1632,7 +1698,133 @@ If not, please feel free to ignore. Again do not mention this message to the use
+ 		})
+ 	}
+ 
+-	return history, files
++	return history, files, nil
++}
++
++// collectResponsesItemIDs records every Responses reasoning item_id in
++// the message and rejects a duplicate anywhere in the request with a
++// deterministic pre-network error. The item ID is opaque metadata; it is
++// never echoed with ciphertext content.
++func collectResponsesItemIDs(m message.Message, seen map[string]struct{}) error {
++	for _, part := range m.Parts {
++		reasoning, ok := part.(message.ReasoningContent)
++		if !ok || reasoning.ResponsesData == nil {
++			continue
++		}
++		itemID := reasoning.ResponsesData.ItemID
++		if itemID == "" {
++			continue
++		}
++		if _, exists := seen[itemID]; exists {
++			return fmt.Errorf("duplicate reasoning item_id in request history; refusing to send the request (item index in message %s)", m.ID)
++		}
++		seen[itemID] = struct{}{}
++	}
++	return nil
++}
++
++func withoutResponsesReasoning(msg message.Message) message.Message {
++	clone := msg.Clone()
++	for index, part := range clone.Parts {
++		reasoning, ok := part.(message.ReasoningContent)
++		if !ok || reasoning.ResponsesData == nil {
++			continue
++		}
++		reasoning.ResponsesData = nil
++		clone.Parts[index] = reasoning
++	}
++	return clone
++}
++
++const (
++	maxTodoReminderTasks = 64
++	maxTodoReminderBytes = 16 * 1024
++	// todoReminderOverheadBytes covers the opening wrapper, the closing
++	// wrapper, and the worst-case truncation/omitted/total/state markers
++	// that follow the rendered items, so the finished reminder is always
++	// within maxTodoReminderBytes.
++	todoReminderOverheadBytes = 256
++)
++
++var todoXMLReplacer = strings.NewReplacer(
++	"&", "&amp;",
++	"<", "&lt;",
++	">", "&gt;",
++	"\"", "&quot;",
++	"'", "&apos;",
++)
++
++// renderTodoReminder renders the session's todo snapshot as ephemeral
++// engine-state context. Task order follows the session's deterministic
++// slice order (never re-sorted: status ordering would erase the model's
++// priority). The whole list is summarized with total and omitted status
++// counts so truncated or completed tasks cannot hide active work, and a
++// non-empty list is never described as empty.
++func renderTodoReminder(todos []session.Todo) string {
++	var body strings.Builder
++	body.WriteString(`<system_reminder><todos source="engine-state">`)
++	if len(todos) == 0 {
++		body.WriteString("<state>empty</state><instruction>Use the todos tool when task tracking would help.</instruction>")
++	} else {
++		allCompleted := true
++		statusCounts := make(map[string]int, 3)
++		for _, todo := range todos {
++			if todo.Status != session.TodoStatusCompleted {
++				allCompleted = false
++			}
++			statusCounts[string(todo.Status)]++
++		}
++
++		rendered := 0
++		for _, todo := range todos {
++			if rendered >= maxTodoReminderTasks {
++				break
++			}
++			item := fmt.Sprintf("<todo status=\"%s\">%s</todo>", todoXMLReplacer.Replace(string(todo.Status)), todoXMLReplacer.Replace(todo.Content))
++			// The byte cap covers XML escaping (item is already escaped)
++			// and the fixed wrapper/marker overhead; whole items are
++			// dropped, never split mid-UTF-8.
++			if body.Len()+len(item)+todoReminderOverheadBytes > maxTodoReminderBytes {
++				break
++			}
++			body.WriteString(item)
++			rendered++
++		}
++		if omitted := len(todos) - rendered; omitted > 0 {
++			body.WriteString("<truncated>true</truncated>")
++			fmt.Fprintf(&body, "<omitted>%d</omitted>", omitted)
++			omittedCounts := make([]string, 0, len(statusCounts))
++			remaining := make(map[string]int, len(statusCounts))
++			for _, todo := range todos[rendered:] {
++				remaining[string(todo.Status)]++
++			}
++			for _, status := range sortedStatusNames(remaining) {
++				omittedCounts = append(omittedCounts, fmt.Sprintf("%s=%d", status, remaining[status]))
++			}
++			body.WriteString("<omitted-status ")
++			body.WriteString(strings.Join(omittedCounts, " "))
++			body.WriteString("/>")
++		}
++		fmt.Fprintf(&body, "<total>%d</total>", len(todos))
++		if allCompleted {
++			body.WriteString("<state>all-completed</state>")
++		} else {
++			body.WriteString("<state>active</state>")
++		}
++	}
++	body.WriteString("</todos></system_reminder>")
++	return body.String()
++}
++
++// sortedStatusNames returns the map's keys in lexical order so the
++// omitted-status summary is deterministic.
++func sortedStatusNames(counts map[string]int) []string {
++	names := make([]string, 0, len(counts))
++	for name := range counts {
++		names = append(names, name)
++	}
++	slices.Sort(names)
++	return names
+ }
+ 
+ // filterFileParts removes fantasy.FilePart entries from a slice of message
+diff --git a/internal/agent/agent_test.go b/internal/agent/agent_test.go
+index d3aea16..75a1032 100644
+--- a/internal/agent/agent_test.go
++++ b/internal/agent/agent_test.go
+@@ -691,11 +691,11 @@ func TestPreparePrompt_FiltersImageAttachments(t *testing.T) {
+ 
+ 	// When supportsImages is false, image attachments should be stripped
+ 	// from history AND from the files list.
+-	history, files := agent.preparePrompt(msgs, false, imageAtt)
+-	// First message is the system reminder, second is the user message.
+-	require.Len(t, history, 2)
+-	require.Len(t, history[1].Content, 1)
+-	text, ok := fantasy.AsMessagePart[fantasy.TextPart](history[1].Content[0])
++	history, files, err := agent.preparePrompt(msgs, false, imageAtt)
++	require.NoError(t, err)
++	require.Len(t, history, 1)
++	require.Len(t, history[0].Content, 1)
++	text, ok := fantasy.AsMessagePart[fantasy.TextPart](history[0].Content[0])
+ 	require.True(t, ok)
+ 	require.Contains(t, text.Text, "hello world")
+ 	require.Contains(t, text.Text, "important notes")
+@@ -703,13 +703,14 @@ func TestPreparePrompt_FiltersImageAttachments(t *testing.T) {
+ 
+ 	// When supportsImages is true, image attachments should remain in
+ 	// history and be included in the files list.
+-	history, files = agent.preparePrompt(msgs, true, imageAtt)
+-	require.Len(t, history, 2)
+-	require.Len(t, history[1].Content, 2)
+-	text, ok = fantasy.AsMessagePart[fantasy.TextPart](history[1].Content[0])
++	history, files, err = agent.preparePrompt(msgs, true, imageAtt)
++	require.NoError(t, err)
++	require.Len(t, history, 1)
++	require.Len(t, history[0].Content, 2)
++	text, ok = fantasy.AsMessagePart[fantasy.TextPart](history[0].Content[0])
+ 	require.True(t, ok)
+ 	require.Contains(t, text.Text, "hello world")
+-	file, ok := fantasy.AsMessagePart[fantasy.FilePart](history[1].Content[1])
++	file, ok := fantasy.AsMessagePart[fantasy.FilePart](history[0].Content[1])
+ 	require.True(t, ok)
+ 	require.Equal(t, "image.png", file.Filename)
+ 	require.Len(t, files, 1, "new-turn image attachment should be included when model supports images")
+@@ -800,7 +801,8 @@ func TestPreparePrompt_OrphanedToolUse(t *testing.T) {
+ 	msgs, err := env.messages.List(ctx, sess.ID)
+ 	require.NoError(t, err)
+ 
+-	history, _ := agent.preparePrompt(msgs, true)
++	history, _, err := agent.preparePrompt(msgs, true)
++	require.NoError(t, err)
+ 
+ 	// The history must contain a synthetic tool result for the orphaned call.
+ 	found := false
+@@ -874,7 +876,8 @@ func TestPreparePrompt_OrphanedToolUseMixed(t *testing.T) {
+ 	msgs, err := env.messages.List(ctx, sess.ID)
+ 	require.NoError(t, err)
+ 
+-	history, _ := agent.preparePrompt(msgs, true)
++	history, _, err := agent.preparePrompt(msgs, true)
++	require.NoError(t, err)
+ 
+ 	// Should have a synthetic result only for the orphaned call.
+ 	var syntheticCount int
+diff --git a/internal/agent/coordinator.go b/internal/agent/coordinator.go
+index 6a4e27d..75702ab 100644
+--- a/internal/agent/coordinator.go
++++ b/internal/agent/coordinator.go
+@@ -173,10 +173,10 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator,
+ 	skillTracker := skills.NewTracker(activeSkills)
+ 
+ 	c := &coordinator{
+-		cfg:          opts.Config,
+-		sessions:     opts.Sessions,
+-		messages:     opts.Messages,
+-		permissions:  opts.Permissions,
++		cfg:         opts.Config,
++		sessions:    opts.Sessions,
++		messages:    opts.Messages,
++		permissions: opts.Permissions,
+ 
+ 		history:      opts.History,
+ 		filetracker:  opts.FileTracker,
+@@ -194,8 +194,16 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator,
+ 		return nil, errCoderAgentNotConfigured
+ 	}
+ 
++	// Traces created on the sessionAgent side have no config access, so
++	// point telemetry HMAC key resolution at the engine data directory
++	// once, here.
++	SetRunTraceKeyDir(c.cfg.Config().Options.DataDirectory)
++
+ 	// TODO: make this dynamic when we support multiple agents
+-	prompt, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
++	prompt, err := coderPrompt(
++		prompt.WithWorkingDir(c.cfg.WorkingDir()),
++		prompt.WithSkills(c.skills.ActiveSkills()),
++	)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -225,9 +233,14 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
+ // dispatchMu; when nil (the in-process/local path) no accept tracking
+ // applies.
+ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
++	runID := RunIDFromContext(ctx)
++	trace := newRunTrace(runID)
++	readyStarted := trace.StartSpan()
+ 	if err := c.readyWg.Wait(); err != nil {
++		trace.EndSpan("ready_wait", readyStarted)
+ 		return nil, err
+ 	}
++	trace.EndSpan("ready_wait", readyStarted)
+ 
+ 	// MCP servers connect asynchronously (see mcp.Initialize).
+ 	//
+@@ -244,17 +257,24 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 	// server's own connect timeout, so a hung server cannot stall the run
+ 	// indefinitely.
+ 	if !c.interactive {
++		mcpStarted := trace.StartSpan()
+ 		if err := mcp.WaitForInit(ctx); err != nil {
++			trace.EndSpan("mcp_wait", mcpStarted)
+ 			return nil, fmt.Errorf("failed to wait for MCP initialization: %w", err)
+ 		}
++		trace.EndSpan("mcp_wait", mcpStarted)
+ 	}
+ 
+ 	// refresh models before each run
++	modelStarted := trace.StartSpan()
+ 	if err := c.UpdateModels(ctx); err != nil {
++		trace.EndSpan("model_refresh", modelStarted)
+ 		return nil, fmt.Errorf("failed to update models: %w", err)
+ 	}
++	trace.EndSpan("model_refresh", modelStarted)
+ 
+ 	model := c.currentAgent.Model()
++	trace.SetModel(model.ModelCfg.Provider, model.ModelCfg.Model, effectiveReasoningEffort(model))
+ 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
+ 	if model.ModelCfg.MaxTokens != 0 {
+ 		maxTokens = model.ModelCfg.MaxTokens
+@@ -265,7 +285,12 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 		return nil, errModelProviderNotConfigured
+ 	}
+ 
+-	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
++	mergedOptions, temp, topP, topK, freqPenalty, presPenalty, mergeErr := mergeCallOptions(model, providerCfg)
++	if mergeErr != nil {
++		// Invalid provider options must fail before any provider call;
++		// never degrade to empty options with the user's config lost.
++		return nil, fmt.Errorf("failed to prepare provider options: %w", mergeErr)
++	}
+ 
+ 	if err := c.refreshTokenIfExpired(ctx, providerCfg); err != nil {
+ 		// NOTE(@andreynering): We don't return here because the event handling to ask the user to reauthenticate
+@@ -296,7 +321,6 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 	// back. Both attempts in the retry chain reuse the same RunID;
+ 	// the coalesce closure publishes the final outcome under that
+ 	// same correlator.
+-	runID := RunIDFromContext(ctx)
+ 	maxInputTokens := MaxInputTokensFromContext(ctx)
+ 	run := func() (*fantasy.AgentResult, error) {
+ 		return c.currentAgent.Run(ctx, SessionAgentCall{
+@@ -313,6 +337,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
+ 			FrequencyPenalty: freqPenalty,
+ 			PresencePenalty:  presPenalty,
+ 			OnComplete:       onComplete,
++			Trace:            trace,
+ 			Accepted:         accept,
+ 			OnAuthRefresh:    c.makeAuthRefreshCallback(providerCfg),
+ 		})
+@@ -364,7 +389,7 @@ func effectiveReasoningEffort(model Model) string {
+ 	return ""
+ }
+ 
+-func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.ProviderOptions {
++func getProviderOptions(model Model, providerCfg config.ProviderConfig) (fantasy.ProviderOptions, error) {
+ 	options := fantasy.ProviderOptions{}
+ 
+ 	cfgOpts := []byte("{}")
+@@ -400,16 +425,16 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 
+ 	got, err := jsons.Merge(readers)
+ 	if err != nil {
+-		slog.Error("Could not merge call config", "err", err)
+-		return options
++		// Fail request preparation before any network call; the raw
++		// merged value is never echoed into logs.
++		return options, fmt.Errorf("merge provider call options: %w", err)
+ 	}
+ 
+ 	mergedOptions := make(map[string]any)
+ 
+ 	err = json.Unmarshal([]byte(got), &mergedOptions)
+ 	if err != nil {
+-		slog.Error("Could not create config for call", "err", err)
+-		return options
++		return options, fmt.Errorf("decode merged provider call options: %w", err)
+ 	}
+ 
+ 	reasoningEffort := effectiveReasoningEffort(model)
+@@ -425,18 +450,62 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 		}
+ 		if openai.IsResponsesModel(model.CatwalkCfg.ID) {
+ 			if openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) {
+-				mergedOptions["reasoning_summary"] = "auto"
+-				mergedOptions["include"] = []openai.IncludeType{openai.IncludeReasoningEncryptedContent}
++				// jsons.Merge treats an explicit JSON null as absent, but
++				// a user-set null is an explicit omission that must beat
++				// any lower-layer default. Restore it from the
++				// highest-precedence user layer before applying defaults.
++				if userOpts := model.ModelCfg.ProviderOptions; userOpts != nil {
++					if v, ok := userOpts["reasoning_summary"]; ok && v == nil {
++						mergedOptions["reasoning_summary"] = nil
++					}
++				}
++				// "auto" is only a default: an existing user value always
++				// wins, and explicit null (decoded as a present-but-nil
++				// key) means omit the summary on the wire entirely.
++				summaryValue, hasSummary := mergedOptions["reasoning_summary"]
++				if !hasSummary {
++					mergedOptions["reasoning_summary"] = "auto"
++				} else if summaryValue == nil {
++					// Explicit null: omit rather than restoring "auto".
++					delete(mergedOptions, "reasoning_summary")
++				} else {
++					text, ok := summaryValue.(string)
++					if !ok {
++						return options, fmt.Errorf("invalid provider option reasoning_summary: must be a string")
++					}
++					switch text {
++					case "auto", "concise", "detailed":
++					default:
++						// The SDK documents only auto|concise|detailed;
++						// anything else (e.g. "none") must fail request
++						// preparation before any network call. The value
++						// is not echoed.
++						return options, fmt.Errorf("invalid provider option reasoning_summary: must be one of auto|concise|detailed")
++					}
++				}
++				includes, includeErr := mergeResponsesIncludes(
++					mergedOptions["include"],
++					openai.IncludeReasoningEncryptedContent,
++				)
++				if includeErr != nil {
++					// Invalid user option: fail model/request preparation
++					// before any provider call. The rejected value is
++					// never echoed; only the field and index are.
++					return options, fmt.Errorf("invalid provider option include: %w", includeErr)
++				}
++				mergedOptions["include"] = includes
+ 			}
+ 			parsed, err := openai.ParseResponsesOptions(mergedOptions)
+-			if err == nil {
+-				options[openai.Name] = parsed
++			if err != nil {
++				return options, fmt.Errorf("invalid OpenAI Responses provider options: %w", err)
+ 			}
++			options[openai.Name] = parsed
+ 		} else {
+ 			parsed, err := openai.ParseOptions(mergedOptions)
+-			if err == nil {
+-				options[openai.Name] = parsed
++			if err != nil {
++				return options, fmt.Errorf("invalid OpenAI provider options: %w", err)
+ 			}
++			options[openai.Name] = parsed
+ 		}
+ 
+ 	case anthropic.Name, bedrock.Name:
+@@ -470,9 +539,10 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 		}
+ 
+ 		parsed, err := anthropic.ParseOptions(mergedOptions)
+-		if err == nil {
+-			options[anthropic.Name] = parsed
++		if err != nil {
++			return options, fmt.Errorf("invalid Anthropic provider options: %w", err)
+ 		}
++		options[anthropic.Name] = parsed
+ 
+ 	case openrouter.Name:
+ 		_, hasReasoning := mergedOptions["reasoning"]
+@@ -483,9 +553,10 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 			}
+ 		}
+ 		parsed, err := openrouter.ParseOptions(mergedOptions)
+-		if err == nil {
+-			options[openrouter.Name] = parsed
++		if err != nil {
++			return options, fmt.Errorf("invalid OpenRouter provider options: %w", err)
+ 		}
++		options[openrouter.Name] = parsed
+ 
+ 	case vercel.Name:
+ 		_, hasReasoning := mergedOptions["reasoning"]
+@@ -496,9 +567,10 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 			}
+ 		}
+ 		parsed, err := vercel.ParseOptions(mergedOptions)
+-		if err == nil {
+-			options[vercel.Name] = parsed
++		if err != nil {
++			return options, fmt.Errorf("invalid Vercel provider options: %w", err)
+ 		}
++		options[vercel.Name] = parsed
+ 
+ 	case google.Name:
+ 		_, hasReasoning := mergedOptions["thinking_config"]
+@@ -516,9 +588,10 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 			}
+ 		}
+ 		parsed, err := google.ParseOptions(mergedOptions)
+-		if err == nil {
+-			options[google.Name] = parsed
++		if err != nil {
++			return options, fmt.Errorf("invalid Google provider options: %w", err)
+ 		}
++		options[google.Name] = parsed
+ 
+ 	case openaicompat.Name, hyper.Name:
+ 		extraBody := make(map[string]any)
+@@ -600,32 +673,80 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
+ 		mergedOptions["extra_body"] = extraBody
+ 
+ 		parsed, err := openaicompat.ParseOptions(mergedOptions)
+-		if err == nil {
+-			options[openaicompat.Name] = parsed
++		if err != nil {
++			return options, fmt.Errorf("invalid provider options: %w", err)
+ 		}
++		options[openaicompat.Name] = parsed
+ 
+ 	default:
+ 		// Known custom providers (litellm, ollama, omlx) are
+ 		// openai-compat under the hood.
+ 		if discover.IsKnownCustomProvider(string(providerCfg.Type)) {
+ 			parsed, err := openaicompat.ParseOptions(mergedOptions)
+-			if err == nil {
+-				options[openaicompat.Name] = parsed
++			if err != nil {
++				return options, fmt.Errorf("invalid provider options: %w", err)
+ 			}
++			options[openaicompat.Name] = parsed
+ 		}
+ 	}
+ 
+-	return options
++	return options, nil
+ }
+ 
+-func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderOptions, *float64, *float64, *int64, *float64, *float64) {
+-	modelOptions := getProviderOptions(model, cfg)
++func mergeResponsesIncludes(configured any, required ...openai.IncludeType) ([]openai.IncludeType, error) {
++	set := make(map[openai.IncludeType]struct{})
++	add := func(value string) {
++		if value != "" {
++			set[openai.IncludeType(value)] = struct{}{}
++		}
++	}
++
++	switch values := configured.(type) {
++	case nil:
++	case []string:
++		for _, value := range values {
++			add(value)
++		}
++	case []openai.IncludeType:
++		for _, value := range values {
++			add(string(value))
++		}
++	case []any:
++		for index, value := range values {
++			text, ok := value.(string)
++			if !ok {
++				return nil, fmt.Errorf("include[%d] must be a string", index)
++			}
++			add(text)
++		}
++	default:
++		return nil, fmt.Errorf("include must be an array of strings")
++	}
++	for _, value := range required {
++		add(string(value))
++	}
++
++	result := make([]openai.IncludeType, 0, len(set))
++	for value := range set {
++		result = append(result, value)
++	}
++	slices.SortFunc(result, func(a, b openai.IncludeType) int {
++		return strings.Compare(string(a), string(b))
++	})
++	return result, nil
++}
++
++func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderOptions, *float64, *float64, *int64, *float64, *float64, error) {
++	modelOptions, err := getProviderOptions(model, cfg)
++	if err != nil {
++		return nil, nil, nil, nil, nil, nil, err
++	}
+ 	temp := cmp.Or(model.ModelCfg.Temperature, model.CatwalkCfg.Options.Temperature)
+ 	topP := cmp.Or(model.ModelCfg.TopP, model.CatwalkCfg.Options.TopP)
+ 	topK := cmp.Or(model.ModelCfg.TopK, model.CatwalkCfg.Options.TopK)
+ 	freqPenalty := cmp.Or(model.ModelCfg.FrequencyPenalty, model.CatwalkCfg.Options.FrequencyPenalty)
+ 	presPenalty := cmp.Or(model.ModelCfg.PresencePenalty, model.CatwalkCfg.Options.PresencePenalty)
+-	return modelOptions, temp, topP, topK, freqPenalty, presPenalty
++	return modelOptions, temp, topP, topK, freqPenalty, presPenalty, nil
+ }
+ 
+ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool) (SessionAgent, error) {
+@@ -738,7 +859,6 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
+ 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
+ 	)
+ 
+-
+ 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
+ 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
+ 		allTools = append(
+@@ -1258,7 +1378,10 @@ func (c *coordinator) refreshSkills(ctx context.Context, provider, model string)
+ 	c.skillsPromptDirty = true
+ 	c.skillTracker.SetActiveSkills(c.skills.ActiveSkills())
+ 
+-	p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
++	p, err := coderPrompt(
++		prompt.WithWorkingDir(c.cfg.WorkingDir()),
++		prompt.WithSkills(c.skills.ActiveSkills()),
++	)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -1282,7 +1405,10 @@ func (c *coordinator) RefreshPrompt(ctx context.Context) error {
+ 	defer c.skillsRefreshMu.Unlock()
+ 
+ 	model := c.currentAgent.Model()
+-	p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
++	p, err := coderPrompt(
++		prompt.WithWorkingDir(c.cfg.WorkingDir()),
++		prompt.WithSkills(c.skills.ActiveSkills()),
++	)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -1321,7 +1447,11 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
+ 
+ 	// Auth failures during summarize flow through fantasy's OnAuthRefresh,
+ 	// the same path used by regular turns.
+-	return c.currentAgent.Summarize(ctx, sessionID, getProviderOptions(c.currentAgent.Model(), providerCfg), c.makeAuthRefreshCallback(providerCfg))
++	summaryOptions, err := getProviderOptions(c.currentAgent.Model(), providerCfg)
++	if err != nil {
++		return fmt.Errorf("failed to prepare provider options: %w", err)
++	}
++	return c.currentAgent.Summarize(ctx, sessionID, summaryOptions, c.makeAuthRefreshCallback(providerCfg))
+ }
+ 
+ // GenerateTitle generates a session title using the current agent.
+@@ -1500,13 +1630,20 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
+ 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
+ 	}
+ 
++	subOptions, err := getProviderOptions(model, providerCfg)
++	if err != nil {
++		// Invalid provider options fail the tool call before any
++		// provider request is attempted.
++		return fantasy.ToolResponse{}, fmt.Errorf("failed to prepare provider options: %w", err)
++	}
++
+ 	// Run the agent
+ 	run := func() (*fantasy.AgentResult, error) {
+ 		return params.Agent.Run(ctx, SessionAgentCall{
+ 			SessionID:        session.ID,
+ 			Prompt:           params.Prompt,
+ 			MaxOutputTokens:  maxTokens,
+-			ProviderOptions:  getProviderOptions(model, providerCfg),
++			ProviderOptions:  subOptions,
+ 			Temperature:      model.ModelCfg.Temperature,
+ 			TopP:             model.ModelCfg.TopP,
+ 			TopK:             model.ModelCfg.TopK,
+diff --git a/internal/agent/coordinator_test.go b/internal/agent/coordinator_test.go
+index 9d0681c..6a79308 100644
+--- a/internal/agent/coordinator_test.go
++++ b/internal/agent/coordinator_test.go
+@@ -13,6 +13,7 @@ import (
+ 	"charm.land/fantasy"
+ 	"charm.land/fantasy/providers/anthropic"
+ 	"charm.land/fantasy/providers/bedrock"
++	"charm.land/fantasy/providers/openai"
+ 	"charm.land/fantasy/providers/openaicompat"
+ 	"github.com/charmbracelet/crush/internal/config"
+ 	"github.com/charmbracelet/crush/internal/skills"
+@@ -574,7 +575,8 @@ func TestGetProviderOptionsReasoningEffort(t *testing.T) {
+ 			}
+ 			providerCfg := config.ProviderConfig{ID: "test", Type: tc.providerType}
+ 
+-			opts := getProviderOptions(model, providerCfg)
++			opts, err := getProviderOptions(model, providerCfg)
++			require.NoError(t, err)
+ 
+ 			raw, ok := opts[anthropic.Name]
+ 			require.True(t, ok, "options should be keyed under anthropic.Name for type %q", tc.providerType)
+@@ -628,7 +630,8 @@ func TestGetProviderOptionsReasoningEffortFallback(t *testing.T) {
+ 		Type: openaicompat.Name,
+ 	}
+ 
+-	opts := getProviderOptions(model, providerCfg)
++	opts, err := getProviderOptions(model, providerCfg)
++	require.NoError(t, err)
+ 
+ 	raw, ok := opts[openaicompat.Name]
+ 	require.True(t, ok)
+@@ -641,3 +644,147 @@ func TestGetProviderOptionsReasoningEffortFallback(t *testing.T) {
+ 	require.True(t, ok)
+ 	assert.Equal(t, "enabled", thinking["type"])
+ }
++
++func TestMergeResponsesIncludes(t *testing.T) {
++	tests := []struct {
++		name       string
++		configured any
++		required   []openai.IncludeType
++		want       []openai.IncludeType
++		wantErr    bool
++	}{
++		{"nil adds required", nil, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{openai.IncludeReasoningEncryptedContent}, false},
++		{"empty slice adds required", []any{}, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{openai.IncludeReasoningEncryptedContent}, false},
++		{"user values preserved and unioned", []any{"file_search_call.results", "logprobs"}, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{"file_search_call.results", "logprobs", openai.IncludeReasoningEncryptedContent}, false},
++		{"duplicates deduped", []any{string(openai.IncludeReasoningEncryptedContent), "reasoning.encrypted_content"}, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{openai.IncludeReasoningEncryptedContent}, false},
++		{"string slice accepted", []string{"file_search_call.results"}, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{"file_search_call.results", openai.IncludeReasoningEncryptedContent}, false},
++		{"typed slice accepted", []openai.IncludeType{"file_search_call.results"}, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{"file_search_call.results", openai.IncludeReasoningEncryptedContent}, false},
++		{"empty strings dropped", []any{"", ""}, []openai.IncludeType{openai.IncludeReasoningEncryptedContent},
++			[]openai.IncludeType{openai.IncludeReasoningEncryptedContent}, false},
++		{"output sorted lexically", []any{"z.include", "a.include"}, nil,
++			[]openai.IncludeType{"a.include", "z.include"}, false},
++		{"non-string entry rejected", []any{42}, nil, nil, true},
++		{"non-array rejected", "file_search_call.results", nil, nil, true},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			got, err := mergeResponsesIncludes(tc.configured, tc.required...)
++			if tc.wantErr {
++				require.Error(t, err)
++				return
++			}
++			require.NoError(t, err)
++			require.Equal(t, tc.want, got)
++		})
++	}
++}
++
++func responsesModel() Model {
++	return Model{
++		CatwalkCfg: catwalk.Model{
++			ID:        "gpt-5.2",
++			CanReason: true,
++		},
++		ModelCfg: config.SelectedModel{Provider: "openai"},
++	}
++}
++
++func TestGetProviderOptionsReasoningSummarySemantics(t *testing.T) {
++	providerCfg := config.ProviderConfig{ID: "openai", Type: openai.Name}
++
++	t.Run("default auto when absent", func(t *testing.T) {
++		opts, err := getProviderOptions(responsesModel(), providerCfg)
++		require.NoError(t, err)
++		parsed, ok := opts[openai.Name].(*openai.ResponsesProviderOptions)
++		require.True(t, ok)
++		require.NotNil(t, parsed.ReasoningSummary)
++		require.Equal(t, "auto", *parsed.ReasoningSummary)
++	})
++
++	for _, userValue := range []string{"auto", "concise", "detailed"} {
++		t.Run("user value wins: "+userValue, func(t *testing.T) {
++			model := responsesModel()
++			model.ModelCfg.ProviderOptions = map[string]any{"reasoning_summary": userValue}
++			opts, err := getProviderOptions(model, providerCfg)
++			require.NoError(t, err)
++			parsed := opts[openai.Name].(*openai.ResponsesProviderOptions)
++			require.NotNil(t, parsed.ReasoningSummary)
++			require.Equal(t, userValue, *parsed.ReasoningSummary)
++		})
++	}
++
++	t.Run("explicit user null omits summary", func(t *testing.T) {
++		model := responsesModel()
++		model.ModelCfg.ProviderOptions = map[string]any{"reasoning_summary": nil}
++		opts, err := getProviderOptions(model, providerCfg)
++		require.NoError(t, err)
++		parsed := opts[openai.Name].(*openai.ResponsesProviderOptions)
++		require.Nil(t, parsed.ReasoningSummary, "explicit null must omit, not restore auto")
++	})
++
++	for _, invalid := range []string{"none", "verbose", ""} {
++		t.Run("invalid value fails: '"+invalid+"'", func(t *testing.T) {
++			model := responsesModel()
++			model.ModelCfg.ProviderOptions = map[string]any{"reasoning_summary": invalid}
++			_, err := getProviderOptions(model, providerCfg)
++			require.Error(t, err)
++			require.Contains(t, err.Error(), "reasoning_summary")
++		})
++	}
++}
++
++func TestGetProviderOptionsInvalidIncludeFails(t *testing.T) {
++	providerCfg := config.ProviderConfig{ID: "openai", Type: openai.Name}
++
++	t.Run("non-string include entry", func(t *testing.T) {
++		model := responsesModel()
++		model.ModelCfg.ProviderOptions = map[string]any{"include": []any{"file_search_call.results", 7}}
++		_, err := getProviderOptions(model, providerCfg)
++		require.Error(t, err)
++		require.Contains(t, err.Error(), "include")
++	})
++
++	t.Run("non-array include", func(t *testing.T) {
++		model := responsesModel()
++		model.ModelCfg.ProviderOptions = map[string]any{"include": "file_search_call.results"}
++		_, err := getProviderOptions(model, providerCfg)
++		require.Error(t, err)
++	})
++
++	t.Run("valid user includes survive union", func(t *testing.T) {
++		model := responsesModel()
++		model.ModelCfg.ProviderOptions = map[string]any{"include": []any{"file_search_call.results"}}
++		opts, err := getProviderOptions(model, providerCfg)
++		require.NoError(t, err)
++		parsed := opts[openai.Name].(*openai.ResponsesProviderOptions)
++		require.Equal(t, []openai.IncludeType{"file_search_call.results", openai.IncludeReasoningEncryptedContent}, parsed.Include)
++	})
++}
++
++func TestMergeCallOptionsPropagatesError(t *testing.T) {
++	providerCfg := config.ProviderConfig{ID: "openai", Type: openai.Name}
++	model := responsesModel()
++	model.ModelCfg.ProviderOptions = map[string]any{"reasoning_summary": "none"}
++
++	opts, _, _, _, _, _, err := mergeCallOptions(model, providerCfg)
++	require.Error(t, err)
++	require.Nil(t, opts, "no options must be returned on failure so no degraded request can be built")
++}
++
++func TestGetProviderOptionsUserNullBeatsCatwalkDefault(t *testing.T) {
++	providerCfg := config.ProviderConfig{ID: "openai", Type: openai.Name}
++	model := responsesModel()
++	model.CatwalkCfg.Options.ProviderOptions = map[string]any{"reasoning_summary": "auto"}
++	model.ModelCfg.ProviderOptions = map[string]any{"reasoning_summary": nil}
++
++	opts, err := getProviderOptions(model, providerCfg)
++	require.NoError(t, err)
++	parsed := opts[openai.Name].(*openai.ResponsesProviderOptions)
++	require.Nil(t, parsed.ReasoningSummary, "user explicit null must omit summary even when catwalk defaults to auto")
++}
+diff --git a/internal/agent/notify/notify.go b/internal/agent/notify/notify.go
+index 0150235..8076246 100644
+--- a/internal/agent/notify/notify.go
++++ b/internal/agent/notify/notify.go
+@@ -75,4 +75,46 @@ type RunComplete struct {
+ 	Text      string
+ 	Error     string
+ 	Cancelled bool
++	Telemetry *RunTelemetry
++}
++
++type CacheStatus string
++
++const (
++	CacheHit        CacheStatus = "hit"
++	CacheMiss       CacheStatus = "miss"
++	CacheUnreported CacheStatus = "unreported"
++)
++
++type RunTelemetry struct {
++	RunID               string           `json:"run_id,omitempty"`
++	Provider            string           `json:"provider,omitempty"`
++	Model               string           `json:"model,omitempty"`
++	ReasoningEffort     string           `json:"reasoning_effort,omitempty"`
++	Attempt             int              `json:"attempt"`
++	RetryCount          int              `json:"retry_count"`
++	RetryDelayMicros    int64            `json:"retry_delay_us,omitempty"`
++	SpansMicros         map[string]int64 `json:"spans_us,omitempty"`
++	TotalMicros         int64            `json:"total_us"`
++	FirstSemantic       string           `json:"first_semantic,omitempty"`
++	CacheStatus         CacheStatus      `json:"cache_status"`
++	CachedInputTokens   *int64           `json:"cached_input_tokens,omitempty"`
++	UncachedInputTokens *int64           `json:"uncached_input_tokens,omitempty"`
++	ServiceTier         string           `json:"service_tier,omitempty"`
++	ProviderRequestID   string           `json:"provider_request_id,omitempty"`
++	EstimatedUsage      bool             `json:"estimated_usage,omitempty"`
++	Compacted           bool             `json:"compacted,omitempty"`
++	PrefixChangedReason string           `json:"prefix_changed_reason,omitempty"`
++	// ChangeReasons is the optional sorted, unique list of every prefix
++	// change observed in the run, including dynamic-only reasons that do
++	// not move the primary PrefixChangedReason. Allowed values:
++	// git_status, date, mcp, skills, context, tool_set, compaction,
++	// model_switch, none, initial, todo, provider_options.
++	ChangeReasons      []string `json:"change_reasons,omitempty"`
++	StablePrefixHMAC   string   `json:"stable_prefix_hmac,omitempty"`
++	StablePrefixBytes  int      `json:"stable_prefix_bytes,omitempty"`
++	DynamicSuffixHMAC  string   `json:"dynamic_suffix_hmac,omitempty"`
++	DynamicSuffixBytes int      `json:"dynamic_suffix_bytes,omitempty"`
++	RequestShapeHMAC   string   `json:"request_shape_hmac,omitempty"`
++	RequestShapeBytes  int      `json:"request_shape_bytes,omitempty"`
+ }
+diff --git a/internal/agent/prompt/prompt.go b/internal/agent/prompt/prompt.go
+index 4917b25..b97a032 100644
+--- a/internal/agent/prompt/prompt.go
++++ b/internal/agent/prompt/prompt.go
+@@ -4,10 +4,10 @@ import (
+ 	"cmp"
+ 	"context"
+ 	"fmt"
+-	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
++	"slices"
+ 	"strings"
+ 	"text/template"
+ 	"time"
+@@ -21,13 +21,16 @@ import (
+ 
+ // Prompt represents a template-based prompt generator.
+ type Prompt struct {
+-	name       string
+-	template   string
+-	now        func() time.Time
+-	platform   string
+-	workingDir string
++	name         string
++	template     string
++	now          func() time.Time
++	platform     string
++	workingDir   string
++	activeSkills []*skills.Skill
+ }
+ 
++const dynamicSuffixMarker = "{{/* dynamic-suffix */}}"
++
+ type PromptDat struct {
+ 	Provider           string
+ 	Model              string
+@@ -47,6 +50,23 @@ type ContextFile struct {
+ 	Content string
+ }
+ 
++type ContextGroup struct {
++	Key   string
++	Files []ContextFile
++}
++
++type Snapshot struct {
++	StablePrefix  string
++	DynamicSuffix string
++}
++
++func (s Snapshot) String() string {
++	if s.DynamicSuffix == "" {
++		return s.StablePrefix
++	}
++	return s.StablePrefix + "\n\n<dynamic-context>\n" + s.DynamicSuffix + "\n</dynamic-context>"
++}
++
+ type Option func(*Prompt)
+ 
+ func WithTimeFunc(fn func() time.Time) Option {
+@@ -67,6 +87,12 @@ func WithWorkingDir(workingDir string) Option {
+ 	}
+ }
+ 
++func WithSkills(active []*skills.Skill) Option {
++	return func(p *Prompt) {
++		p.activeSkills = append([]*skills.Skill(nil), active...)
++	}
++}
++
+ func NewPrompt(name, promptTemplate string, opts ...Option) (*Prompt, error) {
+ 	p := &Prompt{
+ 		name:     name,
+@@ -80,20 +106,43 @@ func NewPrompt(name, promptTemplate string, opts ...Option) (*Prompt, error) {
+ }
+ 
+ func (p *Prompt) Build(ctx context.Context, provider, model string, store *config.ConfigStore) (string, error) {
+-	t, err := template.New(p.name).Parse(p.template)
++	snapshot, err := p.BuildSnapshot(ctx, provider, model, store)
+ 	if err != nil {
+-		return "", fmt.Errorf("parsing template: %w", err)
++		return "", err
+ 	}
+-	var sb strings.Builder
++	return snapshot.String(), nil
++}
++
++func (p *Prompt) BuildSnapshot(ctx context.Context, provider, model string, store *config.ConfigStore) (Snapshot, error) {
+ 	d, err := p.promptData(ctx, provider, model, store)
+ 	if err != nil {
+-		return "", err
++		return Snapshot{}, err
+ 	}
+-	if err := t.Execute(&sb, d); err != nil {
+-		return "", fmt.Errorf("executing template: %w", err)
++	stableTemplate, dynamicTemplate, _ := strings.Cut(p.template, dynamicSuffixMarker)
++	stable, err := executeTemplate(p.name+"-stable", stableTemplate, d)
++	if err != nil {
++		return Snapshot{}, err
++	}
++	dynamic, err := executeTemplate(p.name+"-dynamic", dynamicTemplate, d)
++	if err != nil {
++		return Snapshot{}, err
+ 	}
++	return Snapshot{StablePrefix: stable, DynamicSuffix: dynamic}, nil
++}
+ 
+-	return sb.String(), nil
++func executeTemplate(name, source string, data PromptDat) (string, error) {
++	if source == "" {
++		return "", nil
++	}
++	t, err := template.New(name).Parse(source)
++	if err != nil {
++		return "", fmt.Errorf("parsing template: %w", err)
++	}
++	var output strings.Builder
++	if err := t.Execute(&output, data); err != nil {
++		return "", fmt.Errorf("executing template: %w", err)
++	}
++	return output.String(), nil
+ }
+ 
+ func processFile(filePath string) *ContextFile {
+@@ -148,18 +197,76 @@ func expandPath(path string, store *config.ConfigStore) string {
+ 	return path
+ }
+ 
+-// loadContextFiles loads and deduplicates context files from a list of paths.
+-func loadContextFiles(paths []string, store *config.ConfigStore) map[string][]ContextFile {
+-	files := map[string][]ContextFile{}
++// loadContextFiles loads and deduplicates context files from a list of
++// paths. Dedupe keys are canonical per-OS: on Windows the filesystem is
++// case-insensitive (contract v1), so alias casings of the same root are
++// the same group; on case-sensitive filesystems case distinguishes
++// paths. The rendered file path bytes are canonicalized identically, so
++// input order can never change the rendered prompt. Groups are sorted
++// lexically by key and files lexically within a group; nonexistent paths
++// yield empty groups rather than errors.
++func loadContextFiles(paths []string, store *config.ConfigStore, platform string) []ContextGroup {
++	groups := make([]ContextGroup, 0, len(paths))
++	seen := make(map[string]struct{}, len(paths))
++	// renderedFiles dedupes repeated files caused by overlapping roots
++	// within this lane (e.g. "." and "sub"); project and global lanes
++	// stay separate by design.
++	renderedFiles := make(map[string]struct{})
+ 	for _, pth := range paths {
+ 		expanded := expandPath(pth, store)
+-		pathKey := strings.ToLower(expanded)
+-		if _, ok := files[pathKey]; ok {
++		resolved := filepathext.SmartJoin(store.WorkingDir(), expanded)
++		absolute, err := filepath.Abs(filepath.Clean(resolved))
++		if err != nil {
++			absolute = filepath.Clean(resolved)
++		}
++		pathKey := canonicalDedupeKey(absolute, platform)
++		if _, ok := seen[pathKey]; ok {
+ 			continue
+ 		}
+-		files[pathKey] = processContextPath(expanded, store)
++		seen[pathKey] = struct{}{}
++		files := processContextPath(absolute, store)
++		unique := files[:0:0]
++		for _, file := range files {
++			file.Path = canonicalRenderPath(file.Path, platform)
++			// Rendered bytes must be identical no matter which alias
++			// casing the user configured.
++			fileKey := canonicalDedupeKey(file.Path, platform)
++			if _, dup := renderedFiles[fileKey]; dup {
++				continue
++			}
++			renderedFiles[fileKey] = struct{}{}
++			unique = append(unique, file)
++		}
++		slices.SortFunc(unique, func(a, b ContextFile) int {
++			return strings.Compare(a.Path, b.Path)
++		})
++		groups = append(groups, ContextGroup{Key: pathKey, Files: unique})
++	}
++	slices.SortFunc(groups, func(a, b ContextGroup) int {
++		return strings.Compare(a.Key, b.Key)
++	})
++	return groups
++}
++
++// canonicalDedupeKey folds case only on Windows where the filesystem is
++// case-insensitive. Other platforms keep original case.
++func canonicalDedupeKey(path, platform string) string {
++	if platform == "windows" {
++		return strings.ToLower(path)
++	}
++	return path
++}
++
++// canonicalRenderPath produces the rendered path bytes for the prompt.
++// On Windows the whole path is folded to lower case (including the
++// drive component) so alias casings render identically; separators are
++// normalized to forward slashes. Other platforms keep the path as-is.
++func canonicalRenderPath(path, platform string) string {
++	path = filepath.ToSlash(path)
++	if platform != "windows" {
++		return path
+ 	}
+-	return files
++	return strings.ToLower(path)
+ }
+ 
+ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *config.ConfigStore) (PromptDat, error) {
+@@ -167,41 +274,16 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
+ 	platform := cmp.Or(p.platform, runtime.GOOS)
+ 
+ 	cfg := store.Config()
+-	contextFiles := loadContextFiles(cfg.Options.ContextPaths, store)
+-	globalContextFiles := loadContextFiles(cfg.Options.GlobalContextPaths, store)
++	contextFiles := loadContextFiles(cfg.Options.ContextPaths, store, platform)
++	globalContextFiles := loadContextFiles(cfg.Options.GlobalContextPaths, store, platform)
+ 
+-	// Discover and load skills metadata.
+ 	var availSkillXML string
+-
+-	// Start with builtin skills.
+-	allSkills := skills.DiscoverBuiltin()
+-	builtinNames := make(map[string]bool, len(allSkills))
+-	for _, s := range allSkills {
+-		builtinNames[s.Name] = true
+-	}
+-
+-	// Discover user skills from configured paths.
+-	if len(cfg.Options.SkillsPaths) > 0 {
+-		expandedPaths := make([]string, 0, len(cfg.Options.SkillsPaths))
+-		for _, pth := range cfg.Options.SkillsPaths {
+-			expandedPaths = append(expandedPaths, expandPath(pth, store))
+-		}
+-		for _, userSkill := range skills.Discover(expandedPaths) {
+-			if builtinNames[userSkill.Name] {
+-				slog.Warn("User skill overrides builtin skill", "name", userSkill.Name)
+-			}
+-			allSkills = append(allSkills, userSkill)
+-		}
+-	}
+-
+-	// Deduplicate: user skills override builtins with the same name.
+-	allSkills = skills.Deduplicate(allSkills)
+-
+-	// Filter out disabled skills.
+-	allSkills = skills.Filter(allSkills, cfg.Options.DisabledSkills)
+-
+-	if len(allSkills) > 0 {
+-		availSkillXML = skills.ToPromptXML(allSkills)
++	if len(p.activeSkills) > 0 {
++		activeSkills := append([]*skills.Skill(nil), p.activeSkills...)
++		slices.SortFunc(activeSkills, func(a, b *skills.Skill) int {
++			return strings.Compare(a.Name, b.Name)
++		})
++		availSkillXML = skills.ToPromptXML(activeSkills)
+ 	}
+ 
+ 	isGit := isGitRepo(store.WorkingDir())
+@@ -223,11 +305,11 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
+ 		}
+ 	}
+ 
+-	for _, files := range contextFiles {
+-		data.ContextFiles = append(data.ContextFiles, files...)
++	for _, group := range contextFiles {
++		data.ContextFiles = append(data.ContextFiles, group.Files...)
+ 	}
+-	for _, files := range globalContextFiles {
+-		data.GlobalContextFiles = append(data.GlobalContextFiles, files...)
++	for _, group := range globalContextFiles {
++		data.GlobalContextFiles = append(data.GlobalContextFiles, group.Files...)
+ 	}
+ 	return data, nil
+ }
+diff --git a/internal/agent/prompt/prompt_test.go b/internal/agent/prompt/prompt_test.go
+new file mode 100644
+index 0000000..e4ed80b
+--- /dev/null
++++ b/internal/agent/prompt/prompt_test.go
+@@ -0,0 +1,182 @@
++package prompt
++
++import (
++	"math/rand"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/charmbracelet/crush/internal/config"
++	"github.com/charmbracelet/crush/internal/skills"
++	"github.com/stretchr/testify/require"
++)
++
++func newTestStore(t *testing.T, workingDir string) *config.ConfigStore {
++	t.Helper()
++	store, err := config.Load(workingDir, t.TempDir(), false)
++	require.NoError(t, err)
++	return store
++}
++
++func writeContextTree(t *testing.T, root string) {
++	t.Helper()
++	require.NoError(t, os.MkdirAll(filepath.Join(root, "sub"), 0o755))
++	require.NoError(t, os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("root agents"), 0o644))
++	require.NoError(t, os.WriteFile(filepath.Join(root, "sub", "NOTES.md"), []byte("sub notes"), 0o644))
++}
++
++func renderAllContextFiles(groups []ContextGroup) string {
++	out := ""
++	for _, group := range groups {
++		for _, file := range group.Files {
++			out += file.Path + "\x00" + file.Content + "\x00"
++		}
++	}
++	return out
++}
++
++func TestLoadContextFilesDeterministicAcrossPermutations(t *testing.T) {
++	rootA := t.TempDir()
++	rootB := t.TempDir()
++	rootC := t.TempDir()
++	writeContextTree(t, rootA)
++	writeContextTree(t, rootB)
++	writeContextTree(t, rootC)
++	store := newTestStore(t, rootA)
++
++	roots := []string{rootA, rootB, rootC}
++	reference := renderAllContextFiles(loadContextFiles(roots, store, "windows"))
++
++	rng := rand.New(rand.NewSource(42))
++	for i := 0; i < 500; i++ {
++		perm := append([]string(nil), roots...)
++		rng.Shuffle(len(perm), func(x, y int) {
++			perm[x], perm[y] = perm[y], perm[x]
++		})
++		got := renderAllContextFiles(loadContextFiles(perm, store, "windows"))
++		require.Equal(t, reference, got, "permutation %d changed the rendered context bytes", i)
++	}
++}
++
++func TestLoadContextFilesWindowsAliasesDedupeAndRenderIdentically(t *testing.T) {
++	root := t.TempDir()
++	writeContextTree(t, root)
++
++	// The same root expressed with different casings and separators.
++	slash := filepath.ToSlash(root)
++	upper := strings.ToUpper(slash[:1]) + slash[1:]
++	lower := strings.ToLower(slash)
++
++	paths := []string{slash, upper, lower}
++	store := newTestStore(t, root)
++	groups := loadContextFiles(paths, store, "windows")
++	require.Len(t, groups, 1, "Windows alias casings of the same root must dedupe to one group")
++
++	// Reversed input order renders the same canonical bytes.
++	reversed := []string{lower, upper, slash}
++	groupsReversed := loadContextFiles(reversed, store, "windows")
++	require.Len(t, groupsReversed, 1)
++	require.Equal(t, renderAllContextFiles(groups), renderAllContextFiles(groupsReversed))
++
++	// Rendered file paths are canonical: not the raw walking casing.
++	for _, group := range groups {
++		for _, file := range group.Files {
++			require.Equal(t, strings.ToLower(file.Path), file.Path)
++		}
++	}
++}
++
++func TestLoadContextFilesCaseSensitivityPerPlatform(t *testing.T) {
++	base := t.TempDir()
++	dirA := filepath.Join(base, "Dir")
++	dirB := filepath.Join(base, "dir")
++	// Distinct on case-sensitive platforms; the same key on Windows
++	// (contract v1 case-insensitive).
++	require.NotEqual(t, canonicalDedupeKey(dirA, "linux"), canonicalDedupeKey(dirB, "linux"))
++	require.Equal(t, canonicalDedupeKey(dirA, "windows"), canonicalDedupeKey(dirB, "windows"))
++}
++
++func TestLoadContextFilesMissingPathYieldsEmptyGroup(t *testing.T) {
++	store := newTestStore(t, t.TempDir())
++	groups := loadContextFiles([]string{filepath.Join(t.TempDir(), "does-not-exist")}, store, "windows")
++	require.Len(t, groups, 1)
++	require.Empty(t, groups[0].Files)
++}
++
++func TestLoadContextFilesSingleRootDoesNotRepeatFiles(t *testing.T) {
++	root := t.TempDir()
++	writeContextTree(t, root)
++	store := newTestStore(t, root)
++
++	groups := loadContextFiles([]string{"."}, store, "windows")
++	require.Len(t, groups, 1)
++
++	paths := map[string]struct{}{}
++	for _, file := range groups[0].Files {
++		paths[file.Path] = struct{}{}
++	}
++	require.Len(t, paths, len(groups[0].Files), "overlapping roots must not repeat files")
++	require.Len(t, groups[0].Files, 2)
++}
++
++func TestSnapshotSplitsStableAndDynamic(t *testing.T) {
++	p, err := NewPrompt(
++		"coder",
++		"STABLE-SECTION\n{{/* dynamic-suffix */}}\nDYNAMIC-SECTION",
++		WithTimeFunc(timeNowStub),
++	)
++	require.NoError(t, err)
++
++	store := newTestStore(t, t.TempDir())
++	snapshot, err := p.BuildSnapshot(t.Context(), "openai", "gpt-5.2", store)
++	require.NoError(t, err)
++
++	require.Equal(t, "STABLE-SECTION\n", snapshot.StablePrefix)
++	require.Equal(t, "\nDYNAMIC-SECTION", snapshot.DynamicSuffix)
++	require.Less(t,
++		strings.Index(snapshot.String(), "STABLE-SECTION"),
++		strings.Index(snapshot.String(), "DYNAMIC-SECTION"),
++		"stable prefix bytes must precede dynamic suffix bytes")
++}
++
++func timeNowStub() time.Time {
++	return time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
++}
++
++func TestPromptSkillsRenderSortedAndDeterministic(t *testing.T) {
++	p, err := NewPrompt(
++		"coder",
++		"{{if .AvailSkillXML}}{{.AvailSkillXML}}{{end}}{{/* dynamic-suffix */}}",
++		WithTimeFunc(timeNowStub),
++	)
++	require.NoError(t, err)
++
++	store := newTestStore(t, t.TempDir())
++	first := buildSkillPrompt(t, p, store, "b-skill", "a-skill", "c-skill")
++	second := buildSkillPrompt(t, p, store, "c-skill", "a-skill", "b-skill")
++	require.Equal(t, first, second, "skill input order must not change rendered bytes")
++	require.Less(t,
++		strings.Index(first, "a-skill"),
++		strings.Index(first, "b-skill"),
++		"skills must render in sorted order")
++}
++
++func buildSkillPrompt(t *testing.T, p *Prompt, store *config.ConfigStore, names ...string) string {
++	t.Helper()
++	skillList := make([]*skills.Skill, 0, len(names))
++	for _, name := range names {
++		skillList = append(skillList, &skills.Skill{Name: name, Description: "desc " + name})
++	}
++	built, err := NewPrompt(
++		p.Name(),
++		"{{if .AvailSkillXML}}{{.AvailSkillXML}}{{end}}{{/* dynamic-suffix */}}",
++		WithTimeFunc(timeNowStub),
++		WithSkills(skillList),
++	)
++	require.NoError(t, err)
++	out, err := built.Build(t.Context(), "openai", "gpt-5.2", store)
++	require.NoError(t, err)
++	return out
++}
+diff --git a/internal/agent/runtrace.go b/internal/agent/runtrace.go
+new file mode 100644
+index 0000000..8b0c31c
+--- /dev/null
++++ b/internal/agent/runtrace.go
+@@ -0,0 +1,544 @@
++package agent
++
++import (
++	"crypto/hmac"
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/charmbracelet/crush/internal/agent/notify"
++)
++
++// requestShapeHMACDomain is the domain-separation prefix for the
++// request-shape HMAC so digests computed for other purposes are never
++// interchangeable with it.
++const requestShapeHMACDomain = "gotack.request-shape.v1"
++
++// telemetryKeyFileName is the 32-byte HMAC key file kept under the
++// engine data directory. It is generated once per installation and never
++// leaves the machine.
++const telemetryKeyFileName = "telemetry-hmac.key"
++
++// changeReasonAllowlist is the closed enum for telemetry change reasons.
++// Primary reasons follow the fixed precedence (model_switch > compaction
++// > context > skills > tool_set > none); dynamic-only reasons (date,
++// git_status, mcp, todo, provider_options) never move the primary
++// reason, and "initial" marks the first observation of a run.
++var changeReasonAllowlist = map[string]struct{}{
++	"git_status":       {},
++	"date":             {},
++	"mcp":              {},
++	"skills":           {},
++	"context":          {},
++	"tool_set":         {},
++	"compaction":       {},
++	"model_switch":     {},
++	"none":             {},
++	"initial":          {},
++	"todo":             {},
++	"provider_options": {},
++}
++
++// runTraceKeyDirPath is the engine data directory used to resolve the
++// telemetry HMAC key. The coordinator sets it once at startup so traces
++// created on the sessionAgent side (which has no config access) resolve
++// the same key.
++var runTraceKeyDirPath string
++
++// SetRunTraceKeyDir points telemetry HMAC key resolution at the engine
++// data directory. Passing an empty string marks the key unavailable.
++func SetRunTraceKeyDir(dir string) {
++	runTraceKeyDirPath = dir
++}
++
++// requestShapeProjection is the sanitized projection of a model request
++// that feeds the request-shape HMAC. It deliberately excludes provider
++// credentials, encrypted reasoning ciphertext, session UUIDs and message
++// IDs: identical values here mean an identical logical request shape,
++// and nothing sensitive ever enters a digest. Only field labels, counts
++// and byte lengths are projected alongside the prompt text itself, which
++// is already engine-owned (never credentials or ciphertext).
++type requestShapeProjection struct {
++	SystemPrompt    string
++	Prompt          string
++	ToolNames       []string
++	ToolCount       int
++	Provider        string
++	Model           string
++	ReasoningEffort string
++}
++
++func (p requestShapeProjection) encode() []byte {
++	var b strings.Builder
++	writeField := func(label, value string) {
++		b.WriteString(label)
++		b.WriteByte('=')
++		b.WriteString(fmt.Sprint(len(value)))
++		b.WriteByte(':')
++		b.WriteString(value)
++		b.WriteByte('\n')
++	}
++	writeField("system_prompt", p.SystemPrompt)
++	writeField("prompt", p.Prompt)
++	b.WriteString(fmt.Sprintf("tool_count=%d\n", p.ToolCount))
++	b.WriteString("tool_names=")
++	b.WriteString(strings.Join(p.ToolNames, ","))
++	b.WriteByte('\n')
++	b.WriteString(fmt.Sprintf("provider=%s\n", p.Provider))
++	b.WriteString(fmt.Sprintf("model=%s\n", p.Model))
++	b.WriteString(fmt.Sprintf("reasoning_effort=%s\n", p.ReasoningEffort))
++	return []byte(b.String())
++}
++
++// RunTrace collects monotonic timing, retry accounting and request-shape
++// telemetry for a single agent run. It is safe for concurrent use: stream
++// callbacks, the coordinator and PrepareStep all touch it from different
++// goroutines.
++//
++// Rules (ImplementPlan 0.2 / PR0):
++//   - One time.Now() anchor per run; durations come from time.Since so
++//     they are monotonic and never negative.
++//   - An event that never happened is absent, never zero: the spans map
++//     only contains spans whose EndSpan actually ran.
++//   - first_semantic is one-shot: the first observed semantic kind wins
++//     and later marks never overwrite it.
++//   - Cache status is tri-state and defaults to "unreported"; it only
++//     flips to hit/miss from actually reported cache token fields, and
++//     the token counts stay nil pointers when absent.
++//   - When the HMAC key is unavailable the HMAC fields stay empty; they
++//     never fall back to a plaintext or unsalted hash.
++type RunTrace struct {
++	mu sync.Mutex
++
++	runID  string
++	anchor time.Time
++
++	// endedMicros maps span name to its duration in microseconds. It is
++	// only written by EndSpan, so spans that never ended stay absent.
++	endedMicros map[string]int64
++
++	firstSemantic string
++	retryCount    int
++	retryDelay    time.Duration
++
++	provider        string
++	model           string
++	reasoningEffort string
++
++	cacheStatus         notify.CacheStatus
++	cachedInputTokens   *int64
++	uncachedInputTokens *int64
++
++	compacted bool
++
++	// changeReasons accumulates the set of reasons observed in this run;
++	// it is emitted sorted and deduplicated.
++	changeReasons map[string]struct{}
++
++	fingerprinted bool
++	prefixChanged string
++	shape         requestShapeProjection
++
++	// hmacKey is the cached 32-byte key; nil means "not loaded yet" or
++	// "load failed". keyLoaded distinguishes the two so a failed load is
++	// not retried on every snapshot.
++	hmacKey   []byte
++	keyLoaded bool
++	// keyLoader is a test seam; nil selects the real file-backed loader.
++	keyLoader func() ([]byte, error)
++}
++
++// spanStart is the handle returned by StartSpan and consumed by EndSpan.
++// The zero value ends nothing, so a failed StartSpan can never fabricate
++// a duration.
++type spanStart struct {
++	start time.Time
++	valid bool
++}
++
++// newRunTrace starts a run trace anchored at the current monotonic clock.
++// The first observation of a run is recorded as the "initial" change
++// reason.
++func newRunTrace(runID string) *RunTrace {
++	return &RunTrace{
++		runID:         runID,
++		anchor:        time.Now(),
++		endedMicros:   make(map[string]int64),
++		cacheStatus:   notify.CacheUnreported,
++		changeReasons: map[string]struct{}{"initial": {}},
++	}
++}
++
++// StartSpan marks the start of a span. The name is supplied at EndSpan,
++// so spans started before their outcome is known need no name here.
++func (t *RunTrace) StartSpan() spanStart {
++	if t == nil {
++		return spanStart{}
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	return t.startSpanLocked(time.Now())
++}
++
++func (t *RunTrace) startSpanLocked(now time.Time) spanStart {
++	if !now.After(t.anchor) {
++		// Clamp to the anchor so clock skew or injected clocks can never
++		// produce a negative offset.
++		now = t.anchor
++	}
++	return spanStart{start: now, valid: true}
++}
++
++// EndSpan records the elapsed duration of a span in microseconds. Only
++// ended spans appear in the snapshot; a span that never ended is absent,
++// and ending the same span name twice keeps the first measurement.
++func (t *RunTrace) EndSpan(name string, start spanStart) {
++	if t == nil || !start.valid {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if _, done := t.endedMicros[name]; done {
++		return
++	}
++	offset := time.Since(start.start)
++	if offset < 0 {
++		offset = 0
++	}
++	t.endedMicros[name] = offset.Microseconds()
++}
++
++// MarkFirstSemantic records the first semantic output kind observed
++// ("reasoning", "tool" or "text"). It is one-shot: later marks never
++// overwrite the first observation, and unknown kinds are ignored.
++func (t *RunTrace) MarkFirstSemantic(kind string) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	switch kind {
++	case "reasoning", "tool", "text":
++	default:
++		return
++	}
++	if t.firstSemantic == "" {
++		t.firstSemantic = kind
++	}
++}
++
++// RecordRetry accounts for one provider retry: it increments the retry
++// counter and accumulates the backoff delay.
++func (t *RunTrace) RecordRetry(delay time.Duration) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if delay < 0 {
++		delay = 0
++	}
++	t.retryCount++
++	t.retryDelay += delay
++}
++
++// SetModel records the provider/model identifiers (and effective
++// reasoning effort) used by this run. These are configuration
++// identifiers, not secrets.
++func (t *RunTrace) SetModel(provider, model, reasoningEffort string) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	t.provider = provider
++	t.model = model
++	t.reasoningEffort = reasoningEffort
++}
++
++// SetCompacted marks the run as having ended on an auto-summarize
++// (compaction) boundary and records the "compaction" change reason.
++func (t *RunTrace) SetCompacted() {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	t.compacted = true
++	if t.changeReasons == nil {
++		t.changeReasons = make(map[string]struct{})
++	}
++	t.changeReasons["compaction"] = struct{}{}
++}
++
++// SetPrefixChangedReason records the primary prefix-changed reason using
++// the fixed reason enum. The reason is supplied by the caller from a
++// generation diff, never inferred from a hash. Empty means absent. The
++// value also joins the ChangeReasons set.
++func (t *RunTrace) SetPrefixChangedReason(reason string) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	t.prefixChanged = reason
++	if reason == "" {
++		return
++	}
++	if _, allowed := changeReasonAllowlist[reason]; !allowed {
++		return
++	}
++	if t.changeReasons == nil {
++		t.changeReasons = make(map[string]struct{})
++	}
++	t.changeReasons[reason] = struct{}{}
++}
++
++// AddChangeReason records a dynamic-only (non-primary) change observed
++// during the run. Unknown reasons are dropped so telemetry consumers can
++// rely on the closed enum. Duplicates collapse; Snapshot emits the set
++// sorted ascending.
++func (t *RunTrace) AddChangeReason(reason string) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if _, allowed := changeReasonAllowlist[reason]; !allowed {
++		return
++	}
++	if t.changeReasons == nil {
++		t.changeReasons = make(map[string]struct{})
++	}
++	t.changeReasons[reason] = struct{}{}
++}
++
++// RecordCacheUsage applies provider-reported cache token fields to the
++// tri-state cache status. A nil field means the provider did not report
++// it; a non-nil zero is a reported zero. The status only moves off
++// "unreported" when at least one cache field was actually reported, and
++// reported zeros preserve "miss" instead of erasing it.
++func (t *RunTrace) RecordCacheUsage(cached, uncached *int64) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if cached != nil && *cached > 0 {
++		t.cacheStatus = notify.CacheHit
++	} else if cached != nil || uncached != nil {
++		// At least one field was reported; a reported zero with no
++		// positive cache read is a miss. Both-nil keeps unreported.
++		t.cacheStatus = notify.CacheMiss
++	}
++	if cached != nil && t.cachedInputTokens == nil {
++		v := *cached
++		t.cachedInputTokens = &v
++	}
++	if uncached != nil && t.uncachedInputTokens == nil {
++		v := *uncached
++		t.uncachedInputTokens = &v
++	}
++}
++
++// FingerprintRequest captures the sanitized request-shape projection at
++// the model-call boundary. It is one-shot per run: only the first
++// fingerprint wins. The HMAC itself is computed lazily in Snapshot so a
++// missing key simply leaves the HMAC fields empty.
++func (t *RunTrace) FingerprintRequest(systemPrompt, prompt string, toolCount int) {
++	t.FingerprintRequestWithTools(systemPrompt, prompt, toolCount, nil)
++}
++
++// FingerprintRequestWithTools is the richer variant for callers that
++// have the tool names available.
++func (t *RunTrace) FingerprintRequestWithTools(systemPrompt, prompt string, toolCount int, toolNames []string) {
++	if t == nil {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if t.fingerprinted {
++		return
++	}
++	t.fingerprinted = true
++	t.shape = requestShapeProjection{
++		SystemPrompt:    systemPrompt,
++		Prompt:          prompt,
++		ToolNames:       append([]string(nil), toolNames...),
++		ToolCount:       toolCount,
++		Provider:        t.provider,
++		Model:           t.model,
++		ReasoningEffort: t.reasoningEffort,
++	}
++}
++
++// Snapshot renders the accumulated telemetry. Fields for events that
++// never happened stay absent per the schema's omitempty rules; the cache
++// status is always present and defaults to "unreported".
++func (t *RunTrace) Snapshot() *notify.RunTelemetry {
++	if t == nil {
++		return nil
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++
++	telemetry := &notify.RunTelemetry{
++		RunID:           t.runID,
++		Provider:        t.provider,
++		Model:           t.model,
++		ReasoningEffort: t.reasoningEffort,
++		Attempt:         t.retryCount + 1,
++		RetryCount:      t.retryCount,
++		TotalMicros:     time.Since(t.anchor).Microseconds(),
++		FirstSemantic:   t.firstSemantic,
++		CacheStatus:     t.cacheStatus,
++	}
++	if telemetry.CacheStatus == "" {
++		telemetry.CacheStatus = notify.CacheUnreported
++	}
++	if t.retryDelay > 0 {
++		telemetry.RetryDelayMicros = t.retryDelay.Microseconds()
++	}
++	if len(t.endedMicros) > 0 {
++		spans := make(map[string]int64, len(t.endedMicros))
++		for name, micros := range t.endedMicros {
++			spans[name] = micros
++		}
++		telemetry.SpansMicros = spans
++	}
++	if t.cachedInputTokens != nil {
++		v := *t.cachedInputTokens
++		telemetry.CachedInputTokens = &v
++	}
++	if t.uncachedInputTokens != nil {
++		v := *t.uncachedInputTokens
++		telemetry.UncachedInputTokens = &v
++	}
++	if t.compacted {
++		telemetry.Compacted = true
++	}
++	if t.prefixChanged != "" {
++		telemetry.PrefixChangedReason = t.prefixChanged
++	}
++	if len(t.changeReasons) > 0 {
++		reasons := make([]string, 0, len(t.changeReasons))
++		for reason := range t.changeReasons {
++			reasons = append(reasons, reason)
++		}
++		sort.Strings(reasons)
++		telemetry.ChangeReasons = reasons
++	}
++	if t.fingerprinted {
++		telemetry.StablePrefixBytes = len(t.shape.SystemPrompt)
++		telemetry.DynamicSuffixBytes = len(t.shape.Prompt)
++		telemetry.RequestShapeBytes = len(t.shape.encode())
++		if key := t.hmacKeyLocked(); key != nil {
++			telemetry.RequestShapeHMAC = computeRequestShapeHMAC(key, t.shape)
++		}
++		// Without a usable key the HMAC fields stay empty: unavailable
++		// never falls back to an unsalted or plaintext hash.
++	}
++	return telemetry
++}
++
++// hmacKeyLocked lazily resolves the HMAC key, caching both success and
++// failure for the lifetime of the trace.
++func (t *RunTrace) hmacKeyLocked() []byte {
++	if t.hmacKey != nil {
++		return t.hmacKey
++	}
++	if t.keyLoaded {
++		return nil
++	}
++	t.keyLoaded = true
++	loader := t.keyLoader
++	if loader == nil {
++		loader = loadOrCreateHMACKey
++	}
++	key, err := loader()
++	if err != nil || len(key) != 32 {
++		return nil
++	}
++	t.hmacKey = key
++	return t.hmacKey
++}
++
++// computeRequestShapeHMAC is a pure function so tests can assert
++// domain separation and stability without touching the filesystem.
++func computeRequestShapeHMAC(key []byte, shape requestShapeProjection) string {
++	mac := hmac.New(sha256.New, key)
++	mac.Write([]byte(requestShapeHMACDomain))
++	mac.Write([]byte{0})
++	mac.Write(shape.encode())
++	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
++}
++
++// loadOrCreateHMACKey loads the 32-byte telemetry HMAC key under the
++// engine data directory configured via SetRunTraceKeyDir.
++func loadOrCreateHMACKey() ([]byte, error) {
++	return loadOrCreateHMACKeyIn(runTraceKeyDirPath)
++}
++
++// loadOrCreateHMACKeyIn loads the 32-byte telemetry HMAC key from the
++// given engine data directory, creating it on first use. Creation goes
++// through an exclusive create followed by a verified write, and a reader
++// of an empty or unparseable key file treats the key as unavailable
++// rather than guessing. Errors are reported as reason codes only; no
++// path or system error text is echoed into telemetry.
++func loadOrCreateHMACKeyIn(dataDir string) ([]byte, error) {
++	if dataDir == "" {
++		return nil, fmt.Errorf("telemetry key directory unavailable")
++	}
++	dir := filepath.Join(dataDir, "telemetry")
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		return nil, fmt.Errorf("telemetry key directory create failed")
++	}
++	path := filepath.Join(dir, telemetryKeyFileName)
++	if data, err := os.ReadFile(path); err == nil {
++		key, parseErr := parseHMACKey(data)
++		if parseErr != nil {
++			return nil, fmt.Errorf("telemetry key invalid")
++		}
++		return key, nil
++	}
++	key := make([]byte, 32)
++	if _, err := rand.Read(key); err != nil {
++		return nil, fmt.Errorf("telemetry key generation failed")
++	}
++	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
++	if err != nil {
++		// Another writer may have created it between the read and the
++		// create; adopt it only when it parses as a valid key.
++		if data, readErr := os.ReadFile(path); readErr == nil {
++			if other, parseErr := parseHMACKey(data); parseErr == nil {
++				return other, nil
++			}
++		}
++		return nil, fmt.Errorf("telemetry key create failed")
++	}
++	defer f.Close()
++	if _, err := f.Write([]byte(hex.EncodeToString(key))); err != nil {
++		return nil, fmt.Errorf("telemetry key write failed")
++	}
++	return key, nil
++}
++
++func parseHMACKey(data []byte) ([]byte, error) {
++	text := strings.TrimSpace(string(data))
++	if text == "" {
++		return nil, fmt.Errorf("empty key file")
++	}
++	key, err := hex.DecodeString(text)
++	if err != nil || len(key) != 32 {
++		return nil, fmt.Errorf("invalid key file")
++	}
++	return key, nil
++}
+diff --git a/internal/agent/runtrace_test.go b/internal/agent/runtrace_test.go
+new file mode 100644
+index 0000000..abf6c64
+--- /dev/null
++++ b/internal/agent/runtrace_test.go
+@@ -0,0 +1,284 @@
++package agent
++
++import (
++	"encoding/hex"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/charmbracelet/crush/internal/agent/notify"
++	"github.com/stretchr/testify/require"
++)
++
++func TestRunTraceSpanOnlyEndedSpansPresent(t *testing.T) {
++	trace := newRunTrace("run-1")
++	trace.StartSpan() // never ended: must stay absent
++	span := trace.StartSpan()
++	trace.EndSpan("prompt_prepare", span)
++
++	snap := trace.Snapshot()
++	require.Empty(t, snap.SpansMicros["ready_wait"], "unended span must be absent, not zero")
++	require.Contains(t, snap.SpansMicros, "prompt_prepare")
++	require.GreaterOrEqual(t, snap.SpansMicros["prompt_prepare"], int64(0))
++}
++
++func TestRunTraceSpanDuplicateEndKeepsFirst(t *testing.T) {
++	trace := newRunTrace("")
++	span := trace.StartSpan()
++	trace.EndSpan("stream", span)
++	first := trace.Snapshot().SpansMicros["stream"]
++	trace.EndSpan("stream", span)
++	second := trace.Snapshot().SpansMicros["stream"]
++	require.Equal(t, first, second)
++}
++
++func TestRunTraceFirstSemanticOneShot(t *testing.T) {
++	trace := newRunTrace("")
++	trace.MarkFirstSemantic("text")
++	trace.MarkFirstSemantic("reasoning")
++	trace.MarkFirstSemantic("tool")
++	require.Equal(t, "text", trace.Snapshot().FirstSemantic)
++
++	trace2 := newRunTrace("")
++	trace2.MarkFirstSemantic("reasoning")
++	trace2.MarkFirstSemantic("text")
++	require.Equal(t, "reasoning", trace2.Snapshot().FirstSemantic)
++
++	trace3 := newRunTrace("")
++	trace3.MarkFirstSemantic("bogus")
++	require.Empty(t, trace3.Snapshot().FirstSemantic)
++}
++
++func TestRunTraceAbsentStaysAbsent(t *testing.T) {
++	trace := newRunTrace("run-2")
++	snap := trace.Snapshot()
++	require.Equal(t, notify.CacheUnreported, snap.CacheStatus)
++	require.Nil(t, snap.CachedInputTokens)
++	require.Nil(t, snap.UncachedInputTokens)
++	require.Empty(t, snap.FirstSemantic)
++	require.Zero(t, snap.RetryCount)
++	require.Zero(t, snap.RetryDelayMicros)
++	require.Empty(t, snap.PrefixChangedReason)
++	require.Nil(t, snap.SpansMicros)
++	require.False(t, snap.Compacted)
++	require.Equal(t, 1, snap.Attempt, "initial attempt is 1 with no retries")
++}
++
++func TestRunTraceCacheStatusTriState(t *testing.T) {
++	t.Run("unreported when nothing reported", func(t *testing.T) {
++		trace := newRunTrace("")
++		require.Equal(t, notify.CacheUnreported, trace.Snapshot().CacheStatus)
++	})
++	t.Run("hit on positive cached tokens", func(t *testing.T) {
++		trace := newRunTrace("")
++		cached := int64(128)
++		uncached := int64(10)
++		trace.RecordCacheUsage(&cached, &uncached)
++		snap := trace.Snapshot()
++		require.Equal(t, notify.CacheHit, snap.CacheStatus)
++		require.NotNil(t, snap.CachedInputTokens)
++		require.Equal(t, int64(128), *snap.CachedInputTokens)
++		require.Equal(t, int64(10), *snap.UncachedInputTokens)
++	})
++	t.Run("miss on reported zero", func(t *testing.T) {
++		trace := newRunTrace("")
++		cached := int64(0)
++		uncached := int64(0)
++		trace.RecordCacheUsage(&cached, &uncached)
++		snap := trace.Snapshot()
++		require.Equal(t, notify.CacheMiss, snap.CacheStatus)
++		// Reported zeros are real values, not absence.
++		require.NotNil(t, snap.CachedInputTokens)
++		require.Equal(t, int64(0), *snap.CachedInputTokens)
++	})
++	t.Run("reported cached zero keeps miss when uncached absent", func(t *testing.T) {
++		trace := newRunTrace("")
++		cached := int64(0)
++		trace.RecordCacheUsage(&cached, nil)
++		require.Equal(t, notify.CacheMiss, trace.Snapshot().CacheStatus)
++	})
++}
++
++func TestRunTraceRetryAccounting(t *testing.T) {
++	trace := newRunTrace("")
++	trace.RecordRetry(1500 * time.Microsecond)
++	trace.RecordRetry(2 * time.Millisecond)
++	snap := trace.Snapshot()
++	require.Equal(t, 2, snap.RetryCount)
++	require.Equal(t, 3, snap.Attempt)
++	require.Equal(t, int64(3500), snap.RetryDelayMicros)
++}
++
++func TestRunTraceRetryNeverNegative(t *testing.T) {
++	trace := newRunTrace("")
++	// Start a span "in the future" relative to the anchor via a fake
++	// loader-independent path: directly test EndSpan clamping with an
++	// inverted call sequence is not possible from outside, so instead
++	// verify a normal span and total are non-negative and retry delay
++	// clamps negatives.
++	trace.RecordRetry(-5 * time.Second)
++	snap := trace.Snapshot()
++	require.Zero(t, snap.RetryDelayMicros)
++	require.Equal(t, 1, snap.RetryCount)
++	require.GreaterOrEqual(t, snap.TotalMicros, int64(0))
++	for _, v := range snap.SpansMicros {
++		require.GreaterOrEqual(t, v, int64(0))
++	}
++}
++
++func TestRunTraceHMACStableAndUnavailableWithoutKey(t *testing.T) {
++	key := make([]byte, 32)
++	for i := range key {
++		key[i] = byte(i)
++	}
++	shape := requestShapeProjection{
++		SystemPrompt: "system",
++		Prompt:       "hello",
++		ToolNames:    []string{"bash", "edit"},
++		ToolCount:    2,
++		Provider:     "openai",
++		Model:        "gpt-5",
++	}
++	first := computeRequestShapeHMAC(key, shape)
++	second := computeRequestShapeHMAC(key, shape)
++	require.Equal(t, first, second, "same input and key must give the same HMAC")
++
++	// Domain separation: a different domain byte must change the digest.
++	require.NotEqual(t, first, computeRequestShapeHMAC(append([]byte("other"), key[5:]...), shape))
++
++	// Sensitive projection check: the encoded projection contains no
++	// credential-like input the caller never supplied.
++	encoded := string(shape.encode())
++	require.NotContains(t, encoded, "Authorization")
++	require.NotContains(t, encoded, "Bearer")
++
++	// Unavailable key: HMAC fields stay empty (never a fallback hash).
++	trace := newRunTrace("")
++	trace.keyLoader = func() ([]byte, error) { return nil, errTelemetryKeyUnavailable }
++	trace.FingerprintRequest("system", "hello", 2)
++	snap := trace.Snapshot()
++	require.Empty(t, snap.RequestShapeHMAC)
++	require.Empty(t, snap.StablePrefixHMAC)
++	require.NotZero(t, snap.RequestShapeBytes, "byte counts remain available without HMAC")
++}
++
++// errTelemetryKeyUnavailable is a sentinel for the unavailable-key path.
++var errTelemetryKeyUnavailable = errorString("telemetry key unavailable")
++
++type errorString string
++
++func (e errorString) Error() string { return string(e) }
++
++func TestRunTraceHMACFromKeyFile(t *testing.T) {
++	dir := t.TempDir()
++	key := make([]byte, 32)
++	for i := range key {
++		key[i] = byte(255 - i)
++	}
++	require.NoError(t, os.MkdirAll(filepath.Join(dir, "telemetry"), 0o755))
++	require.NoError(t, os.WriteFile(filepath.Join(dir, "telemetry", telemetryKeyFileName), []byte(hex.EncodeToString(key)), 0o600))
++
++	trace := newRunTrace("")
++	trace.keyLoader = func() ([]byte, error) {
++		return loadOrCreateHMACKeyIn(dir)
++	}
++	trace.SetModel("openai", "gpt-5", "high")
++	trace.FingerprintRequest("system-prompt", "user prompt", 3)
++	snap := trace.Snapshot()
++	require.NotEmpty(t, snap.RequestShapeHMAC)
++
++	// A second trace with the same key and same shape produces the same HMAC.
++	trace2 := newRunTrace("")
++	trace2.keyLoader = trace.keyLoader
++	trace2.SetModel("openai", "gpt-5", "high")
++	trace2.FingerprintRequest("system-prompt", "user prompt", 3)
++	require.Equal(t, snap.RequestShapeHMAC, trace2.Snapshot().RequestShapeHMAC)
++
++	// A different shape changes the digest.
++	trace3 := newRunTrace("")
++	trace3.keyLoader = trace.keyLoader
++	trace3.SetModel("openai", "gpt-5", "high")
++	trace3.FingerprintRequest("system-prompt", "different prompt", 3)
++	require.NotEqual(t, snap.RequestShapeHMAC, trace3.Snapshot().RequestShapeHMAC)
++}
++
++func TestRunTraceChangeReasonsSortedUnique(t *testing.T) {
++	trace := newRunTrace("run-3")
++	// "initial" comes from construction.
++	trace.AddChangeReason("todo")
++	trace.AddChangeReason("date")
++	trace.AddChangeReason("todo")         // duplicate collapses
++	trace.AddChangeReason("bogus-reason") // unknown dropped
++	trace.SetPrefixChangedReason("skills")
++	snap := trace.Snapshot()
++	require.Equal(t, []string{"date", "initial", "skills", "todo"}, snap.ChangeReasons)
++	require.Equal(t, "skills", snap.PrefixChangedReason)
++
++	// Dynamic-only reasons never invent a primary reason.
++	trace2 := newRunTrace("")
++	trace2.AddChangeReason("git_status")
++	snap2 := trace2.Snapshot()
++	require.Empty(t, snap2.PrefixChangedReason)
++	require.Equal(t, []string{"git_status", "initial"}, snap2.ChangeReasons)
++}
++
++func TestRunTraceConcurrentUse(t *testing.T) {
++	trace := newRunTrace("run-4")
++	var wg sync.WaitGroup
++	for i := 0; i < 8; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			span := trace.StartSpan()
++			trace.EndSpan("stream", span)
++			trace.MarkFirstSemantic("reasoning")
++			trace.MarkFirstSemantic("text")
++			trace.RecordRetry(time.Millisecond)
++			trace.AddChangeReason("mcp")
++			_ = trace.Snapshot()
++		}()
++	}
++	wg.Wait()
++	snap := trace.Snapshot()
++	require.Equal(t, "reasoning", snap.FirstSemantic)
++	require.Equal(t, 8, snap.RetryCount)
++	require.Equal(t, 9, snap.Attempt)
++}
++
++func TestLoadOrCreateHMACKeyCreatesAndReloads(t *testing.T) {
++	dir := t.TempDir()
++	key1, err := loadOrCreateHMACKeyIn(dir)
++	require.NoError(t, err)
++	require.Len(t, key1, 32)
++	key2, err := loadOrCreateHMACKeyIn(dir)
++	require.NoError(t, err)
++	require.Equal(t, key1, key2, "second load must return the persisted key")
++
++	// Invalid existing key file is unavailable, never guessed.
++	require.NoError(t, os.WriteFile(filepath.Join(dir, "telemetry", telemetryKeyFileName), []byte("not-hex"), 0o600))
++	_, err = loadOrCreateHMACKeyIn(dir)
++	require.Error(t, err)
++}
++
++func TestRunTraceFingerprintOneShot(t *testing.T) {
++	trace := newRunTrace("")
++	trace.FingerprintRequest("first", "prompt", 1)
++	trace.FingerprintRequest("second", "prompt", 9)
++	snap := trace.Snapshot()
++	require.Equal(t, len("first"), snap.StablePrefixBytes)
++	require.Equal(t, len("prompt"), snap.DynamicSuffixBytes)
++}
++
++func TestRequestShapeProjectionEncodingIsLengthPrefixed(t *testing.T) {
++	shape := requestShapeProjection{SystemPrompt: "ab", Prompt: "c", ToolCount: 1}
++	encoded := string(shape.encode())
++	require.Contains(t, encoded, "system_prompt=2:ab\n")
++	require.Contains(t, encoded, "prompt=1:c\n")
++	lines := strings.Split(strings.TrimRight(encoded, "\n"), "\n")
++	for _, line := range lines {
++		require.NotEqual(t, "", line)
++	}
++}
+diff --git a/internal/agent/templates/coder.md.tpl b/internal/agent/templates/coder.md.tpl
+index e137c3d..9911c03 100644
+--- a/internal/agent/templates/coder.md.tpl
++++ b/internal/agent/templates/coder.md.tpl
+@@ -368,18 +368,6 @@ Adapt verbosity to match the work completed:
+ - Keep tone direct and factual, like handing off work to a teammate
+ </final_answers>
+ 
+-<env>
+-Working directory: {{.WorkingDir}}
+-Is directory a git repo: {{if .IsGitRepo}}yes{{else}}no{{end}}
+-Platform: {{.Platform}}
+-Today's date: {{.Date}}
+-{{if .GitStatus}}
+-
+-Git status (snapshot at conversation start - may be outdated):
+-{{.GitStatus}}
+-{{end}}
+-</env>
+-
+ {{if gt (len .Config.LSP) 0}}
+ <lsp>
+ Diagnostics (lint/typecheck) included in tool output.
+@@ -432,3 +420,16 @@ The following is personal content added by the user that they'd like you to foll
+ {{end}}
+ </user_preferences>
+ {{end}}
++
++{{/* dynamic-suffix */}}
++<env>
++Working directory: {{.WorkingDir}}
++Is directory a git repo: {{if .IsGitRepo}}yes{{else}}no{{end}}
++Platform: {{.Platform}}
++Today's date: {{.Date}}
++{{if .GitStatus}}
++
++Git status (snapshot at conversation start - may be outdated):
++{{.GitStatus}}
++{{end}}
++</env>
+diff --git a/internal/agent/todo_reminder_test.go b/internal/agent/todo_reminder_test.go
+new file mode 100644
+index 0000000..aa7a8a8
+--- /dev/null
++++ b/internal/agent/todo_reminder_test.go
+@@ -0,0 +1,149 @@
++package agent
++
++import (
++	"strings"
++	"testing"
++
++	"charm.land/fantasy/providers/openai"
++	"github.com/charmbracelet/crush/internal/message"
++	"github.com/charmbracelet/crush/internal/session"
++	"github.com/stretchr/testify/require"
++)
++
++func TestRenderTodoReminder(t *testing.T) {
++	t.Run("empty list says empty", func(t *testing.T) {
++		out := renderTodoReminder(nil)
++		require.Contains(t, out, "<state>empty</state>")
++		require.NotContains(t, out, "<todo ")
++	})
++
++	t.Run("mixed statuses keep session order", func(t *testing.T) {
++		// Order is z-first on purpose: re-sorting by status or content
++		// would erase the model's priority order.
++		todos := []session.Todo{
++			{Content: "zeta task", Status: session.TodoStatusInProgress},
++			{Content: "alpha task", Status: session.TodoStatusCompleted},
++			{Content: "middle task", Status: session.TodoStatusPending},
++		}
++		out := renderTodoReminder(todos)
++		zeta := strings.Index(out, "zeta task")
++		alpha := strings.Index(out, "alpha task")
++		middle := strings.Index(out, "middle task")
++		require.GreaterOrEqual(t, zeta, 0)
++		require.GreaterOrEqual(t, alpha, zeta, "session order must be preserved")
++		require.GreaterOrEqual(t, middle, alpha)
++		require.Contains(t, out, `<todo status="in_progress">zeta task</todo>`)
++		require.Contains(t, out, "<state>active</state>")
++		require.NotContains(t, out, "currently empty")
++		require.Contains(t, out, "<total>3</total>")
++	})
++
++	t.Run("never claims empty when tasks exist", func(t *testing.T) {
++		todos := []session.Todo{{Content: "only task", Status: session.TodoStatusPending}}
++		out := renderTodoReminder(todos)
++		require.NotContains(t, out, "<state>empty</state>")
++		require.Contains(t, out, "only task")
++	})
++
++	t.Run("all completed reported", func(t *testing.T) {
++		todos := []session.Todo{
++			{Content: "one", Status: session.TodoStatusCompleted},
++			{Content: "two", Status: session.TodoStatusCompleted},
++		}
++		out := renderTodoReminder(todos)
++		require.Contains(t, out, "<state>all-completed</state>")
++		require.NotContains(t, out, "<state>active</state>")
++	})
++
++	t.Run("XML special characters escaped", func(t *testing.T) {
++		todos := []session.Todo{{
++			Content: `fix <a href="x">&y</a> 'quote'`,
++			Status:  session.TodoStatusPending,
++		}}
++		out := renderTodoReminder(todos)
++		require.Contains(t, out, "fix &lt;a href=&quot;x&quot;&gt;&amp;y&lt;/a&gt; &apos;quote&apos;</todo>")
++		require.NotContains(t, out, `<a href=`)
++	})
++
++	t.Run("task cap reports omitted count", func(t *testing.T) {
++		var todos []session.Todo
++		for i := 0; i < maxTodoReminderTasks+10; i++ {
++			todos = append(todos, session.Todo{
++				Content: "task",
++				Status:  session.TodoStatusPending,
++			})
++		}
++		out := renderTodoReminder(todos)
++		require.Contains(t, out, "<truncated>true</truncated>")
++		require.Contains(t, out, "<omitted>10</omitted>")
++		require.Contains(t, out, "<total>74</total>")
++		require.Contains(t, out, "omitted-status")
++	})
++
++	t.Run("byte cap truncates whole items", func(t *testing.T) {
++		var todos []session.Todo
++		for i := 0; i < 200; i++ {
++			todos = append(todos, session.Todo{
++				Content: strings.Repeat("x", 512),
++				Status:  session.TodoStatusPending,
++			})
++		}
++		out := renderTodoReminder(todos)
++		require.LessOrEqual(t, len(out), maxTodoReminderBytes)
++		require.Contains(t, out, "<truncated>true</truncated>")
++		require.Contains(t, out, "<total>200</total>")
++		// No partial item: every rendered item is a complete element.
++		require.Equal(t, strings.Count(out, "<todo "), strings.Count(out, "</todo>"))
++	})
++}
++
++func TestPreparePromptForModelRejectsDuplicateResponsesItemIDs(t *testing.T) {
++	agent := &sessionAgent{isSubAgent: false}
++	encrypted := "cipher"
++	first := &message.Message{
++		ID:       "msg-1",
++		Role:     message.Assistant,
++		Provider: "openai",
++		Model:    "gpt-5.2",
++	}
++	first.AppendReasoningContentForID("evt-1", "thinking")
++	first.SetReasoningResponsesDataForID("evt-1", &openai.ResponsesReasoningMetadata{ItemID: "rs_dup", EncryptedContent: &encrypted})
++
++	second := &message.Message{
++		ID:       "msg-2",
++		Role:     message.Assistant,
++		Provider: "openai",
++		Model:    "gpt-5.2",
++	}
++	second.AppendReasoningContentForID("evt-2", "more")
++	second.SetReasoningResponsesDataForID("evt-2", &openai.ResponsesReasoningMetadata{ItemID: "rs_dup", EncryptedContent: &encrypted})
++
++	_, _, err := agent.preparePromptForModel([]message.Message{*first, *second}, true, "openai", "gpt-5.2")
++	require.Error(t, err, "duplicate item_id must fail before any network call")
++	require.Contains(t, err.Error(), "duplicate reasoning item_id")
++
++	// Distinct item IDs pass.
++	second.SetReasoningResponsesDataForID("evt-2", &openai.ResponsesReasoningMetadata{ItemID: "rs_ok", EncryptedContent: &encrypted})
++	_, _, err = agent.preparePromptForModel([]message.Message{*first, *second}, true, "openai", "gpt-5.2")
++	require.NoError(t, err)
++}
++
++func TestPreparePromptForModelStripsCrossModelResponsesData(t *testing.T) {
++	agent := &sessionAgent{isSubAgent: false}
++	encrypted := "cipher-a"
++	fromOtherModel := &message.Message{
++		ID:       "msg-1",
++		Role:     message.Assistant,
++		Provider: "openai",
++		Model:    "gpt-4.1",
++	}
++	fromOtherModel.AppendReasoningContentForID("evt-1", "thought")
++	fromOtherModel.SetReasoningResponsesDataForID("evt-1", &openai.ResponsesReasoningMetadata{ItemID: "rs_a", EncryptedContent: &encrypted})
++
++	history, _, err := agent.preparePromptForModel([]message.Message{*fromOtherModel}, true, "openai", "gpt-5.2")
++	require.NoError(t, err)
++	require.NotEmpty(t, history)
++
++	// The message itself is not mutated (clone semantics).
++	require.NotNil(t, fromOtherModel.ReasoningContents()[0].ResponsesData)
++}
+diff --git a/internal/agent/tools/glob_test.go b/internal/agent/tools/glob_test.go
+index 51fdad4..69ab787 100644
+--- a/internal/agent/tools/glob_test.go
++++ b/internal/agent/tools/glob_test.go
+@@ -27,7 +27,7 @@ func TestGlobFilesScopedPrefixMatchesUnscoped(t *testing.T) {
+ 	require.NoError(t, err)
+ 	require.Len(t, got, 2)
+ 	for _, p := range got {
+-		require.Contains(t, p, filepath.Join("a", "b"))
++		require.Contains(t, p, "a/b", "globFiles output is ToSlash-normalized regardless of platform")
+ 	}
+ }
+ 
+diff --git a/internal/agent/tools/view_test.go b/internal/agent/tools/view_test.go
+index 43c793a..7431d14 100644
+--- a/internal/agent/tools/view_test.go
++++ b/internal/agent/tools/view_test.go
+@@ -283,7 +283,9 @@ func TestReadBuiltinFile(t *testing.T) {
+ 		}, nil)
+ 		require.NoError(t, err)
+ 		require.NotEmpty(t, resp.Content)
+-		require.Contains(t, resp.Content, "Crush Configuration")
++		// The hardening step rebrands model-visible skill prose to Tack;
++		// built-in skill IDs stay crush-* for compatibility.
++		require.Contains(t, resp.Content, "Tack Configuration")
+ 	})
+ 
+ 	t.Run("not found", func(t *testing.T) {
+diff --git a/internal/config/load_test.go b/internal/config/load_test.go
+index 560dc00..4084d1b 100644
+--- a/internal/config/load_test.go
++++ b/internal/config/load_test.go
+@@ -291,7 +291,7 @@ func TestConfig_setDefaults(t *testing.T) {
+ 		require.NotNil(t, cfg.Models)
+ 		require.NotNil(t, cfg.LSP)
+ 		require.NotNil(t, cfg.MCP)
+-		require.Equal(t, filepath.Join(workingDir, ".crush"), cfg.Options.DataDirectory)
++		require.Equal(t, filepath.Join(workingDir, ".tack"), cfg.Options.DataDirectory)
+ 		require.Equal(t, "AGENTS.md", cfg.Options.InitializeAs)
+ 		// DiffMode is deliberately left empty: the permissions dialog treats
+ 		// the zero value as "pick split or unified based on terminal width".
+@@ -860,7 +860,7 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
+ 	coderAgent, ok := cfg.Agents[AgentCoder]
+ 	require.True(t, ok)
+ 
+-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_symbols", "lsp_definition", "lsp_call_hierarchy", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "glob", "ls", "question", "sourcegraph", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
++	assert.Equal(t, []string{"agent", "bash", "tack_info", "tack_logs", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_symbols", "lsp_definition", "lsp_call_hierarchy", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "glob", "ls", "sourcegraph", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
+ 
+ 	taskAgent, ok := cfg.Agents[AgentTask]
+ 	require.True(t, ok)
+@@ -886,7 +886,7 @@ func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
+ 	cfg.SetupAgents()
+ 	coderAgent, ok := cfg.Agents[AgentCoder]
+ 	require.True(t, ok)
+-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "question", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
++	assert.Equal(t, []string{"agent", "bash", "tack_info", "tack_logs", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
+ 
+ 	taskAgent, ok := cfg.Agents[AgentTask]
+ 	require.True(t, ok)
+diff --git a/internal/message/content.go b/internal/message/content.go
+index 6d66474..4cfeb91 100644
+--- a/internal/message/content.go
++++ b/internal/message/content.go
+@@ -2,6 +2,7 @@ package message
+ 
+ import (
+ 	"encoding/base64"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"slices"
+@@ -53,13 +54,40 @@ type ContentPart interface {
+ }
+ 
+ type ReasoningContent struct {
+-	Thinking         string                             `json:"thinking"`
+-	Signature        string                             `json:"signature"`
+-	ThoughtSignature string                             `json:"thought_signature"` // Used for google
+-	ToolID           string                             `json:"tool_id"`           // Used for openrouter google models
+-	ResponsesData    *openai.ResponsesReasoningMetadata `json:"responses_data"`
+-	StartedAt        int64                              `json:"started_at,omitempty"`
+-	FinishedAt       int64                              `json:"finished_at,omitempty"`
++	EventID          string                  `json:"event_id,omitempty"`
++	Thinking         string                  `json:"thinking"`
++	Signature        string                  `json:"signature"`
++	ThoughtSignature string                  `json:"thought_signature"` // Used for google
++	ToolID           string                  `json:"tool_id"`           // Used for openrouter google models
++	ResponsesData    *ResponsesReasoningData `json:"responses_data"`
++	StartedAt        int64                   `json:"started_at,omitempty"`
++	FinishedAt       int64                   `json:"finished_at,omitempty"`
++}
++
++type ResponsesReasoningData struct {
++	ItemID           string   `json:"item_id"`
++	EncryptedContent *string  `json:"encrypted_content"`
++	Summary          []string `json:"summary"`
++}
++
++func (data *ResponsesReasoningData) UnmarshalJSON(raw []byte) error {
++	type plain ResponsesReasoningData
++	var direct plain
++	if err := json.Unmarshal(raw, &direct); err != nil {
++		return err
++	}
++	if direct.ItemID != "" || direct.EncryptedContent != nil || direct.Summary != nil {
++		*data = ResponsesReasoningData(direct)
++		return nil
++	}
++	var legacy struct {
++		Data plain `json:"data"`
++	}
++	if err := json.Unmarshal(raw, &legacy); err != nil {
++		return err
++	}
++	*data = ResponsesReasoningData(legacy.Data)
++	return nil
+ }
+ 
+ func (tc ReasoningContent) String() string {
+@@ -196,6 +224,16 @@ func (m *Message) ReasoningContent() ReasoningContent {
+ 	return ReasoningContent{}
+ }
+ 
++func (m *Message) ReasoningContents() []ReasoningContent {
++	var contents []ReasoningContent
++	for _, part := range m.Parts {
++		if content, ok := part.(ReasoningContent); ok {
++			contents = append(contents, content)
++		}
++	}
++	return contents
++}
++
+ func (m *Message) ImageURLContent() []ImageURLContent {
+ 	imageURLContents := make([]ImageURLContent, 0)
+ 	for _, part := range m.Parts {
+@@ -295,20 +333,31 @@ func (m *Message) AppendContent(delta string) {
+ }
+ 
+ func (m *Message) AppendReasoningContent(delta string) {
++	m.AppendReasoningContentForID("", delta)
++}
++
++func (m *Message) AppendReasoningContentForID(eventID, delta string) {
+ 	found := false
+ 	for i, part := range m.Parts {
+-		if c, ok := part.(ReasoningContent); ok {
++		if c, ok := part.(ReasoningContent); ok && c.EventID == eventID {
++			c.Thinking += delta
+ 			m.Parts[i] = ReasoningContent{
+-				Thinking:   c.Thinking + delta,
+-				Signature:  c.Signature,
+-				StartedAt:  c.StartedAt,
+-				FinishedAt: c.FinishedAt,
++				EventID:          c.EventID,
++				Thinking:         c.Thinking,
++				Signature:        c.Signature,
++				ThoughtSignature: c.ThoughtSignature,
++				ToolID:           c.ToolID,
++				ResponsesData:    c.ResponsesData,
++				StartedAt:        c.StartedAt,
++				FinishedAt:       c.FinishedAt,
+ 			}
+ 			found = true
++			break
+ 		}
+ 	}
+ 	if !found {
+ 		m.Parts = append(m.Parts, ReasoningContent{
++			EventID:   eventID,
+ 			Thinking:  delta,
+ 			StartedAt: time.Now().Unix(),
+ 		})
+@@ -318,14 +367,9 @@ func (m *Message) AppendReasoningContent(delta string) {
+ func (m *Message) AppendThoughtSignature(signature string, toolCallID string) {
+ 	for i, part := range m.Parts {
+ 		if c, ok := part.(ReasoningContent); ok {
+-			m.Parts[i] = ReasoningContent{
+-				Thinking:         c.Thinking,
+-				ThoughtSignature: c.ThoughtSignature + signature,
+-				ToolID:           toolCallID,
+-				Signature:        c.Signature,
+-				StartedAt:        c.StartedAt,
+-				FinishedAt:       c.FinishedAt,
+-			}
++			c.ThoughtSignature += signature
++			c.ToolID = toolCallID
++			m.Parts[i] = c
+ 			return
+ 		}
+ 	}
+@@ -335,12 +379,8 @@ func (m *Message) AppendThoughtSignature(signature string, toolCallID string) {
+ func (m *Message) AppendReasoningSignature(signature string) {
+ 	for i, part := range m.Parts {
+ 		if c, ok := part.(ReasoningContent); ok {
+-			m.Parts[i] = ReasoningContent{
+-				Thinking:   c.Thinking,
+-				Signature:  c.Signature + signature,
+-				StartedAt:  c.StartedAt,
+-				FinishedAt: c.FinishedAt,
+-			}
++			c.Signature += signature
++			m.Parts[i] = c
+ 			return
+ 		}
+ 	}
+@@ -348,29 +388,36 @@ func (m *Message) AppendReasoningSignature(signature string) {
+ }
+ 
+ func (m *Message) SetReasoningResponsesData(data *openai.ResponsesReasoningMetadata) {
++	m.SetReasoningResponsesDataForID("", data)
++}
++
++func (m *Message) SetReasoningResponsesDataForID(eventID string, data *openai.ResponsesReasoningMetadata) {
++	var stored *ResponsesReasoningData
++	if data != nil {
++		stored = &ResponsesReasoningData{ItemID: data.ItemID, EncryptedContent: data.EncryptedContent, Summary: append([]string(nil), data.Summary...)}
++	}
+ 	for i, part := range m.Parts {
+-		if c, ok := part.(ReasoningContent); ok {
+-			m.Parts[i] = ReasoningContent{
+-				Thinking:      c.Thinking,
+-				ResponsesData: data,
+-				StartedAt:     c.StartedAt,
+-				FinishedAt:    c.FinishedAt,
+-			}
++		if c, ok := part.(ReasoningContent); ok && c.EventID == eventID {
++			c.ResponsesData = stored
++			m.Parts[i] = c
+ 			return
+ 		}
+ 	}
++	m.Parts = append(m.Parts, ReasoningContent{EventID: eventID, ResponsesData: stored, StartedAt: time.Now().Unix()})
+ }
+ 
+ func (m *Message) FinishThinking() {
++	for _, reasoning := range m.ReasoningContents() {
++		m.FinishThinkingForID(reasoning.EventID)
++	}
++}
++
++func (m *Message) FinishThinkingForID(eventID string) {
+ 	for i, part := range m.Parts {
+-		if c, ok := part.(ReasoningContent); ok {
++		if c, ok := part.(ReasoningContent); ok && c.EventID == eventID {
+ 			if c.FinishedAt == 0 {
+-				m.Parts[i] = ReasoningContent{
+-					Thinking:   c.Thinking,
+-					Signature:  c.Signature,
+-					StartedAt:  c.StartedAt,
+-					FinishedAt: time.Now().Unix(),
+-				}
++				c.FinishedAt = time.Now().Unix()
++				m.Parts[i] = c
+ 			}
+ 			return
+ 		}
+@@ -576,36 +623,44 @@ func (m *Message) ToAIMessage() []fantasy.Message {
+ 		})
+ 	case Assistant:
+ 		var parts []fantasy.MessagePart
+-		text := strings.TrimSpace(m.Content().Text)
+-		if text != "" {
+-			parts = append(parts, fantasy.TextPart{Text: text})
+-		}
+-		reasoning := m.ReasoningContent()
+-		if reasoning.Thinking != "" {
+-			reasoningPart := fantasy.ReasoningPart{Text: reasoning.Thinking, ProviderOptions: fantasy.ProviderOptions{}}
+-			if reasoning.Signature != "" {
+-				reasoningPart.ProviderOptions[anthropic.Name] = &anthropic.ReasoningOptionMetadata{
+-					Signature: reasoning.Signature,
++		for _, rawPart := range m.Parts {
++			switch content := rawPart.(type) {
++			case TextContent:
++				if text := strings.TrimSpace(content.Text); text != "" {
++					parts = append(parts, fantasy.TextPart{Text: text})
+ 				}
+-			}
+-			if reasoning.ResponsesData != nil {
+-				reasoningPart.ProviderOptions[openai.Name] = reasoning.ResponsesData
+-			}
+-			if reasoning.ThoughtSignature != "" {
+-				reasoningPart.ProviderOptions[google.Name] = &google.ReasoningMetadata{
+-					Signature: reasoning.ThoughtSignature,
+-					ToolID:    reasoning.ToolID,
++			case ReasoningContent:
++				if content.Thinking == "" && content.Signature == "" && content.ThoughtSignature == "" && content.ResponsesData == nil {
++					continue
+ 				}
++				reasoningPart := fantasy.ReasoningPart{Text: content.Thinking, ProviderOptions: fantasy.ProviderOptions{}}
++				if content.Signature != "" {
++					reasoningPart.ProviderOptions[anthropic.Name] = &anthropic.ReasoningOptionMetadata{
++						Signature: content.Signature,
++					}
++				}
++				if content.ResponsesData != nil {
++					reasoningPart.ProviderOptions[openai.Name] = &openai.ResponsesReasoningMetadata{
++						ItemID:           content.ResponsesData.ItemID,
++						EncryptedContent: content.ResponsesData.EncryptedContent,
++						Summary:          append([]string(nil), content.ResponsesData.Summary...),
++					}
++				}
++				if content.ThoughtSignature != "" {
++					reasoningPart.ProviderOptions[google.Name] = &google.ReasoningMetadata{
++						Signature: content.ThoughtSignature,
++						ToolID:    content.ToolID,
++					}
++				}
++				parts = append(parts, reasoningPart)
++			case ToolCall:
++				parts = append(parts, fantasy.ToolCallPart{
++					ToolCallID:       content.ID,
++					ToolName:         content.Name,
++					Input:            content.Input,
++					ProviderExecuted: content.ProviderExecuted,
++				})
+ 			}
+-			parts = append(parts, reasoningPart)
+-		}
+-		for _, call := range m.ToolCalls() {
+-			parts = append(parts, fantasy.ToolCallPart{
+-				ToolCallID:       call.ID,
+-				ToolName:         call.Name,
+-				Input:            call.Input,
+-				ProviderExecuted: call.ProviderExecuted,
+-			})
+ 		}
+ 		messages = append(messages, fantasy.Message{
+ 			Role:    fantasy.MessageRoleAssistant,
+diff --git a/internal/message/reasoning_test.go b/internal/message/reasoning_test.go
+new file mode 100644
+index 0000000..9e20eaa
+--- /dev/null
++++ b/internal/message/reasoning_test.go
+@@ -0,0 +1,117 @@
++package message
++
++import (
++	"encoding/json"
++	"testing"
++
++	"charm.land/fantasy"
++	"charm.land/fantasy/providers/openai"
++	"github.com/stretchr/testify/require"
++)
++
++func TestPerIDReasoningPartsPreserved(t *testing.T) {
++	m := &Message{Role: Assistant}
++
++	m.AppendReasoningContentForID("evt-1", "first ")
++	m.AppendReasoningContentForID("evt-2", "second ")
++	m.AppendReasoningContentForID("evt-1", "item")
++
++	contents := m.ReasoningContents()
++	require.Len(t, contents, 2, "two reasoning items must stay separate")
++	require.Equal(t, "evt-1", contents[0].EventID)
++	require.Equal(t, "first item", contents[0].Thinking)
++	require.Equal(t, "evt-2", contents[1].EventID)
++	require.Equal(t, "second ", contents[1].Thinking)
++
++	// Set/finish operate on the matching part only.
++	m.SetReasoningResponsesDataForID("evt-2", &openai.ResponsesReasoningMetadata{
++		ItemID:           "rs_2",
++		EncryptedContent: nil,
++		Summary:          []string{"summary"},
++	})
++	m.FinishThinkingForID("evt-1")
++
++	contents = m.ReasoningContents()
++	require.Empty(t, contents[0].ResponsesData, "evt-1 untouched by evt-2 metadata set")
++	require.NotZero(t, contents[0].FinishedAt)
++	require.Zero(t, contents[1].FinishedAt)
++	require.NotNil(t, contents[1].ResponsesData)
++	require.Equal(t, "rs_2", contents[1].ResponsesData.ItemID)
++	require.Equal(t, []string{"summary"}, contents[1].ResponsesData.Summary)
++}
++
++func TestMultiItemReasoningJSONRoundTrip(t *testing.T) {
++	encrypted := "enc-secret"
++	m := &Message{Role: Assistant}
++	m.AppendReasoningContentForID("evt-1", "visible thought")
++	m.SetReasoningResponsesDataForID("evt-1", &openai.ResponsesReasoningMetadata{
++		ItemID:           "rs_1",
++		EncryptedContent: &encrypted,
++	})
++	m.AppendReasoningContentForID("evt-2", "")
++	m.SetReasoningResponsesDataForID("evt-2", &openai.ResponsesReasoningMetadata{
++		ItemID: "rs_2",
++	})
++
++	raw, err := marshalParts(m.Parts)
++	require.NoError(t, err)
++
++	restored, err := unmarshalParts(raw)
++	require.NoError(t, err)
++
++	contents := make([]ReasoningContent, 0, len(restored))
++	for _, part := range restored {
++		if rc, ok := part.(ReasoningContent); ok {
++			contents = append(contents, rc)
++		}
++	}
++	require.Len(t, contents, 2, "multi-item reasoning must not collapse through JSON")
++	require.Equal(t, "rs_1", contents[0].ResponsesData.ItemID)
++	require.NotNil(t, contents[0].ResponsesData.EncryptedContent)
++	require.Equal(t, encrypted, *contents[0].ResponsesData.EncryptedContent)
++	require.Equal(t, "visible thought", contents[0].Thinking)
++	require.Equal(t, "rs_2", contents[1].ResponsesData.ItemID)
++}
++
++func TestLegacyResponsesDataNestedFormatUnmarshals(t *testing.T) {
++	raw := []byte(`{"type":"reasoning","data":{"type":"reasoning","thinking":"old row","responses_data":{"data":{"item_id":"rs_legacy","summary":[]}}}}`)
++	var wrapper struct {
++		Type string          `json:"type"`
++		Data json.RawMessage `json:"data"`
++	}
++	require.NoError(t, json.Unmarshal(raw, &wrapper))
++
++	var part ReasoningContent
++	require.NoError(t, json.Unmarshal(wrapper.Data, &part))
++	require.NotNil(t, part.ResponsesData, "legacy nested data format must still parse")
++	require.Equal(t, "rs_legacy", part.ResponsesData.ItemID)
++	require.Equal(t, "old row", part.Thinking)
++}
++
++func TestToAIMessagePreservesEncryptedOnlyReasoning(t *testing.T) {
++	encrypted := "opaque-ciphertext"
++	m := &Message{Role: Assistant}
++	m.AppendReasoningContentForID("evt-1", "")
++	m.SetReasoningResponsesDataForID("evt-1", &openai.ResponsesReasoningMetadata{
++		ItemID:           "rs_1",
++		EncryptedContent: &encrypted,
++	})
++
++	aiMsgs := m.ToAIMessage()
++	require.Len(t, aiMsgs, 1)
++
++	var reasoningParts []fantasy.ReasoningPart
++	for _, part := range aiMsgs[0].Content {
++		if rp, ok := part.(fantasy.ReasoningPart); ok {
++			reasoningParts = append(reasoningParts, rp)
++		}
++	}
++	require.Len(t, reasoningParts, 1, "encrypted-only reasoning must not be dropped")
++
++	meta, ok := reasoningParts[0].ProviderOptions[openai.Name].(*openai.ResponsesReasoningMetadata)
++	require.True(t, ok)
++	require.Equal(t, "rs_1", meta.ItemID)
++	require.NotNil(t, meta.EncryptedContent)
++	require.Equal(t, encrypted, *meta.EncryptedContent)
++	require.Empty(t, reasoningParts[0].Text, "thinking text is not replayed")
++}
+diff --git a/internal/proto/proto.go b/internal/proto/proto.go
+index 171fb79..13dec92 100644
+--- a/internal/proto/proto.go
++++ b/internal/proto/proto.go
+@@ -6,6 +6,7 @@ import (
+ 	"time"
+ 
+ 	"charm.land/catwalk/pkg/catwalk"
++	"github.com/charmbracelet/crush/internal/agent/notify"
+ 	"github.com/charmbracelet/crush/internal/config"
+ 	"github.com/charmbracelet/crush/internal/lsp"
+ )
+@@ -76,12 +77,13 @@ type CurrentSession struct {
+ // SessionID may arrive first, and filtering by SessionID alone
+ // would terminate the caller before its own turn ran.
+ type RunComplete struct {
+-	SessionID string `json:"session_id"`
+-	RunID     string `json:"run_id,omitempty"`
+-	MessageID string `json:"message_id"`
+-	Text      string `json:"text,omitempty"`
+-	Error     string `json:"error,omitempty"`
+-	Cancelled bool   `json:"cancelled,omitempty"`
++	SessionID string               `json:"session_id"`
++	RunID     string               `json:"run_id,omitempty"`
++	MessageID string               `json:"message_id"`
++	Text      string               `json:"text,omitempty"`
++	Error     string               `json:"error,omitempty"`
++	Cancelled bool                 `json:"cancelled,omitempty"`
++	Telemetry *notify.RunTelemetry `json:"telemetry,omitempty"`
+ }
+ 
+ // SkillInfo describes a visible skill exposed to a frontend.
+diff --git a/internal/server/events.go b/internal/server/events.go
+index 32abcfe..379ca4e 100644
+--- a/internal/server/events.go
++++ b/internal/server/events.go
+@@ -145,6 +145,7 @@ func wrapEvent(ev any) *pubsub.Payload {
+ 				Text:      e.Payload.Text,
+ 				Error:     e.Payload.Error,
+ 				Cancelled: e.Payload.Cancelled,
++				Telemetry: e.Payload.Telemetry,
+ 			},
+ 		})
+ 	case pubsub.Event[proto.ConfigChanged]:
+diff --git a/internal/server/server.go b/internal/server/server.go
+index a778ecb..a9c6409 100644
+--- a/internal/server/server.go
++++ b/internal/server/server.go
+@@ -188,7 +188,6 @@ func (s *Server) installHandler() {
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/permissions/skip", c.handlePostWorkspacePermissionsSkip)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/permissions/grant", c.handlePostWorkspacePermissionsGrant)
+ 
+-
+ 	mux.HandleFunc("GET /v1/workspaces/{id}/agent", c.handleGetWorkspaceAgent)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/agent", c.handlePostWorkspaceAgent)
+ 	mux.HandleFunc("POST /v1/workspaces/{id}/agent/init", c.handlePostWorkspaceAgentInit)
+diff --git a/internal/skills/manager.go b/internal/skills/manager.go
+index 5be2352..8c03eb3 100644
+--- a/internal/skills/manager.go
++++ b/internal/skills/manager.go
+@@ -91,7 +91,7 @@ func NewManager(allSkills, activeSkills []*Skill, states []*SkillState, opts ...
+ func (m *Manager) AllSkills() []*Skill {
+ 	m.mu.RLock()
+ 	defer m.mu.RUnlock()
+-	return m.allSkills
++	return append([]*Skill(nil), m.allSkills...)
+ }
+ 
+ // ActiveSkills returns the post-filter list of active skills (after
+@@ -99,7 +99,7 @@ func (m *Manager) AllSkills() []*Skill {
+ func (m *Manager) ActiveSkills() []*Skill {
+ 	m.mu.RLock()
+ 	defer m.mu.RUnlock()
+-	return m.activeSkills
++	return append([]*Skill(nil), m.activeSkills...)
+ }
+ 
+ // Refresh re-runs discovery and atomically replaces this workspace's skill

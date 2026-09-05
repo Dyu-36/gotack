@@ -6,5 +6,7 @@
     "proactive-auto-compact.patch",
     "prompt-context-refresh.patch"
   ],
-  "input_pipeline": []
+  "input_pipeline": [
+    "input-pipeline-core.patch"
+  ]
 }
