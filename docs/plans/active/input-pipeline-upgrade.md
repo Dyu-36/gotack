@@ -23,18 +23,28 @@ are distinct and must never be converted into PASS.
 
 ## Current progress ledger
 
+Updated 2026-09-05 during the continuous implementation session started at
+`008468d`. Statuses use the owner vocabulary: IMPLEMENTED (code exists), PASS
+(executed check passed), FAIL, BLOCKED, UNVERIFIED, OUT_OF_SCOPE.
+
 | Scope | Status | Evidence / next work |
 | --- | --- | --- |
-| Phase 0A | UNVERIFIED | Reproduce current Responses fixture diagnostics and repair harness |
-| PR0 | UNVERIFIED | Engine producer and redacted consumer integration assigned |
-| PR1 | UNVERIFIED | Engine paths, options and todo correctness assigned |
-| PR2 | UNVERIFIED | Typed prompt snapshot and skill ownership assigned |
-| PR4 | UNVERIFIED | Durable migration, host and UI assigned; temp profiles only |
-| PR5 | UNVERIFIED | Reasoning persistence/replay and durable Fantasy provenance assigned |
-| PR3 | UNVERIFIED | Replace fabricated benchmark data; default OFF, no rollout without evidence |
-| Live Responses | BLOCKED | BLOCKED_LIVE_ACCEPTANCE: no approved paid request budget |
-| Hybrid compaction | OUT_OF_SCOPE | Only bounded PR5 anchor selection is authorized |
-| Release | UNVERIFIED | Consolidated candidate gates have not yet run |
+| Phase 0A | PASS (baseline engine) | Real Windows clean-pin replay/build + 5 required executable E2E tests passed twice (`d0ada5ba…` provenance); 3 new wire-proof tests added (options/todo) awaiting patched-engine run |
+| PR0 consumer | IMPLEMENTED + unit PASS | runmetrics Writer/validation/redaction wired via `bind_engine.go`; optional sorted `change_reasons` added with allowlist validation; contract doc updated |
+| PR0 engine | IN PROGRESS | Isolated patch agent implementing RunTrace producer (prototype diff was missing the untracked runtrace file; being rebuilt) |
+| PR1 | IN PROGRESS | Engine-side ordering/options/todo in prototype diff being completed by patch agent; wire E2E tests committed and promoted to required gate |
+| PR2 | IN PROGRESS | Snapshot/BuildSnapshot/skills dedupe present in prototype; patch agent completing and verifying |
+| PR4 | IMPLEMENTED (host+UI) | Transactional migration, Wails bind methods, desktop.ts bridge, ContextMigrationPanel UI, ADR 0006, contract + layout docs; `go build`, focused tests, frontend check/test/build all PASS. Portable agent-browser flow UNVERIFIED (owner gate) |
+| PR5 | PARTIAL | Fantasy patch verified with focused tests on pristine v0.41.3 (regenerated, SHA `8d455a58…`, release_eligible false); Crush-side message model in patch agent scope; live acceptance + upstream PR blocked (no authorized budget/remote action) |
+| PR3 | IMPLEMENTED (infrastructure) | Fabricated benchmark deleted; benchmark.mjs statistics core (paired AB/BA, seeded, nearest-rank, bootstrap CI) + real harness-backed driver with provenance verification; synthetic runs always record decision=no-rollout, prompt_cache_key OFF |
+| Hybrid compaction | OUT_OF_SCOPE | Only bounded PR5 anchor selection authorized |
+| Release | UNVERIFIED | Consolidated gates after patch integration |
+
+Committed checkpoint series on `main`: `0348877` (contextseed migration),
+`ef2722e`/`6ef1259`/`5a0eec8` (runmetrics, benchmark scaffolding, e2e
+rejection counters), `81119be` (fantasy authoring patch), `c564e66` (bench
+driver), `3c1de3e` (migration UI), `a3b9002` (change_reasons), `c6522d4`
+(fantasy tests), `7796ca8` (wire-proof E2E tests).
 
 The starting Gotack commit was `b6dcf68320b708df7a5e3c8e1750689cf5621ec1`.
 The Crush pin is owned by `.tack-pin`; the owner's ignored `third_party/crush`
