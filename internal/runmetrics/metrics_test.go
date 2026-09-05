@@ -262,3 +262,55 @@ func TestRedactionOwnsNestedDataAndPreservesAbsence(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "uncached_input_tokens")
 }
+
+// TestWriterSinkNeverPersistsCanaryMaterial proves the JSONL sink drops
+// or redacts canary material planted in every field a run could reach:
+// redacted identifiers must be erased, allowlisted enums with unknown
+// values must reject the record, and negative semantic offsets must
+// reject the record. Nothing may land in the persisted sink.
+func TestWriterSinkNeverPersistsCanaryMaterial(t *testing.T) {
+	dir := t.TempDir()
+	writer := New(dir, nil)
+	canary := "CANARY-gotack-9d2e1c-leak"
+
+	base := func() *crushapi.RunTelemetry {
+		return &crushapi.RunTelemetry{
+			RunID: "run-canary", Provider: "e2e", Model: "fixture-model",
+			CacheStatus: "miss", TotalMicros: 10, Attempt: 1,
+		}
+	}
+
+	// Redacted identifier: erased before persistence.
+	redacted := base()
+	redacted.ProviderRequestID = canary
+	redacted.CachedInputTokens = new(int64)
+	writer.Append(redacted)
+
+	// Unknown change reason: record rejected wholesale.
+	rejectedReason := base()
+	rejectedReason.ChangeReasons = []string{canary}
+	writer.Append(rejectedReason)
+
+	// Unknown span label: record rejected wholesale.
+	rejectedSpan := base()
+	rejectedSpan.SpansMicros = map[string]int64{canary: 5}
+	writer.Append(rejectedSpan)
+
+	// Unknown prefix reason: record rejected wholesale.
+	rejectedPrefix := base()
+	rejectedPrefix.PrefixChangedReason = canary
+	writer.Append(rejectedPrefix)
+
+	// Negative semantic offset: record rejected wholesale.
+	negative := base()
+	value := int64(-1)
+	negative.FirstTextMicros = &value
+	writer.Append(negative)
+
+	content, err := os.ReadFile(filepath.Join(dir, "input-pipeline.jsonl"))
+	require.NoError(t, err, "the valid redacted record must be persisted")
+	require.NotContains(t, string(content), canary,
+		"canary material must never reach the persisted telemetry sink")
+	lines := strings.Count(strings.TrimRight(string(content), "\n"), "\n") + 1
+	require.Equal(t, 1, lines, "only the valid record may be persisted")
+}
