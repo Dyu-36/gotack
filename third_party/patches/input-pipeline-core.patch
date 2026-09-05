@@ -1,5 +1,5 @@
 diff --git a/internal/agent/agent.go b/internal/agent/agent.go
-index 368d99d..50629ab 100644
+index 368d99d..d0f363d 100644
 --- a/internal/agent/agent.go
 +++ b/internal/agent/agent.go
 @@ -20,6 +20,7 @@ import (
@@ -37,7 +37,7 @@ index 368d99d..50629ab 100644
  		}
  		if err := a.persistCanceledTurn(ctx, call, false); err != nil {
  			complete.Error = err.Error()
-@@ -695,9 +702,26 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -695,9 +702,23 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	largeModel := a.largeModel.Get()
  	systemPrompt := a.systemPrompt.Get()
  	promptPrefix := a.systemPromptPrefix.Get()
@@ -49,9 +49,6 @@ index 368d99d..50629ab 100644
 +	}
 +
 +	runSystemPrompt := systemPrompt
-+	if !a.isSubAgent {
-+		runSystemPrompt += "\n\n" + renderTodoReminder(currentSession.Todos)
-+	}
  
 -	for _, server := range mcp.GetStates() {
 +	var instructions strings.Builder
@@ -66,7 +63,7 @@ index 368d99d..50629ab 100644
  		if server.State != mcp.StateConnected {
  			continue
  		}
-@@ -708,7 +732,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -708,7 +729,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	}
  
  	if s := instructions.String(); s != "" {
@@ -75,7 +72,7 @@ index 368d99d..50629ab 100644
  	}
  
  	if len(agentTools) > 0 {
-@@ -718,21 +742,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -718,21 +739,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  
  	agent := fantasy.NewAgent(
  		largeModel.Model,
@@ -99,7 +96,7 @@ index 368d99d..50629ab 100644
  
  	// Generate title from the first real (non-shell) user prompt.
  	// can take tens of seconds. Blocking Run on it delays the
-@@ -794,6 +814,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -794,6 +811,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			return
  		}
  		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
@@ -107,7 +104,7 @@ index 368d99d..50629ab 100644
  		if currentAssistant != nil {
  			complete.MessageID = currentAssistant.ID
  			complete.Text = currentAssistant.Content().String()
-@@ -814,7 +835,26 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -814,7 +832,26 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  		a.publishRunComplete(ctx, call, complete)
  	}()
  
@@ -135,7 +132,7 @@ index 368d99d..50629ab 100644
  
  	startTime := time.Now()
  	a.eventPromptSent(call.SessionID)
-@@ -826,6 +866,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -826,6 +863,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	// Don't send MaxOutputTokens if 0, or when the selected backend does not
  	// accept the field (notably ChatGPT's subscription-backed Codex endpoint).
  	maxOutputTokens := maxOutputTokensForModel(largeModel, call.MaxOutputTokens)
@@ -143,7 +140,27 @@ index 368d99d..50629ab 100644
  	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
  		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
  		Files:            files,
-@@ -911,11 +952,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -844,6 +882,19 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 				prepared.Messages[i].ProviderOptions = nil
+ 			}
+ 
++			// The todo reminder is ephemeral user-role context placed after
++			// the system prefix. It is re-rendered from a fresh session
++			// snapshot at every model-call boundary so tool updates within
++			// the same run reach the next request; it is never persisted and
++			// never becomes system policy.
++			if !a.isSubAgent {
++				snapshot, todoErr := a.sessions.Get(callContext, call.SessionID)
++				if todoErr != nil {
++					return callContext, prepared, fmt.Errorf("failed to get session: %w", todoErr)
++				}
++				prepared.Messages = insertTodoReminder(prepared.Messages, snapshot.Todos)
++			}
++
+ 			// Use latest tools (updated by SetTools when MCP tools change).
+ 			prepared.Tools = a.tools.Copy()
+ 
+@@ -911,11 +962,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			return callContext, prepared, err
  		},
  		OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
@@ -158,7 +175,7 @@ index 368d99d..50629ab 100644
  			return a.messages.Update(genCtx, *currentAssistant)
  		},
  		OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
-@@ -932,13 +974,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -932,13 +984,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			}
  			if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
  				if reasoning, ok := openaiData.(*openai.ResponsesReasoningMetadata); ok {
@@ -175,7 +192,7 @@ index 368d99d..50629ab 100644
  			// Strip leading newline from initial text content. This is is
  			// particularly important in non-interactive mode where leading
  			// newlines are very visible.
-@@ -950,6 +993,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -950,6 +1003,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			return a.messages.Update(genCtx, *currentAssistant)
  		},
  		OnToolInputStart: func(id string, toolName string) error {
@@ -183,7 +200,7 @@ index 368d99d..50629ab 100644
  			toolCall := message.ToolCall{
  				ID:               id,
  				Name:             toolName,
-@@ -962,6 +1006,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -962,6 +1016,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			return a.messages.Update(ctx, *currentAssistant)
  		},
  		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
@@ -191,7 +208,7 @@ index 368d99d..50629ab 100644
  			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
  			// Reset streamed content so the retried response doesn't
  			// concatenate with partial content from the failed attempt.
-@@ -1061,6 +1106,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1061,6 +1116,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			if call.MaxInputTokens > 0 && !estimated && usage.InputTokens > 0 {
  				aggregateInputTokens += usage.InputTokens
  			}
@@ -205,7 +222,7 @@ index 368d99d..50629ab 100644
  			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
  			extractHyperCredits(stepResult.ProviderMetadata)
  			_, sessionErr := a.sessions.Save(ctx, updatedSession)
-@@ -1092,6 +1144,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1092,6 +1154,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			},
  		},
  	})
@@ -213,7 +230,7 @@ index 368d99d..50629ab 100644
  
  	a.eventPromptResponded(call.SessionID, time.Since(startTime).Truncate(time.Second))
  
-@@ -1221,6 +1274,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1221,6 +1284,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	}
  
  	if shouldSummarize {
@@ -221,7 +238,7 @@ index 368d99d..50629ab 100644
  		a.activeRequests.Del(call.SessionID)
  		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {
  			return nil, summarizeErr
-@@ -1345,6 +1399,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1345,6 +1409,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	mu.Unlock()
  	if outerOwesRunComplete {
  		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
@@ -229,7 +246,7 @@ index 368d99d..50629ab 100644
  		if currentAssistant != nil {
  			complete.MessageID = currentAssistant.ID
  			complete.Text = currentAssistant.Content().String()
-@@ -1379,7 +1434,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
+@@ -1379,7 +1444,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
  		return nil
  	}
  
@@ -241,7 +258,7 @@ index 368d99d..50629ab 100644
  
  	genCtx, cancel := context.WithCancel(ctx)
  	ac := &activeCancel{cancel: cancel}
-@@ -1555,18 +1613,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
+@@ -1555,18 +1623,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
  	return msg, nil
  }
  
@@ -265,7 +282,7 @@ index 368d99d..50629ab 100644
  	// Collect all tool call IDs present in assistant messages and all tool
  	// result IDs present in tool messages. This lets us detect both orphaned
  	// tool results (result without a call) and orphaned tool calls (call
-@@ -1586,12 +1638,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1586,12 +1648,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
  		}
  	}
  
@@ -283,7 +300,7 @@ index 368d99d..50629ab 100644
  			continue
  		}
  		if m.Role == message.Tool {
-@@ -1600,6 +1656,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1600,6 +1666,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
  			}
  			continue
  		}
@@ -300,7 +317,7 @@ index 368d99d..50629ab 100644
  		aiMsgs := m.ToAIMessage()
  		if !supportsImages {
  			for i := range aiMsgs {
-@@ -1632,7 +1698,133 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1632,7 +1708,149 @@ If not, please feel free to ignore. Again do not mention this message to the use
  		})
  	}
  
@@ -360,6 +377,22 @@ index 368d99d..50629ab 100644
 +	"\"", "&quot;",
 +	"'", "&apos;",
 +)
++
++// insertTodoReminder places a fresh ephemeral user-role todo reminder after
++// the leading system messages. Pure over its inputs; the caller owns the
++// session snapshot so the rendered revision and the messages stay consistent.
++func insertTodoReminder(messages []fantasy.Message, todos []session.Todo) []fantasy.Message {
++	reminder := fantasy.NewUserMessage(renderTodoReminder(todos))
++	insert := 0
++	for insert < len(messages) && messages[insert].Role == fantasy.MessageRoleSystem {
++		insert++
++	}
++	updated := make([]fantasy.Message, 0, len(messages)+1)
++	updated = append(updated, messages[:insert]...)
++	updated = append(updated, reminder)
++	updated = append(updated, messages[insert:]...)
++	return updated
++}
 +
 +// renderTodoReminder renders the session's todo snapshot as ephemeral
 +// engine-state context. Task order follows the session's deterministic
