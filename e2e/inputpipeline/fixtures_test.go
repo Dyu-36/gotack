@@ -249,11 +249,15 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	c.LastInputText = inputText(req)
 	if os.Getenv("TACK_E2E_DEBUG_ITEMS") == "1" {
-		// Bounded synthetic-fixture diagnostic: item kinds and sizes only,
-		// never item content.
+		// Bounded synthetic-fixture diagnostic: item kinds, sizes, and
+		// truncated text of the synthetic fixture messages only.
 		for _, item := range req.Input {
-			fmt.Fprintf(os.Stderr, "E2E_ITEM type=%s role=%s len=%d\n",
-				jsonString(item["type"]), jsonString(item["role"]), len(jsonString(item["content"])))
+			text := inputText(responseRequest{Input: []map[string]json.RawMessage{item}})
+			if len(text) > 120 {
+				text = text[:120]
+			}
+			fmt.Fprintf(os.Stderr, "E2E_ITEM type=%s role=%s text=%q\n",
+				jsonString(item["type"]), jsonString(item["role"]), text)
 		}
 	}
 	p.serial++
