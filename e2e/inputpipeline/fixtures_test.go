@@ -49,7 +49,10 @@ type captureCounts struct {
 	// body is ever written to logs or artifacts.
 	Include          []string
 	ReasoningSummary string
-	LastInputText    string
+	// SystemPrompt is the canonical system-prompt bytes of the last
+	// main-model request. In-memory only; never written to artifacts.
+	SystemPrompt  string
+	LastInputText string
 }
 
 type fakeProvider struct {
@@ -109,11 +112,12 @@ func (p *fakeProvider) counts(run string) captureCounts {
 }
 
 type responseRequest struct {
-	Model     string   `json:"model"`
-	Stream    bool     `json:"stream"`
-	Cache     string   `json:"prompt_cache_key"`
-	Include   []string `json:"include"`
-	Reasoning *struct {
+	Model        string   `json:"model"`
+	Stream       bool     `json:"stream"`
+	Cache        string   `json:"prompt_cache_key"`
+	Instructions string   `json:"instructions"`
+	Include      []string `json:"include"`
+	Reasoning    *struct {
 		Summary string `json:"summary"`
 	} `json:"reasoning"`
 	Input []map[string]json.RawMessage `json:"input"`
@@ -121,6 +125,21 @@ type responseRequest struct {
 		Type string `json:"type"`
 		Name string `json:"name"`
 	} `json:"tools"`
+}
+
+// systemText extracts the system-prompt bytes of a request: the
+// instructions field, or the first system-role input item.
+func systemText(req responseRequest) string {
+	if req.Instructions != "" {
+		return req.Instructions
+	}
+	for _, item := range req.Input {
+		role := jsonString(item["role"])
+		if role == "system" || role == "developer" {
+			return inputText(responseRequest{Input: []map[string]json.RawMessage{item}})
+		}
+	}
+	return ""
 }
 
 func jsonString(value json.RawMessage) string {
@@ -248,6 +267,7 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 		c.ReasoningSummary = req.Reasoning.Summary
 	}
 	c.LastInputText = inputText(req)
+	c.SystemPrompt = systemText(req)
 	if os.Getenv("TACK_E2E_DEBUG_ITEMS") == "1" {
 		// Bounded synthetic-fixture diagnostic: item kinds, sizes, and
 		// truncated text of the synthetic fixture messages only.
@@ -407,7 +427,28 @@ func writeResponse(w http.ResponseWriter, stream bool, suffix, toolName, toolArg
 }
 
 // JSON-RPC stdout only. Audit records contain no arguments, IDs, or tool output.
+// serveMCPArgs resolves the fixture MCP identity: an optional second
+// argument names the instance so two servers can advertise distinct
+// instructions for ordering proofs.
+func serveMCPArgs(args []string) (auditFile, instance string, err error) {
+	if len(args) == 0 || len(args) > 2 {
+		return "", "", errors.New("mcp_args_invalid")
+	}
+	auditFile = args[0]
+	if len(args) == 2 {
+		instance = args[1]
+		if instance != "alpha" && instance != "bravo" {
+			return "", "", errors.New("mcp_instance_invalid")
+		}
+	}
+	return auditFile, instance, nil
+}
+
 func serveMCP(in io.Reader, out io.Writer, audit func(string) error) error {
+	return serveMCPInstance(in, out, audit, "")
+}
+
+func serveMCPInstance(in io.Reader, out io.Writer, audit func(string) error, instance string) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	enc := json.NewEncoder(out)
@@ -436,9 +477,15 @@ func serveMCP(in io.Reader, out io.Writer, audit func(string) error) error {
 			if err := audit("initialize"); err != nil {
 				return err
 			}
+			instructions := "Synthetic fixture tools only."
+			name := "gotack-e2e"
+			if instance != "" {
+				instructions = instance + " instructions: synthetic fixture tools only."
+				name = "gotack-e2e-" + instance
+			}
 			result = map[string]any{"protocolVersion": params.ProtocolVersion,
 				"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
-				"serverInfo":   map[string]any{"name": "gotack-e2e", "version": "1"}, "instructions": "Synthetic fixture tools only."}
+				"serverInfo":   map[string]any{"name": name, "version": "1"}, "instructions": instructions}
 		case "tools/list":
 			result = map[string]any{"tools": []any{map[string]any{"name": "fixture_echo", "description": "Return a fixed synthetic value.",
 				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}}}

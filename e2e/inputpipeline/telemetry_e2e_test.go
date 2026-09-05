@@ -4,6 +4,7 @@ package inputpipeline
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -39,6 +40,10 @@ func sendTelemetryTurn(t *testing.T, h *engineHarness, p *fakeProvider, session 
 }
 
 func requireTelemetry(t *testing.T, complete crushapi.RunComplete, attempts, retries int, firstSemantic string, uncached int64) {
+	requireTelemetryWithTool(t, complete, attempts, retries, firstSemantic, uncached, false)
+}
+
+func requireTelemetryWithTool(t *testing.T, complete crushapi.RunComplete, attempts, retries int, firstSemantic string, uncached int64, expectedFirstTool bool) {
 	t.Helper()
 	if complete.Error != "" || complete.Cancelled || complete.Text != fixtureAnswer {
 		t.Fatal("telemetry_terminal_outcome_invalid")
@@ -65,6 +70,41 @@ func requireTelemetry(t *testing.T, complete crushapi.RunComplete, attempts, ret
 	if m.TotalMicros < 0 || m.EstimatedUsage || m.Compacted || m.PrefixChangedReason != "" {
 		t.Fatal("run_telemetry_metadata_invalid")
 	}
+	// The final prepared-request fingerprint and the per-run stable/dynamic
+	// split digests must be present and shaped like a 32-byte base64url
+	// HMAC (key is available because the engine data dir is writable).
+	for name, digest := range map[string]string{
+		"request_shape_hmac":  m.RequestShapeHMAC,
+		"stable_prefix_hmac":  m.StablePrefixHMAC,
+		"dynamic_suffix_hmac": m.DynamicSuffixHMAC,
+	} {
+		if digest == "" {
+			t.Fatal("run_telemetry_hmac_missing:" + name)
+		}
+		decoded, err := base64.RawURLEncoding.DecodeString(digest)
+		if err != nil || len(decoded) != 32 {
+			t.Fatal("run_telemetry_hmac_shape_invalid")
+		}
+	}
+	if m.RequestShapeBytes <= 0 || m.StablePrefixBytes <= 0 {
+		t.Fatal("run_telemetry_byte_counts_invalid")
+	}
+	// A completed text turn has a real first-text offset; the tool turn
+	// also records its first tool offset. Absent kinds stay nil.
+	if firsts := map[string]*int64{
+		"first_text_us": m.FirstTextMicros,
+	}; firsts["first_text_us"] == nil {
+		t.Fatal("run_telemetry_first_text_missing")
+	}
+	if expectedFirstTool && m.FirstToolMicros == nil {
+		t.Fatal("run_telemetry_first_tool_missing")
+	}
+	if !expectedFirstTool && m.FirstToolMicros != nil {
+		t.Fatal("run_telemetry_first_tool_unexpected")
+	}
+	if m.FirstReasoningMicros != nil {
+		t.Fatal("run_telemetry_first_reasoning_unexpected")
+	}
 	for name, duration := range m.SpansMicros {
 		if name == "" || duration < 0 {
 			t.Fatal("run_telemetry_span_invalid")
@@ -83,7 +123,7 @@ func requireTelemetry(t *testing.T, complete crushapi.RunComplete, attempts, ret
 
 func TestE2ERunTelemetryFreshRetryAndToolLoop(t *testing.T) {
 	p := newFakeProvider()
-	t.Cleanup(p.server.Close)
+	t.Cleanup(p.close)
 	h := startEngine(t, t.TempDir(), p, true)
 	session := freshSession(t, h)
 
@@ -103,7 +143,34 @@ func TestE2ERunTelemetryFreshRetryAndToolLoop(t *testing.T) {
 	if toolCounts.Requests != 2 || toolCounts.ToolResponses != 1 || toolCounts.ToolResults != 1 {
 		t.Fatal("telemetry_tool_request_count_invalid")
 	}
-	requireTelemetry(t, tool, 2, 0, "tool", 20)
+	requireTelemetryWithTool(t, tool, 2, 0, "tool_call", 20, true)
+}
+
+// TestE2ETelemetryStablePrefixStableAcrossTurns proves the PR2 stable
+// prefix contract on the wire: two turns with unchanged stable inputs
+// publish identical stable_prefix_hmac values while the request shape
+// reflects the grown history, and no stable change reason is invented.
+func TestE2ETelemetryStablePrefixStableAcrossTurns(t *testing.T) {
+	p := newFakeProvider()
+	t.Cleanup(p.close)
+	h := startEngine(t, t.TempDir(), p, true)
+	session := freshSession(t, h)
+
+	first, _ := sendTelemetryTurn(t, h, p, session, modeText)
+	second, _ := sendTelemetryTurn(t, h, p, session, modeText)
+	m1, m2 := first.Telemetry, second.Telemetry
+	if m1 == nil || m2 == nil {
+		t.Fatal("run_telemetry_missing")
+	}
+	if m1.StablePrefixHMAC == "" || m1.StablePrefixHMAC != m2.StablePrefixHMAC {
+		t.Fatal("stable_prefix_hmac_changed_without_stable_input_change")
+	}
+	if m2.RequestShapeHMAC == m1.RequestShapeHMAC {
+		t.Fatal("request_shape_hmac_ignored_history_growth")
+	}
+	if m2.PrefixChangedReason != "" {
+		t.Fatal("stable_reason_invented_for_unchanged_inputs")
+	}
 }
 
 func TestTelemetryWaitRejectsClosedStream(t *testing.T) {
