@@ -68,7 +68,11 @@ func requireTelemetry(t *testing.T, complete crushapi.RunComplete, attempts, ret
 			t.Fatal("run_telemetry_span_invalid")
 		}
 	}
-	for _, name := range []string{"history_load", "prompt_prepare", "request_write_to_first_byte", "first_byte_to_first_sse", "stream"} {
+	// request_write_to_first_byte spans request issue to the first stream
+	// part. first_byte_to_first_sse additionally requires a transport hook
+	// Fantasy does not expose, so per the absent-means-absent contract that
+	// span stays unrecorded rather than being faked from the same instant.
+	for _, name := range []string{"history_load", "prompt_prepare", "request_write_to_first_byte", "stream"} {
 		if _, ok := m.SpansMicros[name]; !ok {
 			t.Fatal("run_telemetry_required_span_missing")
 		}
