@@ -32,14 +32,14 @@ exists), PASS (executed check passed), FAIL, BLOCKED, UNVERIFIED, OUT_OF_SCOPE.
 | --- | --- | --- |
 | Phase 0A | PASS (baseline engine) | Real Windows clean-pin replay/build + 5 required executable E2E tests passed twice on the unpatched baseline (`d0ada5ba…` provenance) |
 | PR0 consumer | IMPLEMENTED + unit PASS | runmetrics Writer/validation/redaction wired via `bind_engine.go`; optional sorted `change_reasons` with allowlist validation; contract doc updated |
-| PR0 engine | IMPLEMENTED | `input-pipeline-core.patch`: RunTrace with monotonic spans (ready_wait/mcp_wait/model_refresh/history_load/prompt_prepare/stream plus the OnChunk-derived `request_write_to_first_byte` TTFB), one-shot first semantic, tri-state cache with run-scoped token sums, run-scoped `attempt` (completed steps plus retries), domain-separated HMAC request fingerprints (unavailable stays unavailable), sorted unique `change_reasons`. Run-level semantics align with the merged remote telemetry E2E coverage (fresh/retry/tool-loop). The socket-byte to first-SSE split (`first_byte_to_first_sse`) still needs a Fantasy transport hook and stays absent (null), never zero. A parallel remote PR0 patch series (`9cd9d27`) was superseded by this patch and removed from the manifest during the merge |
-| PR1 | IMPLEMENTED (wire-proofed) | Engine: ordered context groups, Windows-canonical rendered paths, provider-options layers merged as flat maps with pre-network validation (`auto\|concise\|detailed`, union include with `reasoning.encrypted_content`, explicit null omits), todo reminder re-rendered from a fresh session snapshot at every model-call boundary inside `PrepareStep` as ephemeral user-role context. Gate-required E2E wire proofs PASS: options preserved, invalid options rejected with zero provider requests, todo reminder reflects real state + survives restart + never persisted. Remaining: 20-restart canonical-prompt wire proof and MCP instruction-order proof not run; `prefix_changed_reason`/`change_reasons` auto-record only `initial`/`compaction` (no automatic generation-diff detection yet) |
-| PR2 | PARTIAL | Ordered prompt groups/sorting and `skills.Manager` single-source present in the engine patch; content-addressed snapshot generation and same-size context edit rebuild detection NOT implemented (`context-prompt/snapshot-<timestamp>` instability from Plan §0.3 remains) |
+| PR0 engine | IMPLEMENTED + wire PASS | `input-pipeline-core.patch` + `input-pipeline-telemetry.patch`: RunTrace monotonic spans, tri-state cache with run-scoped token sums, run-scoped `attempt`, domain-separated HMAC fingerprints (unavailable stays unavailable), sorted unique `change_reasons`. Telemetry patch adds: per-run prompt generation with labeled component digests so `prefix_changed_reason`/`change_reasons` come from generation diffs (template→context, model_switch, context, skills, tool_set; dynamic-only date/git_status/mcp/todo never move the primary reason), per-kind one-shot first reasoning/tool_call/text offsets as nullable pointers (absent stays absent; a sub-microsecond event is a real zero, never conflated with absent), `first_semantic` aligned to the contract token `tool_call`, and `request_shape_hmac` computed at the end of `PrepareStep` over the FINAL prepared request (history shape, attachment metadata, canonical per-tool schemas; credentials/ciphertext/tool-output excluded). E2E wire PASS: HMAC shape, per-kind timing presence, stable prefix across turns, no invented stable reasons. `first_byte_to_first_sse` still needs a Fantasy transport hook and stays absent (null), never zero. A parallel remote PR0 patch series (`9cd9d27`) was superseded by this patch and removed from the manifest during the merge |
+| PR1 | IMPLEMENTED (wire-proofed) | Engine: ordered context groups, Windows-canonical rendered paths, provider-options layers merged as flat maps with pre-network validation (`auto\|concise\|detailed`, union include with `reasoning.encrypted_content`, explicit null omits), todo reminder re-rendered from a fresh session snapshot at every model-call boundary inside `PrepareStep` as ephemeral user-role context. Gate-required E2E wire proofs PASS: options preserved, invalid options rejected with zero provider requests, todo reminder reflects real state + survives restart + never persisted, 20-restart canonical-prompt proof (`TestE2ECanonicalPromptAcrossRestarts`), MCP instruction-order proof under reversed config order (`TestE2EMCPInstructionOrderDeterministic`). Change-reason auto-detection landed with the telemetry patch (see PR0 engine) |
+| PR2 | IMPLEMENTED (host + engine, tested) | Host (`b53a09b`): `context-prompt/snapshot-<UnixNano>` replaced by an install-key HMAC identity over the canonical manifest (layout version, migration mode, ordered case-folded source-relative paths, per-file content digests); identical content reuses the committed immutable directory across refresh and restart; a same-size edit rotates the identity exactly once; collect-once → validate → atomic rename; a failed refresh keeps the committed revision and no longer clears the registered engine path; identity-key corruption fails closed (no unkeyed fallback); bounded retention keeps current+previous generations. Engine: prompt build returns one `PromptBuild` (text + stable/dynamic split + labeled generation) so every builder path describes the same inputs; stable/dynamic HMACs and generation-diff reasons wire-verified. Engine tests PASS (generation-diff unit suite, same-size context edit, date dynamic-only, model/skills/template kinds). Full E2E gate PASS |
 | PR4 | IMPLEMENTED (host+UI) | Transactional migration, Wails bind methods, desktop.ts bridge, ContextMigrationPanel UI, ADR 0006, contract + layout docs; `go build`, focused tests, frontend check/test/build all PASS. Portable agent-browser flow UNVERIFIED (owner gate); migration tests only on temp profiles |
-| PR5 | PARTIAL | Fantasy patch verified with focused tests on pristine v0.41.3 (SHA `8d455a58…`, `release_eligible: false` — upstream submission/pinning needs owner authorization); Crush-side ordered reasoning-item replay plumbing in the engine patch; live acceptance BLOCKED_LIVE_ACCEPTANCE; bounded anchor-group history selection and `store=false`/`previous_response_id` rejection NOT implemented |
+| PR5 | IMPLEMENTED (Crush side) + BLOCKED (Fantasy upstream, live) | New `input-pipeline-history-anchor.patch`: bounded history-selection contract in `selectHistoryWithAnchor` — keeps the latest complete valid assistant anchor group (ordered reasoning parts + tool calls + results, never split, duplicated or orphaned; incomplete groups walked back; no anchor when none complete), and drops uncommitted summary messages so a crash at the summarize boundary leaves no half-committed state. Unit suite PASS (8 tests). `store=false` default and `previous_response_id`+replay rejection are provided by Fantasy v0.41.3 itself (`params.Store` defaults to false; `validatePreviousResponseIDPrompt` rejects the conflict pre-network), and the authoring patch additionally emits ordered reasoning items + duplicate-ID rejection. Fantasy patch verified with focused tests on pristine v0.41.3 (SHA `8d455a58…`, `release_eligible: false` — upstream submission/pinning needs owner authorization); E2E compaction anchor proof PASS (`TestE2ECompactionPreservesLatestAnchorGroup`); live acceptance BLOCKED_LIVE_ACCEPTANCE |
 | PR3 | IMPLEMENTED (infrastructure, validated) | Paired AB/BA driver validated end-to-end against the patched engine: telemetry records written, nearest-rank percentiles + 10k bootstrap CI aggregated, report always `decision: no-rollout`, `prompt_cache_key_default: OFF`. Synthetic correctness only; live preregistered gate BLOCKED_LIVE_ACCEPTANCE |
 | Hybrid compaction | OUT_OF_SCOPE | Only bounded PR5 anchor selection authorized |
-| Release | PARTIALLY VERIFIED | At the final HEAD: full E2E gate PASS (8 required tests, zero unexpected skips), `go test ./...`, `go vet ./...` (+`-tags=e2e`), `staticcheck ./...`, repository invariants, frontend check/test/build all PASS. Remaining for release claim: live Responses acceptance (owner budget), Windows race gate (`go test -race` BLOCKED_ENVIRONMENT: CGO unavailable), portable migration flow, upstream Fantasy patch authorization |
+| Release | PARTIALLY VERIFIED | At the final HEAD: full E2E gate PASS (14 gate-required tests including the six new release-matrix proofs, zero unexpected skips), `go test ./...`, `go vet ./...` (+`-tags=e2e`), `staticcheck ./...`, repository invariants, harness unit tests, frontend check/test/build all PASS. Remaining for release claim: live Responses acceptance (owner budget), Windows race gate (`go test -race` BLOCKED_ENVIRONMENT: CGO/GCC unavailable, re-probed this session), portable migration UI flow (owner gate), upstream Fantasy patch authorization (BLOCKED_OWNER_AUTH) |
 
 Committed checkpoint series on `main`: `0348877` (contextseed migration),
 `ef2722e`/`6ef1259`/`5a0eec8` (runmetrics, benchmark scaffolding, e2e
@@ -56,7 +56,10 @@ owner's timetable edits to uncommitted state), `af0407f` (merge of the
 remote PR0 telemetry lane: hardening opt-out + telemetry E2E coverage
 kept, superseded telemetry patches removed), `6f7efa6` (TTFB span +
 adopted telemetry coverage), `de2738b` (run-scoped attempt and token
-semantics).
+semantics), `b53a09b` (content-addressed prompt snapshots),
+`54f1177` (telemetry generation diff + final-request fingerprint +
+compaction anchor patches, contract updates), `a6d212f` (release-matrix
+E2E evidence), `211425d` (gate enforcement of the new proofs).
 
 The starting Gotack commit was `b6dcf68320b708df7a5e3c8e1750689cf5621ec1`.
 The Crush pin is owned by `.tack-pin`; the owner's ignored `third_party/crush`
@@ -139,12 +142,34 @@ and supplies them without modifying the parent shell environment.
 
 Release acceptance still requires owner-side items that this milestone cannot
 supply: a live Responses acceptance run (no authorized paid budget), the
-Windows race gate on a CGO-capable toolchain, the portable migration flow in
-the packaged app, and an upstream Fantasy patch decision. PR2's
-content-addressed snapshot generation and PR5's bounded anchor-group history
-selection remain implemented-NO (not silently dropped): they are the next
-engine-patch work items. Failure anywhere is failure, never a skip or a
-weaker assertion.
+Windows race gate on a CGO-capable toolchain (re-probed 2026-09-05: `gcc`
+absent, `CGO_ENABLED=0` — installing a toolchain was not authorized), the
+portable migration UI flow in the packaged app, and an upstream Fantasy patch
+decision (`release_eligible: false`; the Crush-side engine behavior that the
+Fantasy patch unblocks — ordered reasoning-item replay — is fully implemented
+and tested at the unit level, and v0.41.3 itself already provides the
+`store=false` default and the `previous_response_id` replay-conflict
+rejection). PR2's content-addressed snapshots, PR0's generation-diff change
+reasons and final-request fingerprint, and PR5's bounded anchor-group
+history selection are now IMPLEMENTED with executable evidence; they are no
+longer open engine-patch work items. Failure anywhere is failure, never a
+skip or a weaker assertion.
+
+### Consolidated validation evidence (2026-09-05, this session)
+
+| Check | Result |
+| --- | --- |
+| `./scripts/test-input-pipeline-e2e.ps1` (clean-pin replay + build + full E2E) | PASS: 14 gate-required tests, zero unexpected skips |
+| `go test ./...` (Gotack) | PASS |
+| `go vet ./...` and `go vet -tags=e2e ./e2e/...` | PASS |
+| `staticcheck ./...` | PASS |
+| `node scripts/check-repository-invariants.mjs` | PASS |
+| `node --test scripts/input-pipeline/gate.test.mjs` | PASS (12 tests) |
+| `pnpm --dir frontend check` / `test` | PASS (0 errors / 39 tests) |
+| Nested patched-engine focused tests (agent, agent/prompt, message) | PASS |
+| `go test -race` on Windows | BLOCKED_ENVIRONMENT (no CGO compiler; re-probed) |
+| Live Responses acceptance | BLOCKED_LIVE_ACCEPTANCE (no owner budget) |
+| Fantasy upstream/pin authorization | BLOCKED_OWNER_AUTH |
 
 ## Recovery
 
