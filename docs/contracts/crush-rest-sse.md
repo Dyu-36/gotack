@@ -135,7 +135,11 @@ fatal. Rule: SSE is the only path state takes to the UI and to host reactions
 
 The `run_complete` event carries an optional `telemetry` field. Old consumers
 that do not recognize this field silently ignore it (Go `omitempty` +
-pointer). The shape:
+pointer). The field is additive and backward-compatible: engines that omit it
+and consumers that ignore it both keep working unchanged. Absent-means-absent:
+a missing or empty member reports "not measured this run" — never a zero value
+or a default — and consumers must not infer state from what is absent. The
+shape:
 
 ```json
 {

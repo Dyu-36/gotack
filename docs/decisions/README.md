@@ -24,3 +24,10 @@ documents here as real choices are accepted, then index them in this file.
 - [`0004-memory-refuses-instead-of-evicting.md`](0004-memory-refuses-instead-of-evicting.md)
   — over cap the memory tool refuses the write and reports what is stored;
   no entry is ever evicted to make room.
+- [`0005-context-ownership.md`](0005-context-ownership.md)
+  — two-layer context ownership: product-managed `TACK_CORE.md`, user-owned
+  `USER.md`; modified legacy `TACK.md` migrates only after explicit approval.
+- [`0006-context-migration-transaction.md`](0006-context-migration-transaction.md)
+  — the legacy-to-layered context migration is one durable state machine with
+  staged commits, crash recovery, surviving rollback tokens, and
+  compare-and-swap accept.

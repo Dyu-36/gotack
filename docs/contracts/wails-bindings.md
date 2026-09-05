@@ -270,9 +270,59 @@ environment; there is no timetable-specific `problem.json`, schema, or bundled
 solver runner. User/source requirements remain the source of truth: every hard
 constraint must be represented in the model and independently checked again
 after solving. `FEASIBLE`/`OPTIMAL` only proves the constraints actually encoded
-in that model. After the source-level validation passes, the agent writes the six
-normalized columns into `Dữ liệu` in `assets/mau-thoi-khoa-bieu.xlsx` and
-re-opens the workbook before delivery.
+in that model. After the source-level validation passes, the agent writes the
+schedule into `assets/mau-thoi-khoa-bieu.xlsx` as raw values and re-opens the
+workbook before delivery.
+
+## Context migration
+
+The seeded context directory holds a two-layer ownership model
+(`docs/decisions/0005-context-ownership.md`): `TACK_CORE.md` is product-managed
+and rewritten per release, `USER.md` is user-owned and never overwritten by
+Gotack. A pre-existing `TACK.md` is retired by one transactional migration that
+survives crashes, exposed through three bound methods on the context seeder
+(`internal/contextseed`). Every method is safe to call at any time; the preview
+also drives staged-state recovery, so opening the panel after a crash resumes or
+safely surfaces the interrupted transaction.
+
+| Method | Result | Notes |
+| --- | --- | --- |
+| `ContextMigrationPreview()` | `MigrationPreview`, `error` | Immutable snapshot of the migration state plus candidate content. Recovers an interrupted `staged` transaction before reading. |
+| `AcceptContextMigration(req)` | `MigrationStatus`, `error` | Commits the layered layout after CAS validation. Backs up legacy `TACK.md`, retires it, writes staged core/user content, then marks `committed-layered`. |
+| `RollbackContextMigration(req)` | `MigrationStatus`, `error` | Restores the backed-up `TACK.md` (and the prior `USER.md`, or removes it when none existed) and marks the state `rolled-back`. |
+
+`MigrationStatus`:
+`{mode, version, generation, legacy_hash?, user_hash?, core_hash?, base_hash?, backup_token?, updated_at, stage?}`.
+`mode` is one of `legacy`, `pending`, `staged`, `committed-layered`,
+`rolled-back`. `generation` increments on every observable state change and is
+the compare-and-swap counter for accept/rollback. `stage` is host-internal
+transaction detail surfaced only to show that recovery is pending; the UI never
+edits it.
+
+`MigrationPreview`:
+`{status, legacy?, known_base?, managed_core?, user_context?, candidate_user?, base_known, has_conflicts, requires_resolution}`.
+`requires_resolution` is true exactly when `mode` is `legacy`, `pending`, or
+`rolled-back`. With a known base (`base_known`) the host produces a three-way
+conflict frame (`candidate_user` contains `<<<<<<<`/`|||||||`/`>>>>>>>`
+markers and `has_conflicts` is true); without one the candidate is the current
+`USER.md` unchanged.
+
+`AcceptMigrationRequest`:
+`{expected_generation, expected_legacy_hash, expected_user_hash?, expected_core_hash, resolved_user}`.
+The three hashes plus the generation echo the values from the preview the user
+saw. A mismatch with the on-disk state — including concurrent edits between
+preview and accept — returns the CAS error
+`context migration changed since preview`; the UI must reload the preview and
+let the user retry. `resolved_user` must contain no conflict markers or the
+call fails with `resolve all context merge markers before accepting`.
+
+`RollbackMigrationRequest`: `{expected_generation, token}`. `token` is the
+`backup_token` recorded at commit time; it survives reseeds, so a later
+startup never invalidates an offered rollback.
+
+Both accept and rollback refresh the workspace context snapshot through the
+engine when they succeed, so the running session picks up the new prompt
+context without a restart.
 
 ## Host -> UI events
 

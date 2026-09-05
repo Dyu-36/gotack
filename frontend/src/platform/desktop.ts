@@ -133,6 +133,48 @@ export type TaskProgressEvent = {
 export type TerminalDataEvent = { id: string; data: string }
 export type TerminalExitEvent = { id: string; code?: number; error?: string }
 
+export type MigrationMode = 'legacy' | 'pending' | 'staged' | 'committed-layered' | 'rolled-back'
+export type MigrationStage = {
+  token: string
+  previous_mode: MigrationMode
+  expected_legacy_hash: string
+  expected_user_hash?: string
+  user_existed: boolean
+  target_core_hash: string
+  target_user_hash: string
+}
+export type MigrationStatus = {
+  mode: MigrationMode
+  version: number
+  generation: number
+  legacy_hash?: string
+  user_hash?: string
+  core_hash?: string
+  base_hash?: string
+  backup_token?: string
+  updated_at: number
+  stage?: MigrationStage
+}
+export type MigrationPreview = {
+  status: MigrationStatus
+  legacy?: string
+  known_base?: string
+  managed_core?: string
+  user_context?: string
+  candidate_user?: string
+  base_known: boolean
+  has_conflicts: boolean
+  requires_resolution: boolean
+}
+export type AcceptMigrationRequest = {
+  expected_generation: number
+  expected_legacy_hash: string
+  expected_user_hash?: string
+  expected_core_hash: string
+  resolved_user: string
+}
+export type RollbackMigrationRequest = { expected_generation: number; token: string }
+
 type BackendApp = {
   BackendReady: () => Promise<boolean>
   GetAutoStart: () => Promise<boolean>
@@ -183,6 +225,9 @@ type BackendApp = {
   UnpairZaloChat: (chatID: string) => Promise<ZaloStatusInfo>
   ZaloStatus: () => Promise<ZaloStatusInfo>
   SendZaloFile: (req: ZaloFileRequest) => Promise<string>
+  ContextMigrationPreview: () => Promise<MigrationPreview>
+  AcceptContextMigration: (req: AcceptMigrationRequest) => Promise<MigrationStatus>
+  RollbackContextMigration: (req: RollbackMigrationRequest) => Promise<MigrationStatus>
 }
 
 declare global {
@@ -233,6 +278,9 @@ export const desktop = {
   unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID),
   zaloStatus: () => call('ZaloStatus'),
   sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
+  contextMigrationPreview: () => call('ContextMigrationPreview'),
+  acceptContextMigration: (req: AcceptMigrationRequest) => call('AcceptContextMigration', req),
+  rollbackContextMigration: (req: RollbackMigrationRequest) => call('RollbackContextMigration', req),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
   listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
   loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'),
