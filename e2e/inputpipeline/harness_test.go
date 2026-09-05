@@ -54,7 +54,7 @@ func TestHarnessNegativeControls(t *testing.T) {
 		}
 	})
 	t.Run("malformed_provider_schema", func(t *testing.T) {
-		_, err := validateRequest([]byte(`{"model":"fixture-main","stream":true,"input":[]}`))
+		_, err := validateRequest([]byte(`{"model":"gpt-5-fixture-main","stream":true,"input":[]}`))
 		expectCode(t, err, "provider_schema_invalid")
 		_, err = readCompleteFrames([]byte("data: not-json\n\n"))
 		expectCode(t, err, "sse_schema_invalid")
@@ -93,7 +93,7 @@ func TestFakeProviderActuallyCapturesAndRetries(t *testing.T) {
 	p.arm("unit", modeRetry)
 	hc := &http.Client{Timeout: time.Second}
 	for i := 0; i < 2; i++ {
-		body := `{"model":"fixture-main","stream":true,"input":[{"role":"user","content":"synthetic"}]}`
+		body := `{"model":"gpt-5-fixture-main","stream":true,"input":[{"role":"user","content":"synthetic"}]}`
 		req, _ := http.NewRequest(http.MethodPost, p.server.URL+"/v1/responses", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer synthetic-test-key")
 		resp, err := hc.Do(req)
@@ -176,7 +176,7 @@ func TestAuxiliaryCallsCannotSatisfyCapture(t *testing.T) {
 	defer p.server.Close()
 	p.arm("unit", modeText)
 	req, _ := http.NewRequest(http.MethodPost, p.server.URL+"/v1/responses", strings.NewReader(
-		`{"model":"fixture-title","stream":false,"input":[{"role":"user","content":"synthetic"}]}`))
+		`{"model":"gpt-5-fixture-title","stream":false,"input":[{"role":"user","content":"synthetic"}]}`))
 	req.Header.Set("Authorization", "Bearer synthetic-test-key")
 	hc := &http.Client{Timeout: time.Second}
 	resp, err := hc.Do(req)
@@ -197,7 +197,7 @@ func TestFakeMalformedStream(t *testing.T) {
 	defer p.server.Close()
 	p.arm("unit", modeMalformed)
 	req, _ := http.NewRequest(http.MethodPost, p.server.URL+"/v1/responses", strings.NewReader(
-		`{"model":"fixture-main","stream":true,"input":[{"role":"user","content":"synthetic"}]}`))
+		`{"model":"gpt-5-fixture-main","stream":true,"input":[{"role":"user","content":"synthetic"}]}`))
 	req.Header.Set("Authorization", "Bearer synthetic-test-key")
 	hc := &http.Client{Timeout: time.Second}
 	resp, err := hc.Do(req)
