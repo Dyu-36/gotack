@@ -1,5 +1,5 @@
 diff --git a/internal/agent/agent.go b/internal/agent/agent.go
-index 368d99d..d0f363d 100644
+index 368d99d..d7ef45f 100644
 --- a/internal/agent/agent.go
 +++ b/internal/agent/agent.go
 @@ -20,6 +20,7 @@ import (
@@ -222,7 +222,23 @@ index 368d99d..d0f363d 100644
  			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
  			extractHyperCredits(stepResult.ProviderMetadata)
  			_, sessionErr := a.sessions.Save(ctx, updatedSession)
-@@ -1092,6 +1154,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1070,6 +1132,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+ 			currentSession = updatedSession
+ 			return a.messages.Update(genCtx, *currentAssistant)
+ 		},
++		OnChunk: func(_ fantasy.StreamPart) error {
++			// EndSpan is one-shot per span name, so this records exactly the
++			// first stream part of the run and later parts are no-ops.
++			// Without a Fantasy transport hook the raw socket first byte is
++			// not observable from here; this span is therefore the practical
++			// request-issued-to-first-stream-event latency.
++			trace.EndSpan("request_write_to_first_byte", streamStarted)
++			return nil
++		},
+ 		StopWhen: []fantasy.StopCondition{
+ 			func(_ []fantasy.StepResult) bool {
+ 				cw := int64(largeModel.CatwalkCfg.ContextWindow)
+@@ -1092,6 +1163,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  			},
  		},
  	})
@@ -230,7 +246,7 @@ index 368d99d..d0f363d 100644
  
  	a.eventPromptResponded(call.SessionID, time.Since(startTime).Truncate(time.Second))
  
-@@ -1221,6 +1284,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1221,6 +1293,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	}
  
  	if shouldSummarize {
@@ -238,7 +254,7 @@ index 368d99d..d0f363d 100644
  		a.activeRequests.Del(call.SessionID)
  		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {
  			return nil, summarizeErr
-@@ -1345,6 +1409,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
+@@ -1345,6 +1418,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
  	mu.Unlock()
  	if outerOwesRunComplete {
  		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
@@ -246,7 +262,7 @@ index 368d99d..d0f363d 100644
  		if currentAssistant != nil {
  			complete.MessageID = currentAssistant.ID
  			complete.Text = currentAssistant.Content().String()
-@@ -1379,7 +1444,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
+@@ -1379,7 +1453,10 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
  		return nil
  	}
  
@@ -258,7 +274,7 @@ index 368d99d..d0f363d 100644
  
  	genCtx, cancel := context.WithCancel(ctx)
  	ac := &activeCancel{cancel: cancel}
-@@ -1555,18 +1623,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
+@@ -1555,18 +1632,12 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
  	return msg, nil
  }
  
@@ -282,7 +298,7 @@ index 368d99d..d0f363d 100644
  	// Collect all tool call IDs present in assistant messages and all tool
  	// result IDs present in tool messages. This lets us detect both orphaned
  	// tool results (result without a call) and orphaned tool calls (call
-@@ -1586,12 +1648,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1586,12 +1657,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
  		}
  	}
  
@@ -300,7 +316,7 @@ index 368d99d..d0f363d 100644
  			continue
  		}
  		if m.Role == message.Tool {
-@@ -1600,6 +1666,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1600,6 +1675,16 @@ If not, please feel free to ignore. Again do not mention this message to the use
  			}
  			continue
  		}
@@ -317,7 +333,7 @@ index 368d99d..d0f363d 100644
  		aiMsgs := m.ToAIMessage()
  		if !supportsImages {
  			for i := range aiMsgs {
-@@ -1632,7 +1708,149 @@ If not, please feel free to ignore. Again do not mention this message to the use
+@@ -1632,7 +1717,149 @@ If not, please feel free to ignore. Again do not mention this message to the use
  		})
  	}
  
