@@ -93,6 +93,7 @@ type Callbacks struct {
 	RunDone              func(SessionDonePayload)
 	AssistantIteration   func(sessionID, messageID string, hasToolCalls bool)
 	LearningToolExecuted func(sessionID, toolCallID, toolName string)
+	RunTelemetry         func(*crushapi.RunTelemetry)
 }
 
 type Forwarder struct {
@@ -300,6 +301,9 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 		f.emitDeltas(f.drain(rc.SessionID))
 	}
 	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
+	if rc.Telemetry != nil && f.callbacks.RunTelemetry != nil {
+		f.callbacks.RunTelemetry(rc.Telemetry)
+	}
 	if f.callbacks.RunDone != nil {
 		f.callbacks.RunDone(done)
 	}

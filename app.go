@@ -19,6 +19,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/reflection"
+	"github.com/Dyu-36/gotack/internal/runmetrics"
 	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/terminal"
@@ -56,6 +57,7 @@ type App struct {
 	scheduler *schedule.Scheduler
 
 	reflection *reflection.Tracker
+	runMetrics *runmetrics.Writer
 
 	conn atomic.Pointer[conn]
 }
@@ -106,6 +108,7 @@ func (a *App) startup(ctx context.Context) {
 		a.log = slog.Default()
 	}
 	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
+	a.runMetrics = runmetrics.New(appconfig.LogDir(), a.log)
 	a.link = enginelink.NewLink(a.sup)
 
 	a.officeSeeder = newOfficeSeeder(a.log)

@@ -31,9 +31,40 @@ The release job must build Crush from the exact pinned commit plus the tracked p
 
 Run `scripts/update-crush.ps1 -Commit <sha>` from the repository root on Windows/PowerShell (without `-Commit` the script reads `.tack-pin`). The script refreshes the ignored `third_party/crush` checkout, applies `third_party/patches/*.patch`, strips the Question agent tool, applies Tack's model identity, verifies the REST/SSE and agent-tool markers Gotack relies on, and builds the bundled executable. After deliberately accepting an upstream contract change, rebase/refresh every affected patch and update `.tack-pin` in the same PR.
 
+## Patch workflow
+
+Patches are applied in filename order. The current patch set:
+
+1. `chatgpt-subscription-oauth.patch` — ChatGPT OAuth subscription support
+2. `hermes-skill-refresh.patch` — Hermes skill refresh endpoint
+3. `proactive-auto-compact.patch` — Proactive auto-compaction threshold
+4. `prompt-context-refresh.patch` — Prompt context refresh endpoint
+
+### Input pipeline patch (zz-input-pipeline-windows.patch)
+
+The durable input pipeline patch lives at `third_party/patches/zz-input-pipeline-windows.patch` and is applied last (alphabetical `zz-` prefix ensures this). It contains:
+- Ordering, path identity, and provider-option merge fixes (PR1)
+- Todo reminder state reflection (PR1)
+- Stable prefix / dynamic suffix split (PR2)
+- `prompt_cache_key` experiment gate (PR3)
+
+This patch is **not generated** while the engine checkout is still being modified. Generate it with:
+```powershell
+git -C third_party/crush diff --binary <base-commit> > third_party/patches/zz-input-pipeline-windows.patch
+```
+
+### Fantasy patch workflow
+
+Fantasy patches (e.g., `fantasy-v0.41.3-reasoning.patch`) follow a separate track:
+- Pinned via upstream commit in the Fantasy repository
+- Applied only when the Fantasy version is updated
+- Must not be generated while the Fantasy checkout is modified
+
 ## Rules
 
 - Upstream source is read-only for desktop needs; desktop-only behavior belongs in `internal/`.
 - Gotack talks to Crush over REST + SSE only.
 - Go forbids importing `third_party/crush/internal/...` from another module, so the wire contract is re-declared in `internal/crushapi`.
 - Never advance the pin without re-running the route/contract checks and the Gotack smoke suite.
+- Never generate engine patches while the engine checkout is being modified.
+- Input pipeline patch is default-off; CI may exercise shape but product defaults keep it disabled.
