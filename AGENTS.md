@@ -45,6 +45,7 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 | third_party/README.md, third_party/patches/ | Tracked pin/patch documentation and Gotack-owned patches applied to the vendored engine |
 | resources/skills/ | Skill tree bundled into release artifacts |
 | resources/context/ | Tracked persona context files seeded into the user data dir and shipped in release artifacts |
+| resources/context/legacy/ | Hash-pinned stock TACK.md bases referenced by `stock-manifest.json`; used by `internal/contextseed` as auto-migration and three-way merge sources |
 | resources/bin/ | Ignored runtime payloads; `scripts/prepare-resources.ps1` recreates them before packaging |
 | docs/ | Contracts, decisions, patterns, plans and templates |
 | build/ | Wails packaging assets per platform |

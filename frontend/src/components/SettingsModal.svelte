@@ -2,10 +2,11 @@
   import { toast } from 'svelte-sonner'
   import { catalog } from '../features/conversations/catalog.svelte'
   import { desktop, type ChatGPTOAuthStatus, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
+  import ContextMigrationPanel from './ContextMigrationPanel.svelte'
 
   type Theme = 'system' | 'light' | 'dark'
 
-  type Tab = 'providers' | 'zalo' | 'appearance'
+  type Tab = 'providers' | 'zalo' | 'appearance' | 'context'
 
   type SettingsPayload = {
     theme: Theme
@@ -290,6 +291,15 @@
       <button
         type="button"
         class="tab-btn"
+        class:active={activeTab === 'context'}
+        onclick={() => (activeTab = 'context')}
+      >
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3L2 8l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
+        Ngữ cảnh
+      </button>
+      <button
+        type="button"
+        class="tab-btn"
         class:active={activeTab === 'appearance'}
         onclick={() => (activeTab = 'appearance')}
       >
@@ -474,6 +484,8 @@
             </button>
           </div>
         </section>
+      {:else if activeTab === 'context'}
+        <ContextMigrationPanel />
       {:else if activeTab === 'appearance'}
         <section class="setting-section">
           <div class="section-title">Giao diện</div>

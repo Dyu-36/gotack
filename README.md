@@ -226,6 +226,7 @@ Tack is designed as a single-user local desktop assistant with explicit tool con
 ├── internal/               # Go application implementation
 ├── frontend/               # Svelte desktop UI
 ├── resources/              # Bundled skills, context and runtime assets
+│   └── context/legacy/     # Hash-pinned stock TACK.md bases for context migration
 ├── scripts/                # Build and repository tooling
 ├── docs/                   # Architecture and engineering documentation
 └── .github/workflows/      # CI and release pipelines
