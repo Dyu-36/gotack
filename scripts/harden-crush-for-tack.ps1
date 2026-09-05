@@ -75,6 +75,21 @@ Remove-SourceFile 'internal/agent/tools/question.md'
 Remove-SourceFile 'internal/agent/tools/question_test.go'
 Remove-SourceFile 'internal/ui/chat/question.go'
 
+# The isolated E2E lane blocks all fallback internet. Give the generated engine
+# an explicit opt-out for its asynchronous release check so the harness can
+# distinguish provider traffic from accidental egress without changing normal
+# product behavior.
+Update-ExactText 'internal/app/app.go' @'
+	// Check for updates in the background.
+	go app.checkForUpdates(ctx)
+'@ @'
+	// Check for updates in the background unless an isolated host explicitly
+	// disables network release checks.
+	if os.Getenv("CRUSH_DISABLE_UPDATE_CHECK") != "1" {
+		go app.checkForUpdates(ctx)
+	}
+'@
+
 # Remove the headless REST entry points as a second boundary. The remaining
 # upstream TUI question service is not registered as an agent dependency and is
 # not reachable through Gotack's server contract.
