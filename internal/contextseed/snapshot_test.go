@@ -82,11 +82,31 @@ func TestBuildPromptSnapshotSanitizesMemoryAndExcludesTransientFiles(t *testing.
 		t.Fatalf("second snapshot did not see new source: %q", newContent)
 	}
 
+	// Bounded retention: pruning keeps the current revision and the
+	// immediately previous one (a reader may still be finishing against
+	// it); the next content change ages the oldest revision out.
 	seeder.PrunePromptSnapshots(second)
-	if _, err := os.Stat(first); !os.IsNotExist(err) {
-		t.Fatalf("old snapshot was not pruned: %v", err)
+	if _, err := os.Stat(first); err != nil {
+		t.Fatalf("previous generation pruned too early: %v", err)
 	}
 	if _, err := os.Stat(second); err != nil {
+		t.Fatalf("active snapshot was pruned: %v", err)
+	}
+	if err := os.WriteFile(memoryPath, []byte("third fact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	third, err := seeder.BuildPromptSnapshot()
+	if err != nil {
+		t.Fatalf("third BuildPromptSnapshot = %v", err)
+	}
+	seeder.PrunePromptSnapshots(third)
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatalf("oldest snapshot was not bounded: %v", err)
+	}
+	if _, err := os.Stat(second); err != nil {
+		t.Fatalf("previous snapshot was pruned early: %v", err)
+	}
+	if _, err := os.Stat(third); err != nil {
 		t.Fatalf("active snapshot was pruned: %v", err)
 	}
 }

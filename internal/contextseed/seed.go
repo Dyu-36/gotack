@@ -15,6 +15,13 @@ type Seeder struct {
 	log       *slog.Logger
 	mu        sync.Mutex
 	sourceDir string
+	// currentSnapshot/previousSnapshot implement bounded retention: the
+	// last two committed content-addressed revisions survive pruning so
+	// a reader still finishing against the older generation keeps its
+	// files. They are process-local state; content addressing makes the
+	// identity itself restart-stable regardless.
+	currentSnapshot  string
+	previousSnapshot string
 }
 
 func New(dataDir string, log *slog.Logger) *Seeder {
