@@ -243,8 +243,8 @@ func sendTurn(t *testing.T, h *engineHarness, p *fakeProvider, session string, m
 	}, run, session)
 	must(t, err, "matching_terminal_missing")
 	counts := p.counts(run)
+	t.Logf("e2e_evidence requests=%d retries=%d tool_responses=%d tool_results=%d invalid=%d", counts.Requests, counts.Retries, counts.ToolResponses, counts.ToolResults, counts.Invalid)
 	must(t, checkCapture(counts, 1), "provider_capture_invalid")
-	t.Logf("e2e_evidence requests=%d retries=%d tool_responses=%d tool_results=%d", counts.Requests, counts.Retries, counts.ToolResponses, counts.ToolResults)
 	return terminal, counts
 }
 func success(t *testing.T, terminal terminalPayload) {
