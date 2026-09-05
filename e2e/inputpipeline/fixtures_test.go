@@ -248,6 +248,14 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 		c.ReasoningSummary = req.Reasoning.Summary
 	}
 	c.LastInputText = inputText(req)
+	if os.Getenv("TACK_E2E_DEBUG_ITEMS") == "1" {
+		// Bounded synthetic-fixture diagnostic: item kinds and sizes only,
+		// never item content.
+		for _, item := range req.Input {
+			fmt.Fprintf(os.Stderr, "E2E_ITEM type=%s role=%s len=%d\n",
+				jsonString(item["type"]), jsonString(item["role"]), len(jsonString(item["content"])))
+		}
+	}
 	p.serial++
 	defer func() { p.runs[p.active] = c }()
 	if p.mode == modeRetry && c.Requests == 1 {
