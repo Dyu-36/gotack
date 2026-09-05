@@ -253,8 +253,11 @@ func (p *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 		// truncated text of the synthetic fixture messages only.
 		for _, item := range req.Input {
 			text := inputText(responseRequest{Input: []map[string]json.RawMessage{item}})
-			if len(text) > 120 {
-				text = text[:120]
+			if text == "" {
+				text = jsonString(item["output"])
+			}
+			if len(text) > 200 {
+				text = text[:200]
 			}
 			fmt.Fprintf(os.Stderr, "E2E_ITEM type=%s role=%s text=%q\n",
 				jsonString(item["type"]), jsonString(item["role"]), text)
