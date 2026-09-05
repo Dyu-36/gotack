@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   GateError, check, recipe, sha256, parseBuildInfo, regularFile,
-  verifyProvenance, verifyTestJSON, requireWindows,
+  verifyProvenance, verifyTestJSON, requireWindows, testPackage,
 } from './gate.mjs';
 
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -86,6 +86,31 @@ export function newArtifactDir(env = process.env) {
   check(path.isAbsolute(base) && fs.existsSync(base) && fs.statSync(base).isDirectory(), 'temp_root_invalid');
   return fs.mkdtempSync(path.join(base, 'gotack-input-pipeline-'));
 }
+export function safeTestFailure(text, exitCode) {
+  const failed = new Set();
+  const skipped = new Set();
+  let packageFailed = false;
+  let invalidJSON = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event;
+    try { event = JSON.parse(line); }
+    catch { invalidJSON = true; break; }
+    if (!event || event.Package !== testPackage) continue;
+    const name = typeof event.Test === 'string' && /^[A-Za-z0-9_./-]{1,200}$/.test(event.Test) ? event.Test : '';
+    if (event.Action === 'fail') {
+      if (name) failed.add(name);
+      else packageFailed = true;
+    } else if (event.Action === 'skip' && name) {
+      skipped.add(name);
+    }
+  }
+  return {
+    status: 'FAIL', exit_code: Number.isInteger(exitCode) ? exitCode : null,
+    failed_tests: [...failed].slice(0, 20), skipped_tests: [...skipped].slice(0, 20),
+    package_failed: packageFailed, test_json_invalid: invalidJSON,
+  };
+}
 export async function buildCandidate(root, artifacts, powershell, run = native) {
   check(path.isAbsolute(powershell || ''), 'powershell_absolute_path_required');
   regularFile(powershell, 'powershell_missing');
@@ -162,6 +187,13 @@ export async function runGate(options, run = native) {
       TACK_ENGINE_PROVENANCE: provenance, TACK_E2E_REPO_ROOT: root, TACK_E2E_NODE: process.execPath },
   });
   fs.writeFileSync(path.join(artifacts, 'tests.jsonl'), result.stdout, 'utf8');
+  if (result.failure || result.status !== 0) {
+    const failure = safeTestFailure(result.stdout, result.status);
+    fs.writeFileSync(path.join(artifacts, 'failure.json'), `${JSON.stringify(failure, null, 2)}\n`, 'utf8');
+    const failed = failure.failed_tests.length ? failure.failed_tests.join(',') : 'none';
+    const skipped = failure.skipped_tests.length ? failure.skipped_tests.join(',') : 'none';
+    console.error(`E2E diagnostics: exit=${failure.exit_code ?? 'unknown'} failed=${failed} skipped=${skipped}`);
+  }
   check(!result.failure, result.failure || 'test_process_failed');
   const summary = verifyTestJSON(result.stdout, result.status);
   fs.writeFileSync(path.join(artifacts, 'result.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
