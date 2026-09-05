@@ -62,6 +62,18 @@ func TestValidatePrefixChangedReason(t *testing.T) {
 	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "invalid_reason"}))
 }
 
+func TestValidateChangeReasons(t *testing.T) {
+	require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported",
+		ChangeReasons: []string{"context", "date", "skills", "todo"}}))
+	// Dynamic-only reasons and initial never validate as a primary reason.
+	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "initial"}))
+	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "todo"}))
+	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"unknown_reason"}}))
+	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{""}}))
+	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"date", "date"}}))
+	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"skills", "context"}}))
+}
+
 func TestValidateNegativeDuration(t *testing.T) {
 	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", TotalMicros: -1}))
 	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RetryDelayMicros: -1}))
