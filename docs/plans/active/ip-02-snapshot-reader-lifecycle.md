@@ -4,9 +4,13 @@ Date: 2026-09-06
 
 ## Status
 
-Active — implementation complete, focused proof green on the host platform
-(`go test -count=1 ./internal/contextseed/...`); Windows CGO race detector
-remains deferred to IP-05.
+Historical work-package record, superseded for execution by
+[Windows release completion](windows-release-completion.md), WP3/WP6.
+IP-02 acceptance remains OPEN: committed-generation reuse/adoption still
+needs validation and the reader APIs are not wired into production callers.
+Original focused-proof claims and checkboxes below are history, not final
+acceptance. Bare root-plan references mean the historical file at Git
+commit 8511143, not a live file. Follow the canonical plan for closure.
 
 ## Context
 

@@ -16,13 +16,32 @@ import (
 )
 
 type contextRegistrationAPI struct {
-	t           *testing.T
-	calls       []string
-	contextPath []string
+	t                   *testing.T
+	calls               []string
+	contextPath         []string
+	failNextRefresh     bool
+	failNextSet         bool
+	failNextRemove      bool
+	failSetAfterRefresh bool
+}
+
+func contextRegistrationResponse(req *http.Request, status int, body string) *http.Response {
+	resp := jsonHTTPResponse(status, body)
+	resp.Request = req
+	return resp
 }
 
 func (f *contextRegistrationAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 	switch {
+	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/config"):
+		f.calls = append(f.calls, "get")
+		body, err := json.Marshal(map[string]any{
+			"options": map[string]any{"global_context_paths": f.contextPath},
+		})
+		if err != nil {
+			f.t.Fatalf("encode context config response: %v", err)
+		}
+		return contextRegistrationResponse(req, http.StatusOK, string(body)), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/config/set"):
 		var body struct {
 			Key   string          `json:"key"`
@@ -30,18 +49,38 @@ func (f *contextRegistrationAPI) RoundTrip(req *http.Request) (*http.Response, e
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			f.t.Errorf("decode context config request: %v", err)
-			return jsonHTTPResponse(http.StatusBadRequest, `{"message":"bad request"}`), nil
+			return contextRegistrationResponse(req, http.StatusBadRequest, `{"message":"bad request"}`), nil
 		}
 		f.calls = append(f.calls, "set")
 		if body.Key != "options.global_context_paths" {
 			f.t.Errorf("config key = %q, want options.global_context_paths", body.Key)
 		}
+		if f.failNextSet {
+			f.failNextSet = false
+			return contextRegistrationResponse(req, http.StatusInternalServerError, `{"message":"set failed"}`), nil
+		}
 		if err := json.Unmarshal(body.Value, &f.contextPath); err != nil {
 			f.t.Errorf("decode context path: %v", err)
 		}
 		return jsonHTTPResponse(http.StatusOK, `{}`), nil
+	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/config/remove"):
+		f.calls = append(f.calls, "remove")
+		if f.failNextRemove {
+			f.failNextRemove = false
+			return contextRegistrationResponse(req, http.StatusInternalServerError, `{"message":"remove failed"}`), nil
+		}
+		f.contextPath = nil
+		return jsonHTTPResponse(http.StatusOK, `{}`), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/agent/refresh-prompt"):
 		f.calls = append(f.calls, "refresh")
+		if f.failNextRefresh {
+			f.failNextRefresh = false
+			if f.failSetAfterRefresh {
+				f.failSetAfterRefresh = false
+				f.failNextSet = true
+			}
+			return contextRegistrationResponse(req, http.StatusInternalServerError, `{"message":"refresh failed"}`), nil
+		}
 		return jsonHTTPResponse(http.StatusOK, `{}`), nil
 	default:
 		f.t.Errorf("unexpected context registration request: %s %s", req.Method, req.URL.Path)
@@ -63,6 +102,7 @@ func TestRegisterContextPathsRefreshesAgentFromSnapshot(t *testing.T) {
 	fake := &contextRegistrationAPI{t: t}
 	api := crushapi.NewClient(&http.Client{Transport: fake})
 	app := NewApp()
+	t.Cleanup(app.releaseAllContextLeases)
 	app.ctx = context.Background()
 	app.contextSeeder = seeder
 	app.swapConn(func(c *conn) *conn {
@@ -79,7 +119,7 @@ func TestRegisterContextPathsRefreshesAgentFromSnapshot(t *testing.T) {
 
 	app.registerContextPaths("ws-1")
 
-	if got, want := fake.calls, []string{"set", "refresh"}; !equalStrings(got, want) {
+	if got, want := fake.calls, []string{"get", "set", "refresh"}; !equalStrings(got, want) {
 		t.Fatalf("registration calls = %v, want config set followed by prompt refresh", got)
 	}
 	if len(fake.contextPath) != 1 || filepath.Clean(fake.contextPath[0]) == filepath.Clean(filepath.Join(dataDir, "context")) {
@@ -107,6 +147,7 @@ func TestRegisterContextPathsFailureKeepsPreviousRegistration(t *testing.T) {
 	fake := &contextRegistrationAPI{t: t}
 	api := crushapi.NewClient(&http.Client{Transport: fake})
 	app := NewApp()
+	t.Cleanup(app.releaseAllContextLeases)
 	app.ctx = context.Background()
 	app.contextSeeder = seeder
 	app.swapConn(func(c *conn) *conn {
@@ -122,7 +163,7 @@ func TestRegisterContextPathsFailureKeepsPreviousRegistration(t *testing.T) {
 	app.link.MarkRunning()
 
 	app.registerContextPaths("ws-1")
-	if got, want := fake.calls, []string{"set", "refresh"}; !equalStrings(got, want) {
+	if got, want := fake.calls, []string{"get", "set", "refresh"}; !equalStrings(got, want) {
 		t.Fatalf("initial registration calls = %v, want %v", got, want)
 	}
 	registered := append([]string(nil), fake.contextPath...)
@@ -135,8 +176,8 @@ func TestRegisterContextPathsFailureKeepsPreviousRegistration(t *testing.T) {
 	}
 	fake.calls = nil
 	app.registerContextPaths("ws-1")
-	if len(fake.calls) != 0 {
-		t.Fatalf("failed refresh mutated registration: %v", fake.calls)
+	if got, want := fake.calls, []string{"get"}; !equalStrings(got, want) {
+		t.Fatalf("failed refresh should only read current registration: got %v want %v", got, want)
 	}
 	if !equalStrings(fake.contextPath, registered) {
 		t.Fatalf("registered context path changed: %v vs %v", fake.contextPath, registered)

@@ -85,7 +85,7 @@ clean instead of replaying a half-committed summary.
 
 The LLM summary algorithm, thresholds and summary role are unchanged by
 this contract; the hybrid compaction workstream remains blocked
-(ImplementPlan section 9).
+(see [Windows release completion](../plans/active/windows-release-completion.md), scope exclusions; historical requirements: `10a9879b745098f03ac0dcf97baa523125732c5e:ImplementPlan.md`, section 9).
 
 ## Forbidden Operations
 

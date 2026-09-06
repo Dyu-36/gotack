@@ -7,10 +7,14 @@ Baseline: `3fc3c92 docs(input-pipeline): keep only outstanding implementation wo
 Active plan: `docs/plans/active/input-pipeline-upgrade.md`
 IP-01 plan: `docs/plans/active/ip-01-first-byte-to-first-sse.md`
 
-This file records the evidence backing each tick on `ImplementPlan.md`. It does
-not waive any acceptance gate. Entries are added in tick order. Each tick lists
-the exact commands run, the artifacts produced, and the explicit unresolved
-items so the next reviewer can resume without rereading the whole repo.
+This file preserves historical focused-proof reports from Git commit 8511143.
+Its ticks do not close IP-01/IP-02: provider-wire timing/correlation and
+committed snapshot validation/production reader lifecycle remain incomplete.
+The canonical execution and acceptance owner is
+[Windows release completion](docs/plans/active/windows-release-completion.md).
+Entries and file inventories below describe the earlier work, not a newly
+executed full gate. Bare `ImplementPlan.md` references denote that historical
+file at commit 8511143; no live root backlog is required or should be recreated.
 
 ---
 

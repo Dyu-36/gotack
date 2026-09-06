@@ -146,21 +146,34 @@ type RunComplete struct {
 	Telemetry *RunTelemetry `json:"telemetry,omitempty"`
 }
 
+type ProviderAttemptTelemetry struct {
+	ModelCallID               int    `json:"model_call_id"`
+	HTTPAttempt               int    `json:"http_attempt"`
+	Purpose                   string `json:"purpose,omitempty"`
+	RequestEncodedMicros      *int64 `json:"request_encoded_us,omitempty"`
+	RequestWrittenMicros      *int64 `json:"request_written_us,omitempty"`
+	FirstResponseByteMicros   *int64 `json:"first_response_byte_us,omitempty"`
+	ResponseHeadersMicros     *int64 `json:"response_headers_us,omitempty"`
+	FirstSSEFrameMicros       *int64 `json:"first_sse_frame_us,omitempty"`
+	FirstByteToFirstSSEMicros *int64 `json:"first_byte_to_first_sse_us,omitempty"`
+}
+
 type RunTelemetry struct {
-	RunID            string           `json:"run_id,omitempty"`
-	Provider         string           `json:"provider,omitempty"`
-	Model            string           `json:"model,omitempty"`
-	ReasoningEffort  string           `json:"reasoning_effort,omitempty"`
-	Attempt          int              `json:"attempt"`
-	RetryCount       int              `json:"retry_count"`
-	RetryDelayMicros int64            `json:"retry_delay_us,omitempty"`
-	SpansMicros      map[string]int64 `json:"spans_us,omitempty"`
-	TotalMicros      int64            `json:"total_us"`
-	FirstSemantic    string           `json:"first_semantic,omitempty"`
+	RunID            string                     `json:"run_id,omitempty"`
+	Provider         string                     `json:"provider,omitempty"`
+	Model            string                     `json:"model,omitempty"`
+	ReasoningEffort  string                     `json:"reasoning_effort,omitempty"`
+	Attempt          int                        `json:"attempt"`
+	RetryCount       int                        `json:"retry_count"`
+	RetryDelayMicros int64                      `json:"retry_delay_us,omitempty"`
+	SpansMicros      map[string]int64           `json:"spans_us,omitempty"`
+	TotalMicros      int64                      `json:"total_us"`
+	FirstSemantic    string                     `json:"first_semantic,omitempty"`
+	ProviderAttempts []ProviderAttemptTelemetry `json:"provider_attempts,omitempty"`
 	// Purpose correlates first_byte_to_first_sse and other host-observed
 	// spans with the originating call (title, tool loop, summarize, retry,
 	// prep error, queued cancellation). Optional on the wire.
-	Purpose          string           `json:"purpose,omitempty"`
+	Purpose string `json:"purpose,omitempty"`
 	// Per-kind one-shot semantic offsets. Pointer semantics: nil means
 	// the kind never appeared this run (absent, never zero); a non-nil
 	// zero is a real sub-microsecond offset.

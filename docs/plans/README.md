@@ -30,10 +30,16 @@ decision into `docs/decisions/`; keep task-local choices in the plan.
 
 ## Active Plans
 
-- [`hermes-learning-loop.md`](active/hermes-learning-loop.md)
-  — automated source and Windows package validation is complete; finish the
-  credentialed packaged-app smoke path for the bounded memory, skill, review,
-  and recall loop.
+- [`windows-release-completion.md`](active/windows-release-completion.md)
+  — canonical remaining-work plan: CI, provider telemetry, snapshot integrity
+  and reader lifecycle, Fantasy dependency integration, Windows/live/Hermes
+  acceptance, real baseline with cache OFF, and consolidated release gates.
+- [`hermes-learning-loop.md`](active/hermes-learning-loop.md),
+  [`input-pipeline-upgrade.md`](active/input-pipeline-upgrade.md),
+  [`ip-01-first-byte-to-first-sse.md`](active/ip-01-first-byte-to-first-sse.md),
+  [`ip-02-snapshot-reader-lifecycle.md`](active/ip-02-snapshot-reader-lifecycle.md)
+  — supporting implementation/evidence history. Remaining work and closure
+  are owned by the canonical plan above, not by independent checklists.
 
 ## Recently Completed
 

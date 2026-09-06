@@ -9,6 +9,9 @@
   "input_pipeline": [
     "input-pipeline-core.patch",
     "input-pipeline-telemetry.patch",
-    "input-pipeline-history-anchor.patch"
+    "provider-transport-wiring.patch",
+    "input-pipeline-history-anchor.patch",
+    "csync-schema-lock.patch",
+    "glob-windows-paths.patch"
   ]
 }

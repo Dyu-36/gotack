@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-09-05
-**Authority:** ImplementPlan.md section 6, AGENTS.md
+**Authority:** `10a9879b745098f03ac0dcf97baa523125732c5e:ImplementPlan.md` (historical Git requirements) section 6, AGENTS.md
 
 ## Context
 

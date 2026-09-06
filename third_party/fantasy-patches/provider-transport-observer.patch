@@ -1,0 +1,304 @@
+diff --git a/providers/openai/openai.go b/providers/openai/openai.go
+index b487896..fdd9f89 100644
+--- a/providers/openai/openai.go
++++ b/providers/openai/openai.go
+@@ -164,8 +164,11 @@ func WithObjectMode(om fantasy.ObjectMode) Option {
+ 
+ // LanguageModel implements fantasy.Provider.
+ func (o *provider) LanguageModel(_ context.Context, modelID string) (fantasy.LanguageModel, error) {
+-	openaiClientOptions := make([]option.RequestOption, 0, 5+len(o.options.headers)+len(o.options.sdkOptions))
+-	openaiClientOptions = append(openaiClientOptions, option.WithMaxRetries(0))
++	openaiClientOptions := make([]option.RequestOption, 0, 6+len(o.options.headers)+len(o.options.sdkOptions))
++	openaiClientOptions = append(openaiClientOptions,
++		option.WithMaxRetries(0),
++		option.WithMiddleware(transportObserverMiddleware),
++	)
+ 
+ 	if o.options.apiKey != "" {
+ 		openaiClientOptions = append(openaiClientOptions, option.WithAPIKey(o.options.apiKey))
+diff --git a/providers/openai/transport_observer.go b/providers/openai/transport_observer.go
+new file mode 100644
+index 0000000..822fa2d
+--- /dev/null
++++ b/providers/openai/transport_observer.go
+@@ -0,0 +1,102 @@
++package openai
++
++import (
++	"context"
++	"io"
++	"mime"
++	"net/http"
++	"net/http/httptrace"
++	"sync"
++
++	"charm.land/fantasy"
++	"github.com/openai/openai-go/v3/option"
++)
++
++// transportObserverMiddleware observes the request after the OpenAI SDK has
++// serialized it, then relies on net/http trace callbacks for the actual write
++// and first response byte. It never reads or retains request/response payloads.
++func transportObserverMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
++	if fantasy.TransportObserverFromContext(req.Context()) == nil {
++		return next(req)
++	}
++
++	fantasy.ReportTransportEvent(req.Context(), fantasy.TransportEvent{Kind: fantasy.TransportEventRequestEncoded})
++
++	var wroteRequestOnce sync.Once
++	var firstByteOnce sync.Once
++	trace := &httptrace.ClientTrace{
++		WroteRequest: func(httptrace.WroteRequestInfo) {
++			wroteRequestOnce.Do(func() {
++				fantasy.ReportTransportEvent(req.Context(), fantasy.TransportEvent{Kind: fantasy.TransportEventRequestWritten})
++			})
++		},
++		GotFirstResponseByte: func() {
++			firstByteOnce.Do(func() {
++				fantasy.ReportTransportEvent(req.Context(), fantasy.TransportEvent{Kind: fantasy.TransportEventFirstResponseByte})
++			})
++		},
++	}
++	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
++
++	resp, err := next(req)
++	if resp == nil {
++		return nil, err
++	}
++	fantasy.ReportTransportEvent(req.Context(), fantasy.TransportEvent{Kind: fantasy.TransportEventResponseHeaders})
++	if mediaType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil && mediaType == "text/event-stream" && resp.StatusCode >= 200 && resp.StatusCode < 300 && resp.Body != nil {
++		resp.Body = &sseObservingReadCloser{ReadCloser: resp.Body, ctx: req.Context()}
++	}
++	return resp, err
++}
++
++// sseObservingReadCloser detects the first complete non-empty SSE frame
++// without retaining response bytes. It accepts LF, CRLF and bare-CR line
++// endings, including separators split across Read calls.
++type sseObservingReadCloser struct {
++	io.ReadCloser
++	ctx          context.Context
++	lineHasBytes bool
++	frameHasLine bool
++	pendingCR    bool
++	once         sync.Once
++}
++
++func (r *sseObservingReadCloser) finishLine() {
++	if r.lineHasBytes {
++		r.frameHasLine = true
++		r.lineHasBytes = false
++		return
++	}
++	if r.frameHasLine {
++		r.once.Do(func() {
++			fantasy.ReportTransportEvent(r.ctx, fantasy.TransportEvent{Kind: fantasy.TransportEventFirstSSEFrame})
++		})
++	}
++	r.frameHasLine = false
++}
++
++func (r *sseObservingReadCloser) Read(p []byte) (int, error) {
++	n, err := r.ReadCloser.Read(p)
++	for _, b := range p[:n] {
++		if r.pendingCR {
++			r.finishLine()
++			r.pendingCR = false
++			if b == '\n' {
++				continue
++			}
++		}
++		switch b {
++		case '\r':
++			r.pendingCR = true
++		case '\n':
++			r.finishLine()
++		default:
++			r.lineHasBytes = true
++		}
++	}
++	if err != nil && r.pendingCR {
++		r.finishLine()
++		r.pendingCR = false
++	}
++	return n, err
++}
+diff --git a/providers/openai/transport_observer_test.go b/providers/openai/transport_observer_test.go
+new file mode 100644
+index 0000000..aeeeeb9
+--- /dev/null
++++ b/providers/openai/transport_observer_test.go
+@@ -0,0 +1,109 @@
++package openai
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"charm.land/fantasy"
++	"github.com/stretchr/testify/require"
++)
++
++func TestResponsesTransportObserverMeasuresFirstCompleteSSEFrame(t *testing.T) {
++	var mu sync.Mutex
++	seen := map[fantasy.TransportEventKind]time.Time{}
++	observer := fantasy.TransportObserverFunc(func(event fantasy.TransportEvent) {
++		mu.Lock()
++		defer mu.Unlock()
++		if _, exists := seen[event.Kind]; !exists {
++			seen[event.Kind] = time.Now()
++		}
++	})
++
++	first := responsesSSEEvent("response.created", `{"type":"response.created","response":{"id":"resp_transport","status":"in_progress","output":[]}}`)
++	completed := responsesSSEEvent("response.completed", `{"type":"response.completed","response":{"id":"resp_transport","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`)
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Header().Set("Content-Type", "text/event-stream")
++		w.WriteHeader(http.StatusOK)
++		_, _ = w.Write([]byte(first[:len(first)-1]))
++		w.(http.Flusher).Flush()
++		time.Sleep(35 * time.Millisecond)
++		_, _ = w.Write([]byte(first[len(first)-1:] + completed))
++	}))
++	defer srv.Close()
++
++	model := newResponsesProvider(t, srv.URL)
++	ctx := fantasy.WithTransportObserver(context.Background(), observer)
++	stream, err := model.Stream(ctx, fantasy.Call{Prompt: testPrompt})
++	require.NoError(t, err)
++	_, err = collectStreamParts(stream)
++	require.NoError(t, err)
++
++	mu.Lock()
++	defer mu.Unlock()
++	for _, kind := range []fantasy.TransportEventKind{
++		fantasy.TransportEventRequestEncoded,
++		fantasy.TransportEventRequestWritten,
++		fantasy.TransportEventFirstResponseByte,
++		fantasy.TransportEventResponseHeaders,
++		fantasy.TransportEventFirstSSEFrame,
++	} {
++		require.Contains(t, seen, kind)
++	}
++	require.True(t, seen[fantasy.TransportEventRequestWritten].Before(seen[fantasy.TransportEventFirstResponseByte]) || seen[fantasy.TransportEventRequestWritten].Equal(seen[fantasy.TransportEventFirstResponseByte]))
++	require.GreaterOrEqual(t, seen[fantasy.TransportEventFirstSSEFrame].Sub(seen[fantasy.TransportEventFirstResponseByte]), 20*time.Millisecond)
++}
++
++func TestTransportObserverDoesNotMarkErrorBodyAsSSEFrame(t *testing.T) {
++	var firstSSE int
++	ctx := fantasy.WithTransportObserver(context.Background(), fantasy.TransportObserverFunc(func(event fantasy.TransportEvent) {
++		if event.Kind == fantasy.TransportEventFirstSSEFrame {
++			firstSSE++
++		}
++	}))
++	req := httptest.NewRequest(http.MethodPost, "http://example.invalid/v1/responses", nil).WithContext(ctx)
++	resp, err := transportObserverMiddleware(req, func(*http.Request) (*http.Response, error) {
++		return &http.Response{
++			StatusCode: http.StatusInternalServerError,
++			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
++			Body:       io.NopCloser(strings.NewReader("data: error\n\n")),
++		}, nil
++	})
++	require.NoError(t, err)
++	_, err = io.ReadAll(resp.Body)
++	require.NoError(t, err)
++	require.Zero(t, firstSSE, "5xx body is not a decoded provider SSE frame")
++}
++
++func TestSSEObserverRequiresCompleteNonEmptyFrameAndReportsOnce(t *testing.T) {
++	cases := []struct {
++		name string
++		body string
++		want int
++	}{
++		{name: "eof_before_separator", body: "data: partial\n", want: 0},
++		{name: "leading_blank_only", body: "\n\n", want: 0},
++		{name: "lf_two_frames", body: "data: one\n\ndata: two\n\n", want: 1},
++		{name: "crlf", body: "data: one\r\n\r\n", want: 1},
++		{name: "bare_cr", body: "data: one\r\r", want: 1},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			count := 0
++			ctx := fantasy.WithTransportObserver(context.Background(), fantasy.TransportObserverFunc(func(event fantasy.TransportEvent) {
++				if event.Kind == fantasy.TransportEventFirstSSEFrame {
++					count++
++				}
++			}))
++			r := &sseObservingReadCloser{ReadCloser: io.NopCloser(strings.NewReader(tc.body)), ctx: ctx}
++			_, err := io.ReadAll(r)
++			require.NoError(t, err)
++			require.Equal(t, tc.want, count)
++		})
++	}
++}
+diff --git a/transport_observer.go b/transport_observer.go
+new file mode 100644
+index 0000000..ade3e96
+--- /dev/null
++++ b/transport_observer.go
+@@ -0,0 +1,57 @@
++package fantasy
++
++import "context"
++
++// TransportEventKind identifies a provider-transport lifecycle event.
++// Events carry no request or response payloads.
++type TransportEventKind string
++
++const (
++	TransportEventRequestEncoded    TransportEventKind = "request_encoded"
++	TransportEventRequestWritten    TransportEventKind = "request_written"
++	TransportEventFirstResponseByte TransportEventKind = "first_response_byte"
++	TransportEventResponseHeaders   TransportEventKind = "response_headers"
++	TransportEventFirstSSEFrame     TransportEventKind = "first_sse_frame"
++)
++
++// TransportEvent is an observation at the provider HTTP/decoder boundary.
++type TransportEvent struct {
++	Kind TransportEventKind
++}
++
++// TransportObserver receives transport lifecycle observations. Implementations
++// must be concurrency-safe because HTTP trace callbacks may run concurrently.
++type TransportObserver interface {
++	ObserveTransportEvent(TransportEvent)
++}
++
++// TransportObserverFunc adapts a function to TransportObserver.
++type TransportObserverFunc func(TransportEvent)
++
++func (f TransportObserverFunc) ObserveTransportEvent(event TransportEvent) {
++	if f != nil {
++		f(event)
++	}
++}
++
++type transportObserverContextKey struct{}
++
++// WithTransportObserver attaches an observer to model/provider requests made
++// with ctx. A nil observer removes any inherited observer.
++func WithTransportObserver(ctx context.Context, observer TransportObserver) context.Context {
++	return context.WithValue(ctx, transportObserverContextKey{}, observer)
++}
++
++// TransportObserverFromContext returns the observer attached to ctx, if any.
++func TransportObserverFromContext(ctx context.Context) TransportObserver {
++	observer, _ := ctx.Value(transportObserverContextKey{}).(TransportObserver)
++	return observer
++}
++
++// ReportTransportEvent reports an event to the observer attached to ctx.
++// Provider implementations use this at the actual HTTP/decoder boundary.
++func ReportTransportEvent(ctx context.Context, event TransportEvent) {
++	if observer := TransportObserverFromContext(ctx); observer != nil {
++		observer.ObserveTransportEvent(event)
++	}
++}

@@ -10,18 +10,6 @@ import (
 	"time"
 )
 
-// validPurposes enumerates the purpose values accepted on the wire and in the
-// runmetrics validator. New values require an additive contract change.
-var validPurposes = map[string]bool{
-	"":                    true, // unknown / unset — host treats as "no correlation"
-	"title":               true,
-	"tool_loop":           true,
-	"summarize":           true,
-	"retry":               true,
-	"prep_error":          true,
-	"queued_cancellation": true,
-}
-
 // pendingFirstByte is the per-response slot that captures the first byte
 // timestamp before the SSE reader knows the runID. The reader migrates it
 // into the runID-keyed registry entry as soon as it decodes a frame that
@@ -38,8 +26,8 @@ func (p *pendingFirstByte) snapshot() *time.Time {
 // firstByteBody wraps an http.Response body so the first successful Read
 // stamps a monotonic timestamp into the response-scoped pending slot.
 type firstByteBody struct {
-	inner  io.ReadCloser
-	slot   *pendingFirstByte
+	inner   io.ReadCloser
+	slot    *pendingFirstByte
 	stamped atomic.Bool
 }
 

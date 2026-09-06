@@ -9,6 +9,12 @@
       "sha256": "8d455a58ac1f4223ffce76bf0fb1fb420b467311c70143f5ffadfb12d00c35a4",
       "upstream_status": "not-submitted",
       "release_eligible": false
+    },
+    {
+      "file": "provider-transport-observer.patch",
+      "sha256": "545ddd46436fa7d74d098307907d5dc72c2ae565dae40feb299cfdd16b844dfc",
+      "upstream_status": "not-submitted",
+      "release_eligible": false
     }
   ]
 }

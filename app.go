@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -14,7 +15,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
-	"github.com/Dyu-36/gotack/internal/engineobserver"
 	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/logging"
@@ -55,11 +55,14 @@ type App struct {
 	officeSeeder  *officeSeeder
 	contextSeeder *contextseed.Seeder
 
+	contextLeaseMu       sync.Mutex
+	contextLeases        map[string]*contextseed.SnapshotLease
+	contextPendingLeases map[string][]*contextseed.SnapshotLease
+
 	scheduler *schedule.Scheduler
 
-	reflection     *reflection.Tracker
-	runMetrics     *runmetrics.Writer
-	engineObserver *engineobserver.Observer
+	reflection *reflection.Tracker
+	runMetrics *runmetrics.Writer
 
 	conn atomic.Pointer[conn]
 }
@@ -112,10 +115,6 @@ func (a *App) startup(ctx context.Context) {
 	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.runMetrics = runmetrics.New(appconfig.LogDir(), a.log)
 	a.link = enginelink.NewLink(a.sup)
-	// engineObserver is wired to the per-Client TTFB registry inside the
-	// attach path once a crushapi.Client exists; construction here keeps
-	// the merge site nil-safe across reconnects.
-	a.engineObserver = engineobserver.New(nil)
 
 	a.officeSeeder = newOfficeSeeder(a.log)
 	a.ensureOfficeSeed()
@@ -174,6 +173,7 @@ func (a *App) shutdown(ctx context.Context) {
 	a.stopReflection(ctx)
 
 	a.link.CancelScope()
+	a.releaseAllContextLeases()
 	a.stopScheduler()
 	if a.zalo != nil {
 		a.zalo.Stop()

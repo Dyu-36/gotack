@@ -16,7 +16,7 @@ snapshot, and the host seeds context on every startup. A naive
 a crash after deleting `TACK.md` but before the layered files are written
 silently drops the user's context; a crash mid-write leaves a half-written
 prompt; a reseed that reruns before the user has seen the change can destroy
-the only copy of customized legacy content. ImplementPlan.md section 0.5
+the only copy of customized legacy content. `10a9879b745098f03ac0dcf97baa523125732c5e:ImplementPlan.md` (historical Git requirements) section 0.5
 requires the migration to be a transaction, not a chain of independent
 renames, and section 6 requires modified legacy content to migrate only after
 explicit approval.
@@ -68,7 +68,7 @@ rollback only when a `backup_token` exists.
 Positive:
 
 - Every migration path has a durable backup, an atomic commit, and an explicit
-  rollback (ImplementPlan.md section 10 PR4 invariant).
+  rollback (`10a9879b745098f03ac0dcf97baa523125732c5e:ImplementPlan.md` (historical Git requirements) section 10 PR4 invariant).
 - Crash recovery is deterministic: staged transactions resume or fail loudly,
   never silently.
 - The generation counter makes concurrent UI edits and second instances safe.
@@ -78,7 +78,7 @@ Tradeoffs:
 - The state file, staging directory, and backups add on-disk bookkeeping that
   must stay out of the prompt snapshot.
 - Migration state must be loaded under one lock per operation so the snapshot
-  is consistent (ImplementPlan.md section 0.5).
+  is consistent (`10a9879b745098f03ac0dcf97baa523125732c5e:ImplementPlan.md` (historical Git requirements) section 0.5).
 
 ## Follow-Up
 

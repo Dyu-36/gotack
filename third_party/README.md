@@ -26,10 +26,15 @@ refresh, proactive auto-compaction, and prompt context refresh. The
 patch (RunTrace spans, provider-option merge, todo reminder, ordered
 context groups), the telemetry patch (per-run prompt generation change
 reasons, per-kind first semantic timings, final prepared-request
-fingerprint), and the history-anchor patch (bounded compaction anchor
-preservation). There is no accepted `zz-input-pipeline-windows.patch`;
+fingerprint), `provider-transport-wiring.patch` (per-model-call/provider-attempt
+identity plus provider transport event capture; requires the tracked Fantasy
+transport-observer patch to be present in the accepted dependency revision),
+and the history-anchor patch (bounded compaction anchor preservation). There is no accepted `zz-input-pipeline-windows.patch`;
 earlier prose describing one was a prototype claim, not a replayable
-artifact. Alphabetical names do not define phase order.
+artifact. The recipe also includes `csync-schema-lock.patch` (a stateless
+schema alias receiver that does not copy the map mutex) and
+`glob-windows-paths.patch` (slash-normalized results for both glob backends).
+Alphabetical names do not define phase order.
 
 Hardening removes the Question agent tool/routes and applies Tack's
 model-visible identity. It preserves upstream module paths, legacy executable
