@@ -33,11 +33,20 @@ const (
 type Client struct {
 	hc       *http.Client
 	clientID string
+	observer *TTFBRegistry
 }
 
 func NewClient(hc *http.Client) *Client {
-	return &Client{hc: hc, clientID: uuid.NewString()}
+	c := &Client{hc: hc, clientID: uuid.NewString()}
+	if hc != nil {
+		hc.Transport = &ttfbTransport{inner: hc.Transport}
+	}
+	c.observer = NewTTFBRegistry()
+	return c
 }
+
+// Observer exposes the per-Client TTFB registry for read-only merging by the
+func (c *Client) Observer() *TTFBRegistry { return c.observer }
 
 func (c *Client) ID() string { return c.clientID }
 
@@ -137,21 +146,29 @@ func (c *Client) History(ctx context.Context, wsID, sessionID string) ([]File, e
 }
 
 func (c *Client) SendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment) error {
-	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, 0)
+	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, 0, "")
 }
 
 func (c *Client) SendPromptWithAttachmentsAndBudget(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment, maxInputTokens int64) error {
-	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, maxInputTokens)
+	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, maxInputTokens, "")
 }
 
-func (c *Client) sendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment, maxInputTokens int64) error {
+// SendPromptWithPurpose stamps the request with a purpose so the host can
+// correlate the first_byte_to_first_sse span with the originating call
+// (title, tool loop, summarize, retry, prep error, queued cancellation).
+func (c *Client) SendPromptWithPurpose(ctx context.Context, wsID, sessionID, text, runID, purpose string, attachments []Attachment) error {
+	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, 0, purpose)
+}
+
+func (c *Client) sendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment, maxInputTokens int64, purpose string) error {
 	body, _ := json.Marshal(struct {
 		SessionID      string       `json:"session_id"`
 		RunID          string       `json:"run_id,omitempty"`
 		Prompt         string       `json:"prompt"`
+		Purpose        string       `json:"purpose,omitempty"`
 		Attachments    []Attachment `json:"attachments,omitempty"`
 		MaxInputTokens int64        `json:"max_input_tokens,omitempty"`
-	}{SessionID: sessionID, RunID: runID, Prompt: text, Attachments: attachments, MaxInputTokens: maxInputTokens})
+	}{SessionID: sessionID, RunID: runID, Prompt: text, Purpose: purpose, Attachments: attachments, MaxInputTokens: maxInputTokens})
 	resp, err := c.do(ctx, http.MethodPost, expandPath(agentPath, "id", wsID), bytes.NewReader(body))
 	if err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 type StreamEvent struct {
@@ -67,18 +68,41 @@ func (c *Client) Stream(ctx context.Context, wsID string, kinds ...string) (<-ch
 
 	return out, stop, nil
 }
-
 func (c *Client) readEvents(ctx context.Context, resp *http.Response, out chan<- StreamEvent, allow map[string]struct{}) {
 	defer close(out)
 	defer resp.Body.Close()
 
+	pending, _ := unwrapFirstByteBody(resp)
+	firstBound := false
 	reader := bufio.NewReaderSize(resp.Body, 64<<10)
 	for {
 		line, err := reader.ReadString('\n')
 
 		if payload, ok := ssePayload(line); ok {
-
 			if ev, emit := decodeEnvelope(payload, allow); emit {
+				if runID := extractRunID(ev); runID != "" {
+					if !firstBound {
+						firstBound = true
+						c.bindFirstByte(pending, runID)
+					} else {
+						// Subsequent runIDs on the same stream share the
+						// body wrapper's firstByte — bind using the
+						// pending snapshot if available, otherwise use
+						// the clock as a fallback so they still get a
+						// record.
+						var t time.Time
+						if pending != nil {
+							if snap := pending.slot.snapshot(); snap != nil {
+								t = *snap
+							}
+						}
+						if t.IsZero() {
+							t = time.Now()
+						}
+						c.observer.BindFirstByte(runID, 0, "", t)
+					}
+					c.observer.MarkSSEFirst(runID, 0, "")
+				}
 				select {
 				case <-ctx.Done():
 					return
@@ -93,6 +117,37 @@ func (c *Client) readEvents(ctx context.Context, resp *http.Response, out chan<-
 	}
 }
 
+// bindFirstByte migrates the pending per-response firstByte timestamp into the
+// runID-keyed registry entry. Falls back to the current time when the body
+// wrapper never recorded a stamp (e.g. when the transport wrapper was not
+// installed or the stream had zero-length reads).
+func (c *Client) bindFirstByte(pending *firstByteBody, runID string) {
+	var t time.Time
+	if pending != nil {
+		if snap := pending.slot.snapshot(); snap != nil {
+			t = *snap
+		}
+	}
+	if t.IsZero() {
+		t = time.Now()
+	}
+	c.observer.BindFirstByte(runID, 0, "", t)
+}
+
+// extractRunID peeks into the decoded SSE envelope payload for a runID.
+// run_complete payloads (flat shape) carry the field directly; wrapped events
+// (message/task_progress) do not, and return "" so the registry is not
+// touched for non-terminal frames.
+func extractRunID(ev StreamEvent) string {
+	if ev.Kind != "run_complete" {
+		return ""
+	}
+	var rc RunComplete
+	if err := json.Unmarshal(ev.Payload, &rc); err != nil {
+		return ""
+	}
+	return rc.RunID
+}
 func ssePayload(line string) (string, bool) {
 	line = strings.TrimRight(line, "\r\n")
 	if !strings.HasPrefix(line, "data:") {

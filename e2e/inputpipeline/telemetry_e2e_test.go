@@ -112,8 +112,10 @@ func requireTelemetryWithTool(t *testing.T, complete crushapi.RunComplete, attem
 	}
 	// request_write_to_first_byte spans request issue to the first stream
 	// part. first_byte_to_first_sse additionally requires a transport hook
-	// Fantasy does not expose, so per the absent-means-absent contract that
-	// span stays unrecorded rather than being faked from the same instant.
+	// on the host side of REST+SSE; the default no-delay fixture variant
+	// keeps the span absent (absent-means-absent). A controlled-delay
+	// fixture variant exposes the populated span via the
+	// engineobserver merge site; see requireTelemetryWithDelay below.
 	for _, name := range []string{"history_load", "prompt_prepare", "request_write_to_first_byte", "stream"} {
 		if _, ok := m.SpansMicros[name]; !ok {
 			t.Fatal("run_telemetry_required_span_missing")

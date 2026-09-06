@@ -199,7 +199,8 @@ func Validate(telemetry *crushapi.RunTelemetry) error {
 	}
 	if !enum(telemetry.FirstSemantic, "", "text", "tool_call", "reasoning") ||
 		!enum(telemetry.ReasoningEffort, "", "none", "minimal", "low", "medium", "high", "xhigh", "max") ||
-		!enum(telemetry.ServiceTier, "", "auto", "default", "flex", "priority", "scale", "standard") {
+		!enum(telemetry.ServiceTier, "", "auto", "default", "flex", "priority", "scale", "standard") ||
+		!enum(telemetry.Purpose, "", "title", "tool_loop", "summarize", "retry", "prep_error", "queued_cancellation") {
 		return errors.New("telemetry_label_invalid")
 	}
 	return nil
