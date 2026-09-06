@@ -227,11 +227,14 @@ limitations:
   with one immutable snapshot path. The host does not merge additional global
   context directories; files intended for the persona projection must be
   placed under the seeded context directory.
-- Seeded-file updates are size-keyed: a bundled file whose content changes
-  without a size change is not re-propagated. User-editable context files are
-  preserved when untracked or size-modified; managed runtime files are
-  replaceable. A malformed seed report fails before copying, and report
-  replacement itself is atomic.
+- Seeded-file updates compare SHA-256 content hashes, with size/hash metadata
+  in `.seed-report.json`; same-size bundled edits are detected. User-editable
+  files are preserved when untracked or detected as modified, including
+  same-size changes against a stored hash. For a legacy report without hashes,
+  a differing current file is preserved when the source is still present.
+  Managed files remain replaceable. A malformed report fails before copying,
+  and report replacement is atomic; the complete file-tree copy is not one
+  transaction.
 
 ### Context ownership model (PR4)
 
@@ -259,8 +262,8 @@ the whole key can destroy unrelated user configuration.
 RemoveConfigField mcp_servers.gotack-memory        (workspace scope)
 RemoveConfigField mcp_servers.gotack-skills        (workspace scope)
 RemoveConfigField mcp_servers.gotack-recall        (workspace scope)
-RemoveConfigField env                              (workspace scope)
 RemoveConfigField options.global_context_paths     (workspace scope)
+RemoveConfigField env                              (workspace scope)
 ```
 
 Provider deletion is safety-first and convergent: persist a cleared local

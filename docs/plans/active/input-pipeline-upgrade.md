@@ -1,183 +1,132 @@
-# Input Pipeline Upgrade Execution
+# Input Pipeline Upgrade — execution and audit evidence
 
-Authority: `ImplementPlan.md`, `WebPlan.md`, `AGENTS.md`, and
-`docs/WORKFLOW.md`. Updated 2026-09-05.
+Updated: 2026-09-06. Outstanding work is maintained only in the root
+`ImplementPlan.md`; this file records authority, implementation evidence,
+validation limits and recovery. The milestone is **not release-approved**.
 
-## Owner decision and boundary
+## Authority and operating boundary
 
-The owner's latest explicit instruction is to implement directly on `main`,
-without creating a Gotack branch or worktree. The 2026-09-05 owner instruction
-also overrides all older per-phase stops, owner-test pauses and sequential
-checkpoint handoffs in ImplementPlan/WebPlan. Implement every remaining phase
-continuously, with independent agents assigned explicit file ownership; run
-consolidated acceptance after integration. Safety, architecture, provenance and
-release acceptance requirements remain mandatory. Hybrid/local compaction is
-outside this milestone. Live paid calls have no authorized budget.
+The owner's current request authorizes auditing the implementation, fixing
+existing defects, cleaning the source, reducing ImplementPlan to unfinished
+work, and deleting the obsolete WebPlan when appropriate. The recorded
+2026-09-05 owner instruction to integrate directly on `main` remains the
+repository working policy; no owner worktree/ignored engine checkout is reset
+or cleaned. `AGENTS.md`, `docs/WORKFLOW.md`, accepted contracts and decisions
+remain binding. Desktop/engine communication stays REST + SSE.
 
-Current execution starts at `cc48aeeabbbdbf61e9a089a736d39bb01408d613` on main.
-Pre-existing owner edits in wails-bindings.md, timetable_template_test.go and
-the timetable skill/template must be preserved. Older evidence below is historical,
-not acceptance of this candidate. Status vocabulary: IMPLEMENTED means code exists;
-PASS means an executed check passed; FAIL, BLOCKED, UNVERIFIED and OUT_OF_SCOPE
-are distinct and must never be converted into PASS.
+`WebPlan.md` is removed: it duplicated the original requirements, described
+already implemented phases as NOT STARTED, and prescribed branch/checkpoint
+stops superseded by the newer owner instruction. Its relevant safety boundaries
+remain here, in AGENTS/contracts, and in the root backlog. The original detailed
+requirements remain retrievable without maintaining another stale plan:
 
-## Current progress ledger
-
-Updated 2026-09-05 after integration: the vendored-engine patch landed, the
-E2E gate passes with the patched engine, and the benchmark driver was
-validated end-to-end. Statuses use the owner vocabulary: IMPLEMENTED (code
-exists), PASS (executed check passed), FAIL, BLOCKED, UNVERIFIED, OUT_OF_SCOPE.
-
-| Scope | Status | Evidence / remaining work |
-| --- | --- | --- |
-| Phase 0A | PASS (baseline engine) | Real Windows clean-pin replay/build + 5 required executable E2E tests passed twice on the unpatched baseline (`d0ada5ba…` provenance) |
-| PR0 consumer | IMPLEMENTED + unit PASS | runmetrics Writer/validation/redaction wired via `bind_engine.go`; optional sorted `change_reasons` with allowlist validation; contract doc updated |
-| PR0 engine | IMPLEMENTED + wire PASS | `input-pipeline-core.patch` + `input-pipeline-telemetry.patch`: RunTrace monotonic spans, tri-state cache with run-scoped token sums, run-scoped `attempt`, domain-separated HMAC fingerprints (unavailable stays unavailable), sorted unique `change_reasons`. Telemetry patch adds: per-run prompt generation with labeled component digests so `prefix_changed_reason`/`change_reasons` come from generation diffs (template→context, model_switch, context, skills, tool_set; dynamic-only date/git_status/mcp/todo never move the primary reason), per-kind one-shot first reasoning/tool_call/text offsets as nullable pointers (absent stays absent; a sub-microsecond event is a real zero, never conflated with absent), `first_semantic` aligned to the contract token `tool_call`, and `request_shape_hmac` computed at the end of `PrepareStep` over the FINAL prepared request (history shape, attachment metadata, canonical per-tool schemas; credentials/ciphertext/tool-output excluded). E2E wire PASS: HMAC shape, per-kind timing presence, stable prefix across turns, no invented stable reasons. `first_byte_to_first_sse` still needs a Fantasy transport hook and stays absent (null), never zero. A parallel remote PR0 patch series (`9cd9d27`) was superseded by this patch and removed from the manifest during the merge |
-| PR1 | IMPLEMENTED (wire-proofed) | Engine: ordered context groups, Windows-canonical rendered paths, provider-options layers merged as flat maps with pre-network validation (`auto\|concise\|detailed`, union include with `reasoning.encrypted_content`, explicit null omits), todo reminder re-rendered from a fresh session snapshot at every model-call boundary inside `PrepareStep` as ephemeral user-role context. Gate-required E2E wire proofs PASS: options preserved, invalid options rejected with zero provider requests, todo reminder reflects real state + survives restart + never persisted, 20-restart canonical-prompt proof (`TestE2ECanonicalPromptAcrossRestarts`), MCP instruction-order proof under reversed config order (`TestE2EMCPInstructionOrderDeterministic`). Change-reason auto-detection landed with the telemetry patch (see PR0 engine) |
-| PR2 | IMPLEMENTED (host + engine, tested) | Host (`b53a09b`): `context-prompt/snapshot-<UnixNano>` replaced by an install-key HMAC identity over the canonical manifest (layout version, migration mode, ordered case-folded source-relative paths, per-file content digests); identical content reuses the committed immutable directory across refresh and restart; a same-size edit rotates the identity exactly once; collect-once → validate → atomic rename; a failed refresh keeps the committed revision and no longer clears the registered engine path; identity-key corruption fails closed (no unkeyed fallback); bounded retention keeps current+previous generations. Engine: prompt build returns one `PromptBuild` (text + stable/dynamic split + labeled generation) so every builder path describes the same inputs; stable/dynamic HMACs and generation-diff reasons wire-verified. Engine tests PASS (generation-diff unit suite, same-size context edit, date dynamic-only, model/skills/template kinds). Full E2E gate PASS |
-| PR4 | IMPLEMENTED (host+UI) + portable flow PASS | Transactional migration, Wails bind methods, desktop.ts bridge, ContextMigrationPanel UI, ADR 0006, contract + layout docs. Portable real-app Windows flow now PASS on isolated temp profiles (`%TEMP%\gotack-portable-*`, never the owner profile): stock-legacy auto-migrate to committed-layered with backup token, UI badge + backup display, UI rollback restores TACK.md, rollback survives a real-app restart (mode and token durable, no auto re-migration), modified-legacy upgrade shows pending with known-base 3-way conflict markers and never auto-overwrites (hash-verified across the whole preview), UI accept after resolving markers carries the user line into USER.md and removes TACK.md, accepted state survives restart, and a hand-crafted interrupted-staged state is auto-recovered through the real app with a valid backup and a cleaned stage dir. Screenshots under `tmp/portable-e2e/` (ignored local evidence). The flow also found and fixed a release-blocking packaging bug (`f865211`: the shipped forward-slash stock-manifest paths were rejected by a Windows filepath.Clean comparison, so packaged builds never seeded context) |
-| PR5 | IMPLEMENTED (Crush side) + BLOCKED (Fantasy upstream, live) | New `input-pipeline-history-anchor.patch`: bounded history-selection contract in `selectHistoryWithAnchor` — keeps the latest complete valid assistant anchor group (ordered reasoning parts + tool calls + results, never split, duplicated or orphaned; incomplete groups walked back; no anchor when none complete), and drops uncommitted summary messages so a crash at the summarize boundary leaves no half-committed state. Unit suite PASS (8 tests). `store=false` default and `previous_response_id`+replay rejection are provided by Fantasy v0.41.3 itself (`params.Store` defaults to false; `validatePreviousResponseIDPrompt` rejects the conflict pre-network), and the authoring patch additionally emits ordered reasoning items + duplicate-ID rejection. Fantasy patch verified with focused tests on pristine v0.41.3 (SHA `8d455a58…`, `release_eligible: false` — upstream submission/pinning needs owner authorization); E2E compaction anchor proof PASS (`TestE2ECompactionPreservesLatestAnchorGroup`); live acceptance BLOCKED_LIVE_ACCEPTANCE |
-| PR3 | IMPLEMENTED (infrastructure, validated) | Paired AB/BA driver validated end-to-end against the patched engine: telemetry records written, nearest-rank percentiles + 10k bootstrap CI aggregated, report always `decision: no-rollout`, `prompt_cache_key_default: OFF`. Synthetic correctness only; live preregistered gate BLOCKED_LIVE_ACCEPTANCE |
-| Hybrid compaction | OUT_OF_SCOPE | Only bounded PR5 anchor selection authorized |
-| Release | PARTIALLY VERIFIED | At the final HEAD: full E2E gate PASS (14 gate-required tests including the six new release-matrix proofs, zero unexpected skips), `go test ./...`, `go vet ./...` (+`-tags=e2e`), `staticcheck ./...`, repository invariants, harness unit tests, frontend check/test/build all PASS. Remaining for release claim: live Responses acceptance (owner budget), Windows race gate (`go test -race` BLOCKED_ENVIRONMENT: CGO/GCC unavailable, re-probed this session), upstream Fantasy patch authorization (BLOCKED_OWNER_AUTH). The portable real-app migration flow is now PASS (see PR4) |
-
-Committed checkpoint series on `main`: `0348877` (contextseed migration),
-`ef2722e`/`6ef1259`/`5a0eec8` (runmetrics, benchmark scaffolding, e2e
-rejection counters), `81119be` (fantasy authoring patch), `c564e66` (bench
-driver), `3c1de3e` (migration UI), `a3b9002` (change_reasons), `c6522d4`
-(fantasy tests), `7796ca8` (wire-proof E2E tests), `12c0908` (checkpoint
-ledger), `437ee9a` (engine input-pipeline patch), `5008a26` (todo reminder at
-model-call boundary + options at the selected-model layer), `1554cbd`
-(flat option layers in fixtures), `46fcada`/`d8fb10b`/`9878038` (gated
-synthetic item diagnostics), `749c817` (tool-item streamed arguments),
-`ceda015` (transcript read order), `7751877` (benchmark schedule
-subcommand), `f614c39` (bench treatment flat layer), `8518393` (return the
-owner's timetable edits to uncommitted state), `af0407f` (merge of the
-remote PR0 telemetry lane: hardening opt-out + telemetry E2E coverage
-kept, superseded telemetry patches removed), `6f7efa6` (TTFB span +
-adopted telemetry coverage), `de2738b` (run-scoped attempt and token
-semantics), `b53a09b` (content-addressed prompt snapshots),
-`54f1177` (telemetry generation diff + final-request fingerprint +
-compaction anchor patches, contract updates), `a6d212f` (release-matrix
-E2E evidence), `211425d` (gate enforcement of the new proofs),
-`f865211` (shipped stock-manifest slash paths fix found by the
-portable flow).
-
-The starting Gotack commit was `b6dcf68320b708df7a5e3c8e1750689cf5621ec1`.
-The Crush pin is owned by `.tack-pin`; the owner's ignored `third_party/crush`
-is known dirty and must not be reset, cleaned, or used for reconstruction.
-
-## Implemented in this checkpoint
-
-- Explicit patch manifest: compatibility -> hardening -> input-pipeline.
-  The final phase currently has no accepted patches. Removed the ignored-flag
-  behavior of `SkipInputPipeline`, and fail on incomplete patch inventory.
-- Unique isolated clean-pin fetch/build, root `.` entrypoint, checked native
-  exits/timeouts, no PATH engine fallback, and verified provenance for SkipBuild.
-  Git directory override environment variables are removed from child Git/build
-  commands; no owner global settings or services are changed.
-- Real executable/REST/SSE Windows named-pipe tests replacing the old scaffold:
-  fresh turn, actual 429 retry, MCP JSON-RPC stdio tool loop, restart with the
-  same database, and rejection of malformed provider SSE.
-- Dependency-free tests for missing binary, readiness timeout, zero captures,
-  malformed schemas/lifecycle, dropped terminal, invalid provenance, missing
-  required tests, unexpected skips, and unsupported platform.
-- A separate Windows CI lane calling the same entrypoint and uploading only
-  the safe receipt/test-summary artifacts. No branch protection was changed.
-
-The prior checked-off PR0/PR4 entries described partial prototypes. They were
-not full wire/migration/UI/release proof and are superseded by this record.
-Scratch commit `40d74a1` and the previously described nonexistent zz patch are
-not implementation authority or accepted provenance.
-
-## Evidence actually observed in the Web environment
-
-Environment: Linux, Node 22.16.0, Go 1.23.2; no PowerShell or Windows runtime.
-The runtime had candidate source files only, not a full Gotack checkout.
-
-| Check | Observed result |
-| --- | --- |
-| `node --test scripts/input-pipeline/gate.test.mjs` on candidate files | PASS: 12 tests, no skips |
-| `GO111MODULE=off go test -count=1 -timeout=20s -v e2e/inputpipeline/fixtures_test.go e2e/inputpipeline/harness_test.go` | PASS initially; expanded suite subsequently passed with race checking below |
-| `GO111MODULE=off go test -race -count=1 -timeout=30s -v e2e/inputpipeline/fixtures_test.go e2e/inputpipeline/harness_test.go` | PASS: 8 top-level tests plus 5 negative-control subtests on Linux; not Windows race evidence |
-| `gofmt` on the three changed Go test files | Applied; formatting rechecked |
-| Real PowerShell clean-pin replay/build | BLOCKED in this environment; not claimed PASS |
-| Real Windows executable/REST/SSE/MCP tests | NOT RUN here; candidate not accepted |
-| Full Gotack tests, invariants, vet, frontend checks | NOT RUN here; full checkout/toolchain unavailable |
-| Windows race gate | BLOCKED_ENVIRONMENT per owner baseline: CGO/compiler not proven |
-| New CI job run / required branch check status | Unverified until an actual run is inspected |
-
-The orchestration tests inject a command runner for build-order/provenance
-fixtures. Their PASS does not prove that PowerShell patches apply or that the
-engine builds. Child exit/timeout tests and local HTTP/MCP fixture tests do
-execute real local code, but are not Windows product E2E evidence.
-
-## Owner Windows commands
-
-From the owner's existing Gotack checkout on `main`, with no local tracked
-edits to the gate inputs:
-
-```powershell
-git pull --ff-only
-if ($LASTEXITCODE -ne 0) { throw 'Pull failed' }
-node --test scripts/input-pipeline/gate.test.mjs
-if ($LASTEXITCODE -ne 0) { throw 'Harness unit tests failed' }
-go test ./...
-if ($LASTEXITCODE -ne 0) { throw 'Gotack tests failed' }
-node scripts/check-repository-invariants.mjs
-if ($LASTEXITCODE -ne 0) { throw 'Repository invariants failed' }
-./scripts/test-input-pipeline-e2e.ps1
+```text
+git show 10a9879b745098f03ac0dcf97baa523125732c5e:ImplementPlan.md
+git show 10a9879b745098f03ac0dcf97baa523125732c5e:WebPlan.md
 ```
 
-The final script must report eight required E2E/negative-control tests as
-RUN/PASS and zero skips. Its printed unique artifact directory contains
-`provenance.json`, `tests.jsonl`, and (only on success) `result.json`.
-Return these safe artifacts and the command exit status. Do not return tokens,
-raw provider requests, engine profiles, or raw engine logs.
+Do not interpret removing historical checklists as waiving acceptance.
+Hybrid/local compaction remains outside the milestone. Do not call paid live
+providers without an approved request/cost cap, request secrets in chat, install
+an unapproved compiler, change Windows services or branch protection, or test
+migration on the owner's real data. Existing provider availability is not a
+missing-provider blocker.
 
-For direct tagged tests, all four explicit variables are required:
-`TACK_ENGINE_BINARY`, `TACK_ENGINE_PROVENANCE`, `TACK_E2E_REPO_ROOT`, and
-`TACK_E2E_NODE` (absolute Node executable). Prefer the script, which verifies
-and supplies them without modifying the parent shell environment.
+## Baseline inspected
 
-## Acceptance and remaining work
+Repository: `Dyu-36/gotack`; baseline main:
+`10a9879b745098f03ac0dcf97baa523125732c5e`.
+Crush pin: `6d14dd93a9e526505f7de54ae5999431bc32a793`.
+The manifest contains four compatibility patches followed by hardening and
+three input-pipeline patches (core, telemetry, history-anchor). Fantasy
+upstream acceptance is separate from the authoring patch.
 
-Release acceptance still requires owner-side items that this milestone cannot
-supply: a live Responses acceptance run (no authorized paid budget), the
-Windows race gate on a CGO-capable toolchain (re-probed 2026-09-05: `gcc`
-absent, `CGO_ENABLED=0` — installing a toolchain was not authorized), and an
-upstream Fantasy patch decision (`release_eligible: false`; the Crush-side engine behavior that the
-Fantasy patch unblocks — ordered reasoning-item replay — is fully implemented
-and tested at the unit level, and v0.41.3 itself already provides the
-`store=false` default and the `previous_response_id` replay-conflict
-rejection). PR2's content-addressed snapshots, PR0's generation-diff change
-reasons and final-request fingerprint, and PR5's bounded anchor-group
-history selection are now IMPLEMENTED with executable evidence; they are no
-longer open engine-patch work items. Failure anywhere is failure, never a
-skip or a weaker assertion.
+The baseline execution ledger records implemented PR0/PR1/PR2, host/UI PR4,
+Crush-side PR5 and synthetic PR3 infrastructure. It also records the portable
+real-app migration matrix and the shipped-manifest slash fix `f865211` as PASS.
+Those records are historical evidence, not newly executed checks on this
+cleanup candidate. They are not a reason to rebuild already completed features.
 
-### Consolidated validation evidence (2026-09-05, this session)
+The connected GitHub job read for baseline workflow run `34021787121`
+confirmed success for `Clean-pin executable REST SSE fixtures`, including
+Gotack tests, repository invariants and isolated engine replay/build/E2E.
+Its workflow sets `CGO_ENABLED=0`: this was **not Windows race evidence**.
+Baseline nested fsext test and csync vet failures, Fantasy authorization,
+Windows race and live-acceptance gaps remain explicitly in ImplementPlan.
 
-| Check | Result |
+## Cleanup implementation
+
+Code checkpoint: `19c6ca27cbb760394c5c2c674897d82feb8d3f1a`.
+
+- `scripts/input-pipeline/gate.mjs`: validate event/action shapes, reject arrays,
+  malformed typed fields and unknown actions, and reject `build-fail` even when
+  a fabricated stream otherwise contains all required RUN/PASS events.
+- `scripts/input-pipeline/run.mjs`: one artifact-writing path validates the
+  ORIGINAL stream, exports only allowlisted lifecycle fields, never raw Output,
+  stderr, arbitrary metadata or dynamic subtest names, and records failure.json
+  for exit-zero validation failures as well as subprocess failures/timeouts.
+  result.json is emitted only after successful validation.
+- `scripts/input-pipeline/gate.test.mjs`: six additional regression tests cover
+  malformed records, build failures, diagnostic canaries, the actual success
+  artifact sink, exit-zero rejection receipts and process failure/timeout.
+- `internal/contextseed/snapshot_identity.go`: extract key ownership from the
+  mixed snapshot module; stage/write/sync/close the complete key and publish via
+  a no-replace same-directory hard link. A concurrent loser adopts only a valid
+  committed key; read errors/corruption fail closed instead of regenerating or
+  overwriting identity. Key encoding and snapshot identity domain are unchanged.
+- `internal/contextseed/snapshot_key_test.go`: concurrent goroutines, independent
+  publisher processes, reuse, corruption, read errors and staging cleanup.
+  The pre-existing snapshot_identity_test.go is preserved, not overwritten.
+
+The key fix does not claim to solve snapshot retention, complete-generation
+validation or every Windows ACL/crash case. Those gaps remain IP-02/IP-05.
+No engine patch, pin, UI behavior, live credentials or user profile was changed
+by this cleanup. Documentation/reference cleanup is separate from code evidence.
+
+The root plan now contains only eight unclosed work items; the obsolete WebPlan
+is deleted. third_party/README.md describes the sanitized lifecycle/failure
+receipts and original-stream validation. The REST/SSE contract's outdated
+size-keyed seeding paragraph is corrected to match bundleseed's SHA-256
+comparison and stored size/hash metadata; no seeding behavior is changed by
+that documentation correction. Remaining repository-wide reference/unused-code
+inventory is explicitly unverified, not silently called clean.
+
+## Checks actually executed during this audit
+
+Local environment: Linux, Node v22.16.0, Go go1.23.2. The runtime had reconstructed
+selected source files, not a complete repository checkout. Original gate/run/test
+and snapshot files were matched against Git blob SHA before using them. Direct
+Git cloning failed with DNS resolution unavailable; no Windows/PowerShell runtime
+was available. The checks below therefore have deliberately bounded scope.
+
+| Check | Observed result and limit |
 | --- | --- |
-| `./scripts/test-input-pipeline-e2e.ps1` (clean-pin replay + build + full E2E) | PASS: 14 gate-required tests, zero unexpected skips |
-| `go test ./...` (Gotack) | PASS |
-| `go vet ./...` and `go vet -tags=e2e ./e2e/...` | PASS |
-| `staticcheck ./...` | PASS |
-| `node scripts/check-repository-invariants.mjs` | PASS |
-| `node --test scripts/input-pipeline/gate.test.mjs` | PASS (12 tests) |
-| `pnpm --dir frontend check` / `test` | PASS (0 errors / 39 tests) |
-| Nested patched-engine focused tests (agent, agent/prompt, message) | PASS |
-| Nested patched-engine full `go test ./...` | One failure: `internal/fsext` `TestGlobWithDoubleStar`, verified failing on the pristine pin with no patches (pre-existing upstream Windows glob behavior, outside this milestone); all other nested packages PASS (`-p 2`; higher parallelism OOMs the machine) |
-| Nested patched-engine `go vet ./...` | One pre-existing upstream finding in pinned `internal/csync/maps.go` (lock-by-value), untouched by all patches |
-| `go test -race` on Windows | BLOCKED_ENVIRONMENT (no CGO compiler; re-probed) |
-| Live Responses acceptance | BLOCKED_LIVE_ACCEPTANCE (no owner budget) |
-| Fantasy upstream/pin authorization | BLOCKED_OWNER_AUTH |
+| Baseline `node --test scripts/input-pipeline/gate.test.mjs` | PASS: original 12 tests |
+| Baseline malformed-event/build-fail/canary probes | Reproduced false acceptance for five malformed/failure inputs and a synthetic canary leak through an arbitrary failing subtest name |
+| Expanded gate suite before fixes | Expected FAIL: 12 passed, 6 failed; regression proof, not a passing gate |
+| Expanded gate suite after fixes | PASS: 18 tests, zero failures/skips; these are JavaScript harness unit tests, not the 14 Windows executable E2E tests |
+| `node --check` on gate.mjs, run.mjs, gate.test.mjs | PASS |
+| Original key helper, concurrent publishers, GOMAXPROCS=8 and count=10 | Expected FAIL: returned identities differed from the committed key. An earlier single run passed; concurrency defects are schedule-dependent |
+| `GO111MODULE=off GOTOOLCHAIN=local go test -race -count=3 -timeout=60s -v snapshot_identity.go snapshot_key_test.go` | PASS on Linux, including independent publisher processes; only the extracted key implementation/test files, not the complete contextseed package or Windows race gate |
+| `GO111MODULE=off GOTOOLCHAIN=local go vet snapshot_identity.go snapshot_key_test.go` | PASS for the same isolated key files |
+| `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 ... go test -c` for the same files | PASS cross-compilation only; Windows executable was not run locally |
+| gofmt and UTF-8/LF checks on changed local files | PASS |
+| Full Gotack/frontend/nested tests and repository invariants on this candidate | NOT RUN locally; require the actual repository/toolchain/CI, not substituted fixture results |
+| Windows executable E2E, ACL/portable flow, Windows race and live provider | NOT RUN locally on this cleanup candidate |
 
-## Recovery
+Local temporary logs existed under the audit runtime's `gotack-audit/evidence`
+directory. They are not a persistent CI dependency or release attestation. The
+checked-in regression tests provide the repeatable proof; the full gate must
+record safe provenance/artifacts for the integrated HEAD.
 
-Revert the checkpoint commit on `main` with `git revert <checkpoint-sha>` if
-needed; do not reset/clean the owner's ignored engine checkout or real profile.
-The harness only owns its uniquely named OS-temp build directory and test
-profiles/processes. Stop/cleanup is scoped to processes started by the test.
-A build/cleanup timeout or missing terminal is failure, never PASS.
+## Revalidation and recovery
+
+Run the native validation families from ImplementPlan on a clean committed
+checkout, preserving unrelated owner edits. The fixed harness still refuses
+dirty/untracked gate inputs, unverified binaries and unexpected skips. Its
+Windows entrypoint remains `./scripts/test-input-pipeline-e2e.ps1`; the required
+executable-test inventory remains 14, not the stale eight from older handoffs.
+
+Use `git revert` of the relevant cleanup commit(s) to recover. Do not reset the
+owner's working tree or ignored `third_party/crush`, and do not delete a real
+profile. Reverting documentation does not create new acceptance evidence.
