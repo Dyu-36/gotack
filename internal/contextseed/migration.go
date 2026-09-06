@@ -117,10 +117,14 @@ func loadStockManifest(sourceDir string) (stockManifest, error) {
 		return stockManifest{}, errors.New("context stock manifest is empty")
 	}
 	for _, stock := range manifest.LegacyStocks {
-		if len(stock.SHA256) != sha256.Size*2 || stock.Path == "" || filepath.IsAbs(stock.Path) || filepath.Clean(stock.Path) != stock.Path || strings.HasPrefix(stock.Path, "..") {
+		// Stock paths are portable slash-separated repo-relative paths
+		// (the shipped manifest must load on every platform), so
+		// validate the normalized form.
+		relative := filepath.FromSlash(stock.Path)
+		if len(stock.SHA256) != sha256.Size*2 || stock.Path == "" || filepath.IsAbs(relative) || filepath.Clean(relative) != relative || strings.HasPrefix(relative, "..") {
 			return stockManifest{}, errors.New("context stock manifest contains an invalid legacy base")
 		}
-		hash, hashErr := fileSHA256(filepath.Join(sourceDir, stock.Path))
+		hash, hashErr := fileSHA256(filepath.Join(sourceDir, relative))
 		if hashErr != nil || !strings.EqualFold(hash, stock.SHA256) {
 			return stockManifest{}, fmt.Errorf("context legacy base %q does not match manifest hash", stock.Path)
 		}

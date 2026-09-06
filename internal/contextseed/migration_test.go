@@ -148,3 +148,28 @@ func TestManagedCoreUpdatesButUserContextIsPreserved(t *testing.T) {
 	require.Equal(t, "my preferences", readSeeded(t, seeder, userContextName))
 	require.Equal(t, "managed-core-v2", readSeeded(t, seeder, managedCoreName))
 }
+
+// TestStockManifestAcceptsPortableSlashPaths pins the shipped-manifest
+// contract: stock-manifest.json records legacy base paths with forward
+// slashes so one artifact loads on every platform. The loader must
+// normalize before validating (a Windows filepath.Clean would otherwise
+// reject every shipped manifest) and must still reject traversal and
+// absolute forms.
+func TestStockManifestAcceptsPortableSlashPaths(t *testing.T) {
+	dir := t.TempDir()
+	base := "stock base"
+	writeContextFixture(t, filepath.Join(dir, "legacy", "TACK-v1.md"), base)
+	manifest := fmt.Sprintf(`{"version":1,"legacy_stocks":[{"sha256":%q,"path":"legacy/TACK-v1.md"}]}`, bytesSHA256([]byte(base)))
+	writeContextFixture(t, filepath.Join(dir, stockManifestName), manifest)
+	if _, err := loadStockManifest(dir); err != nil {
+		t.Fatalf("shipped forward-slash manifest rejected: %v", err)
+	}
+
+	for _, bad := range []string{"../legacy/TACK-v1.md", "C:/legacy/TACK-v1.md", "legacy//TACK-v1.md"} {
+		badManifest := fmt.Sprintf(`{"version":1,"legacy_stocks":[{"sha256":%q,"path":%q}]}`, bytesSHA256([]byte(base)), bad)
+		writeContextFixture(t, filepath.Join(dir, stockManifestName), badManifest)
+		if _, err := loadStockManifest(dir); err == nil {
+			t.Fatalf("manifest path %q must be rejected", bad)
+		}
+	}
+}
