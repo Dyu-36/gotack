@@ -457,3 +457,71 @@ chưa hoàn tất. Root `ImplementPlan.md` được thay bằng plan này, khôn
 chứng nhận backlog cũ đã hoàn tất.
 
 Handback của AI thực thi phải nêu: source candidate, từng WP status, tests thực chạy, artifact/CI URLs, blocker còn lại, cleanup, rollback và READY_FOR_OWNER_RELEASE hoặc NOT_READY. Không viết “đang chạy nền” khi không có process còn chạy; không tuyên bố đã phát hành nếu chỉ build local.
+
+### HANDOFF_AGENT_1 — Baseline + WP5
+
+status: INCONCLUSIVE
+canonical_plan_absolute_path: D:\gotack\docs\plans\active\windows-release-completion.md
+canonical_plan_repo_path: docs/plans/active/windows-release-completion.md
+
+owner_checkout: D:\gotack (prescribed owner checkout; not mutated by this GitHub-branch execution)
+owner_base_commit: a3632b0af918daccd05bba892c8f564a0a34b91b
+owner_current_HEAD: a3632b0af918daccd05bba892c8f564a0a34b91b (remote main verified 2026-09-06)
+owner_branch: main
+owner_dirty_diff_summary: Local D:\gotack dirty state is not observable through the GitHub connector. Remote main remained unchanged; all Agent 1 writes were isolated to branch agent-01-wp5-20260906.
+
+toolchain: GitHub Windows Server 2025 / windows-2025-vs2026; git 2.55.0.windows.5. Runner PATH exposed Go 1.24.13, while invoking repo/module commands auto-fetched Go 1.27.0 and Crush Go 1.26.6. Staticcheck was unavailable and was not installed.
+temp_evidence_root: D:\a\_temp\gotack-release-34044441535
+agent_evidence_path: D:\a\_temp\gotack-release-34044441535\agent-01-wp5; GitHub Actions run 34044441535 artifact 9992723389 (sha256:c7230e2fdb5b49e679031ecfb57c2207efc654224ee99437717ec27f0a01d335)
+
+files_changed:
+- scripts/harden-crush-for-tack.ps1
+- scripts/apply-crush-patches.ps1
+- docs/plans/active/windows-release-completion.md
+
+issue_reproduced: yes
+fail_before_command: Historical current-candidate nested `staticcheck ./...` evidence plus GitHub Actions run 34044062131 `Focused Question-hygiene regression` on the exact ordered Crush candidate.
+fail_before_exit_code: 1
+fail_before_relevant_output: handlePostWorkspaceQuestionsAnswer route_present=False handler_present=True; ORPHAN_HANDLER handlePostWorkspaceQuestionsAnswer; handlePostWorkspaceQuestionsCancel route_present=False handler_present=True; ORPHAN_HANDLER handlePostWorkspaceQuestionsCancel. Historical nested Staticcheck classified the same two handlers as U1000.
+
+root_cause: Gotack hardening intentionally removed the two headless Question REST route registrations but left their generated controller handler definitions in internal/server/proto.go. That made both functions genuinely unreachable/orphaned. The upstream Question TUI service remains intentional and is not removed by this fix.
+implementation_summary: In the same hardening layer, remove exactly the contiguous Answer/Cancel handler block using bounded source markers and fail closed if upstream source shape drifts. Strengthen ordered replay verification so both Question route strings and both handler names must be absent. No dummy reference, nolint, fake route, assertion weakening, or ignored third_party/crush edit was used.
+
+pass_after_commands:
+- `./scripts/apply-crush-patches.ps1 -CrushDir <isolated pinned checkout>`
+- `Focused Question-hygiene regression` in GitHub Actions run 34044441535
+- `go test -timeout 120s -count=1 ./internal/csync ./internal/fsext`
+- `go vet ./internal/csync ./internal/fsext`
+pass_after_exit_codes:
+- ordered clean replay: 0
+- Question hygiene: 0; both route_present=False and handler_present=False
+- focused tests: 0
+- focused vet: 0
+
+wider_regression_commands:
+- `go test -timeout 240s -count=1 ./...`
+- `go vet ./...`
+- `staticcheck ./...` if already installed
+wider_regression_exit_codes:
+- full nested go test: 1
+- full nested go vet: 1
+- full nested staticcheck: UNAVAILABLE
+- full-test/full-vet root cause on this runner: input-pipeline runtrace references Fantasy transport observer API (`fantasy.WithTransportObserver`, `fantasy.TransportEvent*`) that is not present in the currently pinned `charm.land/fantasy v0.41.3`; this is an existing WP2/WP4 dependency-stack blocker, not caused by the WP5 Question-handler change.
+
+patch_files:
+- third_party/patches/csync-schema-lock.patch (unchanged)
+- third_party/patches/glob-windows-paths.patch (unchanged)
+patch_SHA256:
+- csync-schema-lock.patch: e21e17f17fe61b971c754fab53deccf4d70611a61b4cfe3c629ce8d739df1a5d
+- glob-windows-paths.patch: 01c32756ef549a47267b97284597693982db6d4dd8196a88e358282d608dc954
+- new WP5 patch: none; fix belongs to tracked hardening script
+manifest_changes: none. A transient patch/manifest experiment was fully reverted before the final tree.
+clean_apply_check: PASS for ordered replay from pristine Crush pin 6d14dd93a9e526505f7de54ae5999431bc32a793. `apply-crush-patches.ps1` performs `git apply --check` for every manifest patch before apply; run 34044441535 replayed the full declared patch order successfully and the strengthened post-hardening assertions passed.
+
+environment_blockers: Staticcheck was not preinstalled and, per Agent 1 policy, was not installed. The hosted runner also auto-downloaded Go toolchains/dependencies when module commands ran; therefore those broad test results are supplementary and are not a policy-clean substitute for an already-provisioned approved environment.
+permission_blockers: none for isolated branch implementation/evidence. No live provider call, upstream publication, main-branch merge, PR, tag, or release was performed.
+unexplained_failures: The pre-existing canonical evidence records one full nested inventory failure followed by a green rerun without retaining the failing test name/root cause. Per policy that failure remains unexplained. The current run's broad build failure is explained by the missing Fantasy transport observer API and was not rerun to hide it.
+
+cleanup_performed: Removed the temporary evidence workflow after artifact capture; reverted the transient question-rest patch and manifest edit; retained evidence artifact 9992723389; did not touch owner main, ignored third_party/crush, module cache, user profile, or data.
+remaining_WP5_status: INCONCLUSIVE. The two Question-handler U1000 owning defects are fixed and focused csync/fsext tests+vet pass, but WP5 cannot be declared COMPLETE while full Staticcheck is unavailable, the prior unexplained full-test failure remains unresolved, and the integrated nested stack cannot currently build until WP2/WP4 supplies the required Fantasy transport API.
+exact_next_action: Agent 2 must consume this handoff, reverify HEAD/status/diff, preserve the exact dependency stack, and proceed with WP2 lifecycle + WP3 proof. As part of WP2/WP4 dependency integration, provide the accepted Fantasy transport observer revision; then on an already-provisioned approved environment rerun full nested `go test ./...`, `go vet ./...`, and `staticcheck ./...`, capture any failure by exact test/diagnostic, and only then reconsider WP5 COMPLETE.
