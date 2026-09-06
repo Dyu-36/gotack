@@ -86,7 +86,16 @@ The child profile/config/cache/temp paths are isolated; provider discovery and
 metrics are disabled, and the fake endpoint never proxies external requests.
 This is fixture isolation, not a system-wide firewall or arbitrary-code sandbox.
 
-Only `provenance.json`, `tests.jsonl`, and `result.json` are evidence artifacts.
+The safe evidence artifacts are `provenance.json`, sanitized `tests.jsonl`,
+and `result.json` on acceptance or `failure.json` on test/validation failure.
+`tests.jsonl` contains only the fixed package/required-test lifecycle fields
+and non-negative elapsed times. Raw test Output, stderr, arbitrary metadata
+and dynamic subtest names are never exported. Unknown failing/skipped test
+names are represented only by counts in failure.json. Validation always reads
+the ORIGINAL test stream before redaction: removing sensitive output must not
+hide a skip, malformed event or build failure. Exit-zero validation failures
+also produce failure.json and never a success receipt.
+
 Captured requests remain in memory. Child stdout/stderr and engine profile
 contents are not exported. The MCP audit contains only initialize/call counts.
 Do not upload engine logs, profiles, request bodies, or environment dumps.
