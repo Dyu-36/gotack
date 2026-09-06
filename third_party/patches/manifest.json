@@ -5,7 +5,8 @@
     "hermes-skill-refresh.patch",
     "proactive-auto-compact.patch",
     "prompt-context-refresh.patch",
-    "projects-recency-order.patch"
+    "projects-recency-order.patch",
+    "nested-staticcheck-imports.patch"
   ],
   "input_pipeline": [
     "input-pipeline-core.patch",
