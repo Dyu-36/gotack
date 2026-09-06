@@ -290,7 +290,7 @@ Mỗi WP ghi một entry gồm:
 - [ ] WP2 / IP-01: provider-wire telemetry đúng và real executable/host sink proof.
 - [ ] WP3 / IP-02: committed integrity + reader lifecycle + concurrency proof.
 - [ ] WP4 / IP-03: approved Fantasy revision thực sự trong candidate binary.
-- [ ] WP5 / IP-06: nested findings đã xử lý với executable evidence.
+- [x] WP5 / IP-06: nested findings đã xử lý với executable evidence; xem final superseding Agent 1 handoff ở cuối file.
 - [ ] WP6 / IP-05: Windows race/NTFS/ACL/isolation/portable acceptance.
 - [ ] WP7 / IP-04 + Hermes: live continuity và credentialed packaged smoke.
 - [ ] WP8 / IP-07: năm workload baseline thật, cache OFF/no-rollout.
@@ -525,3 +525,58 @@ unexplained_failures: The pre-existing canonical evidence records one full neste
 cleanup_performed: Removed the temporary evidence workflow after artifact capture; reverted the transient question-rest patch and manifest edit; retained evidence artifact 9992723389; did not touch owner main, ignored third_party/crush, module cache, user profile, or data.
 remaining_WP5_status: INCONCLUSIVE. The two Question-handler U1000 owning defects are fixed and focused csync/fsext tests+vet pass, but WP5 cannot be declared COMPLETE while full Staticcheck is unavailable, the prior unexplained full-test failure remains unresolved, and the integrated nested stack cannot currently build until WP2/WP4 supplies the required Fantasy transport API.
 exact_next_action: Agent 2 must consume this handoff, reverify HEAD/status/diff, preserve the exact dependency stack, and proceed with WP2 lifecycle + WP3 proof. As part of WP2/WP4 dependency integration, provide the accepted Fantasy transport observer revision; then on an already-provisioned approved environment rerun full nested `go test ./...`, `go vet ./...`, and `staticcheck ./...`, capture any failure by exact test/diagnostic, and only then reconsider WP5 COMPLETE.
+
+### HANDOFF_AGENT_1 — FINAL SUPERSEDING WP5 HANDOFF — 2026-09-06
+
+This section supersedes the earlier `HANDOFF_AGENT_1 — Baseline + WP5` status above. Historical evidence is retained, but its `INCONCLUSIVE` conclusion is no longer current.
+
+status: COMPLETE
+scope_status: WP5_COMPLETE / GLOBAL_RELEASE_NOT_READY
+canonical_plan_repo_path: docs/plans/active/windows-release-completion.md
+validated_branch: agent-01-wp5-final-20260906
+validated_source_commit: d68ccd71aeec417c8ffca5443579178a554806e5
+post_validation_docs_commit: 97eb08fba188d939e2229ca1866f98a2b8c433f2
+owner_main_verified: a3632b0af918daccd05bba892c8f564a0a34b91b
+crush_pin: 6d14dd93a9e526505f7de54ae5999431bc32a793
+
+final_validation_environment: GitHub Windows Server 2025 / windows-2025-vs2026, git 2.55.0.windows.5. The run auto-downloaded required Go toolchains (Crush go1.26.6 and repo go1.27.0); pinned Staticcheck v0.8.1 switched to go1.26.8. This is hosted-CI evidence, not a claim that every toolchain was pre-provisioned.
+
+final_validation_commands:
+- `go test -timeout 120s -count=10 ./internal/csync ./internal/fsext`
+- `go vet ./internal/csync ./internal/fsext`
+- `go test -timeout 120s -count=100 ./internal/projects -run TestRegisterAndList`
+- `go test -timeout 300s -count=1 ./...`
+- `go vet ./...`
+- `go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...`
+final_validation_exit_codes: all 0 in GitHub Actions run 34046768682.
+final_staticcheck_run: 34046768659 PASS on the same validated source commit.
+
+final_evidence:
+- run 34046768682: PASS; artifact 9993462940, sha256:61ccce410d0d1b62862179acb5a201f110949e63473ff77642c14bf28a6189fd, 6174 bytes.
+- run 34046768659: PASS; artifact 9993393273, sha256:1dc00d8669fc071ebf3055d1e965175cbcd8057c7a9688fe5808ed11ba84d4c8, 422 bytes.
+
+reproduction_and_resolution_lineage:
+- run 34045277760 reproduced Windows project-recency instability (`Expected most recent project first, got /home/user/project1`); `projects-recency-order.patch` now guarantees strictly monotonic `LastAccessed` and adds a deterministic future-timestamp regression.
+- run 34045383314 exposed the nested Staticcheck inventory; hardening removed genuine dead code and retained deliberate deprecated/user-facing behavior only with source-level rationale. Run 34045757253 then narrowed the remaining problem to the unused OAuth `context` import; `nested-staticcheck-imports.patch` removes it.
+- run 34046074561 then isolated the last full-suite Windows failure to `TestCrushLogs_EmptyFile`, where `os.Create` left a live file handle and `TempDir` cleanup failed. `nested-windows-test-handles.patch` closes the handle before the test reads the file. The same package passes in final run 34046768682.
+- Existing `csync-schema-lock.patch` and `glob-windows-paths.patch` remain in the ordered input-pipeline phase and pass focused/full checks on the final replay.
+
+implementation_files:
+- scripts/harden-crush-for-tack.ps1
+- scripts/apply-crush-patches.ps1
+- third_party/patches/manifest.json
+- third_party/patches/projects-recency-order.patch
+- third_party/patches/nested-staticcheck-imports.patch
+- third_party/patches/nested-windows-test-handles.patch
+- third_party/README.md
+- docs/plans/active/windows-release-completion.md
+
+fantasy_verification_scope: The final WP5 CI staged `third_party/fantasy-patches/provider-transport-observer.patch` only inside an isolated Fantasy checkout at base `f06034c7824ffddc4394d4cefa5ed5132a186b1b`, then used a temporary `go mod edit -replace` so the nested candidate could compile. This was verification-only staging. It is not a release pin, upstream publication, WP4 certification, or evidence that a release binary contains that Fantasy revision.
+
+permission_blockers: none for WP5 implementation and isolated validation.
+privacy_and_external_actions: no live provider call, owner-profile fixture, upstream publication, PR, merge to main, tag, release, or branch-protection change was performed.
+cleanup_performed: the two temporary Agent 1 diagnostic workflows are removed in the same final handoff commit; owner main, ignored owner engine, user profile/data, and module cache were not mutated by cleanup.
+remaining_WP5_status: COMPLETE. The earlier unexplained nested failure has now been traced to concrete Windows project-recency and file-handle defects, both fixed with deterministic regression coverage; full nested tests, vet, and pinned Staticcheck are green on the final validated source candidate.
+global_release_status: NOT_READY. WP2/WP3/WP4/WP6/WP7/WP8/WP9 remain governed by their own gates and are not certified by Agent 1.
+rollback: revert only the Agent 1 branch commits/patch registrations that own these nested fixes; do not reset owner main, delete owner data, or mutate the ignored owner `third_party/crush` checkout.
+exact_next_action: Agent 2/owner can consume this handoff and proceed with the remaining work packages. WP5 no longer blocks that work; do not reuse the temporary Fantasy `replace` as a release solution.
