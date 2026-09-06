@@ -20,6 +20,18 @@ export const requiredTests = Object.freeze([
   'TestE2EPromptCanaryStaysInAllowedSinks',
 ]);
 export const testPackage = 'github.com/Dyu-36/gotack/e2e/inputpipeline';
+// Accept Go test lifecycle events and the go command's build diagnostics.
+// Unknown fields remain forward-compatible; event/action identity must be valid.
+const testActions = new Set([
+  'start', 'run', 'pause', 'cont', 'pass', 'bench', 'fail', 'output', 'skip',
+  'build-output', 'build-fail',
+]);
+export function isTestEvent(event) {
+  return event !== null && typeof event === 'object' && !Array.isArray(event) &&
+    testActions.has(event.Action) &&
+    (event.Package === undefined || typeof event.Package === 'string') &&
+    (event.Test === undefined || typeof event.Test === 'string');
+}
 export class GateError extends Error {
   constructor(code) { super(`input-pipeline: ${code}`); this.code = code; }
 }
@@ -129,9 +141,9 @@ export function verifyTestJSON(text, exitCode) {
     if (!line.trim()) continue;
     let event;
     try { event = JSON.parse(line); } catch { throw new GateError('test_json_invalid'); }
-    check(event && typeof event === 'object', 'test_json_invalid');
+    check(isTestEvent(event), 'test_json_invalid');
     check(event.Action !== 'skip', 'unexpected_skip');
-    check(event.Action !== 'fail', 'test_failed');
+    check(event.Action !== 'fail' && event.Action !== 'build-fail', 'test_failed');
     if (event.Package !== testPackage) continue;
     if (event.Action === 'pass' && !event.Test) packagePassed = true;
     if (!requiredTests.includes(event.Test)) continue;

@@ -8,6 +8,7 @@ import {
   verifyTestJSON, requiredTests, testPackage, requireWindows,
 } from './gate.mjs';
 import { native, checked, newArtifactDir, buildCandidate, gitEnvironment } from './run.mjs';
+import * as runner from './run.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gotack-gate-unit-'));
@@ -171,4 +172,79 @@ test('required platform and Git directory isolation fail closed', () => {
   const clean = gitEnvironment(source);
   assert.deepEqual(clean, { PATH: 'tools', GIT_TERMINAL_PROMPT: '0' });
   assert.equal(source.GIT_DIR, '/owner/repo/.git');
+});
+
+// Exercise the public artifact sink, not a copy of its redaction logic.
+
+test('malformed event shapes and unknown actions fail closed', () => {
+  for (const event of [null, [], {}, 42, 'event', { Action: 'unknown' },
+    { Action: 'output', Package: [] }, { Action: 'run', Test: 42 },
+    { Action: 'pass', Package: testPackage, Test: null }]) {
+    rejects(() => verifyTestJSON(jsonl([...passStream(), event]), 0), 'test_json_invalid');
+  }
+});
+test('build failures cannot hide behind a successful test package', () => {
+  const build = { Action: 'build-fail', ImportPath: 'synthetic/dependency' };
+  rejects(() => verifyTestJSON(jsonl([...passStream(), build]), 0), 'test_failed');
+  assert.equal(runner.safeTestFailure(jsonl([build]), 1).build_failed, true);
+});
+test('failure diagnostics reject malformed shapes without echoing subtest names', () => {
+  const canary = 'SYNTHETIC_AUDIT_CANARY';
+  const diagnostic = runner.safeTestFailure(jsonl([
+    { Action: 'fail', Package: testPackage, Test: `${requiredTests[0]}/${canary}` },
+    { Action: 'skip', Package: testPackage, Test: canary },
+    { Action: 'fail', Package: testPackage, Test: requiredTests[0] },
+    { Action: 'fail', Package: testPackage }, [],
+  ]), 1);
+  assert.equal(JSON.stringify(diagnostic).includes(canary), false);
+  assert.deepEqual(diagnostic.failed_tests, [requiredTests[0]]);
+  assert.equal(diagnostic.other_failed_tests, 1);
+  assert.equal(diagnostic.other_skipped_tests, 1);
+  assert.equal(diagnostic.package_failed, true);
+  assert.equal(diagnostic.test_json_invalid, true);
+});
+test('artifact sink persists only allowlisted lifecycle data on success', t => {
+  const f = fixture(t), canary = 'SYNTHETIC_AUDIT_CANARY';
+  const text = jsonl([
+    { Action: 'start', Package: testPackage, Extra: canary },
+    { Action: 'output', Package: testPackage, Output: canary },
+    { Action: 'build-output', ImportPath: canary, Output: canary },
+    { Action: 'run', Package: testPackage, Test: `Other/${canary}` },
+    { Action: 'pass', Package: testPackage, Test: `Other/${canary}` },
+    ...passStream().map(event => ({ ...event, Test: event.Test ?? '', Extra: canary })),
+  ]);
+  const summary = runner.writeTestArtifacts(f.root, { status: 0, failure: '', stdout: text, stderr: canary });
+  assert.equal(summary.required_tests, requiredTests.length);
+  for (const name of ['tests.jsonl', 'result.json']) {
+    assert.equal(fs.readFileSync(path.join(f.root, name), 'utf8').includes(canary), false);
+  }
+  const safe = fs.readFileSync(path.join(f.root, 'tests.jsonl'), 'utf8');
+  assert.equal(verifyTestJSON(safe, 0).status, 'PASS');
+  assert.equal(fs.existsSync(path.join(f.root, 'failure.json')), false);
+});
+test('artifact sink records zero-exit validation failures without success receipts', t => {
+  const canary = 'SYNTHETIC_AUDIT_CANARY';
+  for (const [extra, code] of [
+    [jsonl([{ Action: 'skip', Package: testPackage, Test: canary }]), 'unexpected_skip'],
+    [jsonl([[]]), 'test_json_invalid'],
+    [`{${canary}`, 'test_json_invalid'],
+    [jsonl([{ Action: 'build-fail', ImportPath: canary }]), 'test_failed'],
+  ]) {
+    const f = fixture(t);
+    rejects(() => runner.writeTestArtifacts(f.root, {
+      status: 0, failure: '', stdout: jsonl(passStream()) + extra, stderr: canary,
+    }), code);
+    assert.equal(fs.existsSync(path.join(f.root, 'result.json')), false);
+    for (const name of ['tests.jsonl', 'failure.json']) {
+      assert.equal(fs.readFileSync(path.join(f.root, name), 'utf8').includes(canary), false);
+    }
+  }
+});
+test('artifact sink records process failures and timeouts despite complete test events', t => {
+  for (const [status, failure, code] of [[7, '', 'test_process_failed'], [null, 'native_timeout', 'native_timeout']]) {
+    const f = fixture(t);
+    rejects(() => runner.writeTestArtifacts(f.root, { status, failure, stdout: jsonl(passStream()) }), code);
+    assert.equal(fs.existsSync(path.join(f.root, 'result.json')), false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(f.root, 'failure.json'))).status, 'FAIL');
+  }
 });
