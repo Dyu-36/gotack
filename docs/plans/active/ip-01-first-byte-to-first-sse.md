@@ -4,8 +4,14 @@ Date: 2026-09-06
 
 ## Status
 
-Active — implementation complete, focused proof green, e2e correlation pending
-a controlled-delay synthetic fixture (no live provider required).
+Historical work-package record, superseded for execution by
+[Windows release completion](windows-release-completion.md), WP2.
+IP-01 acceptance remains OPEN: the baseline host workspace-SSE observation
+is not provider-wire timing and call/attempt correlation is incomplete.
+Original implementation claims, checkboxes and commands below are preserved
+as history, not current acceptance. Bare root-plan references mean the
+historical file at Git commit 8511143; local:// evidence labels are not
+verified repository files. Do not follow obsolete follow-up instructions.
 
 ## Context
 

@@ -7,13 +7,13 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
-	"github.com/Dyu-36/gotack/internal/engineobserver"
 	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
+
 var _ enginelink.EventConsumer = (*uievents.Forwarder)(nil)
 
 type EngineInfo struct {
@@ -80,30 +80,11 @@ func (a *App) tryConnect() bool {
 
 func (a *App) connect(scope context.Context) {
 	err := a.link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
-		// Re-wire the host observer to the per-Client TTFB registry.
-		a.engineObserver = engineobserver.New(api.Observer())
 		callbacks := uievents.Callbacks{
 			RunDone:              a.runDone,
 			AssistantIteration:   a.assistantIteration,
 			LearningToolExecuted: a.learningToolExecuted,
-			RunTelemetry: func(telemetry *crushapi.RunTelemetry) {
-				if telemetry == nil {
-					return
-				}
-				if a.engineObserver != nil {
-					if spans := a.engineObserver.Merge(telemetry); spans != nil {
-						for k, v := range spans {
-							if telemetry.SpansMicros == nil {
-								telemetry.SpansMicros = map[string]int64{}
-							}
-							telemetry.SpansMicros[k] = v
-						}
-					}
-				}
-				if a.runMetrics != nil {
-					a.runMetrics.Append(telemetry)
-				}
-			},
+			RunTelemetry:         a.telemetryCallback(api),
 		}
 		if relay := a.permsFromConn(); relay != nil {
 			callbacks.PermissionPending = relay.Pending
@@ -150,6 +131,22 @@ func (a *App) connect(scope context.Context) {
 
 	default:
 		a.failConnect(err.Error())
+	}
+}
+
+func (a *App) telemetryCallback(api *crushapi.Client) func(*crushapi.RunTelemetry) {
+	return func(telemetry *crushapi.RunTelemetry) {
+		if telemetry == nil {
+			return
+		}
+		// Workspace SSE is a long-lived host transport, not a provider
+		// model call. Discard its legacy observation; only the engine can
+		// supply provider timings. Keep the client owned by this callback
+		// so a reconnect cannot consume another connection's registry.
+		api.Observer().Evict(telemetry.RunID, 0, "")
+		if a.runMetrics != nil {
+			a.runMetrics.Append(telemetry)
+		}
 	}
 }
 

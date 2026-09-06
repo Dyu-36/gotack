@@ -1,0 +1,15 @@
+diff --git a/internal/agent/tools/glob.go b/internal/agent/tools/glob.go
+index 2eaf26ba..af64c51a 100644
+--- a/internal/agent/tools/glob.go
++++ b/internal/agent/tools/glob.go
+@@ -94,7 +94,9 @@ func NewGlobTool(workingDir string, cfg config.ToolGlob) fantasy.AgentTool {
+ 	)
+ }
+ 
+-func globFiles(ctx context.Context, pattern, searchPath string, limit int) ([]string, bool, error) {
++func globFiles(ctx context.Context, pattern, searchPath string, limit int) (files []string, truncated bool, err error) {
++	// Both backends expose the same slash-normalized path contract.
++	defer func() { normalizeFilePaths(files) }()
+ 	// Scope the walk to the pattern's literal directory prefix. A pattern
+ 	// like "internal/agent/*.go" only needs to walk "internal/agent", so we
+ 	// start there instead of enumerating the entire tree and filtering.

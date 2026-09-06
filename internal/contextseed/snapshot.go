@@ -154,11 +154,16 @@ func (s *Seeder) BuildPromptSnapshot() (string, error) {
 	mac.Write(manifest.encode())
 	final := filepath.Join(root, snapshotPrefix+base64.RawURLEncoding.EncodeToString(mac.Sum(nil)))
 
-	if info, err := os.Stat(final); err == nil && info.IsDir() {
+	if _, err := os.Lstat(final); err == nil {
 		// Identical logical content: reuse the committed immutable
-		// revision instead of publishing a duplicate.
+		// revision only after validating the bytes we will serve.
+		if err := validateStagedSnapshot(final, manifest); err != nil {
+			return "", fmt.Errorf("validate committed prompt snapshot: %w", err)
+		}
 		s.retainSnapshot(final)
 		return final, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect committed prompt snapshot: %w", err)
 	}
 
 	staging, err := os.MkdirTemp(root, ".staging-")
@@ -194,8 +199,11 @@ func (s *Seeder) BuildPromptSnapshot() (string, error) {
 	}
 	if err := os.Rename(staging, final); err != nil {
 		// A concurrent publisher may have committed the same identity
-		// first; adopt it only when it is a real directory.
-		if info, statErr := os.Stat(final); statErr == nil && info.IsDir() {
+		// first; apply the same integrity check as staging and reuse.
+		if _, statErr := os.Lstat(final); statErr == nil {
+			if err := validateStagedSnapshot(final, manifest); err != nil {
+				return "", fmt.Errorf("validate concurrent prompt snapshot: %w", err)
+			}
 			s.retainSnapshot(final)
 			return final, nil
 		}
@@ -336,13 +344,26 @@ func (s *Seeder) sanitizedMemoryBytes(source, rel string) ([]byte, error) {
 // cleanup).
 
 func validateStagedSnapshot(staging string, manifest *snapshotManifest) error {
+	info, err := os.Lstat(staging)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("snapshot root must be a real directory")
+	}
 	staged := make(map[string][]byte, len(manifest.entries))
-	err := filepath.WalkDir(staging, func(path string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(staging, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("snapshot contains link; rebuild from source after releasing readers")
+		}
 		if entry.IsDir() {
 			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("snapshot contains non-regular file")
 		}
 		rel, err := filepath.Rel(staging, path)
 		if err != nil {
@@ -352,7 +373,11 @@ func validateStagedSnapshot(staging string, manifest *snapshotManifest) error {
 		if err != nil {
 			return err
 		}
-		staged[canonicalSnapshotRel(filepath.ToSlash(rel))] = data
+		canonical := canonicalSnapshotRel(filepath.ToSlash(rel))
+		if _, exists := staged[canonical]; exists {
+			return fmt.Errorf("snapshot contains duplicate canonical path %q", canonical)
+		}
+		staged[canonical] = data
 		return nil
 	})
 	if err != nil {
@@ -442,36 +467,77 @@ func (s *Seeder) SnapshotOwner() string {
 // releasing a reader through ReleaseReader makes that generation
 // prunable on the next call.
 func (s *Seeder) PrunePromptSnapshots(keep string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entries, err := os.ReadDir(s.PromptContextRoot())
-	if err != nil {
-		return
-	}
-	protected := make(map[string]struct{}, len(s.snapshotReaders)+3)
-	if keep != "" {
-		protected[filepath.Clean(keep)] = struct{}{}
-	}
-	if s.currentSnapshot != "" {
-		protected[filepath.Clean(s.currentSnapshot)] = struct{}{}
-	}
-	if s.previousSnapshot != "" {
-		protected[filepath.Clean(s.previousSnapshot)] = struct{}{}
-	}
-	for _, gen := range s.snapshotReaders {
-		if gen == "" {
-			continue
+	_ = s.PrunePromptSnapshotsChecked(keep)
+}
+
+// PrunePromptSnapshotsChecked applies the in-process safety floor plus
+// cross-process generation leases. Reader registration and pruning are
+// serialized by the registry lock; a generation is removed only after prune
+// acquires its lease file exclusively, which fails while any process holds a
+// shared SnapshotLease. OS lifetime locks are released automatically if a
+// holder process exits.
+func (s *Seeder) PrunePromptSnapshotsChecked(keep string) error {
+	return s.withSnapshotRegistryLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		entries, err := os.ReadDir(s.PromptContextRoot())
+		if err != nil {
+			return err
 		}
-		protected[filepath.Clean(gen)] = struct{}{}
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), snapshotPrefix) {
-			continue
+		protected := make(map[string]struct{}, len(s.snapshotReaders)+3)
+		if keep != "" {
+			protected[filepath.Clean(keep)] = struct{}{}
 		}
-		path := filepath.Join(s.PromptContextRoot(), entry.Name())
-		if _, ok := protected[filepath.Clean(path)]; ok {
-			continue
+		if s.currentSnapshot != "" {
+			protected[filepath.Clean(s.currentSnapshot)] = struct{}{}
 		}
-		_ = os.RemoveAll(path)
-	}
+		if s.previousSnapshot != "" {
+			protected[filepath.Clean(s.previousSnapshot)] = struct{}{}
+		}
+		for _, gen := range s.snapshotReaders {
+			if gen == "" {
+				continue
+			}
+			protected[filepath.Clean(gen)] = struct{}{}
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() || !strings.HasPrefix(entry.Name(), snapshotPrefix) {
+				continue
+			}
+			path := filepath.Join(s.PromptContextRoot(), entry.Name())
+			if _, ok := protected[filepath.Clean(path)]; ok {
+				continue
+			}
+			leasePath := filepath.Join(s.snapshotLeaseDir(), entry.Name()+".lock")
+			leaseFile, err := os.OpenFile(leasePath, os.O_CREATE|os.O_RDWR, 0o600)
+			if err != nil {
+				return fmt.Errorf("open snapshot prune lease: %w", err)
+			}
+			locked, lockErr := tryLockSnapshotFileExclusive(leaseFile)
+			if lockErr != nil {
+				_ = leaseFile.Close()
+				return fmt.Errorf("lock snapshot prune lease: %w", lockErr)
+			}
+			if !locked {
+				_ = leaseFile.Close()
+				continue
+			}
+			removeErr := os.RemoveAll(path)
+			unlockErr := unlockSnapshotFile(leaseFile)
+			closeErr := leaseFile.Close()
+			if removeErr != nil {
+				return fmt.Errorf("prune prompt snapshot: %w", removeErr)
+			}
+			if unlockErr != nil {
+				return fmt.Errorf("unlock snapshot prune lease: %w", unlockErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close snapshot prune lease: %w", closeErr)
+			}
+			if err := os.Remove(leasePath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove snapshot prune lease metadata: %w", err)
+			}
+		}
+		return nil
+	})
 }

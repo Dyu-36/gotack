@@ -16,7 +16,8 @@ type WorkspaceConfig struct {
 }
 
 type WorkspaceOptions struct {
-	SkillsPaths []string `json:"skills_paths,omitempty"`
+	SkillsPaths        []string `json:"skills_paths,omitempty"`
+	GlobalContextPaths []string `json:"global_context_paths,omitempty"`
 }
 
 func (c WorkspaceConfig) SkillsPaths() []string {

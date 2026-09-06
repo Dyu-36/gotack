@@ -1,0 +1,65 @@
+diff --git a/internal/csync/maps.go b/internal/csync/maps.go
+index 9de501f6..6c726f41 100644
+--- a/internal/csync/maps.go
++++ b/internal/csync/maps.go
+@@ -9,6 +9,7 @@ import (
+ 
+ // Map is a concurrent map implementation that provides thread-safe access.
+ type Map[K comparable, V any] struct {
++	mapSchema[K, V]
+ 	inner map[K]V
+ 	mu    sync.RWMutex
+ }
+@@ -150,10 +151,11 @@ var (
+ 	_ json.Marshaler   = &Map[string, any]{}
+ )
+ 
+-// JSONSchemaAlias returns the underlying map type for JSON schema generation.
+-// Value receiver is required because github.com/invopop/jsonschema checks
+-// interface satisfaction on the non-pointer type after stripping pointers.
+-func (Map[K, V]) JSONSchemaAlias() any { //nolint
++// mapSchema preserves the value-type alias interface used by jsonschema
++// without copying the owning Map's mutex when the alias is invoked.
++type mapSchema[K comparable, V any] struct{}
++
++func (mapSchema[K, V]) JSONSchemaAlias() any {
+ 	m := map[K]V{}
+ 	return m
+ }
+diff --git a/internal/csync/maps_schema_test.go b/internal/csync/maps_schema_test.go
+new file mode 100644
+index 00000000..2bcd8f3b
+--- /dev/null
++++ b/internal/csync/maps_schema_test.go
+@@ -0,0 +1,31 @@
++package csync
++
++import (
++	"encoding/json"
++	"testing"
++
++	"github.com/invopop/jsonschema"
++)
++
++func TestMapSchemaAliasPreservesValueAndPointerSchema(t *testing.T) {
++	for _, input := range []any{Map[string, int]{}, NewMap[string, int]()} {
++		r := jsonschema.Reflector{DoNotReference: true}
++		schema := r.Reflect(input)
++		if schema.Type != "object" || schema.AdditionalProperties == nil || schema.AdditionalProperties.Type != "integer" {
++			t.Fatalf("map schema lost its value type: %#v", schema)
++		}
++	}
++	m := NewMap[string, int]()
++	m.Set("answer", 42)
++	// The promoted schema method does not access the map or acquire its lock.
++	m.mu.Lock()
++	alias := m.JSONSchemaAlias()
++	m.mu.Unlock()
++	if _, ok := alias.(map[string]int); !ok {
++		t.Fatal("wrong schema alias type")
++	}
++	data, err := json.Marshal(m)
++	if err != nil || string(data) != `{"answer":42}` {
++		t.Fatalf("map JSON changed: %s, %v", data, err)
++	}
++}

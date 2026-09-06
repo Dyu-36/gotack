@@ -27,6 +27,7 @@ func TestMergeHappyPath(t *testing.T) {
 		t.Fatalf("expected nil stamps, got fb=%v ss=%v", fb, ss)
 	}
 }
+
 // TestMergeMissingFirstByte asserts that no span is written when only the
 // SSE-first stamp is present (e.g. the body wrapper never saw data).
 func TestMergeMissingFirstByte(t *testing.T) {

@@ -1,8 +1,12 @@
 # Input Pipeline Upgrade — execution and audit evidence
 
-Updated: 2026-09-06. Outstanding work is maintained only in the root
-`ImplementPlan.md`; this file records authority, implementation evidence,
+Updated: 2026-09-06. Outstanding work is maintained only in
+`docs/plans/active/windows-release-completion.md`; this file records authority, implementation evidence,
 validation limits and recovery. The milestone is **not release-approved**.
+
+## Record status
+
+This is historical audit evidence, not the current execution checklist. Follow [Windows release completion](windows-release-completion.md) for remaining work. Old root-plan references below refer to the explicit historical Git blob, never to a live file that should be recreated.
 
 ## Authority and operating boundary
 

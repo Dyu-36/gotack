@@ -81,6 +81,9 @@ export function bootstrap(pairs, metric, p, seed, resamples = 10000) {
   return [estimates[Math.ceil(.025 * resamples) - 1], estimates[Math.ceil(.975 * resamples) - 1]];
 }
 export function report(input, { seed, workload, synthetic = true, expectedPairs }) {
+  // WP8: this collector has no authorized live driver or capture provenance.
+  // A caller-supplied flag cannot promote fixture measurements to live proof.
+  check(synthetic === true, 'benchmark_live_requires_dedicated_runner');
   check(workloads.includes(workload), 'benchmark_workload_invalid');
   const records = input.map(validateRecord), grouped = new Map();
   for (const record of records) {
@@ -116,7 +119,7 @@ export function report(input, { seed, workload, synthetic = true, expectedPairs 
     percentile_method: 'nearest-rank', bootstrap_resamples: 10000, bootstrap_unit: 'session-pair',
     cache_state: 'provider-cache-reset-unproven', metrics, counts,
     decision: 'no-rollout', prompt_cache_key_default: 'OFF',
-    reason: synthetic ? 'synthetic_correctness_only' : 'inconclusive_pending_preregistered_live_acceptance', records };
+    reason: 'synthetic_correctness_only', records };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {

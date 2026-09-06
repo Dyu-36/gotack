@@ -21,17 +21,6 @@ func withStagedHook(t *testing.T, fn func(staging string)) {
 	t.Cleanup(func() { beforeValidateStagedSnapshot = previous })
 }
 
-// withCollectHook installs a one-shot test hook that fires just
-// before BuildPromptSnapshot walks the source tree. Tests use it
-// to drop a source file or otherwise invalidate one so the read
-// path actually fails.
-func withCollectHook(t *testing.T, fn func(source string)) {
-	t.Helper()
-	previous := beforeCollectSnapshot
-	beforeCollectSnapshot = fn
-	t.Cleanup(func() { beforeCollectSnapshot = previous })
-}
-
 // TestBuildPromptSnapshotRejectsModifiedStagedByte guards the IP-02
 // "manifest mismatching revision is rejected" acceptance scenario:
 // the staged tree has its bytes mutated between collect and

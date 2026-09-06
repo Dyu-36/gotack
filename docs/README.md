@@ -4,6 +4,8 @@ Start with the smallest authoritative surface.
 
 ## Current Documents
 
+- [Windows release completion plan](plans/active/windows-release-completion.md): canonical remaining-work plan, technical decisions and acceptance gates.
+
 - `../README.md`: product overview, architecture, integrations, stack
   baseline, and repository layout.
 - `WORKFLOW.md`: request shape, planning, judgment, operation, validation, and

@@ -2,6 +2,10 @@
 
 Date: 2026-09-02
 
+## Execution ownership
+
+The remaining packaged-app smoke and final closure are owned by [Windows release completion](windows-release-completion.md), WP7/WP9. This file retains the original implementation/evidence record; do not maintain a second remaining-work checklist here.
+
 ## Status
 
 Ready for credentialed smoke — implementation, repository validation, and the

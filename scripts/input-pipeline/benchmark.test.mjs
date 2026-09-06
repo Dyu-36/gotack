@@ -20,6 +20,15 @@ test('schedule contains both arms and balances reproducible AB/BA independent pa
 });
 const record = (pair, arm) => ({ pair, arm, requests: 1, retries: 0, outcome: 'success', cache_status: 'unreported',
   metrics: { total_us: 100, first_text_us: arm === 'A' ? 50 : 40 } });
+
+test('synthetic collector cannot be relabeled as live baseline', () => {
+  const rows = [record(0, 'A'), record(0, 'B')];
+  for (const synthetic of [false, null, 0, 'false']) {
+    assert.throws(() => report(rows, { seed: 42, workload: 'fresh', expectedPairs: 1, synthetic }),
+      /benchmark_live_requires_dedicated_runner/);
+  }
+  assert.equal(report(rows, { seed: 42, workload: 'fresh', expectedPairs: 1 }).synthetic, true);
+});
 test('paired bootstrap excludes neither failures nor missing text from accounting', () => {
   const rows = Array.from({ length: 30 }, (_, i) => [record(i, 'A'), record(i, 'B')]).flat();
   rows[0].outcome = 'timeout'; rows[0].metrics.first_text_us = null; rows[0].retries = 2;

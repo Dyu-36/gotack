@@ -156,6 +156,19 @@ shape:
   "first_reasoning_us": null,
   "first_tool_us": null,
   "first_text_us": null,
+  "provider_attempts": [
+    {
+      "model_call_id": 1,
+      "http_attempt": 1,
+      "purpose": "tool_loop|retry|title|summarize",
+      "request_encoded_us": 0,
+      "request_written_us": 0,
+      "first_response_byte_us": 0,
+      "response_headers_us": 0,
+      "first_sse_frame_us": 0,
+      "first_byte_to_first_sse_us": 0
+    }
+  ],
   "cache_status": "hit|miss|unreported",
   "cached_input_tokens": null,
   "uncached_input_tokens": null,
@@ -204,26 +217,34 @@ dynamic-only changes (date, git_status, mcp, todo) appear only in
 
 ### First-byte to first-SSE span (PR0 / IP-01)
 
-`first_byte_to_first_sse` is the wall-clock duration between the first
-byte of the engine's response body (the HTTP transport wrapper sees it,
-not the Fantasy stream API) and the first SSE `data:` line the
-`crushapi.Client` decodes for that same model call. The engine emits
-`request_write_to_first_byte` only; the new span is observed on the host
-side and merged into the same `telemetry.spans_us` map at the
-`run_complete` callback. It is keyed by `(run_id, purpose)` so multiple
-attempts (title, tool loop, summarize, retry, prep error, queued
-cancellation) are kept distinct.
+`first_byte_to_first_sse` denotes the provider response's first byte to
+its first complete decoded SSE frame, within one model call and HTTP
+attempt. The host's long-lived workspace SSE connection cannot measure
+this span. The host callback forwards engine telemetry through the
+validator/JSONL writer without merging the legacy workspace observation.
+Provider-boundary observations are carried in `provider_attempts`; each
+entry has a positive `model_call_id` and `http_attempt`, plus a bounded
+purpose (`tool_loop`, `retry`, `title`, or `summarize`). Transport offsets
+are monotonic microseconds from the root trace anchor and remain omitted
+when the corresponding event was not observed.
 
-Absent-means-absent governs the span itself: if the SSE stream never
-opens (HTTP 5xx before headers, premature connection close after headers,
-engine-side `prep_error`, or `queued_cancellation`), the span is omitted
-from `spans_us`. A present-but-zero value is impossible because the merge
-is `sse.Sub(firstByte)` and either timestamp is zero.
+Correction of the previous implementation claim: workspace body timing
+and a terminal `data:` line were incorrectly presented as provider timing.
+The retained legacy registry tests do not prove provider instrumentation.
+WP2 release acceptance remains open until the tracked Fantasy observer and
+Crush wiring are present in the same receipt-verified candidate executable
+and the controlled-delay provider fixture passes end to end.
 
-The `telemetry.purpose` field is added to the wire as an optional string
-(`title | tool_loop | summarize | retry | prep_error |
-queued_cancellation`). Old consumers ignore unknown fields; new consumers
-use it to correlate the merged span with the originating call.
+Absent-means-absent governs the span: missing observations, EOF/errors
+before a complete provider frame, preparation errors and queued cancellation
+cannot manufacture a span. A measured sub-microsecond duration may be zero;
+an absent measurement must not become zero or use a wall-clock fallback.
+
+The legacy additive `telemetry.purpose` field remains accepted for older
+payloads, but new transport measurements use the per-entry
+`provider_attempts[].purpose` so multiple calls/attempts in one root run
+cannot overwrite one another. Preparation errors and queued cancellation
+have no provider attempt and therefore cannot fabricate transport timing.
 
 Security invariants:
 - Prompt text, ciphertext, OAuth tokens, and raw session UUIDs are never persisted
@@ -249,6 +270,27 @@ limitations:
   with one immutable snapshot path. The host does not merge additional global
   context directories; files intended for the persona projection must be
   placed under the seeded context directory.
+- Staged, reused committed, and concurrent-winner snapshots use the same
+  manifest validation before registration: exact file set and bytes, with
+  regular published files and no links in the published tree. Corruption
+  fails closed without deleting or overwriting the committed directory.
+- Snapshot selection and lease acquisition share a cross-process registry
+  lock. Each published generation has an OS-lifetime shared lease file outside
+  the prompt tree; prune takes the registry lock and can remove a generation
+  only after acquiring that generation lock exclusively. A crashed process
+  therefore releases protection through the OS rather than a TTL/PID guess.
+- Workspace registration is transactional: the host first reads the currently
+  registered `global_context_paths`, pins any existing Gotack generation, then
+  sets the new immutable path and asks the engine to rebuild its prompt. The
+  old acknowledged lease is released only after refresh succeeds. If refresh
+  fails, the host restores the prior config; if that rollback also fails, it
+  conservatively retains leases for both the last acknowledged generation and
+  the uncertain server-config generation until a later successful refresh or
+  teardown reconciles the state. A reconnect that captures an existing
+  server registration retains that lease even if snapshot build, config set,
+  or config removal fails before refresh. Windows profile casing, separator,
+  and relative/absolute aliases share the same ownership boundary; sibling
+  or nested snapshot roots are not admitted by alias handling.
 - Seeded-file updates compare SHA-256 content hashes, with size/hash metadata
   in `.seed-report.json`; same-size bundled edits are detected. User-editable
   files are preserved when untracked or detected as modified, including

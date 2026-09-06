@@ -188,6 +188,30 @@ func Validate(telemetry *crushapi.RunTelemetry) error {
 			return errors.New("telemetry_semantic_timing_invalid")
 		}
 	}
+	seenProviderAttempts := make(map[[2]int]struct{}, len(telemetry.ProviderAttempts))
+	for _, attempt := range telemetry.ProviderAttempts {
+		identity := [2]int{attempt.ModelCallID, attempt.HTTPAttempt}
+		if _, exists := seenProviderAttempts[identity]; exists {
+			return errors.New("telemetry_provider_attempt_identity_duplicate")
+		}
+		seenProviderAttempts[identity] = struct{}{}
+		if attempt.ModelCallID <= 0 || attempt.HTTPAttempt <= 0 {
+			return errors.New("telemetry_provider_attempt_identity_invalid")
+		}
+		if !enum(attempt.Purpose, "title", "tool_loop", "summarize", "retry") {
+			return errors.New("telemetry_provider_attempt_purpose_invalid")
+		}
+		for _, offset := range []*int64{attempt.RequestEncodedMicros, attempt.RequestWrittenMicros, attempt.FirstResponseByteMicros, attempt.ResponseHeadersMicros, attempt.FirstSSEFrameMicros, attempt.FirstByteToFirstSSEMicros} {
+			if offset != nil && *offset < 0 {
+				return errors.New("telemetry_provider_attempt_timing_invalid")
+			}
+		}
+		if attempt.FirstByteToFirstSSEMicros != nil {
+			if attempt.FirstResponseByteMicros == nil || attempt.FirstSSEFrameMicros == nil || *attempt.FirstSSEFrameMicros < *attempt.FirstResponseByteMicros || *attempt.FirstByteToFirstSSEMicros != *attempt.FirstSSEFrameMicros-*attempt.FirstResponseByteMicros {
+				return errors.New("telemetry_provider_attempt_span_invalid")
+			}
+		}
+	}
 	for _, digest := range []string{telemetry.StablePrefixHMAC, telemetry.DynamicSuffixHMAC, telemetry.RequestShapeHMAC} {
 		if digest == "" {
 			continue
@@ -225,10 +249,34 @@ func enum(value string, allowed ...string) bool {
 	return false
 }
 
+func cloneProviderAttempt(in crushapi.ProviderAttemptTelemetry) crushapi.ProviderAttemptTelemetry {
+	out := in
+	cloneInt64 := func(value *int64) *int64 {
+		if value == nil {
+			return nil
+		}
+		copy := *value
+		return &copy
+	}
+	out.RequestEncodedMicros = cloneInt64(in.RequestEncodedMicros)
+	out.RequestWrittenMicros = cloneInt64(in.RequestWrittenMicros)
+	out.FirstResponseByteMicros = cloneInt64(in.FirstResponseByteMicros)
+	out.ResponseHeadersMicros = cloneInt64(in.ResponseHeadersMicros)
+	out.FirstSSEFrameMicros = cloneInt64(in.FirstSSEFrameMicros)
+	out.FirstByteToFirstSSEMicros = cloneInt64(in.FirstByteToFirstSSEMicros)
+	return out
+}
+
 func redactSensitive(telemetry *crushapi.RunTelemetry) *crushapi.RunTelemetry {
 	out := *telemetry
 	out.ProviderRequestID = ""
 	out.SpansMicros = maps.Clone(telemetry.SpansMicros)
+	if len(telemetry.ProviderAttempts) > 0 {
+		out.ProviderAttempts = make([]crushapi.ProviderAttemptTelemetry, len(telemetry.ProviderAttempts))
+		for i, attempt := range telemetry.ProviderAttempts {
+			out.ProviderAttempts[i] = cloneProviderAttempt(attempt)
+		}
+	}
 	if telemetry.CachedInputTokens != nil {
 		n := *telemetry.CachedInputTokens
 		out.CachedInputTokens = &n
