@@ -1,0 +1,58 @@
+name: Agent 1 WP5 staticcheck
+
+on:
+  push:
+    branches:
+      - agent-01-wp5-final-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  staticcheck:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare and run pinned staticcheck
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP ("agent1-wp5-sc-{0}" -f $env:GITHUB_RUN_ID)
+          $crush = Join-Path $root 'crush'
+          $fantasy = Join-Path $root 'fantasy'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          & git clone --quiet https://github.com/charmbracelet/crush.git $crush
+          if ($LASTEXITCODE -ne 0) { throw 'clone Crush failed' }
+          & git -C $crush checkout --detach 6d14dd93a9e526505f7de54ae5999431bc32a793
+          if ($LASTEXITCODE -ne 0) { throw 'checkout Crush pin failed' }
+          & ./scripts/apply-crush-patches.ps1 -CrushDir $crush
+          if ($LASTEXITCODE -ne 0) { throw 'ordered replay failed' }
+          & git clone --quiet https://github.com/charmbracelet/fantasy.git $fantasy
+          if ($LASTEXITCODE -ne 0) { throw 'clone Fantasy failed' }
+          & git -C $fantasy checkout --detach f06034c7824ffddc4394d4cefa5ed5132a186b1b
+          if ($LASTEXITCODE -ne 0) { throw 'checkout Fantasy base failed' }
+          $patch = (Resolve-Path 'third_party/fantasy-patches/provider-transport-observer.patch').Path
+          & git -C $fantasy apply --check $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Fantasy patch check failed' }
+          & git -C $fantasy apply --whitespace=nowarn $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Fantasy patch apply failed' }
+          Push-Location $crush
+          try {
+            & go mod edit "-replace=charm.land/fantasy=$fantasy"
+            if ($LASTEXITCODE -ne 0) { throw 'go mod edit failed' }
+            $ErrorActionPreference = 'Continue'
+            & go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./... *>&1 | Tee-Object -FilePath (Join-Path $root 'staticcheck.txt')
+            $code = $LASTEXITCODE
+            "exit_code=$code" | Add-Content (Join-Path $root 'staticcheck.txt')
+            if ($code -ne 0) { exit $code }
+          } finally { Pop-Location }
+          "SC_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Upload staticcheck evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent1-wp5-staticcheck-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent1-wp5-sc-${{ github.run_id }}/staticcheck.txt
+          if-no-files-found: warn
+          retention-days: 30
