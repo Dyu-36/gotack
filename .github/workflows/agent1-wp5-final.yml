@@ -1,0 +1,99 @@
+name: Agent 1 WP5 final diagnostics
+
+on:
+  push:
+    branches:
+      - agent-01-wp5-final-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  wp5:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare isolated candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP ("agent1-wp5-final-{0}" -f $env:GITHUB_RUN_ID)
+          $evidence = Join-Path $root 'evidence'
+          $crush = Join-Path $root 'crush'
+          $fantasy = Join-Path $root 'fantasy'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          & git clone --quiet https://github.com/charmbracelet/crush.git $crush
+          if ($LASTEXITCODE -ne 0) { throw 'clone Crush failed' }
+          & git -C $crush checkout --detach 6d14dd93a9e526505f7de54ae5999431bc32a793
+          if ($LASTEXITCODE -ne 0) { throw 'checkout Crush pin failed' }
+          & ./scripts/apply-crush-patches.ps1 -CrushDir $crush *>&1 | Tee-Object -FilePath (Join-Path $evidence 'apply-crush.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'ordered Crush replay failed' }
+
+          # WP5 validation needs the already-authored WP2 transport API to make the
+          # nested candidate compile. Stage it only in this isolated checkout; this
+          # is not a release pin and does not certify WP4.
+          & git clone --quiet https://github.com/charmbracelet/fantasy.git $fantasy
+          if ($LASTEXITCODE -ne 0) { throw 'clone Fantasy failed' }
+          & git -C $fantasy checkout --detach f06034c7824ffddc4394d4cefa5ed5132a186b1b
+          if ($LASTEXITCODE -ne 0) { throw 'checkout Fantasy base failed' }
+          $providerPatch = (Resolve-Path 'third_party/fantasy-patches/provider-transport-observer.patch').Path
+          & git -C $fantasy apply --check $providerPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Fantasy provider patch does not apply' }
+          & git -C $fantasy apply --whitespace=nowarn $providerPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Fantasy provider patch apply failed' }
+          Push-Location $crush
+          try {
+            & go mod edit "-replace=charm.land/fantasy=$fantasy"
+            if ($LASTEXITCODE -ne 0) { throw 'go mod edit replace failed' }
+          } finally { Pop-Location }
+
+          "ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "EVIDENCE=$evidence" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "CRUSH=$crush" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FANTASY=$fantasy" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          & git rev-parse HEAD | Set-Content (Join-Path $evidence 'gotack-head.txt')
+          & git -C $crush rev-parse HEAD | Set-Content (Join-Path $evidence 'crush-head.txt')
+          & git -C $fantasy rev-parse HEAD | Set-Content (Join-Path $evidence 'fantasy-head.txt')
+          & go version *>&1 | Tee-Object -FilePath (Join-Path $evidence 'go-version.txt')
+
+      - name: Run nested diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Push-Location $env:CRUSH
+          try {
+            $failed = $false
+            $cases = @(
+              @{Name='focused-tests'; Cmd='go'; Args=@('test','-timeout','120s','-count=10','./internal/csync','./internal/fsext')},
+              @{Name='focused-vet'; Cmd='go'; Args=@('vet','./internal/csync','./internal/fsext')},
+              @{Name='projects-stress'; Cmd='go'; Args=@('test','-timeout','120s','-count=100','./internal/projects','-run','TestRegisterAndList')},
+              @{Name='full-tests'; Cmd='go'; Args=@('test','-timeout','300s','-count=1','./...')},
+              @{Name='full-vet'; Cmd='go'; Args=@('vet','./...')}
+            )
+            foreach ($case in $cases) {
+              & $case.Cmd @($case.Args) *>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE ($case.Name + '.txt'))
+              $code = $LASTEXITCODE
+              "$($case.Name)=$code" | Add-Content (Join-Path $env:EVIDENCE 'exit-codes.txt')
+              if ($code -ne 0) { $failed = $true }
+            }
+
+            & go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./... *>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE 'staticcheck.txt')
+            $code = $LASTEXITCODE
+            "staticcheck=$code" | Add-Content (Join-Path $env:EVIDENCE 'exit-codes.txt')
+            if ($code -ne 0) { $failed = $true }
+
+            if ($failed) { throw 'Nested diagnostics found remaining WP5 failures' }
+          } finally { Pop-Location }
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent1-wp5-final-${{ github.run_id }}
+          path: ${{ env.EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 30
