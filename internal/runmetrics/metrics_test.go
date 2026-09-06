@@ -86,6 +86,20 @@ func TestValidateRunIDFormat(t *testing.T) {
 	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RunID: string(make([]byte, 300))}))
 }
 
+func TestValidatePurpose(t *testing.T) {
+	base := func(p string) *crushapi.RunTelemetry {
+		return &crushapi.RunTelemetry{CacheStatus: "unreported", Purpose: p}
+	}
+	require.NoError(t, Validate(base("")))
+	require.NoError(t, Validate(base("title")))
+	require.NoError(t, Validate(base("tool_loop")))
+	require.NoError(t, Validate(base("summarize")))
+	require.NoError(t, Validate(base("retry")))
+	require.NoError(t, Validate(base("prep_error")))
+	require.NoError(t, Validate(base("queued_cancellation")))
+	require.Error(t, Validate(base("bogus")))
+}
+
 func TestRedactSensitiveFields(t *testing.T) {
 	telemetry := &crushapi.RunTelemetry{
 		RunID:             "run-1",

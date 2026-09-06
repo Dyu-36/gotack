@@ -202,8 +202,30 @@ fixed precedence model_switch > compaction > context > skills > tool_set;
 dynamic-only changes (date, git_status, mcp, todo) appear only in
 `change_reasons` and leave the primary reason empty for that diff.
 
+### First-byte to first-SSE span (PR0 / IP-01)
+
+`first_byte_to_first_sse` is the wall-clock duration between the first
+byte of the engine's response body (the HTTP transport wrapper sees it,
+not the Fantasy stream API) and the first SSE `data:` line the
+`crushapi.Client` decodes for that same model call. The engine emits
+`request_write_to_first_byte` only; the new span is observed on the host
+side and merged into the same `telemetry.spans_us` map at the
+`run_complete` callback. It is keyed by `(run_id, purpose)` so multiple
+attempts (title, tool loop, summarize, retry, prep error, queued
+cancellation) are kept distinct.
+
+Absent-means-absent governs the span itself: if the SSE stream never
+opens (HTTP 5xx before headers, premature connection close after headers,
+engine-side `prep_error`, or `queued_cancellation`), the span is omitted
+from `spans_us`. A present-but-zero value is impossible because the merge
+is `sse.Sub(firstByte)` and either timestamp is zero.
+
+The `telemetry.purpose` field is added to the wire as an optional string
+(`title | tool_loop | summarize | retry | prep_error |
+queued_cancellation`). Old consumers ignore unknown fields; new consumers
+use it to correlate the merged span with the originating call.
+
 Security invariants:
-- `provider_request_id` is always redacted in the JSONL writer
 - Prompt text, ciphertext, OAuth tokens, and raw session UUIDs are never persisted
 - `change_reasons` is the optional sorted, unique list of every change observed
   in the run (the primary `prefix_changed_reason` plus dynamic-only reasons

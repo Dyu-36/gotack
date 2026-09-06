@@ -7,13 +7,13 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineobserver"
 	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
-
 var _ enginelink.EventConsumer = (*uievents.Forwarder)(nil)
 
 type EngineInfo struct {
@@ -80,11 +80,26 @@ func (a *App) tryConnect() bool {
 
 func (a *App) connect(scope context.Context) {
 	err := a.link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
+		// Re-wire the host observer to the per-Client TTFB registry.
+		a.engineObserver = engineobserver.New(api.Observer())
 		callbacks := uievents.Callbacks{
 			RunDone:              a.runDone,
 			AssistantIteration:   a.assistantIteration,
 			LearningToolExecuted: a.learningToolExecuted,
 			RunTelemetry: func(telemetry *crushapi.RunTelemetry) {
+				if telemetry == nil {
+					return
+				}
+				if a.engineObserver != nil {
+					if spans := a.engineObserver.Merge(telemetry); spans != nil {
+						for k, v := range spans {
+							if telemetry.SpansMicros == nil {
+								telemetry.SpansMicros = map[string]int64{}
+							}
+							telemetry.SpansMicros[k] = v
+						}
+					}
+				}
 				if a.runMetrics != nil {
 					a.runMetrics.Append(telemetry)
 				}
@@ -103,7 +118,6 @@ func (a *App) connect(scope context.Context) {
 		}
 
 		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
-
 		a.migrateChatGPTProviderCredential(svc)
 		workspaceWarning := ""
 		if _, err := a.activateAssistantWorkspace(svc); err != nil {
