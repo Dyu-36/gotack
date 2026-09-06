@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   GateError, check, recipe, sha256, parseBuildInfo, regularFile,
-  verifyProvenance, verifyTestJSON, requireWindows, testPackage,
+  verifyProvenance, verifyTestJSON, requireWindows, testPackage, requiredTests, isTestEvent,
 } from './gate.mjs';
 
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -86,30 +86,70 @@ export function newArtifactDir(env = process.env) {
   check(path.isAbsolute(base) && fs.existsSync(base) && fs.statSync(base).isDirectory(), 'temp_root_invalid');
   return fs.mkdtempSync(path.join(base, 'gotack-input-pipeline-'));
 }
+// Test Output and dynamic subtest names can contain request bodies, paths or
+// secrets. Persist only the fixed gate's lifecycle; validate the ORIGINAL stream.
+export function safeTestJSON(text) {
+  const safe = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (!isTestEvent(event) || event.Package !== testPackage ||
+      ['output', 'build-output', 'bench'].includes(event.Action) ||
+      (event.Test && !requiredTests.includes(event.Test))) continue;
+    const record = { Action: event.Action, Package: testPackage };
+    if (event.Test) record.Test = event.Test;
+    if (Number.isFinite(event.Elapsed) && event.Elapsed >= 0) record.Elapsed = event.Elapsed;
+    safe.push(JSON.stringify(record));
+  }
+  return safe.length ? `${safe.join('\n')}\n` : '';
+}
 export function safeTestFailure(text, exitCode) {
   const failed = new Set();
   const skipped = new Set();
-  let packageFailed = false;
-  let invalidJSON = false;
+  let packageFailed = false, buildFailed = false, invalidJSON = false;
+  let otherFailedTests = 0, otherSkippedTests = 0;
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let event;
     try { event = JSON.parse(line); }
-    catch { invalidJSON = true; break; }
-    if (!event || event.Package !== testPackage) continue;
-    const name = typeof event.Test === 'string' && /^[A-Za-z0-9_./-]{1,200}$/.test(event.Test) ? event.Test : '';
+    catch { invalidJSON = true; continue; }
+    if (!isTestEvent(event)) { invalidJSON = true; continue; }
+    if (event.Action === 'build-fail' ||
+      (event.Action === 'fail' && typeof event.FailedBuild === 'string' && event.FailedBuild !== '')) buildFailed = true;
+    if (event.Package !== testPackage) continue;
+    const known = requiredTests.includes(event.Test);
     if (event.Action === 'fail') {
-      if (name) failed.add(name);
+      if (known) failed.add(event.Test);
+      else if (event.Test) otherFailedTests++;
       else packageFailed = true;
-    } else if (event.Action === 'skip' && name) {
-      skipped.add(name);
+    } else if (event.Action === 'skip') {
+      if (known) skipped.add(event.Test);
+      else otherSkippedTests++;
     }
   }
   return {
     status: 'FAIL', exit_code: Number.isInteger(exitCode) ? exitCode : null,
-    failed_tests: [...failed].slice(0, 20), skipped_tests: [...skipped].slice(0, 20),
-    package_failed: packageFailed, test_json_invalid: invalidJSON,
+    failed_tests: [...failed], skipped_tests: [...skipped],
+    other_failed_tests: otherFailedTests, other_skipped_tests: otherSkippedTests,
+    package_failed: packageFailed, build_failed: buildFailed, test_json_invalid: invalidJSON,
   };
+}
+export function writeTestArtifacts(artifacts, result) {
+  const write = (name, content) => fs.writeFileSync(path.join(artifacts, name), content,
+    { encoding: 'utf8', flag: 'wx' });
+  write('tests.jsonl', safeTestJSON(result.stdout));
+  let summary;
+  try {
+    check(!result.failure, result.failure || 'test_process_failed');
+    summary = verifyTestJSON(result.stdout, result.status);
+  } catch (error) {
+    // An exit-zero malformed/missing/skipped test stream is also a gate failure.
+    write('failure.json', `${JSON.stringify(safeTestFailure(result.stdout, result.status), null, 2)}\n`);
+    throw error;
+  }
+  write('result.json', `${JSON.stringify(summary, null, 2)}\n`);
+  return summary;
 }
 export async function buildCandidate(root, artifacts, powershell, run = native) {
   check(path.isAbsolute(powershell || ''), 'powershell_absolute_path_required');
@@ -186,17 +226,7 @@ export async function runGate(options, run = native) {
     env: { ...gitEnvironment(), GOFLAGS: '', GOWORK: 'off', TACK_ENGINE_BINARY: binary,
       TACK_ENGINE_PROVENANCE: provenance, TACK_E2E_REPO_ROOT: root, TACK_E2E_NODE: process.execPath },
   });
-  fs.writeFileSync(path.join(artifacts, 'tests.jsonl'), result.stdout, 'utf8');
-  if (result.failure || result.status !== 0) {
-    const failure = safeTestFailure(result.stdout, result.status);
-    fs.writeFileSync(path.join(artifacts, 'failure.json'), `${JSON.stringify(failure, null, 2)}\n`, 'utf8');
-    const failed = failure.failed_tests.length ? failure.failed_tests.join(',') : 'none';
-    const skipped = failure.skipped_tests.length ? failure.skipped_tests.join(',') : 'none';
-    console.error(`E2E diagnostics: exit=${failure.exit_code ?? 'unknown'} failed=${failed} skipped=${skipped}`);
-  }
-  check(!result.failure, result.failure || 'test_process_failed');
-  const summary = verifyTestJSON(result.stdout, result.status);
-  fs.writeFileSync(path.join(artifacts, 'result.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+  const summary = writeTestArtifacts(artifacts, result);
   console.log(`E2E PASS: ${summary.required_tests} required tests; zero unexpected skips.`);
 }
 function parseArgs(args) {

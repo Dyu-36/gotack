@@ -2,7 +2,6 @@ package contextseed
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -73,7 +72,7 @@ func (m *snapshotManifest) encode() []byte {
 }
 
 // BuildPromptSnapshot publishes the prompt context as a content-addressed
-// immutable revision (ImplementPlan 0.3 / PR2):
+// immutable revision (PR2 content-addressed prompt contract):
 //
 //  1. Collect every included file's bytes exactly once.
 //  2. Derive the identity from an install-key HMAC of the canonical
@@ -380,38 +379,4 @@ func (s *Seeder) PrunePromptSnapshots(keep string) {
 		}
 		_ = os.RemoveAll(path)
 	}
-}
-
-// loadOrCreateSnapshotIdentityKey loads the 32-byte snapshot identity
-// key, creating it on first use through an exclusive create plus a
-// verified write. A reader of an empty or unparseable key file fails
-// closed instead of guessing.
-func loadOrCreateSnapshotIdentityKey(path string) ([]byte, error) {
-	if data, err := os.ReadFile(path); err == nil {
-		return parseSnapshotIdentityKey(data)
-	}
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("generate identity key")
-	}
-	encoded := []byte(hex.EncodeToString(key))
-	if err := os.WriteFile(path, encoded, 0o600); err != nil {
-		// Another writer may have created it first; adopt it only when
-		// it parses as a valid key.
-		if data, readErr := os.ReadFile(path); readErr == nil {
-			if other, parseErr := parseSnapshotIdentityKey(data); parseErr == nil {
-				return other, nil
-			}
-		}
-		return nil, fmt.Errorf("persist identity key")
-	}
-	return key, nil
-}
-
-func parseSnapshotIdentityKey(data []byte) ([]byte, error) {
-	key, err := hex.DecodeString(strings.TrimSpace(string(data)))
-	if err != nil || len(key) != 32 {
-		return nil, fmt.Errorf("invalid identity key")
-	}
-	return key, nil
 }
