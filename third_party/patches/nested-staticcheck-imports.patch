@@ -1,0 +1,11 @@
+diff --git a/internal/ui/dialog/oauth.go b/internal/ui/dialog/oauth.go
+--- a/internal/ui/dialog/oauth.go
++++ b/internal/ui/dialog/oauth.go
+@@ -1,7 +1,6 @@
+ package dialog
+ 
+ import (
+-	"context"
+ 	"fmt"
+ 	"strings"
+ 
