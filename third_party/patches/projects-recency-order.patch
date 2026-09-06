@@ -1,7 +1,7 @@
 diff --git a/internal/projects/projects.go b/internal/projects/projects.go
 --- a/internal/projects/projects.go
 +++ b/internal/projects/projects.go
-@@ -76,6 +76,15 @@ func Register(workingDir, dataDir string) error {
+@@ -76,5 +76,14 @@ func Register(workingDir, dataDir string) error {
  
  	now := time.Now().UTC()
 +	// Keep recency strictly monotonic relative to persisted entries. Windows
