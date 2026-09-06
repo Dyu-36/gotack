@@ -6,7 +6,8 @@
     "proactive-auto-compact.patch",
     "prompt-context-refresh.patch",
     "projects-recency-order.patch",
-    "nested-staticcheck-imports.patch"
+    "nested-staticcheck-imports.patch",
+    "nested-windows-test-handles.patch"
   ],
   "input_pipeline": [
     "input-pipeline-core.patch",
