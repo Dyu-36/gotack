@@ -100,6 +100,27 @@ Update-ExactText 'internal/server/server.go' @'
 	mux.HandleFunc("POST /v1/workspaces/{id}/questions/cancel", c.handlePostWorkspaceQuestionsCancel)
 '@ ''
 
+# The two route removals above intentionally make the generated HTTP handlers
+# unreachable. Remove the handler definitions in the same hardening layer so
+# Staticcheck does not report them as orphaned U1000 symbols. Keep the upstream
+# question service itself intact for the upstream TUI path.
+$protoPath = Join-Path $CrushDir 'internal/server/proto.go'
+$protoText = [IO.File]::ReadAllText($protoPath, [System.Text.Encoding]::UTF8)
+$questionHandlerStart = '// handlePostWorkspaceQuestionsAnswer submits answers for a batch question.'
+$nextHandlerStart = '// handlePostWorkspacePermissionsSkip sets whether to skip permission prompts.'
+$questionHandlerIndex = $protoText.IndexOf($questionHandlerStart, [StringComparison]::Ordinal)
+if ($questionHandlerIndex -ge 0) {
+    $nextHandlerIndex = $protoText.IndexOf($nextHandlerStart, $questionHandlerIndex, [StringComparison]::Ordinal)
+    if ($nextHandlerIndex -lt 0) {
+        throw 'Question REST handler boundary marker missing in internal/server/proto.go.'
+    }
+    $protoText = $protoText.Remove($questionHandlerIndex, $nextHandlerIndex - $questionHandlerIndex)
+    [IO.File]::WriteAllText($protoPath, $protoText, (New-Object System.Text.UTF8Encoding($false)))
+}
+elseif ($protoText.Contains('handlePostWorkspaceQuestionsAnswer') -or $protoText.Contains('handlePostWorkspaceQuestionsCancel')) {
+    throw 'Question REST handlers changed shape; hardening refused a partial removal.'
+}
+
 # Rebrand every model-visible identity string while preserving upstream Go
 # module paths, legacy executable names, crush.json, built-in skill IDs, and
 # the crush:// skills URI scheme.
@@ -177,4 +198,4 @@ Update-ExactText 'internal/cmd/stats.go' @'
 			if filepath.Base(dir) == ".tack" || filepath.Base(dir) == ".crush" {
 '@
 
-Write-Host 'Stripped the Question agent tool and applied Tack model identity and data directory.'
+Write-Host 'Stripped the Question agent tool and REST handlers; applied Tack model identity and data directory.'

@@ -117,7 +117,9 @@ Assert-ContainsMarkers -Label 'server contract' -Text $serverText -Markers @(
 )
 Assert-NotContainsMarkers -Label 'server contract' -Text $serverText -Markers @(
     'POST /v1/workspaces/{id}/questions/answer"',
-    'POST /v1/workspaces/{id}/questions/cancel"'
+    'POST /v1/workspaces/{id}/questions/cancel"',
+    'handlePostWorkspaceQuestionsAnswer',
+    'handlePostWorkspaceQuestionsCancel'
 )
 $agentFiles = @(
     (Join-Path $CrushDir 'internal/agent/coordinator.go'),
