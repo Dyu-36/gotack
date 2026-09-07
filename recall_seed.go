@@ -7,8 +7,6 @@ import (
 	workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 )
 
-const recallMCPName = workspaceconfig.RecallMCPName
-
 var resolveRecallCommand = resolveRecallCommandFromDisk
 
 func recallBinaryName() string {
