@@ -57,12 +57,16 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 		a.startStream(scope, workspaceID)
 	}
 	a.resetZaloSessions()
-	a.registerOfficeRuntime(workspaceID)
-	a.registerMemoryTools(workspaceID)
-	a.registerSkillsTools(workspaceID)
-	a.registerRecallTools(workspaceID)
-	a.registerContextPaths(workspaceID)
-	a.registerGuardHook(workspaceID)
+
+	svc, err := a.services()
+	if err != nil {
+		return
+	}
+	desc, ok := svc.ws.Current()
+	if !ok || desc.WorkspaceID != workspaceID {
+		return
+	}
+	a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc)
 }
 
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
@@ -111,18 +115,18 @@ func (a *App) reapplySavedWorkspaceSettings() {
 	a.persistCorrectedSelection(effective)
 }
 
-func (a *App) persistCorrectedSelection(s SettingsInfo) {
+func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 	if a.cfg == nil {
 		return
 	}
-	provider := strings.TrimSpace(s.Provider)
-	model := strings.TrimSpace(s.Model)
-	endpoint := strings.TrimSpace(s.CustomURL)
-	if provider == a.cfg.Provider && model == a.cfg.Model && endpoint == a.cfg.CustomURL {
+	providerID := strings.TrimSpace(settings.Provider)
+	modelID := strings.TrimSpace(settings.Model)
+	endpoint := strings.TrimSpace(settings.CustomURL)
+	if providerID == a.cfg.Provider && modelID == a.cfg.Model && endpoint == a.cfg.CustomURL {
 		return
 	}
-	a.cfg.Provider = provider
-	a.cfg.Model = model
+	a.cfg.Provider = providerID
+	a.cfg.Model = modelID
 	a.cfg.CustomURL = endpoint
 	cfgCopy := *a.cfg
 	if err := appconfig.Save(&cfgCopy); err != nil && a.log != nil {

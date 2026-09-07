@@ -12,7 +12,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/crushapi"
-	"github.com/Dyu-36/gotack/internal/userstrings"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
 type SessionInfo struct {
@@ -103,8 +103,7 @@ func (a *App) ListSessions() ([]SessionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := toSessionInfos(sessions)
-	return out, nil
+	return toSessionInfos(sessions), nil
 }
 
 func (a *App) CreateSession(title string) (SessionInfo, error) {
@@ -112,12 +111,12 @@ func (a *App) CreateSession(title string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	s, err := svc.sess.Create(a.ctx, title)
+	session, err := svc.sess.Create(a.ctx, title)
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	a.setCurrentSessionBestEffort(s.ID)
-	return toSessionInfo(s), nil
+	a.setCurrentSessionBestEffort(session.ID)
+	return toSessionInfo(session), nil
 }
 
 func (a *App) RenameSession(id, title string) (SessionInfo, error) {
@@ -125,11 +124,11 @@ func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	s, err := svc.sess.Rename(a.ctx, id, title)
+	session, err := svc.sess.Rename(a.ctx, id, title)
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	return toSessionInfo(s), nil
+	return toSessionInfo(session), nil
 }
 
 func (a *App) DeleteSession(id string) error {
@@ -153,13 +152,13 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := svc.sess.Messages(a.ctx, id)
+	messages, err := svc.sess.Messages(a.ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MessageInfo, len(msgs))
-	for i, m := range msgs {
-		out[i] = toMessageInfo(m)
+	out := make([]MessageInfo, len(messages))
+	for i, message := range messages {
+		out[i] = toMessageInfo(message)
 	}
 	a.setCurrentSessionBestEffort(id)
 	return out, nil
@@ -174,7 +173,6 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	if providerID == "" || modelID == "" {
 		return false
 	}
-
 	if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil && !*override.SupportsVision {
 		return false
 	}
@@ -182,30 +180,20 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	if !ok || desc.WorkspaceID == "" {
 		return false
 	}
-	baseCtx := a.ctx
-	if baseCtx == nil {
-		baseCtx = context.Background()
+	base := a.ctx
+	if base == nil {
+		base = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(base, 10*time.Second)
 	defer cancel()
-	providers, err := svc.api.ListProviders(ctx, desc.WorkspaceID)
+	supportsVision, err := providerdomain.SupportsVision(ctx, svc.api, desc.WorkspaceID, providerID, modelID)
 	if err != nil {
 		if a.log != nil {
 			a.log.Warn("could not resolve model attachment capability; using text fallback", "provider", providerID, "model", modelID, "err", err)
 		}
 		return false
 	}
-	for _, provider := range providers {
-		if !strings.EqualFold(provider.ID, providerID) {
-			continue
-		}
-		for _, model := range provider.Models {
-			if strings.EqualFold(model.ID, modelID) {
-				return model.SupportsVision
-			}
-		}
-	}
-	return false
+	return supportsVision
 }
 
 func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, error) {
@@ -250,16 +238,15 @@ func (a *App) CancelPrompt(id string) error {
 
 const maxToolInputPreview = 4096
 
-func toMessageInfo(m crushapi.Message) MessageInfo {
-
-	text, refs := attachments.ParseAttachmentBlocks(crushapi.ExtractText(m.Parts))
+func toMessageInfo(message crushapi.Message) MessageInfo {
+	text, refs := attachments.ParseAttachmentBlocks(crushapi.ExtractText(message.Parts))
 	info := MessageInfo{
-		ID:        m.ID,
-		Role:      string(m.Role),
+		ID:        message.ID,
+		Role:      string(message.Role),
 		Text:      text,
-		Model:     m.Model,
-		Provider:  m.Provider,
-		CreatedAt: m.CreatedAt,
+		Model:     message.Model,
+		Provider:  message.Provider,
+		CreatedAt: message.CreatedAt,
 	}
 	for _, ref := range refs {
 		info.Attachments = append(info.Attachments, AttachmentInfo{
@@ -269,12 +256,11 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 			Path:     ref.Path,
 		})
 	}
-	for _, attachment := range crushapi.ExtractAttachments(m.Parts) {
+	for _, attachment := range crushapi.ExtractAttachments(message.Parts) {
 		content := ""
 		if strings.HasPrefix(attachment.MimeType, "image/") {
 			content = base64.StdEncoding.EncodeToString(attachment.Content)
 		}
-
 		size := len(attachment.Content)
 		if stat, err := os.Stat(attachment.FilePath); err == nil {
 			size = int(stat.Size())
@@ -287,8 +273,7 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 			Path:     attachment.FilePath,
 		})
 	}
-	for _, call := range crushapi.ExtractToolCalls(m.Parts) {
-
+	for _, call := range crushapi.ExtractToolCalls(message.Parts) {
 		input := string(call.Input)
 		if runes := []rune(input); len(runes) > maxToolInputPreview {
 			input = string(runes[:maxToolInputPreview]) + "…"
@@ -304,60 +289,33 @@ func toMessageInfo(m crushapi.Message) MessageInfo {
 }
 
 func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
-	out := make([]attachments.Prepared, 0, len(input))
+	items := make([]attachments.Input, len(input))
 	for i, item := range input {
-		name := attachments.BaseName(item.FileName)
-		if name == "" {
-			name = fmt.Sprintf("attachment-%d.bin", i+1)
+		items[i] = attachments.Input{
+			FileName: item.FileName,
+			MimeType: item.MimeType,
+			Content:  item.Content,
+			Path:     item.Path,
 		}
-
-		if item.Path != "" {
-			prepared, err := attachments.PrepareFile(item.Path, supportsVision)
-			if err != nil {
-				out = append(out, attachments.Failed(name, err.Error()))
-				continue
-			}
-			out = append(out, prepared)
-			continue
-		}
-		if len(item.Content) > base64.StdEncoding.EncodedLen(attachments.MaxAttachmentSize) {
-			out = append(out, attachments.Failed(name, userstrings.AttachmentTooLarge))
-			continue
-		}
-		content, err := base64.StdEncoding.DecodeString(item.Content)
-		if err != nil {
-			out = append(out, attachments.Failed(name, userstrings.AttachmentInvalidUpload))
-			continue
-		}
-		if len(content) > attachments.MaxAttachmentSize {
-			out = append(out, attachments.Failed(name, userstrings.AttachmentTooLarge))
-			continue
-		}
-		prepared, err := attachments.Prepare(name, item.MimeType, content, supportsVision)
-		if err != nil {
-			out = append(out, attachments.Failed(name, err.Error()))
-			continue
-		}
-		out = append(out, prepared)
 	}
-	return out
+	return attachments.PrepareInputs(items, supportsVision)
 }
 
-func toSessionInfo(s crushapi.Session) SessionInfo {
+func toSessionInfo(session crushapi.Session) SessionInfo {
 	return SessionInfo{
-		ID:           s.ID,
-		Title:        s.Title,
-		MessageCount: s.MessageCount,
-		Cost:         s.Cost,
-		UpdatedAt:    s.UpdatedAt,
-		IsBusy:       s.IsBusy,
+		ID:           session.ID,
+		Title:        session.Title,
+		MessageCount: session.MessageCount,
+		Cost:         session.Cost,
+		UpdatedAt:    session.UpdatedAt,
+		IsBusy:       session.IsBusy,
 	}
 }
 
-func toSessionInfos(in []crushapi.Session) []SessionInfo {
-	out := make([]SessionInfo, len(in))
-	for i, s := range in {
-		out[i] = toSessionInfo(s)
+func toSessionInfos(input []crushapi.Session) []SessionInfo {
+	out := make([]SessionInfo, len(input))
+	for i, session := range input {
+		out[i] = toSessionInfo(session)
 	}
 	return out
 }
