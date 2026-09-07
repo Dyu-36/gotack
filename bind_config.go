@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/crushapi"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
 type SettingsInfo struct {
@@ -39,34 +39,8 @@ func (a *App) GetSettings() SettingsInfo {
 	}
 }
 
-var simpleEnvCredentialRef = regexp.MustCompile(`^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$`)
-
-func resolvedProviderCredential(pc crushapi.ProviderConfig) (kind, value string, ok bool) {
-	oauth := strings.TrimSpace(string(pc.OAuth))
-	if oauth != "" && oauth != "null" && oauth != "{}" {
-		return "oauth", "", true
-	}
-
-	key := strings.TrimSpace(pc.APIKey)
-	if key == "" {
-		return "", "", false
-	}
-	if match := simpleEnvCredentialRef.FindStringSubmatch(key); match != nil {
-		name := match[1]
-		if name == "" {
-			name = match[2]
-		}
-		resolved, exists := os.LookupEnv(name)
-		if !exists || strings.TrimSpace(resolved) == "" {
-			return "", "", false
-		}
-		return "api_key", resolved, true
-	}
-
-	if strings.HasPrefix(key, "$") {
-		return "", "", false
-	}
-	return "api_key", key, true
+func resolvedProviderCredential(config crushapi.ProviderConfig) (kind, value string, ok bool) {
+	return providerdomain.ResolvedCredential(config)
 }
 
 func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
@@ -96,52 +70,20 @@ func (a *App) ListProviders() ([]crushapi.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	providers, err := svc.api.ListProviders(ctx, workspaceID)
+	providers, err := providerdomain.ListCatalog(ctx, svc.api, workspaceID)
 	if err != nil {
 		return nil, err
-	}
-	providers, localOverlays := mergeLocalProviderOverlays(providers)
-	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("get resolved Crush config: %w", err)
-	}
-	for i := range providers {
-		pc, exists := cfg.Providers[providers[i].ID]
-		if !exists || pc.Disable {
-			continue
-		}
-		if localOverlays[providers[i].ID] {
-			if pc.Name != "" {
-				providers[i].Name = pc.Name
-			}
-			if pc.Type != "" {
-				providers[i].Type = pc.Type
-			}
-			if pc.BaseURL != "" {
-				providers[i].APIEndpoint = pc.BaseURL
-			}
-			if len(pc.Models) > 0 {
-				providers[i].Models = mergeProviderModels(pc.Models, providers[i].Models)
-			}
-		}
-		kind, _, usable := resolvedProviderCredential(pc)
-		if !usable {
-			continue
-		}
-		providers[i].Configured = true
-		providers[i].CredentialKind = kind
 	}
 	if a.cfg != nil && a.cfg.ModelCapabilities != nil {
 		for i := range providers {
 			for j := range providers[i].Models {
-				m := &providers[i].Models[j]
-				if override, ok := a.cfg.ModelCapabilities[m.ID]; ok {
+				model := &providers[i].Models[j]
+				if override, ok := a.cfg.ModelCapabilities[model.ID]; ok {
 					if override.SupportsVision != nil && !*override.SupportsVision {
-
-						m.SupportsVision = false
+						model.SupportsVision = false
 					}
 					if override.CanReason != nil {
-						m.CanReason = *override.CanReason
+						model.CanReason = *override.CanReason
 					}
 				}
 			}
@@ -166,11 +108,11 @@ func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pc, exists := cfg.Providers[strings.TrimSpace(providerID)]
-	if !exists || pc.Disable {
+	configured, exists := cfg.Providers[strings.TrimSpace(providerID)]
+	if !exists || configured.Disable {
 		return "", fmt.Errorf("provider %q is not configured", providerID)
 	}
-	kind, key, usable := resolvedProviderCredential(pc)
+	kind, key, usable := providerdomain.ResolvedCredential(configured)
 	if !usable || kind != "api_key" {
 		return "", fmt.Errorf("provider %q does not have a revealable API key", providerID)
 	}
@@ -179,7 +121,7 @@ func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
 
 func (a *App) DeleteProvider(providerID string) error {
 	providerID = strings.TrimSpace(providerID)
-	if !safeProviderID.MatchString(providerID) {
+	if !providerdomain.ValidID(providerID) {
 		return fmt.Errorf("invalid provider id %q", providerID)
 	}
 	svc, err := a.services()
@@ -193,9 +135,7 @@ func (a *App) DeleteProvider(providerID string) error {
 
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
-	ws, scope := desc.WorkspaceID, crushapi.ConfigScopeGlobal
-	base := "providers." + providerID
-	engineConfig, err := svc.api.GetWorkspaceConfig(ctx, ws)
+	engineConfig, err := svc.api.GetWorkspaceConfig(ctx, desc.WorkspaceID)
 	if err != nil {
 		return fmt.Errorf("read provider state before deletion: %w", err)
 	}
@@ -211,37 +151,16 @@ func (a *App) DeleteProvider(providerID string) error {
 		}
 		a.cfg = &next
 	}
-
-	if err := svc.api.SetConfigField(ctx, ws, scope, base+".disable", true); err != nil {
-		return fmt.Errorf("disable provider: %w", err)
-	}
-	if clearModels {
-		if err := svc.api.RemovePreferredModelPair(ctx, ws, scope); err != nil {
-			return fmt.Errorf("clear provider model selection: %w", err)
-		}
-	}
-	if err := svc.api.RemoveConfigField(ctx, ws, scope, base+".api_key"); err != nil {
-		return fmt.Errorf("remove provider API key: %w", err)
-	}
-	if err := svc.api.RemoveConfigField(ctx, ws, scope, base+".oauth"); err != nil {
-		return fmt.Errorf("remove provider OAuth credential: %w", err)
-	}
-	return nil
+	return providerdomain.DeleteEngineConfig(ctx, svc.api, desc.WorkspaceID, providerID, clearModels)
 }
 
 func preferredModelsUseProvider(models map[string]crushapi.SelectedModel, providerID string) bool {
-	for _, modelType := range []string{"large", "small"} {
-		if strings.TrimSpace(models[modelType].Provider) == providerID {
-			return true
-		}
-	}
-	return false
+	return providerdomain.PreferredModelsUseProvider(models, providerID)
 }
 
-func (a *App) SaveSettings(s SettingsInfo) error {
-	apiKey := strings.TrimSpace(s.APIKey)
-
-	effective, err := a.applyEffectiveCrushSettings(s, apiKey)
+func (a *App) SaveSettings(settings SettingsInfo) error {
+	apiKey := strings.TrimSpace(settings.APIKey)
+	effective, err := a.applyEffectiveCrushSettings(settings, apiKey)
 	if err != nil {
 		return err
 	}
@@ -256,7 +175,6 @@ func (a *App) SaveSettings(s SettingsInfo) error {
 	}
 	next.Provider = strings.TrimSpace(effective.Provider)
 	next.Model = strings.TrimSpace(effective.Model)
-
 	next.Thinking = strings.TrimSpace(effective.Thinking)
 	next.APIKey = ""
 	credentialProvider := strings.TrimSpace(effective.CredentialProvider)
