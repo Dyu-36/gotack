@@ -1,53 +1,19 @@
 package main
 
-import (
-	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"time"
-
-	"github.com/Dyu-36/gotack/internal/crushapi"
-)
-
-const skillsMCPName = "gotack-skills"
+import workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 
 var resolveSkillsCommand = resolveSkillsCommandFromDisk
 
 func skillsBinaryName() string {
-	if runtime.GOOS == "windows" {
-		return "skills.exe"
-	}
-	return "skills"
+	return workspaceconfig.BinaryName("skills")
 }
 
 func resolveSkillsCommandFromDisk() string {
-	name := skillsBinaryName()
-	if executable, err := os.Executable(); err == nil {
-		root := filepath.Dir(executable)
-		for _, candidate := range []string{
-			filepath.Join(root, "resources", name),
-			filepath.Join(root, name),
-		} {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
-			}
-		}
-	}
-	if found, err := exec.LookPath(name); err == nil {
-		return found
-	}
-	return ""
+	return workspaceconfig.ResolveBinary(skillsBinaryName())
 }
 
 func skillsEntry(command, root string) map[string]any {
-	return map[string]any{
-		"command": command,
-		"args":    []string{"--root", root},
-		"type":    "stdio",
-		"timeout": 30,
-	}
+	return workspaceconfig.SkillsEntry(command, root)
 }
 
 func (a *App) registerSkillsTools(workspaceID string) {
@@ -55,17 +21,7 @@ func (a *App) registerSkillsTools(workspaceID string) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-
-	command := resolveSkillsCommand()
-	if command == "" {
-		if err := svc.api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+skillsMCPName); err != nil && a.log != nil {
-			a.log.Warn("skills registration removal failed", "err", err)
-		}
-		return
-	}
-	if err := svc.api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+skillsMCPName, skillsEntry(command, userSkillsDir())); err != nil && a.log != nil {
+	if err := workspaceconfig.RegisterSkills(a.ctx, svc.api, workspaceID, resolveSkillsCommand(), userSkillsDir()); err != nil && a.log != nil {
 		a.log.Warn("skills registration failed", "err", err)
 	}
 }
