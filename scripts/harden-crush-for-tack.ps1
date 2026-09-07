@@ -121,6 +121,122 @@ elseif ($protoText.Contains('handlePostWorkspaceQuestionsAnswer') -or $protoText
     throw 'Question REST handlers changed shape; hardening refused a partial removal.'
 }
 
+# Keep the clean replay compatible with the repository's stricter standalone
+# Staticcheck gate. Remove genuinely dead upstream helpers. For the few
+# deliberate upstream exceptions already documented by nolint/golangci rules,
+# add native Staticcheck directives so `staticcheck ./...` and golangci agree
+# without changing user-facing copy, MCP logging, or process-group isolation.
+Update-ExactText 'internal/agent/tools/mcp/channel.go' @'
+// isOpen reports whether the gate has been resolved to open.
+func (g *channelGate) isOpen() bool {
+	return channelGateState(g.state.Load()) == stateGateOpen
+}
+
+'@ ''
+Update-ExactText 'internal/agent/tools/mcp/init.go' @'
+	opts := &mcp.ClientOptions{
+		LoggingMessageHandler: func(ctx context.Context, req *mcp.LoggingMessageRequest) {
+'@ @'
+	opts := &mcp.ClientOptions{
+		//lint:ignore SA1019 MCP logging is intentionally retained during the protocol deprecation window.
+		LoggingMessageHandler: func(ctx context.Context, req *mcp.LoggingMessageRequest) {
+'@
+Update-ExactText 'internal/cmd/root.go' @'
+	_ "embed"
+'@ ''
+Update-ExactText 'internal/cmd/root.go' @'
+			return errors.New("Crush crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
+'@ @'
+			//lint:ignore ST1005 This user-facing sentence intentionally starts with the product name.
+			return errors.New("Crush crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml")
+'@
+Update-ExactText 'internal/cmd/root.go' @'
+func createDotCrushDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create data directory: %q %w", dir, err)
+	}
+
+	gitIgnorePath := filepath.Join(dir, ".gitignore")
+	content, err := os.ReadFile(gitIgnorePath)
+
+	// create or update if old version
+	if os.IsNotExist(err) || string(content) == oldGitIgnore {
+		if err := os.WriteFile(gitIgnorePath, []byte(defaultGitIgnore), 0o644); err != nil {
+			return fmt.Errorf("failed to create .gitignore file: %q %w", gitIgnorePath, err)
+		}
+	}
+
+	return nil
+}
+
+//go:embed gitignore/old
+var oldGitIgnore string
+
+//go:embed gitignore/default
+var defaultGitIgnore string
+'@ ''
+Update-ExactText 'internal/config/provider.go' @'
+				catwalkErr = fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help.\n\nCause: %w", catwalkURL, err) //nolint:staticcheck
+'@ @'
+				//lint:ignore ST1005 This user-facing sentence intentionally starts with the product name.
+				catwalkErr = fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help.\n\nCause: %w", catwalkURL, err)
+'@
+Update-ExactText 'internal/config/provider.go' @'
+				hyperErr = fmt.Errorf("Crush was unable to fetch updated information from Hyper: %w", err) //nolint:staticcheck
+'@ @'
+				//lint:ignore ST1005 This user-facing sentence intentionally starts with the product name.
+				hyperErr = fmt.Errorf("Crush was unable to fetch updated information from Hyper: %w", err)
+'@
+Update-ExactText 'internal/shell/run.go' @'
+	// group isolation, so we use the deprecated ExecHandler instead.
+	return interp.ExecHandler(handler)
+'@ @'
+	// group isolation, so we use the deprecated ExecHandler instead.
+	//lint:ignore SA1019 ExecHandlers would append DefaultExecHandler and break required process-group isolation.
+	return interp.ExecHandler(handler)
+'@
+Update-ExactText 'internal/ui/dialog/arguments.go' @'
+	const scrollbarWidth = 1
+'@ ''
+Update-ExactText 'internal/ui/dialog/models_list.go' @'
+type modelGroups []ModelGroup
+
+func (m modelGroups) Len() int {
+	n := 0
+	for _, g := range m {
+		n += len(g.Items)
+	}
+	return n
+}
+
+func (m modelGroups) String(i int) string {
+	count := 0
+	for _, g := range m {
+		if i < count+len(g.Items) {
+			return g.Items[i-count].Filter()
+		}
+		count += len(g.Items)
+	}
+	return ""
+}
+'@ ''
+Update-ExactText 'internal/ui/dialog/oauth.go' @'
+	cancelFunc      context.CancelFunc
+'@ ''
+Update-ExactText 'internal/ui/dialog/permissions.go' @'
+	windowWidth  int // Terminal window dimensions.
+	windowHeight int
+'@ ''
+Update-ExactText 'internal/ui/diffview/diffview_test.go' @'
+func assertHeight(t *testing.T, expected int, output string) {
+	output = strings.TrimSuffix(output, "\n")
+	lines := strings.Count(output, "\n") + 1
+	if lines != expected {
+		t.Errorf("expected output height to be == %d, got %d", expected, lines)
+	}
+}
+'@ ''
+
 # Rebrand every model-visible identity string while preserving upstream Go
 # module paths, legacy executable names, crush.json, built-in skill IDs, and
 # the crush:// skills URI scheme.
@@ -198,4 +314,4 @@ Update-ExactText 'internal/cmd/stats.go' @'
 			if filepath.Base(dir) == ".tack" || filepath.Base(dir) == ".crush" {
 '@
 
-Write-Host 'Stripped the Question agent tool and REST handlers; applied Tack model identity and data directory.'
+Write-Host 'Stripped Question surfaces, applied Tack identity/data directory, and cleaned standalone Staticcheck findings.'

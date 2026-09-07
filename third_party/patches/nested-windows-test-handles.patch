@@ -1,0 +1,13 @@
+diff --git a/internal/agent/tools/crush_logs_test.go b/internal/agent/tools/crush_logs_test.go
+--- a/internal/agent/tools/crush_logs_test.go
++++ b/internal/agent/tools/crush_logs_test.go
+@@ -132,7 +132,8 @@ func TestCrushLogs_EmptyFile(t *testing.T) {
+ 	t.Parallel()
+ 	tempDir := t.TempDir()
+ 	logFile := filepath.Join(tempDir, "crush.log")
+-	_, err := os.Create(logFile)
++	file, err := os.Create(logFile)
+ 	require.NoError(t, err)
++	require.NoError(t, file.Close())
+ 
+ 	result := runCrushLogs(logFile, CrushLogsParams{Lines: 50})
