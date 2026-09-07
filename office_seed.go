@@ -11,8 +11,6 @@ import (
 	workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 )
 
-const legacyOfficeMCPName = workspaceconfig.LegacyOfficeMCPName
-
 func officeBinaryName() string {
 	return workspaceconfig.BinaryName("officecli")
 }

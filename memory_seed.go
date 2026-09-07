@@ -2,8 +2,6 @@ package main
 
 import workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 
-const memoryMCPName = workspaceconfig.MemoryMCPName
-
 var resolveMemoryCommand = resolveMemoryCommandFromDisk
 
 func memoryBinaryName() string {

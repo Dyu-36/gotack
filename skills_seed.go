@@ -2,8 +2,6 @@ package main
 
 import workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 
-const skillsMCPName = workspaceconfig.SkillsMCPName
-
 var resolveSkillsCommand = resolveSkillsCommandFromDisk
 
 func skillsBinaryName() string {
