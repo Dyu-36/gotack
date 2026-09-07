@@ -1,4 +1,0 @@
-# Tooling/search ignore only. These paths remain tracked when applicable.
-
-# Generated frontend output is already covered by .gitignore; exclude it from search too.
-frontend/dist/
