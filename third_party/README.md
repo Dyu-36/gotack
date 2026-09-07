@@ -21,20 +21,25 @@ unlisted, nested, or escaping patch paths are errors. The order is:
 5. Contract checks, then build/test.
 
 The compatibility inventory is ChatGPT subscription OAuth, Hermes skill
-refresh, proactive auto-compaction, and prompt context refresh. The
-`input_pipeline` inventory is, in manifest order: the core input-pipeline
-patch (RunTrace spans, provider-option merge, todo reminder, ordered
-context groups), the telemetry patch (per-run prompt generation change
-reasons, per-kind first semantic timings, final prepared-request
-fingerprint), `provider-transport-wiring.patch` (per-model-call/provider-attempt
-identity plus provider transport event capture; requires the tracked Fantasy
-transport-observer patch to be present in the accepted dependency revision),
-and the history-anchor patch (bounded compaction anchor preservation). There is no accepted `zz-input-pipeline-windows.patch`;
-earlier prose describing one was a prototype claim, not a replayable
-artifact. The recipe also includes `csync-schema-lock.patch` (a stateless
-schema alias receiver that does not copy the map mutex) and
-`glob-windows-paths.patch` (slash-normalized results for both glob backends).
-Alphabetical names do not define phase order.
+refresh, proactive auto-compaction, prompt context refresh,
+`projects-recency-order.patch` (strict project recency ordering when Windows
+clock readings tie or move backward), `nested-staticcheck-imports.patch`
+(cleanup after hardening removes dead dialog state), and
+`nested-windows-test-handles.patch` (close the empty-log test handle before
+Windows temp-directory cleanup). The `input_pipeline` inventory is, in manifest
+order: the core input-pipeline patch (RunTrace spans, provider-option merge,
+todo reminder, ordered context groups), the telemetry patch (per-run prompt
+generation change reasons, per-kind first semantic timings, final
+prepared-request fingerprint), `provider-transport-wiring.patch`
+(per-model-call/provider-attempt identity plus provider transport event capture;
+requires the tracked Fantasy transport-observer patch to be present in the
+accepted dependency revision), and the history-anchor patch (bounded compaction
+anchor preservation). There is no accepted `zz-input-pipeline-windows.patch`;
+earlier prose describing one was a prototype claim, not a replayable artifact.
+The recipe also includes `csync-schema-lock.patch` (a stateless schema alias
+receiver that does not copy the map mutex) and `glob-windows-paths.patch`
+(slash-normalized results for both glob backends). Alphabetical names do not
+define phase order.
 
 Hardening removes the Question agent tool/routes and applies Tack's
 model-visible identity. It preserves upstream module paths, legacy executable
