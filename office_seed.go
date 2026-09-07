@@ -1,27 +1,18 @@
 package main
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
-	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/bundleseed"
-	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/officecli"
+	workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 )
 
-const legacyOfficeMCPName = "gotack-office"
-
 func officeBinaryName() string {
-	if runtime.GOOS == "windows" {
-		return "officecli.exe"
-	}
-	return "officecli"
+	return workspaceconfig.BinaryName("officecli")
 }
 
 type officeSeeder struct {
@@ -54,6 +45,7 @@ func (s *officeSeeder) resolveOfficeSourceDir() string {
 	}
 	return ""
 }
+
 func (s *officeSeeder) resolveOfficeSkillsSourceDir() string {
 	if executable, err := os.Executable(); err == nil {
 		root := filepath.Dir(executable)
@@ -84,6 +76,7 @@ func (s *officeSeeder) startup() {
 	}
 	s.seeder.InstallPath()
 }
+
 func (s *officeSeeder) CrushEnv() map[string]string {
 	return s.seeder.CrushEnv()
 }
@@ -93,10 +86,9 @@ func (s *officeSeeder) SkillsPath() string {
 }
 
 func (a *App) ensureOfficeSeed() {
-	if a.officeSeeder == nil {
-		return
+	if a.officeSeeder != nil {
+		a.officeSeeder.startup()
 	}
-	a.officeSeeder.startup()
 }
 
 func (a *App) registerOfficeRuntime(workspaceID string) {
@@ -107,42 +99,8 @@ func (a *App) registerOfficeRuntime(workspaceID string) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-
-	if err := svc.api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+legacyOfficeMCPName); err != nil && a.log != nil {
-		a.log.Warn("legacy office MCP cleanup failed", "err", err)
-	}
-	env := a.officeSeeder.CrushEnv()
-	skillsPath := a.officeSeeder.SkillsPath()
-
-	additions := make([]string, 0, 3)
-	if skillsPath != "" {
-		additions = append(additions, skillsPath)
-	}
-	additions = append(additions, userSkillsDir())
-	if desc, ok := svc.ws.Current(); ok && desc.Path != "" {
-		additions = append(additions, projectSkillsDir(desc.Path))
-	}
-	if len(env) == 0 && len(additions) == 0 {
-		return
-	}
-
-	current, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
-	if err != nil {
-		if a.log != nil {
-			a.log.Warn("office runtime config read failed; skipping merge", "err", err)
-		}
-		return
-	}
-	fields := make(map[string]any, 2)
-	if len(env) > 0 {
-		fields["env"] = mergeConfigEnv(current.Env, env)
-	}
-	if len(additions) > 0 {
-		fields["options.skills_paths"] = mergeSkillsPaths(current.SkillsPaths(), additions...)
-	}
-	if err := svc.api.SetConfigFields(ctx, workspaceID, crushapi.ConfigScopeWorkspace, fields); err != nil && a.log != nil {
+	desc, _ := svc.ws.Current()
+	if err := workspaceconfig.RegisterOffice(a.ctx, svc.api, workspaceID, desc, a.officeSeeder, userSkillsDir()); err != nil && a.log != nil {
 		a.log.Warn("office runtime config registration failed", "err", err)
 	}
 }
@@ -151,47 +109,10 @@ func userSkillsDir() string {
 	return filepath.Join(appconfig.Dir(), "skills")
 }
 
-func projectSkillsDir(workspacePath string) string {
-	return filepath.Join(workspacePath, ".agents", "skills")
-}
-
 func mergeConfigEnv(existing, additions map[string]string) map[string]string {
-	merged := make(map[string]string, len(existing)+len(additions))
-	for key, value := range existing {
-		merged[key] = value
-	}
-	for key, value := range additions {
-		merged[key] = value
-	}
-	return merged
+	return workspaceconfig.MergeConfigEnv(existing, additions)
 }
 
-func skillPathKey(path string) string {
-	key := filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		key = strings.ToLower(key)
-	}
-	return key
-}
 func mergeSkillsPaths(existing []string, additions ...string) []string {
-	merged := make([]string, 0, len(existing)+len(additions))
-	seen := make(map[string]struct{}, len(existing)+len(additions))
-	appendPath := func(path string) {
-		if path == "" {
-			return
-		}
-		key := skillPathKey(path)
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		merged = append(merged, path)
-	}
-	for _, path := range existing {
-		appendPath(path)
-	}
-	for _, path := range additions {
-		appendPath(path)
-	}
-	return merged
+	return workspaceconfig.MergeSkillsPaths(existing, additions...)
 }

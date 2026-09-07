@@ -1,9 +1,7 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,19 +12,11 @@ env:
 
 jobs:
   windows-portable:
+    name: Windows portable release (manual)
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Validate tag matches product version
-        shell: pwsh
-        run: |
-          $productVersion = (Get-Content wails.json -Raw | ConvertFrom-Json).Info.productVersion
-          $expected = "v$productVersion"
-          if ($env:GITHUB_REF_NAME -ne $expected) {
-            throw "Release tag $env:GITHUB_REF_NAME does not match wails.json productVersion $productVersion"
-          }
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -127,15 +117,12 @@ jobs:
           }
       - name: Prepare bundled runtime payloads
         shell: pwsh
-        run: |
-          # resources/bin is git-ignored by design; the prepare script
-          # downloads the Python 3.12 runtime, uv, officecli and the
-          # timetable libraries so the ZIP ships a self-contained stack.
-          ./scripts/prepare-resources.ps1
+        run: ./scripts/prepare-resources.ps1
+
       - name: Assemble portable ZIP
         shell: pwsh
         run: |
-          $name = "tack-$env:GITHUB_REF_NAME-windows-amd64"
+          $name = "tack-windows-amd64"
           $out = "artifacts\$name"
           New-Item -ItemType Directory -Force "$out\resources" | Out-Null
           Copy-Item build\bin\tack.exe "$out\tack.exe"
@@ -154,23 +141,16 @@ jobs:
             Get-ChildItem "$env:GITHUB_WORKSPACE\resources\bin" -Force |
               Where-Object { $_.Name -ne '.gitkeep' } |
               Copy-Item -Destination "$out\resources" -Recurse -Force
-          } else {
-            Write-Host "No prepared runtime payloads to bundle."
           }
           if (Test-Path "$env:GITHUB_WORKSPACE\resources\context") {
             Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\resources\context" "$out\resources\context"
-          } else {
-            Write-Host "No tracked context to bundle."
           }
           Copy-Item build\windows\README.md "$out\README.txt"
           Compress-Archive -Path "$out\*" -DestinationPath "artifacts\$name.zip"
-      - name: Publish GitHub release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if (gh release view "$env:GITHUB_REF_NAME" 2>$null) {
-            gh release upload "$env:GITHUB_REF_NAME" "artifacts\tack-$env:GITHUB_REF_NAME-windows-amd64.zip" --clobber
-          } else {
-            gh release create "$env:GITHUB_REF_NAME" "artifacts\tack-$env:GITHUB_REF_NAME-windows-amd64.zip" --verify-tag --generate-notes --title "Tack $env:GITHUB_REF_NAME"
-          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tack-windows-amd64
+          path: artifacts/tack-windows-amd64.zip
+          if-no-files-found: error
