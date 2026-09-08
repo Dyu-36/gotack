@@ -54,7 +54,9 @@ func TestCurrentModelVisionCachesCatalogLookup(t *testing.T) {
 	a.ctx = context.Background()
 	a.cfg = &appconfig.Config{Provider: "openai", Model: "vision-model"}
 	svc := &bridgeServices{api: api, ws: ws}
-	if !a.isCurrentModelVision(svc) || !a.isCurrentModelVision(svc) {
+	first := a.isCurrentModelVision(svc)
+	second := a.isCurrentModelVision(svc)
+	if !first || !second {
 		t.Fatal("vision capability was not preserved")
 	}
 	if got := providerCalls.Load(); got != 1 {
