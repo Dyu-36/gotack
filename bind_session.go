@@ -57,6 +57,12 @@ type AttachmentInfo struct {
 	Path     string `json:"path,omitempty"`
 }
 
+type visionCacheKey struct {
+	workspaceID string
+	providerID  string
+	modelID     string
+}
+
 func (a *App) setCurrentSession(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("session id is required")
@@ -143,9 +149,7 @@ func (a *App) DeleteSession(id string) error {
 	return nil
 }
 
-func (a *App) SwitchSession(id string) error {
-	return a.setCurrentSession(id)
-}
+func (a *App) SwitchSession(id string) error { return a.setCurrentSession(id) }
 
 func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	svc, err := a.services()
@@ -180,6 +184,10 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	if !ok || desc.WorkspaceID == "" {
 		return false
 	}
+	key := visionCacheKey{workspaceID: desc.WorkspaceID, providerID: providerID, modelID: modelID}
+	if cached, ok := a.vision.Load(key); ok {
+		return cached.(bool)
+	}
 	base := a.ctx
 	if base == nil {
 		base = context.Background()
@@ -193,6 +201,7 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 		}
 		return false
 	}
+	a.vision.Store(key, supportsVision)
 	return supportsVision
 }
 
@@ -238,6 +247,20 @@ func (a *App) CancelPrompt(id string) error {
 
 const maxToolInputPreview = 4096
 
+func toolInputPreview(input string) string {
+	if len(input) <= maxToolInputPreview {
+		return input
+	}
+	runes := 0
+	for offset := range input {
+		if runes == maxToolInputPreview {
+			return input[:offset] + "…"
+		}
+		runes++
+	}
+	return input
+}
+
 func toMessageInfo(message engineapi.Message) MessageInfo {
 	text, refs := attachments.ParseAttachmentBlocks(engineapi.ExtractText(message.Parts))
 	info := MessageInfo{
@@ -274,14 +297,10 @@ func toMessageInfo(message engineapi.Message) MessageInfo {
 		})
 	}
 	for _, call := range engineapi.ExtractToolCalls(message.Parts) {
-		input := string(call.Input)
-		if runes := []rune(input); len(runes) > maxToolInputPreview {
-			input = string(runes[:maxToolInputPreview]) + "…"
-		}
 		info.ToolCalls = append(info.ToolCalls, ToolCallInfo{
 			ID:       call.ID,
 			Name:     call.Name,
-			Input:    input,
+			Input:    toolInputPreview(string(call.Input)),
 			Finished: call.Finished,
 		})
 	}
