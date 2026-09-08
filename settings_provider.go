@@ -61,7 +61,3 @@ func needWorkspace(apiKey, reason string) error {
 	}
 	return fmt.Errorf("cannot store API key: %s", reason)
 }
-
-func providerReasoning(value string) (effort string, think bool) {
-	return providerdomain.Reasoning(value)
-}
