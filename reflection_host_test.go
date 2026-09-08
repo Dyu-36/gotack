@@ -15,6 +15,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/guard"
+	"github.com/Dyu-36/gotack/internal/reflection"
 	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
@@ -54,7 +55,7 @@ func (f *reviewTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	case req.Method == http.MethodGet && strings.HasSuffix(path, "/sessions/src-1/messages"):
 		return jsonHTTPResponse(http.StatusOK, `[{"id":"m-1","role":"user","session_id":"src-1","parts":[{"type":"text","data":{"text":"Prefer concise answers"}}]}]`), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(path, "/sessions"):
-		return jsonHTTPResponse(http.StatusOK, `{"id":"review-1","title":"Background review"}`), nil
+		return jsonHTTPResponse(http.StatusOK, `{"id":"review-1","title":"Personal memory review"}`), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(path, "/agent"):
 		var body reviewRequest
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -83,7 +84,6 @@ func reviewTestApp(t *testing.T, transport *reviewTransport) *App {
 		resolveMemoryCommand = oldMemory
 		resolveSkillsCommand = oldSkills
 	})
-
 	api := crushapi.NewClient(&http.Client{Transport: transport})
 	app := NewApp()
 	app.ctx = context.Background()
@@ -109,15 +109,14 @@ func reviewTestApp(t *testing.T, transport *reviewTransport) *App {
 func TestHostRunsBoundedReviewAndRemovesDetachedSession(t *testing.T) {
 	transport := &reviewTransport{t: t, agentCh: make(chan reviewRequest, 1)}
 	app := reviewTestApp(t, transport)
-	app.reflection.Hydrate("src-1", 9)
+	app.reflection.Hydrate("src-1", reflection.MemoryInterval-1)
 	app.reflection.UserTurnAccepted("src-1")
 	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "done"})
-
 	var req reviewRequest
 	select {
 	case req = <-transport.agentCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for background review")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for idle memory review")
 	}
 	if req.SessionID != "review-1" || !strings.Contains(req.Prompt, "Prefer concise answers") {
 		t.Fatalf("review request = %+v", req)
@@ -126,7 +125,6 @@ func TestHostRunsBoundedReviewAndRemovesDetachedSession(t *testing.T) {
 	if !guard.ReviewRosterContains(roster, "review-1") {
 		t.Fatal("review was sent before its restricted-session marker")
 	}
-
 	app.runDone(uievents.SessionDonePayload{SessionID: "review-1", Text: "Nothing to save."})
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -144,7 +142,6 @@ func TestHostRunsBoundedReviewAndRemovesDetachedSession(t *testing.T) {
 func TestScheduledRunSuppressesAndForgetsBackgroundReview(t *testing.T) {
 	transport := &reviewTransport{t: t, agentCh: make(chan reviewRequest, 1)}
 	app := reviewTestApp(t, transport)
-
 	schedulePath := filepath.Join(t.TempDir(), schedule.FileName)
 	scheduleData, err := json.Marshal(schedule.File{Jobs: []*schedule.Job{{
 		ID: "job-1", Name: "scheduled", Prompt: "run", Every: "1h", Enabled: true,
@@ -157,7 +154,7 @@ func TestScheduledRunSuppressesAndForgetsBackgroundReview(t *testing.T) {
 	}
 	launched := make(chan struct{}, 1)
 	app.scheduler = schedule.New(schedulePath, schedule.Runtime{
-		CreateSession:  func(context.Context, string) (string, error) { return "src-1", nil },
+		CreateSession: func(context.Context, string) (string, error) { return "src-1", nil },
 		MarkUnattended: func(context.Context, string) error { return nil },
 		SendPrompt: func(context.Context, string, string) error {
 			launched <- struct{}{}
@@ -174,16 +171,14 @@ func TestScheduledRunSuppressesAndForgetsBackgroundReview(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for scheduled run")
 	}
-
-	app.reflection.Hydrate("src-1", 9)
+	app.reflection.Hydrate("src-1", reflection.MemoryInterval-1)
 	app.reflection.UserTurnAccepted("src-1")
 	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "scheduled result"})
-
 	app.reflection.UserTurnAccepted("src-1")
 	app.runDone(uievents.SessionDonePayload{SessionID: "src-1", Text: "foreground result"})
 	select {
 	case request := <-transport.agentCh:
-		t.Fatalf("scheduled run leaked into background review: %+v", request)
+		t.Fatalf("scheduled run leaked into memory review: %+v", request)
 	case <-time.After(100 * time.Millisecond):
 	}
 }

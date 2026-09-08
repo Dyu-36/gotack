@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -16,20 +15,23 @@ import (
 
 const (
 	serverName    = "gotack-memory"
-	serverVersion = "0.1.0"
+	serverVersion = "0.2.0"
 )
 
 func main() {
-	dir := flag.String("dir", "", "memory directory (default: <appconfig dir>/context/memory)")
+	dir := flag.String("dir", "", "personal context directory (default: <appconfig dir>/assistant)")
 	flag.Parse()
-
+	if *dir == "" {
+		if err := memory.EnsureAssistant(appconfig.Dir()); err != nil {
+			fmt.Fprintf(os.Stderr, "memory: legacy import deferred; originals preserved: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
 	server := &mcp.Server{
-		Name:    serverName,
-		Version: serverVersion,
-		Tools:   []mcp.Tool{memory.Tool(memory.NewStore(resolveDir(*dir)))},
+		Name: serverName, Version: serverVersion,
+		Tools: []mcp.Tool{memory.Tool(memory.NewStore(resolveDir(*dir)))},
 	}
 	if err := server.Serve(ctx, os.Stdin, os.Stdout); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "memory: %v\n", err)
@@ -41,5 +43,5 @@ func resolveDir(dirFlag string) string {
 	if dirFlag != "" {
 		return dirFlag
 	}
-	return filepath.Join(appconfig.Dir(), "context", "memory")
+	return memory.Directory(appconfig.Dir())
 }

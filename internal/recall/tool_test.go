@@ -14,6 +14,9 @@ func callTool(t *testing.T, store *Store, args string) map[string]any {
 	if err != nil {
 		t.Fatalf("session_search(%s): %v", args, err)
 	}
+	if len(text) > maxToolResponseBytes {
+		t.Fatalf("serialized recall response = %d bytes, cap = %d", len(text), maxToolResponseBytes)
+	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(text), &payload); err != nil {
 		t.Fatalf("decode response: %v\n%s", err, text)
@@ -21,21 +24,26 @@ func callTool(t *testing.T, store *Store, args string) map[string]any {
 	return payload
 }
 
-func TestToolImplementsFourHermesShapes(t *testing.T) {
+func TestToolImplementsBoundedPersonalAssistantShapes(t *testing.T) {
 	store := newTestStore(t, standardFixture(t, t.TempDir()))
-
 	browse := callTool(t, store, `{}`)
 	if browse["mode"] != "browse" || browse["count"].(float64) != 2 {
 		t.Fatalf("browse = %+v", browse)
 	}
-
 	discover := callTool(t, store, `{"query":"kubernetes"}`)
-	if discover["mode"] != "discover" || discover["detail"] != "adaptive" || discover["count"].(float64) != 2 {
+	if discover["mode"] != "discover" || discover["detail"] != "brief" || discover["count"].(float64) != 2 {
 		t.Fatalf("discover = %+v", discover)
 	}
-	results := discover["results"].([]any)
-	if results[0].(map[string]any)["detail"] != "full" || results[1].(map[string]any)["detail"] != "adaptive" {
-		t.Fatalf("adaptive hydration = %+v", results)
+	for _, raw := range discover["results"].([]any) {
+		result := raw.(map[string]any)
+		if result["detail"] != "brief" || result["match_message_id"] == "" || len(result["messages"].([]any)) != 0 || len(result["bookend_start"].([]any)) != 0 || len(result["bookend_end"].([]any)) != 0 {
+			t.Fatalf("brief discovery expanded history or lost the read cursor: %+v", result)
+		}
+	}
+	adaptive := callTool(t, store, `{"query":"kubernetes","detail":"adaptive"}`)
+	results := adaptive["results"].([]any)
+	if adaptive["detail"] != "adaptive" || results[0].(map[string]any)["detail"] != "full" || results[1].(map[string]any)["detail"] != "adaptive" {
+		t.Fatalf("explicit adaptive hydration = %+v", adaptive)
 	}
 	if got := callTool(t, store, `{"query":"healthy"}`)["count"].(float64); got != 0 {
 		t.Fatalf("default roles exposed tool output: count=%v", got)
@@ -46,12 +54,10 @@ func TestToolImplementsFourHermesShapes(t *testing.T) {
 	if got := callTool(t, store, `{"query":"kubernetes","current_session_id":"sess-deploy"}`)["count"].(float64); got != 1 {
 		t.Fatalf("current session was not excluded: count=%v", got)
 	}
-
 	read := callTool(t, store, `{"query":"ignored","session_id":"sess-deploy"}`)
 	if read["mode"] != "read" || read["message_count"].(float64) != 3 {
 		t.Fatalf("read precedence = %+v", read)
 	}
-
 	scroll := callTool(t, store, `{"query":"ignored","session_id":"sess-deploy","around_message_id":"deploy-2","window":1}`)
 	if scroll["mode"] != "scroll" || scroll["window"].(float64) != 1 {
 		t.Fatalf("scroll precedence = %+v", scroll)
@@ -134,9 +140,8 @@ func TestToolSchemaUsesStringMessageIDs(t *testing.T) {
 		t.Fatal("absent argument object must fail; {} is browse")
 	}
 	zero, huge := 0, 999
-	if requestLimit(&zero) != 1 || requestLimit(&huge) != 10 ||
-		requestWindow(&zero) != 1 || requestWindow(&huge) != 20 {
-		t.Fatal("explicit limits must use Hermes clamps")
+	if requestLimit(&zero) != 1 || requestLimit(&huge) != 10 || requestWindow(&zero) != 1 || requestWindow(&huge) != 20 {
+		t.Fatal("explicit result/window limits must remain bounded")
 	}
 }
 

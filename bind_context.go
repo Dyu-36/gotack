@@ -3,36 +3,29 @@ package main
 import (
 	"errors"
 
+	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/contextseed"
+	"github.com/Dyu-36/gotack/internal/memory"
 )
 
-// ContextMigrationPreview returns an immutable, hash-addressed migration
-// candidate. The hashes and generation must be sent back when accepting.
-func (a *App) ContextMigrationPreview() (contextseed.MigrationPreview, error) {
-	if a.contextSeeder == nil {
-		return contextseed.MigrationPreview{}, errors.New("context seeder is not initialized")
-	}
-	return a.contextSeeder.PreviewMigration()
+type AssistantContextInfo struct {
+	Directory  string                  `json:"directory"`
+	ProfileCap int                     `json:"profile_cap_chars"`
+	MemoryCap  int                     `json:"memory_cap_chars"`
+	Snapshot   contextseed.PromptStats `json:"snapshot"`
+	Import     memory.ImportReport     `json:"import"`
 }
 
-func (a *App) AcceptContextMigration(req contextseed.AcceptMigrationRequest) (contextseed.MigrationStatus, error) {
+// AssistantContextInfo is a read-only, local inspection; it does not call a model
+// or expose prompt contents. Character/byte counts are not reported as tokens.
+func (a *App) AssistantContextInfo() (AssistantContextInfo, error) {
 	if a.contextSeeder == nil {
-		return contextseed.MigrationStatus{}, errors.New("context seeder is not initialized")
+		return AssistantContextInfo{}, errors.New("assistant context is not initialized")
 	}
-	status, err := a.contextSeeder.AcceptMigration(req)
-	if err == nil {
-		a.refreshCurrentContextSnapshot()
+	report, err := memory.ReadImportReport(appconfig.Dir())
+	if err != nil {
+		return AssistantContextInfo{}, err
 	}
-	return status, err
-}
-
-func (a *App) RollbackContextMigration(req contextseed.RollbackMigrationRequest) (contextseed.MigrationStatus, error) {
-	if a.contextSeeder == nil {
-		return contextseed.MigrationStatus{}, errors.New("context seeder is not initialized")
-	}
-	status, err := a.contextSeeder.RollbackMigration(req)
-	if err == nil {
-		a.refreshCurrentContextSnapshot()
-	}
-	return status, err
+	return AssistantContextInfo{Directory: a.contextSeeder.ContextDir(), ProfileCap: memory.ProfileCap,
+		MemoryCap: memory.MemoryCap, Snapshot: a.contextSeeder.PromptStats(), Import: report}, nil
 }

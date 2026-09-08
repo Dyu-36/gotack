@@ -5,56 +5,58 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Dyu-36/gotack/internal/mcp"
 )
 
 const ToolName = "session_search"
 
-const toolDescription = "Search past Crush sessions or read inside one. Four shapes are selected by arguments: " +
-	"query discovers matching sessions (the top result is fully hydrated by default); " +
-	"session_id plus around_message_id returns a bounded window around that message; " +
-	"session_id alone reads the session (large sessions return the first 20 and last 10 messages); " +
-	"no arguments browses recent sessions. Results are actual local database messages; no LLM is used."
+const toolDescription = "Find relevant past conversations in the local database, without an LLM. Query returns brief snippets and message IDs by default. Use session_id plus around_message_id for a bounded window, or session_id alone for a bounded session read. No arguments browses recent sessions. Results are size-limited; follow IDs instead of requesting the whole history."
 
 const toolSchema = `{"type":"object","properties":{
-	"query":{"type":"string","description":"FTS5 discovery query. Omit to browse recent sessions."},
-	"limit":{"type":"integer","description":"Maximum sessions for discovery or browse (default 3, max 10).","default":3},
-	"sort":{"type":"string","enum":["newest","oldest"],"description":"Optional temporal ordering for discovery; omit for relevance."},
-	"detail":{"type":"string","enum":["adaptive","full"],"description":"Adaptive fully hydrates only the top discovery result; full hydrates all.","default":"adaptive"},
-	"session_id":{"type":"string","description":"Session to read, or to scroll when paired with around_message_id."},
-	"around_message_id":{"type":"string","description":"Crush message id to center the scroll window on."},
-	"window":{"type":"integer","description":"Messages on each side of the anchor (default 5, clamped to 1-20).","default":5},
-	"role_filter":{"type":"string","description":"Comma-separated discovery roles. Defaults to user,assistant; tool is also accepted."}
+ "query":{"type":"string","description":"Names, keywords, or an FTS5 expression. Omit to browse."},
+ "limit":{"type":"integer","description":"Maximum sessions (default 3, max 10).","default":3},
+ "sort":{"type":"string","enum":["newest","oldest"]},
+ "detail":{"type":"string","enum":["brief","adaptive","full"],"description":"Brief returns snippets only. Adaptive/full expand windows subject to the same output cap.","default":"brief"},
+ "session_id":{"type":"string"},
+ "around_message_id":{"type":"string","description":"Use match_message_id from discovery to read around a match."},
+ "window":{"type":"integer","description":"Messages each side (default 5, max 20).","default":5},
+ "role_filter":{"type":"string","description":"Comma-separated roles; defaults to user,assistant."}
 },"required":[]}`
 
 type request struct {
-	Query           string  `json:"query"`
-	RoleFilter      string  `json:"role_filter"`
-	Limit           *int    `json:"limit"`
-	SessionID       string  `json:"session_id"`
-	AroundMessageID *string `json:"around_message_id"`
-	Window          *int    `json:"window"`
-	Sort            string  `json:"sort"`
-	Detail          string  `json:"detail"`
-
-	CurrentSessionID string `json:"current_session_id"`
+	Query            string  `json:"query"`
+	RoleFilter       string  `json:"role_filter"`
+	Limit            *int    `json:"limit"`
+	SessionID        string  `json:"session_id"`
+	AroundMessageID  *string `json:"around_message_id"`
+	Window           *int    `json:"window"`
+	Sort             string  `json:"sort"`
+	Detail           string  `json:"detail"`
+	CurrentSessionID string  `json:"current_session_id"`
 }
 
 func Tool(store *Store) mcp.Tool {
 	return mcp.Tool{
-		Name:        ToolName,
-		Description: toolDescription,
-		Schema:      json.RawMessage(toolSchema),
+		Name: ToolName, Description: toolDescription, Schema: json.RawMessage(toolSchema),
 		Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
 			if len(args) == 0 {
-				return "", fmt.Errorf("recall: arguments are required; send {} to browse sessions")
+				return "", fmt.Errorf("recall: send {} to browse sessions")
+			}
+			if len(args) > 16*1024 {
+				return "", fmt.Errorf("recall: arguments exceed the size limit")
 			}
 			var req request
 			if err := json.Unmarshal(args, &req); err != nil {
 				return "", fmt.Errorf("recall: decode arguments: %w", err)
 			}
-			return dispatch(ctx, store, req)
+			started := time.Now()
+			result, err := dispatch(ctx, store, req)
+			// Counts and timings only; no user query, snippets, or session IDs.
+			store.log.Info("recall output budget", "response_bytes", len(result),
+				"limit_bytes", maxToolResponseBytes, "elapsed_us", time.Since(started).Microseconds(), "failed", err != nil)
+			return result, err
 		},
 	}
 }
@@ -91,12 +93,8 @@ func dispatch(ctx context.Context, store *Store, req request) (string, error) {
 	if query != "" {
 		detail := parseDetail(req.Detail)
 		results, err := store.SearchWithOptions(ctx, SearchOptions{
-			Query:            query,
-			Roles:            splitRoles(req.RoleFilter),
-			Limit:            requestLimit(req.Limit),
-			Sort:             parseSortOrder(req.Sort),
-			Detail:           detail,
-			ExcludeSessionID: strings.TrimSpace(req.CurrentSessionID),
+			Query: query, Roles: splitRoles(req.RoleFilter), Limit: requestLimit(req.Limit),
+			Sort: parseSortOrder(req.Sort), Detail: detail, ExcludeSessionID: strings.TrimSpace(req.CurrentSessionID),
 		})
 		if err != nil {
 			return "", err
@@ -154,12 +152,4 @@ func requestWindow(value *int) int {
 		return maxAroundWindow
 	}
 	return *value
-}
-
-func encode(payload any) (string, error) {
-	out, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("recall: encode results: %w", err)
-	}
-	return string(out), nil
 }

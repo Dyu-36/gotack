@@ -15,14 +15,11 @@ import (
 
 func (a *App) startReflection() {
 	a.reflection = reflection.New(reflection.Runtime{
-		LoadTranscript:       a.reflectionLoadTranscript,
-		CreateSession:        a.reflectionCreateSession,
-		MarkReview:           a.reflectionMarkReview,
-		SendPrompt:           a.reflectionSendPrompt,
+		LoadTranscript: a.reflectionLoadTranscript, CreateSession: a.reflectionCreateSession,
+		MarkReview: a.reflectionMarkReview, SendPrompt: a.reflectionSendPrompt,
 		SendPromptWithBudget: a.reflectionSendPromptWithBudget,
-		CancelSession:        a.reflectionCancelSession,
-		CleanupSession:       a.reflectionCleanupSession,
-		Preflight:            a.reflectionPreflight,
+		CancelSession: a.reflectionCancelSession, CleanupSession: a.reflectionCleanupSession,
+		Preflight: a.reflectionPreflight,
 	}, a.log)
 }
 
@@ -35,24 +32,17 @@ func (a *App) reflectionLoadTranscript(ctx context.Context, sourceID string) ([]
 	if err != nil {
 		return nil, err
 	}
+	// The current engine endpoint returns the transcript. Bound the part we
+	// extract; do not also copy every historical tool input/output into memory.
+	if len(messages) > 32 {
+		messages = messages[len(messages)-32:]
+	}
 	out := make([]reflection.Message, 0, len(messages))
 	for _, message := range messages {
-		parts := crushapi.ExtractParts(message.Parts)
-		tools := make([]string, 0, len(parts.ToolCalls))
-		for _, call := range parts.ToolCalls {
-			if call.Name != "" {
-				tools = append(tools, call.Name)
-			}
+		if message.Role != "user" && message.Role != "assistant" {
+			continue
 		}
-		results := make([]reflection.ToolResult, 0, len(parts.ToolResults))
-		for _, result := range parts.ToolResults {
-			results = append(results, reflection.ToolResult{
-				Name: result.Name, Content: result.Content, IsError: result.IsError,
-			})
-		}
-		out = append(out, reflection.Message{
-			Role: message.Role, Text: parts.Text, Tools: tools, Results: results,
-		})
+		out = append(out, reflection.Message{Role: message.Role, Text: crushapi.ExtractText(message.Parts)})
 	}
 	return out, nil
 }
@@ -74,11 +64,7 @@ func (a *App) reflectionMarkReview(_ context.Context, sessionID string) error {
 }
 
 func (a *App) reflectionSendPrompt(ctx context.Context, sessionID, prompt string) (string, error) {
-	svc, err := a.services()
-	if err != nil {
-		return "", err
-	}
-	return svc.sess.Send(ctx, sessionID, prompt)
+	return a.reflectionSendPromptWithBudget(ctx, sessionID, prompt, reflection.MaxReviewInputTokens)
 }
 
 func (a *App) reflectionSendPromptWithBudget(ctx context.Context, sessionID, prompt string, maxInputTokens int64) (string, error) {
@@ -110,11 +96,11 @@ func (a *App) reflectionPreflight(_ context.Context, review reflection.Review) e
 	if a.cfg == nil || strings.TrimSpace(a.cfg.Model) == "" {
 		return errors.New("no model configured")
 	}
-	if review.Memory && resolveMemoryCommand() == "" {
-		return errors.New("memory tool is unavailable")
+	if !review.Memory || review.Skills {
+		return errors.New("only personal memory review is enabled")
 	}
-	if review.Skills && resolveSkillsCommand() == "" {
-		return errors.New("skills tool is unavailable")
+	if resolveMemoryCommand() == "" {
+		return errors.New("memory tool is unavailable")
 	}
 	return nil
 }
@@ -129,7 +115,7 @@ func (a *App) triggerReflection(sourceID string, review reflection.Review) {
 	}
 	go func() {
 		if err := a.reflection.Fire(baseCtx, sourceID, review); err != nil && a.log != nil {
-			a.log.Debug("background review not started", "session", sourceID, "err", err)
+			a.log.Debug("personal memory review not started", "err", err)
 		}
 	}()
 }
@@ -142,7 +128,7 @@ func (a *App) cleanupReflection(sessionID string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := a.reflectionCleanupSession(ctx, sessionID); err != nil && a.log != nil {
-			a.log.Debug("background review cleanup failed", "session", sessionID, "err", err)
+			a.log.Debug("memory review cleanup failed", "err", err)
 		}
 	}()
 }
@@ -157,44 +143,30 @@ func (a *App) stopReflection(ctx context.Context) {
 		cleanupErr = a.reflectionCleanupSession(ctx, sessionID)
 	}
 	if err := errors.Join(cancelErr, cleanupErr); err != nil && a.log != nil {
-		a.log.Debug("background review shutdown cleanup failed", "session", sessionID, "err", err)
+		a.log.Debug("memory review shutdown failed", "err", err)
 	}
 }
 
 func (a *App) prepareReflectionTurn(sessionID string) bool {
 	if a.reflection == nil {
+		a.refreshCurrentContextSnapshot()
 		return false
 	}
 	baseCtx := a.ctx
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(baseCtx, 500*time.Millisecond)
 	if err := a.reflection.CancelForLiveTurn(ctx, sessionID); err != nil && a.log != nil {
-		a.log.Debug("background review cancellation failed", "session", sessionID, "err", err)
+		a.log.Debug("memory review cancellation deferred", "err", err)
 	}
 	cancel()
-	if !a.reflection.NeedsHydration(sessionID) {
-		return true
+	// Learning cadence is not user memory. Restart its counter after reconnect
+	// instead of loading all prior messages before accepting a foreground turn.
+	if a.reflection.NeedsHydration(sessionID) {
+		a.reflection.Hydrate(sessionID, 0)
 	}
-	svc, err := a.services()
-	if err != nil {
-		return false
-	}
-	messages, err := svc.sess.Messages(baseCtx, sessionID)
-	if err != nil {
-		if a.log != nil {
-			a.log.Debug("learning cadence hydration deferred", "session", sessionID, "err", err)
-		}
-		return false
-	}
-	userTurns := 0
-	for _, message := range messages {
-		if strings.EqualFold(message.Role, "user") {
-			userTurns++
-		}
-	}
-	a.reflection.Hydrate(sessionID, userTurns)
+	a.refreshCurrentContextSnapshot()
 	return true
 }
 
@@ -212,7 +184,7 @@ func (a *App) assistantIteration(sessionID, messageID string, hasTools bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := a.reflection.CancelReview(ctx); err != nil && a.log != nil {
-			a.log.Debug("background review iteration limit cancellation failed", "err", err)
+			a.log.Debug("memory review iteration limit", "err", err)
 		}
 	}()
 }
