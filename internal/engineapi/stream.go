@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 )
 
 type StreamEvent struct {
@@ -16,12 +15,7 @@ type StreamEvent struct {
 	Payload json.RawMessage
 }
 
-type envelope struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-type innerEvent struct {
+type streamFrame struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
 }
@@ -53,15 +47,9 @@ func (c *Client) Stream(ctx context.Context, wsID string, kinds ...string) (<-ch
 	}
 	out := make(chan StreamEvent, 32)
 
-	var once sync.Once
-	stop := func() {
-		once.Do(func() {
-			cancel()
-			_ = resp.Body.Close()
-		})
-	}
+	stop := cancel
 	go func() {
-		defer stop()
+		defer cancel()
 		c.readEvents(streamCtx, resp, out, allow)
 	}()
 
@@ -100,7 +88,7 @@ func ssePayload(line string) (string, bool) {
 }
 
 func decodeEnvelope(line string, allow map[string]struct{}) (StreamEvent, bool) {
-	var env envelope
+	var env streamFrame
 	if err := json.Unmarshal([]byte(line), &env); err != nil {
 		return StreamEvent{}, false
 	}
@@ -110,7 +98,7 @@ func decodeEnvelope(line string, allow map[string]struct{}) (StreamEvent, bool) 
 
 	// Most lifecycle events are wrapped as {type, payload:{type,payload}}, but
 	// terminal and permission events are intentionally flat.
-	var inner innerEvent
+	var inner streamFrame
 	if len(env.Payload) > 0 {
 		if err := json.Unmarshal(env.Payload, &inner); err == nil && inner.Type != "" && len(inner.Payload) > 0 {
 			return StreamEvent{Kind: env.Type, Event: inner.Type, Payload: inner.Payload}, true

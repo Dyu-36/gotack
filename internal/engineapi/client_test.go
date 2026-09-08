@@ -11,8 +11,22 @@ import (
 	"testing"
 )
 
+func newHTTPTestClient(t *testing.T, handler http.Handler) *Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	t.Cleanup(func() {
+		transport.CloseIdleConnections()
+		server.Close()
+	})
+	return NewClient(&http.Client{Transport: transport})
+}
+
 func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			http.Error(w, "client did not advertise gzip", http.StatusBadRequest)
 			return
@@ -27,20 +41,13 @@ func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == workspacesPath:
 			_, _ = zw.Write([]byte(`{"id":"ws-1","path":"D:/repo"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces/ws-1/providers":
-			_, _ = zw.Write([]byte(`[{"id":"opencode-go","name":"OpenCode Go","models":[{"id":"text-model","name":"Text Model","supports_attachments":false},{"id":"vision-model","name":"Vision Model","supports_attachments":true}]}]`))
+			_, _ = zw.Write([]byte(`[{"id":"opencode-go","name":"OpenCode Go","models":[{"id":"text-model","name":"Text Model","supports_attachments":false},{"id":"vision-model","name":"Vision Model","supports_attachments":true},{"id":"explicit-false","name":"Explicit False","supports_vision":false,"supports_attachments":true}]}]`))
 
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = zw.Write([]byte(`{"message":"not found"}`))
 		}
 	}))
-	defer server.Close()
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-	}
-	client := NewClient(&http.Client{Transport: transport})
 
 	workspace, err := client.CreateWorkspace(context.Background(), "D:/repo", false)
 	if err != nil {
@@ -54,7 +61,7 @@ func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProviders() error = %v", err)
 	}
-	if len(providers) != 1 || providers[0].ID != "opencode-go" || len(providers[0].Models) != 2 {
+	if len(providers) != 1 || providers[0].ID != "opencode-go" || len(providers[0].Models) != 3 {
 		t.Fatalf("ListProviders() = %#v", providers)
 	}
 	if providers[0].Models[0].SupportsVision {
@@ -63,12 +70,15 @@ func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
 	if !providers[0].Models[1].SupportsVision {
 		t.Fatal("supports_attachments=true was not decoded as vision support")
 	}
+	if providers[0].Models[2].SupportsVision {
+		t.Fatal("supports_vision=false must take precedence over supports_attachments=true")
+	}
 }
 
 func TestSetPermissionsSkipPostsWorkspaceFlag(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotSkip bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		var payload struct {
@@ -80,13 +90,6 @@ func TestSetPermissionsSkipPostsWorkspaceFlag(t *testing.T) {
 		gotSkip = payload.Skip
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer server.Close()
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-	}
-	client := NewClient(&http.Client{Transport: transport})
 	if err := client.SetPermissionsSkip(context.Background(), "ws-1", true); err != nil {
 		t.Fatalf("SetPermissionsSkip() error = %v", err)
 	}
@@ -98,7 +101,7 @@ func TestSetPermissionsSkipPostsWorkspaceFlag(t *testing.T) {
 func TestInitAgentPostsInteractiveFlag(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotInteractive bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		var payload struct {
@@ -110,13 +113,6 @@ func TestInitAgentPostsInteractiveFlag(t *testing.T) {
 		gotInteractive = payload.Interactive
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer server.Close()
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-	}
-	client := NewClient(&http.Client{Transport: transport})
 	if err := client.InitAgent(context.Background(), "ws-1", true); err != nil {
 		t.Fatalf("InitAgent() error = %v", err)
 	}
@@ -127,18 +123,11 @@ func TestInitAgentPostsInteractiveFlag(t *testing.T) {
 
 func TestRefreshPromptContextPostsNarrowAgentRoute(t *testing.T) {
 	var gotMethod, gotPath string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer server.Close()
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-	}
-	client := NewClient(&http.Client{Transport: transport})
 	if err := client.RefreshPromptContext(context.Background(), "ws-1"); err != nil {
 		t.Fatalf("RefreshPromptContext() error = %v", err)
 	}
@@ -158,7 +147,7 @@ func TestEnsureAgentInitializesOnlyWhenNotReady(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			getCount, initCount := 0, 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces/ws-1/agent":
 					getCount++
@@ -180,13 +169,6 @@ func TestEnsureAgentInitializesOnlyWhenNotReady(t *testing.T) {
 					http.Error(w, "unexpected request", http.StatusNotFound)
 				}
 			}))
-			defer server.Close()
-
-			transport := http.DefaultTransport.(*http.Transport).Clone()
-			transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-			}
-			client := NewClient(&http.Client{Transport: transport})
 			if err := client.EnsureAgent(context.Background(), "ws-1", true); err != nil {
 				t.Fatalf("EnsureAgent() error = %v", err)
 			}
@@ -204,7 +186,7 @@ func TestSendPromptWithAttachmentsPostsAgentPayload(t *testing.T) {
 		Prompt      string       `json:"prompt"`
 		Attachments []Attachment `json:"attachments"`
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/workspaces/ws-1/agent" {
 			t.Errorf("request = %s %s", r.Method, r.URL.Path)
 			http.Error(w, "unexpected request", http.StatusNotFound)
@@ -215,13 +197,6 @@ func TestSendPromptWithAttachmentsPostsAgentPayload(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
-	defer server.Close()
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-	}
-	client := NewClient(&http.Client{Transport: transport})
 	attachments := []Attachment{{
 		FilePath: "photo.png",
 		FileName: "photo.png",
@@ -246,18 +221,12 @@ func TestSendPromptWithAttachmentsAndBudgetPostsOnlyExplicitBudget(t *testing.T)
 		Prompt         string `json:"prompt"`
 		MaxInputTokens int64  `json:"max_input_tokens"`
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Errorf("decode prompt request: %v", err)
 		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
-	defer server.Close()
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
-	}
-	client := NewClient(&http.Client{Transport: transport})
 	if err := client.SendPromptWithAttachmentsAndBudget(context.Background(), "ws-1", "review-1", "review", "run-1", nil, 600_000); err != nil {
 		t.Fatalf("SendPromptWithAttachmentsAndBudget() error = %v", err)
 	}

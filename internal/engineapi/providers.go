@@ -37,22 +37,19 @@ type Model struct {
 
 func (m *Model) UnmarshalJSON(data []byte) error {
 	type modelWire Model
-	var decoded modelWire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var capabilities struct {
+	var decoded struct {
+		modelWire
 		SupportsVision      *bool `json:"supports_vision"`
 		SupportsAttachments *bool `json:"supports_attachments"`
 	}
-	if err := json.Unmarshal(data, &capabilities); err != nil {
+	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	*m = Model(decoded)
-	if capabilities.SupportsVision != nil {
-		m.SupportsVision = *capabilities.SupportsVision
-	} else if capabilities.SupportsAttachments != nil {
-		m.SupportsVision = *capabilities.SupportsAttachments
+	*m = Model(decoded.modelWire)
+	if decoded.SupportsVision != nil {
+		m.SupportsVision = *decoded.SupportsVision
+	} else if decoded.SupportsAttachments != nil {
+		m.SupportsVision = *decoded.SupportsAttachments
 	}
 	return nil
 }
