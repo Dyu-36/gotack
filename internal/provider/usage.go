@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/openaioauth"
 )
 
 type UsageWindow struct {
@@ -60,22 +59,22 @@ type ChatGPTRateLimitWindow struct {
 	ResetAt            int64   `json:"reset_at"`
 }
 
-func ConfiguredChatGPTToken(config engineapi.ProviderConfig) (openaioauth.Token, bool) {
+func ConfiguredChatGPTToken(config engineapi.ProviderConfig) (OpenAIOAuthToken, bool) {
 	if config.Disable {
-		return openaioauth.Token{}, false
+		return OpenAIOAuthToken{}, false
 	}
 	raw := strings.TrimSpace(string(config.OAuth))
 	if raw == "" || raw == "null" || raw == "{}" {
-		return openaioauth.Token{}, false
+		return OpenAIOAuthToken{}, false
 	}
-	var token openaioauth.Token
+	var token OpenAIOAuthToken
 	if err := json.Unmarshal(config.OAuth, &token); err != nil || strings.TrimSpace(token.AccessToken) == "" {
-		return openaioauth.Token{}, false
+		return OpenAIOAuthToken{}, false
 	}
 	return token, true
 }
 
-func FetchChatGPTUsage(ctx context.Context, client *http.Client, endpoint string, token openaioauth.Token, now time.Time) (UsageInfo, error) {
+func FetchChatGPTUsage(ctx context.Context, client *http.Client, endpoint string, token OpenAIOAuthToken, now time.Time) (UsageInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return UsageInfo{}, fmt.Errorf("create ChatGPT usage request: %w", err)
@@ -232,7 +231,7 @@ func LoadChatGPTUsage(ctx context.Context, api *engineapi.Client, workspaceID st
 	}
 
 	if token.AccountID == "" && token.IDToken != "" {
-		metadata := openaioauth.ParseIDTokenMetadata(token.IDToken)
+		metadata := parseOpenAIIDTokenMetadata(token.IDToken)
 		token.AccountID = metadata.AccountID
 		token.AccountFedRAMP = metadata.AccountFedRAMP
 	}
