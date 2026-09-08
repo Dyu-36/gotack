@@ -102,7 +102,6 @@ func (a *App) connect(scope context.Context) {
 		a.migrateChatGPTProviderCredential(svc)
 		workspaceWarning := ""
 		if _, err := a.activateAssistantWorkspace(svc); err != nil {
-
 			a.log.Warn("could not attach the default workspace", "err", err)
 			workspaceWarning = fmt.Sprintf("initialize assistant workspace: %v", err)
 		}
@@ -128,23 +127,14 @@ func (a *App) connect(scope context.Context) {
 	switch {
 	case err == nil:
 	case errors.Is(err, enginelink.ErrAttachSuperseded):
-
 	default:
 		a.failConnect(err.Error())
 	}
 }
 
-func (a *App) telemetryCallback(api *engineapi.Client) func(*engineapi.RunTelemetry) {
+func (a *App) telemetryCallback(_ *engineapi.Client) func(*engineapi.RunTelemetry) {
 	return func(telemetry *engineapi.RunTelemetry) {
-		if telemetry == nil {
-			return
-		}
-		// Workspace SSE is a long-lived host transport, not a provider
-		// model call. Discard its legacy observation; only the engine can
-		// supply provider timings. Keep the client owned by this callback
-		// so a reconnect cannot consume another connection's registry.
-		api.Observer().Evict(telemetry.RunID, 0, "")
-		if a.runMetrics != nil {
+		if telemetry != nil && a.runMetrics != nil {
 			a.runMetrics.Append(telemetry)
 		}
 	}
