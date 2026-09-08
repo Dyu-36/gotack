@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -36,59 +35,6 @@ func walkXMLText(raw string, onStart, onText, onEnd func(string)) error {
 	}
 }
 
-func writePackage(path string, parts map[string]string) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("office: create %s: %w", path, err)
-	}
-	defer file.Close()
-
-	zipper := zip.NewWriter(file)
-
-	if _, ok := parts["[Content_Types].xml"]; ok {
-		if err := writePart(zipper, "[Content_Types].xml", parts["[Content_Types].xml"]); err != nil {
-			zipper.Close()
-			return err
-		}
-	}
-	for _, name := range sortedOtherParts(parts) {
-		if err := writePart(zipper, name, parts[name]); err != nil {
-			zipper.Close()
-			return err
-		}
-	}
-	if err := zipper.Close(); err != nil {
-		return fmt.Errorf("office: pack %s: %w", path, err)
-	}
-	return file.Close()
-}
-
-func sortedOtherParts(parts map[string]string) []string {
-	names := make([]string, 0, len(parts))
-	for name := range parts {
-		if name != "[Content_Types].xml" {
-			names = append(names, name)
-		}
-	}
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j] < names[j-1]; j-- {
-			names[j], names[j-1] = names[j-1], names[j]
-		}
-	}
-	return names
-}
-
-func writePart(zipper *zip.Writer, name, content string) error {
-	entry, err := zipper.Create(name)
-	if err != nil {
-		return fmt.Errorf("office: pack %s: %w", name, err)
-	}
-	if _, err := io.WriteString(entry, content); err != nil {
-		return fmt.Errorf("office: pack %s: %w", name, err)
-	}
-	return nil
-}
-
 func readPackagePart(path, name string) (string, error) {
 	reader, err := zip.OpenReader(path)
 	if err != nil {
@@ -112,68 +58,6 @@ func readPackagePart(path, name string) (string, error) {
 		return string(data), nil
 	}
 	return "", fmt.Errorf("office: %s is missing %s", path, name)
-}
-
-func replacePackagePart(path, name, content string) error {
-	reader, err := zip.OpenReader(path)
-	if err != nil {
-		return fmt.Errorf("office: open %s: %w", path, err)
-	}
-
-	temp := path + ".tmp"
-	writer, err := os.Create(temp)
-	if err != nil {
-		reader.Close()
-		return fmt.Errorf("office: rewrite %s: %w", path, err)
-	}
-
-	zipper := zip.NewWriter(writer)
-	replaced := false
-	for _, file := range reader.File {
-		entry, entryErr := zipper.CreateHeader(&zip.FileHeader{Name: file.Name, Method: file.Method})
-		if entryErr != nil {
-			zipper.Close()
-			writer.Close()
-			reader.Close()
-			return fmt.Errorf("office: rewrite %s: %w", path, entryErr)
-		}
-		var copyErr error
-		if file.Name == name {
-			replaced = true
-			_, copyErr = io.Copy(entry, strings.NewReader(content))
-		} else {
-			source, openErr := file.Open()
-			if openErr != nil {
-				zipper.Close()
-				writer.Close()
-				reader.Close()
-				return fmt.Errorf("office: rewrite %s: %w", path, openErr)
-			}
-			_, copyErr = io.Copy(entry, source)
-			source.Close()
-		}
-		if copyErr != nil {
-			zipper.Close()
-			writer.Close()
-			reader.Close()
-			return fmt.Errorf("office: rewrite %s: %w", path, copyErr)
-		}
-	}
-	if err := zipper.Close(); err != nil {
-		writer.Close()
-		reader.Close()
-		return fmt.Errorf("office: rewrite %s: %w", path, err)
-	}
-	if err := writer.Close(); err != nil {
-		reader.Close()
-		return fmt.Errorf("office: rewrite %s: %w", path, err)
-	}
-	reader.Close()
-	if !replaced {
-		_ = os.Remove(temp)
-		return fmt.Errorf("office: %s is missing %s", path, name)
-	}
-	return os.Rename(temp, path)
 }
 
 func listPackageParts(path, prefix string) ([]string, error) {
@@ -208,25 +92,4 @@ func byTrailingNumber(names []string) {
 			names[j], names[j-1] = names[j-1], names[j]
 		}
 	}
-}
-
-func escapeXML(text string) string {
-	var out strings.Builder
-	for _, r := range text {
-		switch r {
-		case '&':
-			out.WriteString("&amp;")
-		case '<':
-			out.WriteString("&lt;")
-		case '>':
-			out.WriteString("&gt;")
-		case '"':
-			out.WriteString("&quot;")
-		case '\'':
-			out.WriteString("&apos;")
-		default:
-			out.WriteRune(r)
-		}
-	}
-	return out.String()
 }

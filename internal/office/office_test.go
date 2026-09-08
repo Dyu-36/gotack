@@ -1,138 +1,133 @@
 package office
 
 import (
+	"archive/zip"
 	"encoding/xml"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xuri/excelize/v2"
 )
 
-func TestParseBlocksAndInline(t *testing.T) {
-	src := "# Report\n\nIntro **bold** and *italic* text.\n- first bullet\n- second bullet\n2. numbered\n\n| Name | Qty |\n| --- | --- |\n| Rice | 2 |\n\n---\n"
-	blocks := ParseBlocks(src)
-
-	want := []Block{
-		{Kind: kindHeading, Level: 1, Text: "Report"},
-		{Kind: kindParagraph, Text: "Intro **bold** and *italic* text."},
-		{Kind: kindBullet, Text: "first bullet"},
-		{Kind: kindBullet, Text: "second bullet"},
-		{Kind: kindNumber, Text: "numbered"},
-		{Kind: kindTable, Rows: []string{"Name\tQty", "Rice\t2"}},
-		{Kind: kindDivider},
+func writeTestPackage(path string, parts map[string]string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
 	}
-	if len(blocks) != len(want) {
-		t.Fatalf("got %d blocks %+v, want %d", len(blocks), blocks, len(want))
-	}
-	for i, block := range want {
-		if blocks[i].Kind != block.Kind || blocks[i].Text != block.Text || blocks[i].Level != block.Level {
-			t.Fatalf("block %d = %+v, want %+v", i, blocks[i], block)
+	zipper := zip.NewWriter(file)
+	for name, content := range parts {
+		entry, err := zipper.Create(name)
+		if err != nil {
+			_ = zipper.Close()
+			_ = file.Close()
+			return err
+		}
+		if _, err := entry.Write([]byte(content)); err != nil {
+			_ = zipper.Close()
+			_ = file.Close()
+			return err
 		}
 	}
-	if len(blocks[5].Rows) != 2 || blocks[5].Rows[1] != "Rice\t2" {
-		t.Fatalf("table rows = %v", blocks[5].Rows)
+	if err := zipper.Close(); err != nil {
+		_ = file.Close()
+		return err
 	}
-
-	spans := Inline("Intro **bold** and *italic*")
-	if len(spans) != 4 || spans[0].Text != "Intro " || spans[1].Text != "bold" || !spans[1].Bold || spans[3].Text != "italic" || !spans[3].Italic {
-		t.Fatalf("unexpected spans %+v", spans)
-	}
+	return file.Close()
 }
 
-func TestDocxRoundTrip(t *testing.T) {
-	path := t.TempDir() + "/report.docx"
-	source := "# Quarterly Report\n\nRevenue grew **fast**.\n- Q1 note\n\n| Item | Amount |\n| A | 10 |\n"
-	if _, err := Create(CreateRequest{Path: path, Content: source}); err != nil {
-		t.Fatalf("create: %v", err)
+func TestDocxReadAndInfo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.docx")
+	doc := `<document><body>` +
+		`<p><r><t>Quarterly Report</t></r></p>` +
+		`<p><r><t>Revenue grew fast.</t></r></p>` +
+		`<tbl><tr><tc><p><r><t>Item</t></r></p></tc><tc><p><r><t>Amount</t></r></p></tc></tr></tbl>` +
+		`</body></document>`
+	if err := writeTestPackage(path, map[string]string{documentXML: doc}); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
 
 	info, err := Info(path)
 	if err != nil {
-		t.Fatalf("info: %v", err)
+		t.Fatalf("Info: %v", err)
 	}
-	if !strings.Contains(info, "Word document") {
-		t.Fatalf("info = %q", info)
+	if !strings.Contains(info, "Word document: 2 paragraphs (1 table rows)") {
+		t.Fatalf("Info() = %q", info)
 	}
 
 	content, err := Read(path, "")
 	if err != nil {
-		t.Fatalf("read: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
-	for _, want := range []string{"Quarterly Report", "Revenue grew fast.", "•  Q1 note", "Item | Amount"} {
+	for _, want := range []string{"Quarterly Report", "Revenue grew fast.", "Item | Amount"} {
 		if !strings.Contains(content, want) {
-			t.Fatalf("read output missing %q in:\n%s", want, content)
+			t.Fatalf("Read() missing %q in:\n%s", want, content)
 		}
 	}
-
-	replaced, err := Edit(EditRequest{Op: "replace_text", Path: path, Find: "fast", Replace: "steadily"})
-	if err != nil {
-		t.Fatalf("edit: %v", err)
-	}
-	if !strings.Contains(replaced, "1 occurrence") {
-		t.Fatalf("edit report = %q", replaced)
-	}
-	updated, _ := Read(path, "")
-	if strings.Contains(updated, "fast") || !strings.Contains(updated, "steadily") {
-		t.Fatalf("replace did not apply:\n%s", updated)
-	}
 }
 
-func TestDocxReplaceMissingTextFails(t *testing.T) {
-	path := t.TempDir() + "/a.docx"
-	if _, err := Create(CreateRequest{Path: path, Content: "# A\n\nbody"}); err != nil {
-		t.Fatalf("create: %v", err)
+func TestPptxReadAndInfo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "deck.pptx")
+	parts := map[string]string{
+		"ppt/slides/slide1.xml": `<slide><p><r><t>Overview</t></r></p><p><r><t>Goal one</t></r></p></slide>`,
+		"ppt/slides/slide2.xml": `<slide><p><r><t>Budget</t></r></p><p><r><t>Costs rose sharply</t></r></p></slide>`,
 	}
-	if _, err := Edit(EditRequest{Op: "replace_text", Path: path, Find: "missing", Replace: "x"}); err == nil {
-		t.Fatal("expected error for missing find text")
-	}
-}
-
-func TestPptxRoundTrip(t *testing.T) {
-	path := t.TempDir() + "/deck.pptx"
-	source := "# Overview\n\nWelcome to the review\n- Goal one\n\n# Budget\n\nCosts rose *sharply*\n"
-	if _, err := Create(CreateRequest{Path: path, Content: source}); err != nil {
-		t.Fatalf("create: %v", err)
+	if err := writeTestPackage(path, parts); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
 
 	info, err := Info(path)
 	if err != nil {
-		t.Fatalf("info: %v", err)
+		t.Fatalf("Info: %v", err)
 	}
 	if !strings.Contains(info, "2 slides") {
-		t.Fatalf("info = %q", info)
+		t.Fatalf("Info() = %q", info)
 	}
 
 	content, err := Read(path, "")
 	if err != nil {
-		t.Fatalf("read: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
-	for _, want := range []string{"## Slide 1", "Overview", "•  Goal one", "## Slide 2", "Budget"} {
+	for _, want := range []string{"## Slide 1", "Overview", "Goal one", "## Slide 2", "Budget"} {
 		if !strings.Contains(content, want) {
-			t.Fatalf("read output missing %q in:\n%s", want, content)
+			t.Fatalf("Read() missing %q in:\n%s", want, content)
 		}
-	}
-
-	if _, err := Edit(EditRequest{Op: "replace_text", Path: path, Find: "sharply", Replace: "slowly"}); err != nil {
-		t.Fatalf("edit: %v", err)
-	}
-	updated, _ := Read(path, "")
-	if strings.Contains(updated, "sharply") || !strings.Contains(updated, "slowly") {
-		t.Fatalf("replace did not apply:\n%s", updated)
 	}
 }
 
-func TestPptxCreateWithoutHeading(t *testing.T) {
-	path := t.TempDir() + "/notes.pptx"
-	summary, err := Create(CreateRequest{Path: path, Content: "just text"})
-	if err != nil {
-		t.Fatalf("create: %v", err)
+func TestXlsxReadAndInfo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.xlsx")
+	file := excelize.NewFile()
+	defer file.Close()
+	for cell, value := range map[string]any{
+		"A1": "Name", "B1": "Qty",
+		"A2": "Rice", "B2": 2,
+		"A3": "Tea", "B3": true,
+	} {
+		if err := file.SetCellValue("Sheet1", cell, value); err != nil {
+			t.Fatalf("SetCellValue(%s): %v", cell, err)
+		}
 	}
-	if !strings.Contains(summary, "1 slides") && !strings.Contains(summary, "1 slide") {
-		t.Fatalf("summary = %q", summary)
+	if err := file.SaveAs(path); err != nil {
+		t.Fatalf("SaveAs: %v", err)
 	}
 
-	if _, err := Create(CreateRequest{Path: t.TempDir() + "/empty.pptx", Content: "  "}); err == nil {
-		t.Fatal("expected error for empty content")
+	info, err := Info(path)
+	if err != nil {
+		t.Fatalf("Info: %v", err)
+	}
+	if !strings.Contains(info, `"Sheet1" 3x2`) {
+		t.Fatalf("Info() = %q", info)
+	}
+
+	content, err := Read(path, "")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !strings.Contains(content, "Name\tQty\nRice\t2\nTea\tTRUE") {
+		t.Fatalf("Read() =\n%s", content)
 	}
 }
 
@@ -145,22 +140,18 @@ func TestMalformedOOXMLReturnsError(t *testing.T) {
 		{
 			name: "docx malformed text element",
 			ext:  ".docx",
-			parts: map[string]string{
-				documentXML: `<document><p><t>partial</p></document>`,
-			},
+			parts: map[string]string{documentXML: `<document><p><t>partial</p></document>`},
 		},
 		{
 			name: "pptx truncated slide",
 			ext:  ".pptx",
-			parts: map[string]string{
-				"ppt/slides/slide1.xml": `<slide><p><t>partial</t></p>`,
-			},
+			parts: map[string]string{"ppt/slides/slide1.xml": `<slide><p><t>partial</t></p>`},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "broken"+tc.ext)
-			if err := writePackage(path, tc.parts); err != nil {
-				t.Fatalf("write malformed fixture: %v", err)
+			if err := writeTestPackage(path, tc.parts); err != nil {
+				t.Fatalf("write fixture: %v", err)
 			}
 			if _, err := Read(path, ""); err == nil {
 				t.Fatal("Read() accepted malformed XML")
@@ -171,42 +162,6 @@ func TestMalformedOOXMLReturnsError(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestXlsxRoundTrip(t *testing.T) {
-	path := t.TempDir() + "/data.xlsx"
-	source := "Name\tQty\nRice\t2\nTea\ttrue\n"
-	if _, err := Create(CreateRequest{Path: path, Content: source}); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	info, err := Info(path)
-	if err != nil {
-		t.Fatalf("info: %v", err)
-	}
-	if !strings.Contains(info, `"Sheet1" 3x2`) {
-		t.Fatalf("info = %q", info)
-	}
-
-	content, err := Read(path, "")
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-
-	if !strings.Contains(content, "Name\tQty\nRice\t2\nTea\tTRUE") {
-		t.Fatalf("read output =\n%s", content)
-	}
-
-	if _, err := Edit(EditRequest{Op: "set_cell", Path: path, Cell: "B2", Value: "5"}); err != nil {
-		t.Fatalf("set_cell: %v", err)
-	}
-	if _, err := Edit(EditRequest{Op: "append_rows", Path: path, Rows: "Sugar\t1"}); err != nil {
-		t.Fatalf("append_rows: %v", err)
-	}
-	updated, _ := Read(path, "")
-	if !strings.Contains(updated, "Rice\t5") || !strings.Contains(updated, "Sugar\t1") {
-		t.Fatalf("edits did not apply:\n%s", updated)
 	}
 }
 
