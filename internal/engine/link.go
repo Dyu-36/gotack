@@ -1,4 +1,4 @@
-package enginelink
+package engine
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
@@ -27,12 +26,21 @@ var ErrAttachSuperseded = errors.New("enginelink: attach scope superseded")
 
 var ErrNoSupervisor = errors.New("enginelink: engine supervisor unavailable")
 
-type DialFunc func(ctx context.Context, ep engineapi.Endpoint) (*http.Client, error)
+const pollInterval = 300 * time.Millisecond
+
+var ErrEngineUnhealthy = errors.New("engine: not healthy within timeout")
+
+type DialFunc func(ep engineapi.Endpoint) (*http.Client, error)
 
 type ReadyFunc func(ctx context.Context, api *engineapi.Client, ep engineapi.Endpoint, version string) error
 
+type supervisor interface {
+	Locate(ctx context.Context) (engineapi.Endpoint, bool)
+	Start() (engineapi.Endpoint, error)
+}
+
 type Link struct {
-	sup              engine.EngineAPI
+	sup              supervisor
 	dial             DialFunc
 	handshakeTimeout time.Duration
 
@@ -44,7 +52,7 @@ type Link struct {
 	scopeCancel context.CancelFunc
 }
 
-func NewLink(sup engine.EngineAPI) *Link {
+func NewLink(sup supervisor) *Link {
 	return &Link{
 		sup:              sup,
 		dial:             engineapi.Dial,
@@ -106,18 +114,15 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 		}
 	}
 
-	hc, err := l.dial(scope, ep)
+	hc, err := l.dial(ep)
 	if err != nil {
 		return fmt.Errorf("dial %s %s: %w", ep.Network, ep.Address, err)
 	}
 
 	api := engineapi.NewClient(hc)
-	if err := engine.WaitForHealthy(scope, api, l.handshakeTimeout); err != nil {
-		return fmt.Errorf("handshake: %w", err)
-	}
-	vi, err := api.Version(scope)
+	vi, err := WaitForHealthy(scope, api, l.handshakeTimeout)
 	if err != nil {
-		return fmt.Errorf("version: %w", err)
+		return fmt.Errorf("handshake: %w", err)
 	}
 
 	return ready(scope, api, ep, vi.Version)
@@ -196,4 +201,64 @@ func (l *Link) CancelScope() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+func WaitForHealthy(ctx context.Context, api *engineapi.Client, timeout time.Duration) (engineapi.VersionInfo, error) {
+	if api == nil {
+		return engineapi.VersionInfo{}, errors.New("engine: nil client")
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	dctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if version, err := api.Version(dctx); err == nil {
+		return version, nil
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-dctx.Done():
+			if errors.Is(dctx.Err(), context.DeadlineExceeded) {
+				return engineapi.VersionInfo{}, fmt.Errorf("%w (after %s)", ErrEngineUnhealthy, timeout)
+			}
+			return engineapi.VersionInfo{}, dctx.Err()
+		case <-ticker.C:
+			if version, err := api.Version(dctx); err == nil {
+				return version, nil
+			}
+		}
+	}
+}
+
+var (
+	ErrWorkspaceIDRequired = errors.New("workspace id is required for event stream")
+	ErrNoConnection        = errors.New("engine connection unavailable")
+	ErrTransportNotWired   = errors.New("event stream unavailable: transport not wired")
+)
+
+var StreamKinds = []string{
+	"message", "run_complete", "task_progress", "permission_request", "file",
+}
+
+type EventConsumer interface {
+	Consume(events <-chan engineapi.StreamEvent)
+}
+
+func AttachStream(scope context.Context, api *engineapi.Client, consumer EventConsumer, workspaceID string, lost func(scope context.Context, reason string)) error {
+	events, _, err := api.Stream(scope, workspaceID, StreamKinds...)
+	if err != nil {
+		return fmt.Errorf("event stream attach failed: %w", err)
+	}
+
+	go func() {
+		consumer.Consume(events)
+		if scope.Err() == nil {
+			lost(scope, "engine event stream disconnected")
+		}
+	}()
+	return nil
 }

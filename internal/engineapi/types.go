@@ -170,10 +170,7 @@ type RunTelemetry struct {
 	TotalMicros      int64                      `json:"total_us"`
 	FirstSemantic    string                     `json:"first_semantic,omitempty"`
 	ProviderAttempts []ProviderAttemptTelemetry `json:"provider_attempts,omitempty"`
-	// Purpose correlates first_byte_to_first_sse and other host-observed
-	// spans with the originating call (title, tool loop, summarize, retry,
-	// prep error, queued cancellation). Optional on the wire.
-	Purpose string `json:"purpose,omitempty"`
+	Purpose          string                     `json:"purpose,omitempty"`
 	// Per-kind one-shot semantic offsets. Pointer semantics: nil means
 	// the kind never appeared this run (absent, never zero); a non-nil
 	// zero is a real sub-microsecond offset.

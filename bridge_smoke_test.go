@@ -25,7 +25,7 @@ func TestBridgeSmoke(t *testing.T) {
 		t.Skipf("engine not reachable at %s %s", ep.Network, ep.Address)
 	}
 
-	hc, err := engineapi.Dial(ctx, ep)
+	hc, err := engineapi.Dial(ep)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestBridgeServicesSmoke(t *testing.T) {
 		t.Skipf("engine not reachable at %s %s", ep.Network, ep.Address)
 	}
 
-	hc, err := engineapi.Dial(ctx, ep)
+	hc, err := engineapi.Dial(ep)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

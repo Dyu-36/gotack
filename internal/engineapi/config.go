@@ -12,6 +12,56 @@ import (
 	"strings"
 )
 
+type WorkspaceConfig struct {
+	Providers map[string]ProviderConfig `json:"providers,omitempty"`
+	Models    map[string]SelectedModel  `json:"models,omitempty"`
+	Options   *WorkspaceOptions         `json:"options,omitempty"`
+	Env       map[string]string         `json:"env,omitempty"`
+
+	Hooks map[string][]HookEntry `json:"hooks,omitempty"`
+}
+
+type WorkspaceOptions struct {
+	SkillsPaths        []string `json:"skills_paths,omitempty"`
+	GlobalContextPaths []string `json:"global_context_paths,omitempty"`
+}
+
+func (c WorkspaceConfig) SkillsPaths() []string {
+	if c.Options == nil {
+		return nil
+	}
+	return c.Options.SkillsPaths
+}
+
+type HookEntry struct {
+	Name    string `json:"name,omitempty"`
+	Matcher string `json:"matcher,omitempty"`
+	Command string `json:"command"`
+	Timeout int    `json:"timeout,omitempty"`
+}
+
+type ProviderConfig struct {
+	ID      string          `json:"id,omitempty"`
+	Name    string          `json:"name,omitempty"`
+	BaseURL string          `json:"base_url,omitempty"`
+	Type    string          `json:"type,omitempty"`
+	APIKey  string          `json:"api_key,omitempty"`
+	OAuth   json.RawMessage `json:"oauth,omitempty"`
+	Disable bool            `json:"disable,omitempty"`
+	Models  []Model         `json:"models,omitempty"`
+}
+
+func (c *Client) GetWorkspaceConfig(ctx context.Context, wsID string) (WorkspaceConfig, error) {
+	if wsID == "" {
+		return WorkspaceConfig{}, errors.New("engineapi: workspace id is required")
+	}
+	var cfg WorkspaceConfig
+	if err := c.doJSON(ctx, "GET", expandPath("/v1/workspaces/{id}/config", "id", wsID), nil, &cfg); err != nil {
+		return WorkspaceConfig{}, err
+	}
+	return cfg, nil
+}
+
 const (
 	configSetPath          = "/v1/workspaces/{id}/config/set"
 	configSetBatchPath     = "/v1/workspaces/{id}/config/set-batch"
@@ -104,16 +154,7 @@ func (c *Client) SetProviderAPIKey(ctx context.Context, wsID string, scope int, 
 	if wsID == "" || strings.TrimSpace(providerID) == "" {
 		return errors.New("engineapi: workspace id and provider id are required")
 	}
-	raw, err := json.Marshal(apiKey)
-	if err != nil {
-		return fmt.Errorf("engineapi: encode provider key: %w", err)
-	}
-	body, err := json.Marshal(struct {
-		Scope      int             `json:"scope"`
-		ProviderID string          `json:"provider_id"`
-		Kind       string          `json:"kind"`
-		APIKey     json.RawMessage `json:"api_key"`
-	}{Scope: scope, ProviderID: providerID, Kind: "string", APIKey: raw})
+	body, err := encodeProviderKeyRequest(scope, providerID, "string", apiKey)
 	if err != nil {
 		return fmt.Errorf("engineapi: encode provider key request: %w", err)
 	}
@@ -124,20 +165,20 @@ func (c *Client) SetProviderOAuthToken(ctx context.Context, wsID string, scope i
 	if wsID == "" || strings.TrimSpace(providerID) == "" {
 		return errors.New("engineapi: workspace id and provider id are required")
 	}
-	raw, err := json.Marshal(token)
+	body, err := encodeProviderKeyRequest(scope, providerID, "oauth", token)
 	if err != nil {
 		return fmt.Errorf("engineapi: encode provider oauth token: %w", err)
 	}
-	body, err := json.Marshal(struct {
-		Scope      int             `json:"scope"`
-		ProviderID string          `json:"provider_id"`
-		Kind       string          `json:"kind"`
-		APIKey     json.RawMessage `json:"api_key"`
-	}{Scope: scope, ProviderID: providerID, Kind: "oauth", APIKey: raw})
-	if err != nil {
-		return fmt.Errorf("engineapi: encode provider oauth key request: %w", err)
-	}
 	return c.doJSON(ctx, http.MethodPost, expandPath(configProviderKeyPath, "id", wsID), bytes.NewReader(body), nil)
+}
+
+func encodeProviderKeyRequest(scope int, providerID, kind string, value any) ([]byte, error) {
+	return json.Marshal(struct {
+		Scope      int    `json:"scope"`
+		ProviderID string `json:"provider_id"`
+		Kind       string `json:"kind"`
+		APIKey     any    `json:"api_key"`
+	}{Scope: scope, ProviderID: providerID, Kind: kind, APIKey: value})
 }
 
 func (c *Client) RefreshProviderOAuthToken(ctx context.Context, wsID string, scope int, providerID string) error {

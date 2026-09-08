@@ -1,5 +1,3 @@
-// transport_unix.go -- role: dial the Tack engine unix socket on Linux and macOS.
-//
 //go:build unix
 
 package engineapi

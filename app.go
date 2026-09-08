@@ -12,7 +12,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/reflection"
@@ -37,14 +36,19 @@ type conn struct {
 	term  *terminal.Service
 }
 
+type engineController interface {
+	Owned() bool
+	Stop() error
+}
+
 type App struct {
 	ctx context.Context
 
 	cfg *appconfig.Config
 	log *slog.Logger
 
-	sup  engine.EngineAPI
-	link *enginelink.Link
+	sup  engineController
+	link *engine.Link
 
 	zalo          *zalo.Manager
 	officeSeeder  *officeSeeder
@@ -83,7 +87,7 @@ func (a *App) getConn() *conn {
 
 func NewApp() *App {
 	a := &App{}
-	a.link = enginelink.NewLink(nil)
+	a.link = engine.NewLink(nil)
 	a.conn.Store(&conn{
 		perms: permission.NewRelay(permission.DefaultTTL),
 	})
@@ -105,9 +109,10 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.log = slog.Default()
 	}
-	a.sup = engine.NewSupervisor(a.log, cfg.EngineBinary)
+	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
+	a.sup = sup
 	a.runMetrics = runmetrics.New(appconfig.LogDir(), a.log)
-	a.link = enginelink.NewLink(a.sup)
+	a.link = engine.NewLink(sup)
 
 	a.officeSeeder = newOfficeSeeder(a.log)
 	a.ensureOfficeSeed()

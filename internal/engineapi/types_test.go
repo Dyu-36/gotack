@@ -2,6 +2,7 @@ package engineapi
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -199,35 +200,22 @@ func TestExtractToolResults(t *testing.T) {
 }
 
 func equalToolCalls(a, b []ToolCall) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].ID != b[i].ID || a[i].Name != b[i].Name || a[i].Finished != b[i].Finished {
-			return false
-		}
-		if !jsonEqual(a[i].Input, b[i].Input) {
-			return false
-		}
-	}
-	return true
+	return reflect.DeepEqual(a, b)
 }
 
-func jsonEqual(a, b json.RawMessage) bool {
-	if len(a) == 0 && len(b) == 0 {
-		return true
+func TestRunTelemetryDecodesProviderAttemptIdentity(t *testing.T) {
+	var got RunTelemetry
+	if err := json.Unmarshal([]byte(`{"run_id":"run-1","provider_attempts":[{"model_call_id":2,"http_attempt":1,"purpose":"tool_loop","first_response_byte_us":10,"first_sse_frame_us":45,"first_byte_to_first_sse_us":35}]}`), &got); err != nil {
+		t.Fatal(err)
 	}
-	if len(a) == 0 || len(b) == 0 {
-		return false
+	if len(got.ProviderAttempts) != 1 {
+		t.Fatalf("provider attempts = %d, want 1", len(got.ProviderAttempts))
 	}
-	var av, bv any
-	if err := json.Unmarshal(a, &av); err != nil {
-		return false
+	a := got.ProviderAttempts[0]
+	if a.ModelCallID != 2 || a.HTTPAttempt != 1 || a.Purpose != "tool_loop" {
+		t.Fatalf("provider attempt identity = %+v", a)
 	}
-	if err := json.Unmarshal(b, &bv); err != nil {
-		return false
+	if a.FirstByteToFirstSSEMicros == nil || *a.FirstByteToFirstSSEMicros != 35 {
+		t.Fatalf("first byte to first sse = %v, want 35", a.FirstByteToFirstSSEMicros)
 	}
-	ra, _ := json.Marshal(av)
-	rb, _ := json.Marshal(bv)
-	return string(ra) == string(rb)
 }

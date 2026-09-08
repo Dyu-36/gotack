@@ -6,15 +6,15 @@ import (
 	"fmt"
 
 	"github.com/Dyu-36/gotack/internal/changes"
+	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-var _ enginelink.EventConsumer = (*uievents.Forwarder)(nil)
+var _ engine.EventConsumer = (*uievents.Forwarder)(nil)
 
 type EngineInfo struct {
 	Status   string `json:"status"`
@@ -27,12 +27,12 @@ type EngineInfo struct {
 
 func (a *App) engineInfo() EngineInfo {
 	info := EngineInfo{
-		Status: string(enginelink.StatusStopped),
+		Status: string(engine.StatusStopped),
 	}
 	if a.link != nil {
 		status := a.link.Status()
 		info.Status = string(status)
-		info.Running = status == enginelink.StatusRunning
+		info.Running = status == engine.StatusRunning
 		info.Endpoint = a.link.Endpoint().Address
 		info.Version = a.link.Version()
 		info.Error = a.link.LastError()
@@ -84,7 +84,7 @@ func (a *App) connect(scope context.Context) {
 			RunDone:              a.runDone,
 			AssistantIteration:   a.assistantIteration,
 			LearningToolExecuted: a.learningToolExecuted,
-			RunTelemetry:         a.telemetryCallback(api),
+			RunTelemetry:         a.telemetryCallback(),
 		}
 		if relay := a.permsFromConn(); relay != nil {
 			callbacks.PermissionPending = relay.Pending
@@ -95,7 +95,7 @@ func (a *App) connect(scope context.Context) {
 		diffs := changes.NewService(api, ws)
 
 		if !a.commitAttach(ctx, api, fwd, ws, sess, diffs, ep, version) {
-			return enginelink.ErrAttachSuperseded
+			return engine.ErrAttachSuperseded
 		}
 
 		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
@@ -126,13 +126,13 @@ func (a *App) connect(scope context.Context) {
 	})
 	switch {
 	case err == nil:
-	case errors.Is(err, enginelink.ErrAttachSuperseded):
+	case errors.Is(err, engine.ErrAttachSuperseded):
 	default:
 		a.failConnect(err.Error())
 	}
 }
 
-func (a *App) telemetryCallback(_ *engineapi.Client) func(*engineapi.RunTelemetry) {
+func (a *App) telemetryCallback() func(*engineapi.RunTelemetry) {
 	return func(telemetry *engineapi.RunTelemetry) {
 		if telemetry != nil && a.runMetrics != nil {
 			a.runMetrics.Append(telemetry)
@@ -201,9 +201,9 @@ func (a *App) transportLost(scope context.Context, reason string) {
 func (a *App) attachStream(scope context.Context, workspaceID string) error {
 	c := a.getConn()
 	if c == nil || c.api == nil || c.fwd == nil {
-		return enginelink.ErrTransportNotWired
+		return engine.ErrTransportNotWired
 	}
-	return enginelink.AttachStream(scope, c.api, c.fwd, workspaceID, a.transportLost)
+	return engine.AttachStream(scope, c.api, c.fwd, workspaceID, a.transportLost)
 }
 
 func (a *App) startStream(scope context.Context, workspaceID string) {
@@ -214,10 +214,10 @@ func (a *App) startStream(scope context.Context, workspaceID string) {
 
 func (a *App) replaceWorkspaceStream(workspaceID string) error {
 	if workspaceID == "" {
-		return enginelink.ErrWorkspaceIDRequired
+		return engine.ErrWorkspaceIDRequired
 	}
 	if a.getConn() == nil {
-		return enginelink.ErrNoConnection
+		return engine.ErrNoConnection
 	}
 
 	scope := a.link.ReplaceStreamScope(a.ctx)
@@ -262,7 +262,7 @@ type bridgeServices struct {
 
 func (a *App) services() (*bridgeServices, error) {
 	c := a.getConn()
-	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || a.link.Status() != enginelink.StatusRunning {
+	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || a.link.Status() != engine.StatusRunning {
 		return nil, errors.New("engine is not running")
 	}
 	return &bridgeServices{api: c.api, ws: c.ws, sess: c.sess, diffs: c.diffs}, nil

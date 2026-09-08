@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -32,6 +34,51 @@ func NewSupervisor(log *slog.Logger, binary string) *Supervisor {
 		binary = defaultBinary()
 	}
 	return &Supervisor{log: log, binary: binary}
+}
+
+func defaultBinary() string {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+
+	primary := "tack-engine" + ext
+
+	if executable, err := os.Executable(); err == nil {
+		root := filepath.Dir(executable)
+		for _, candidate := range []string{
+			filepath.Join(root, "resources", primary),
+			filepath.Join(root, primary),
+		} {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate
+			}
+		}
+	}
+
+	if found, err := exec.LookPath(primary); err == nil {
+		return found
+	}
+	if primary != "tack-engine" {
+		if found, err := exec.LookPath("tack-engine"); err == nil {
+			return found
+		}
+	}
+
+	return primary
+}
+
+func (s *Supervisor) Locate(ctx context.Context) (engineapi.Endpoint, bool) {
+	ep := appconfig.PipeEndpoint()
+	if err := engineapi.Probe(ctx, ep); err != nil {
+		s.log.Debug("engine: probe failed", "endpoint", ep, "err", err)
+		return engineapi.Endpoint{}, false
+	}
+
+	s.mu.Lock()
+	s.endpoint = ep
+	s.mu.Unlock()
+	return ep, true
 }
 
 func (s *Supervisor) Owned() bool {
@@ -111,5 +158,3 @@ func (s *Supervisor) Stop() error {
 	_, _ = cmd.Process.Wait()
 	return nil
 }
-
-var _ EngineAPI = (*Supervisor)(nil)

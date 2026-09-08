@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"testing"
-
-	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type lifecycleEngine struct {
@@ -13,14 +11,6 @@ type lifecycleEngine struct {
 
 func (*lifecycleEngine) Owned() bool { return true }
 
-func (*lifecycleEngine) Locate(context.Context) (engineapi.Endpoint, bool) {
-	return engineapi.Endpoint{}, false
-}
-
-func (*lifecycleEngine) Start() (engineapi.Endpoint, error) {
-	return engineapi.Endpoint{}, nil
-}
-
 func (e *lifecycleEngine) Stop() error {
 	e.stopCalls++
 	return nil
@@ -28,8 +18,8 @@ func (e *lifecycleEngine) Stop() error {
 
 func TestShutdownLeavesEngineRunning(t *testing.T) {
 	app := NewApp()
-	engine := &lifecycleEngine{}
-	app.sup = engine
+	sup := &lifecycleEngine{}
+	app.sup = sup
 
 	scope := app.link.ReplaceStreamScope(context.Background())
 
@@ -38,7 +28,7 @@ func TestShutdownLeavesEngineRunning(t *testing.T) {
 	if scope.Err() == nil {
 		t.Fatal("shutdown must disconnect the UI event stream")
 	}
-	if engine.stopCalls != 0 {
-		t.Fatalf("shutdown stopped the warm engine %d time(s); only StopEngine may stop it", engine.stopCalls)
+	if sup.stopCalls != 0 {
+		t.Fatalf("shutdown stopped the warm engine %d time(s); only StopEngine may stop it", sup.stopCalls)
 	}
 }

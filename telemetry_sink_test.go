@@ -45,7 +45,7 @@ func TestWorkspaceStreamCannotFabricateProviderSpanInHostSink(t *testing.T) {
 	defer stop()
 	dir := t.TempDir()
 	a := &App{runMetrics: runmetrics.New(dir, nil)}
-	fwd := uievents.NewForwarder(nil, func(string, any) {}, uievents.Callbacks{RunTelemetry: a.telemetryCallback(api)})
+	fwd := uievents.NewForwarder(nil, func(string, any) {}, uievents.Callbacks{RunTelemetry: a.telemetryCallback()})
 	defer fwd.Stop()
 	fwd.Consume(events)
 	data, err := os.ReadFile(filepath.Join(dir, "input-pipeline.jsonl"))

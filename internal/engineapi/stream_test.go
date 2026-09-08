@@ -1,8 +1,11 @@
 package engineapi
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
+	"time"
 )
 
 func TestDecodeEnvelopePreservesFlatRunComplete(t *testing.T) {
@@ -47,5 +50,36 @@ func TestDecodeEnvelopeHonorsAllowList(t *testing.T) {
 	line := `{"type":"message","payload":{"type":"updated","payload":{"id":"message-1"}}}`
 	if _, ok := decodeEnvelope(line, map[string]struct{}{"run_complete": {}}); ok {
 		t.Fatal("disallowed event was emitted")
+	}
+}
+
+func TestStreamStopCancelsHTTPRequest(t *testing.T) {
+	canceled := make(chan struct{})
+	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+		close(canceled)
+	}))
+	events, stop, err := client.Stream(context.Background(), "ws-1", "message")
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	stop()
+	select {
+	case <-canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream request context was not canceled")
+	}
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Fatal("stream emitted an event after cancellation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream events channel did not close")
 	}
 }
