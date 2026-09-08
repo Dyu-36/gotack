@@ -112,8 +112,12 @@ func TestCancelledFailedAndEmptyTurnsDoNotReview(t *testing.T) {
 			tracker.Hydrate("s", MemoryInterval-1)
 			tracker.UserTurnAccepted("s")
 			text, runErr := "done", ""
-			if mode == "failed" { runErr = "failed" }
-			if mode == "empty" { text = "" }
+			if mode == "failed" {
+				runErr = "failed"
+			}
+			if mode == "empty" {
+				text = ""
+			}
 			if review, _ := tracker.RunDone("s", text, runErr, mode == "cancelled"); review.Any() {
 				t.Fatal("unsuccessful turn scheduled learning")
 			}
@@ -177,8 +181,12 @@ func TestIdleReviewIsCancelledBeforeAnyModelCall(t *testing.T) {
 		tracker.mu.Lock()
 		inflight := tracker.inflight
 		tracker.mu.Unlock()
-		if inflight { break }
-		if time.Now().After(deadline) { t.Fatal("review launcher did not reserve its slot") }
+		if inflight {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("review launcher did not reserve its slot")
+		}
 		time.Sleep(time.Millisecond)
 	}
 	if err := tracker.CancelForLiveTurn(context.Background(), "live"); err != nil {
@@ -186,7 +194,9 @@ func TestIdleReviewIsCancelledBeforeAnyModelCall(t *testing.T) {
 	}
 	select {
 	case err := <-finished:
-		if !errors.Is(err, context.Canceled) { t.Fatalf("cancel error = %v", err) }
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel error = %v", err)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("idle review did not stop")
 	}
@@ -212,7 +222,9 @@ func TestFireLoadTimeoutReleasesReservation(t *testing.T) {
 
 func TestReviewIterationsAreBoundedAndDeduplicated(t *testing.T) {
 	tracker, _ := newTracker(t)
-	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err != nil { t.Fatal(err) }
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err != nil {
+		t.Fatal(err)
+	}
 	for i := 1; i < MaxReviewIterations; i++ {
 		id := strings.Repeat("m", i)
 		first := tracker.AssistantIteration("review-1", id, true)
