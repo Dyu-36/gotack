@@ -115,6 +115,37 @@ func RegisterRecall(base context.Context, api *engineapi.Client, workspaceID str
 	return nil
 }
 
+func registerTools(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, memoryCommand, skillsCommand, recallCommand, skillsRoot, indexRoot string) error {
+	ctx, cancel := registrationContext(base)
+	defer cancel()
+
+	fields := make(map[string]any, 3)
+	removals := make([]string, 0, 3)
+	add := func(key string, value any, enabled bool) {
+		if enabled {
+			fields[key] = value
+		} else {
+			removals = append(removals, key)
+		}
+	}
+	add("mcp_servers."+MemoryMCPName, MemoryEntry(memoryCommand), memoryCommand != "")
+	add("mcp_servers."+SkillsMCPName, SkillsEntry(skillsCommand, skillsRoot), skillsCommand != "")
+	recallEnabled := recallCommand != "" && desc.WorkspaceID == workspaceID && desc.DataDir != ""
+	add("mcp_servers."+RecallMCPName, RecallEntry(recallCommand, desc.DataDir, filepath.Join(indexRoot, workspaceID)), recallEnabled)
+
+	if len(fields) > 0 {
+		if err := api.SetConfigFields(ctx, workspaceID, engineapi.ConfigScopeWorkspace, fields); err != nil {
+			return fmt.Errorf("tool registration: %w", err)
+		}
+	}
+	for _, key := range removals {
+		if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key); err != nil {
+			return fmt.Errorf("tool registration removal %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
 func registrationContext(base context.Context) (context.Context, context.CancelFunc) {
 	if base == nil {
 		base = context.Background()
