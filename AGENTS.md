@@ -23,5 +23,6 @@ NOTE: The `project` argument is REQUIRED for all tool calls (for this repository
 - Who calls it: `trace_path(project="gotack", function_name="Handler", direction="inbound")`
 - Read source: `get_code_snippet(project="gotack", qualified_name="main.App")`
 <!-- codebase-memory-mcp:end -->
+Rules: Don't add any comment when editing src code
 
 
