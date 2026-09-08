@@ -258,7 +258,7 @@ func successResult(target Target, entries []string, message string) Result {
 	}
 	return Result{
 		Success: true, Done: true, Target: string(target),
-		Usage: fmt.Sprintf("%d%% — %s/%s chars", percent, group(current), group(capacity)),
+		Usage:      fmt.Sprintf("%d%% — %s/%s chars", percent, group(current), group(capacity)),
 		EntryCount: len(entries), Message: message,
 		Note: "Write saved. This update is complete — do not repeat it.",
 	}
