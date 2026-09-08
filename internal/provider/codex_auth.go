@@ -1,4 +1,4 @@
-package openaioauth
+package provider
 
 import (
 	"context"
@@ -14,21 +14,19 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const (
-	DefaultClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
-
-	DefaultAuthURL = "https://auth.openai.com/oauth/authorize"
-
-	DefaultTokenURL = "https://auth.openai.com/oauth/token"
-
-	DefaultRedirectPort = 1455
-
-	DefaultScopes = "openid profile email offline_access"
+	defaultOpenAIClientID     = "app_EMoamEEZ73f0CkXaXp7hrann"
+	defaultOpenAIAuthURL      = "https://auth.openai.com/oauth/authorize"
+	defaultOpenAITokenURL     = "https://auth.openai.com/oauth/token"
+	defaultOpenAIRedirectPort = 1455
+	defaultOpenAIScopes       = "openid profile email offline_access"
 )
 
-type Token struct {
+type OpenAIOAuthToken struct {
 	AccessToken     string `json:"access_token"`
 	RefreshToken    string `json:"refresh_token,omitempty"`
 	IDToken         string `json:"id_token,omitempty"`
@@ -44,21 +42,21 @@ type Token struct {
 	ChatGPTPlanType string `json:"chatgpt_plan_type,omitempty"`
 }
 
-func (t *Token) UserEmail() string {
+func (t *OpenAIOAuthToken) UserEmail() string {
 	if t.AccountEmail != "" {
 		return t.AccountEmail
 	}
 	return t.Email
 }
 
-func (t *Token) UserPlan() string {
+func (t *OpenAIOAuthToken) UserPlan() string {
 	if t.AccountPlan != "" {
 		return t.AccountPlan
 	}
 	return t.ChatGPTPlanType
 }
 
-func GeneratePKCE() (verifier, challenge string, err error) {
+func generateOpenAIPKCE() (verifier, challenge string, err error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", "", fmt.Errorf("generate random verifier: %w", err)
@@ -69,7 +67,7 @@ func GeneratePKCE() (verifier, challenge string, err error) {
 	return verifier, challenge, nil
 }
 
-func GenerateState() (string, error) {
+func generateOpenAIState() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate random state: %w", err)
@@ -77,7 +75,7 @@ func GenerateState() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-type IDTokenClaims struct {
+type openAIIDTokenClaims struct {
 	Email          string
 	Plan           string
 	AccountID      string
@@ -85,14 +83,14 @@ type IDTokenClaims struct {
 	AccountFedRAMP bool
 }
 
-func ParseIDTokenMetadata(idToken string) IDTokenClaims {
+func parseOpenAIIDTokenMetadata(idToken string) openAIIDTokenClaims {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 || parts[1] == "" {
-		return IDTokenClaims{}
+		return openAIIDTokenClaims{}
 	}
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return IDTokenClaims{}
+		return openAIIDTokenClaims{}
 	}
 	var claims struct {
 		Email   string `json:"email"`
@@ -106,14 +104,13 @@ func ParseIDTokenMetadata(idToken string) IDTokenClaims {
 			AccountID      string `json:"chatgpt_account_id"`
 			AccountFedRAMP bool   `json:"chatgpt_account_is_fedramp"`
 		} `json:"https://api.openai.com/auth"`
-
 		PlanType string `json:"chatgpt_plan_type"`
 		Plan     string `json:"plan"`
 	}
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return IDTokenClaims{}
+		return openAIIDTokenClaims{}
 	}
-	metadata := IDTokenClaims{
+	metadata := openAIIDTokenClaims{
 		Email:          claims.Email,
 		Plan:           claims.Auth.PlanType,
 		AccountID:      claims.Auth.AccountID,
@@ -135,12 +132,12 @@ func ParseIDTokenMetadata(idToken string) IDTokenClaims {
 	return metadata
 }
 
-func ParseIDTokenClaims(idToken string) (email, plan string) {
-	metadata := ParseIDTokenMetadata(idToken)
+func parseOpenAIIDTokenClaims(idToken string) (email, plan string) {
+	metadata := parseOpenAIIDTokenMetadata(idToken)
 	return metadata.Email, metadata.Plan
 }
 
-type Options struct {
+type OpenAIOAuthOptions struct {
 	ClientID     string
 	AuthURL      string
 	TokenURL     string
@@ -150,29 +147,29 @@ type Options struct {
 	LoginTimeout time.Duration
 }
 
-func DefaultOptions() Options {
-	return Options{
-		ClientID:     DefaultClientID,
-		AuthURL:      DefaultAuthURL,
-		TokenURL:     DefaultTokenURL,
-		Port:         DefaultRedirectPort,
+func DefaultOpenAIOAuthOptions() OpenAIOAuthOptions {
+	return OpenAIOAuthOptions{
+		ClientID:     defaultOpenAIClientID,
+		AuthURL:      defaultOpenAIAuthURL,
+		TokenURL:     defaultOpenAITokenURL,
+		Port:         defaultOpenAIRedirectPort,
 		HTTPClient:   &http.Client{Timeout: 30 * time.Second},
 		LoginTimeout: 3 * time.Minute,
 	}
 }
 
-func StartLogin(ctx context.Context, opts Options) (*Token, error) {
+func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenAIOAuthToken, error) {
 	if opts.ClientID == "" {
-		opts.ClientID = DefaultClientID
+		opts.ClientID = defaultOpenAIClientID
 	}
 	if opts.AuthURL == "" {
-		opts.AuthURL = DefaultAuthURL
+		opts.AuthURL = defaultOpenAIAuthURL
 	}
 	if opts.TokenURL == "" {
-		opts.TokenURL = DefaultTokenURL
+		opts.TokenURL = defaultOpenAITokenURL
 	}
 	if opts.Port == 0 {
-		opts.Port = DefaultRedirectPort
+		opts.Port = defaultOpenAIRedirectPort
 	}
 	if opts.HTTPClient == nil {
 		opts.HTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -181,12 +178,12 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 		opts.LoginTimeout = 3 * time.Minute
 	}
 
-	verifier, challenge, err := GeneratePKCE()
+	verifier, challenge, err := generateOpenAIPKCE()
 	if err != nil {
 		return nil, err
 	}
 
-	state, err := GenerateState()
+	state, err := generateOpenAIState()
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +202,7 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 	vals.Set("client_id", opts.ClientID)
 	vals.Set("response_type", "code")
 	vals.Set("redirect_uri", redirectURI)
-	vals.Set("scope", DefaultScopes)
+	vals.Set("scope", defaultOpenAIScopes)
 	vals.Set("code_challenge", challenge)
 	vals.Set("code_challenge_method", "S256")
 	vals.Set("state", state)
@@ -225,7 +222,7 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 			desc := q.Get("error_description")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Gotack - Đăng nhập thất bại</title><style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#f8fafc}.card{background:#1e293b;padding:2.5rem;border-radius:1rem;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,0.5);max-width:400px}h1{color:#ef4444;font-size:1.5rem;margin-bottom:0.75rem}p{color:#94a3b8;font-size:0.95rem;line-height:1.5}</style></head><body><div class="card"><h1>Đăng nhập không thành công</h1><p>%s: %s</p></div></body></html>`, htmlEscape(errMsg), htmlEscape(desc))))
+			_, _ = w.Write([]byte(fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Gotack - Đăng nhập thất bại</title><style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#f8fafc}.card{background:#1e293b;padding:2.5rem;border-radius:1rem;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,0.5);max-width:400px}h1{color:#ef4444;font-size:1.5rem;margin-bottom:0.75rem}p{color:#94a3b8;font-size:0.95rem;line-height:1.5}</style></head><body><div class="card"><h1>Đăng nhập không thành công</h1><p>%s: %s</p></div></body></html>`, escapeOAuthHTML(errMsg), escapeOAuthHTML(desc))))
 			errChan <- fmt.Errorf("oauth error from provider: %s (%s)", errMsg, desc)
 			return
 		}
@@ -254,10 +251,7 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 		codeChan <- code
 	})
 
-	server := &http.Server{
-		Handler: mux,
-	}
-
+	server := &http.Server{Handler: mux}
 	go func() {
 		_ = server.Serve(listener)
 	}()
@@ -285,10 +279,10 @@ func StartLogin(ctx context.Context, opts Options) (*Token, error) {
 	case authCode = <-codeChan:
 	}
 
-	return ExchangeCode(ctx, opts, authCode, verifier, redirectURI)
+	return exchangeOpenAIOAuthCode(ctx, opts, authCode, verifier, redirectURI)
 }
 
-func ExchangeCode(ctx context.Context, opts Options, code, verifier, redirectURI string) (*Token, error) {
+func exchangeOpenAIOAuthCode(ctx context.Context, opts OpenAIOAuthOptions, code, verifier, redirectURI string) (*OpenAIOAuthToken, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("client_id", opts.ClientID)
@@ -313,37 +307,81 @@ func ExchangeCode(ctx context.Context, opts Options, code, verifier, redirectURI
 	if err != nil {
 		return nil, fmt.Errorf("read token response body: %w", err)
 	}
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var tok Token
+	var tok OpenAIOAuthToken
 	if err := json.Unmarshal(bodyBytes, &tok); err != nil {
 		return nil, fmt.Errorf("decode token response: %w", err)
 	}
-
 	if tok.AccessToken == "" {
 		return nil, errors.New("token response missing access_token")
 	}
-
 	if tok.ExpiresIn > 0 {
 		tok.ExpiresAt = time.Now().Unix() + int64(tok.ExpiresIn)
 	}
-
 	if tok.IDToken != "" {
-		metadata := ParseIDTokenMetadata(tok.IDToken)
+		metadata := parseOpenAIIDTokenMetadata(tok.IDToken)
 		tok.AccountEmail = metadata.Email
 		tok.AccountPlan = metadata.Plan
 		tok.AccountID = metadata.AccountID
 		tok.ChatGPTUserID = metadata.ChatGPTUserID
 		tok.AccountFedRAMP = metadata.AccountFedRAMP
 	}
-
 	return &tok, nil
 }
 
-func htmlEscape(s string) string {
+func escapeOAuthHTML(s string) string {
 	r := strings.NewReplacer("<", "&lt;", ">", "&gt;", "&", "&amp;", "\"", "&quot;", "'", "&#39;")
 	return r.Replace(s)
+}
+
+type AuthStatus struct {
+	Connected bool
+	Email     string
+	Plan      string
+	ExpiresAt int64
+}
+
+func ChatGPTAuthStatus(ctx context.Context, api *engineapi.Client, workspaceID string, now time.Time) (AuthStatus, error) {
+	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
+	if err != nil {
+		return AuthStatus{}, fmt.Errorf("get engine config: %w", err)
+	}
+	configured, ok := cfg.Providers[CodexID]
+	if !ok || configured.Disable {
+		return AuthStatus{Connected: false}, nil
+	}
+	rawOAuth := strings.TrimSpace(string(configured.OAuth))
+	if rawOAuth == "" || rawOAuth == "null" || rawOAuth == "{}" {
+		return AuthStatus{Connected: false}, nil
+	}
+
+	var token OpenAIOAuthToken
+	if err := json.Unmarshal(configured.OAuth, &token); err != nil || token.AccessToken == "" || token.AccountID == "" {
+		return AuthStatus{Connected: false}, nil
+	}
+	if token.ExpiresAt > 0 && now.Unix() >= token.ExpiresAt {
+		if token.RefreshToken == "" {
+			return AuthStatus{Connected: false}, nil
+		}
+		if err := api.RefreshProviderOAuthToken(ctx, workspaceID, engineapi.ConfigScopeGlobal, CodexID); err != nil {
+			return AuthStatus{Connected: false}, nil
+		}
+		cfg, err = api.GetWorkspaceConfig(ctx, workspaceID)
+		if err != nil {
+			return AuthStatus{}, fmt.Errorf("get refreshed engine config: %w", err)
+		}
+		configured = cfg.Providers[CodexID]
+		if err := json.Unmarshal(configured.OAuth, &token); err != nil || token.AccessToken == "" || token.AccountID == "" {
+			return AuthStatus{Connected: false}, nil
+		}
+	}
+	return AuthStatus{
+		Connected: true,
+		Email:     token.UserEmail(),
+		Plan:      token.UserPlan(),
+		ExpiresAt: token.ExpiresAt,
+	}, nil
 }

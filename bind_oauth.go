@@ -9,7 +9,6 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/openaioauth"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -31,7 +30,7 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		return ChatGPTOAuthStatus{}, err
 	}
 
-	opts := openaioauth.DefaultOptions()
+	opts := providerdomain.DefaultOpenAIOAuthOptions()
 	opts.OpenBrowser = func(authURL string) error {
 		if a.ctx != nil {
 			runtime.BrowserOpenURL(a.ctx, authURL)
@@ -43,7 +42,7 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		return exec.Command("xdg-open", authURL).Start()
 	}
 
-	token, err := openaioauth.StartLogin(a.ctx, opts)
+	token, err := providerdomain.StartOpenAIOAuthLogin(a.ctx, opts)
 	if err != nil {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("chatgpt oauth login failed: %w", err)
 	}
