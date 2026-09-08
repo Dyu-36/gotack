@@ -138,13 +138,13 @@ func TestMalformedOOXMLReturnsError(t *testing.T) {
 		parts map[string]string
 	}{
 		{
-			name: "docx malformed text element",
-			ext:  ".docx",
+			name:  "docx malformed text element",
+			ext:   ".docx",
 			parts: map[string]string{documentXML: `<document><p><t>partial</p></document>`},
 		},
 		{
-			name: "pptx truncated slide",
-			ext:  ".pptx",
+			name:  "pptx truncated slide",
+			ext:   ".pptx",
 			parts: map[string]string{"ppt/slides/slide1.xml": `<slide><p><t>partial</t></p>`},
 		},
 	} {
