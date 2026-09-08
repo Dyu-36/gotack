@@ -14,11 +14,7 @@ import (
 
 func TestSnapshotLeaseWindowsProfileCaseAlias(t *testing.T) {
 	s := New(t.TempDir(), nil)
-	seedContextWithFile(t, s, "TACK_CORE.md", "one")
-	gen, err := s.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
+	gen := snapshotWithProfile(t, s, "one")
 	alias := filepath.Join(strings.ToUpper(filepath.Dir(gen)), filepath.Base(gen))
 	holder := New(strings.ToUpper(s.dataDir), nil)
 	lease, err := holder.AcquireSnapshotLease(gen)
@@ -31,11 +27,7 @@ func TestSnapshotLeaseWindowsProfileCaseAlias(t *testing.T) {
 		t.Fatalf("generation alias rejected same generation: %v", err)
 	}
 	defer lease2.Release()
-	seedContextWithFile(t, s, "TACK_CORE.md", "two")
-	latest, err := s.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
+	latest := snapshotWithProfile(t, s, "two")
 	if err := New(s.dataDir, nil).PrunePromptSnapshotsChecked(latest); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +39,7 @@ func TestSnapshotLeaseWindowsProfileCaseAlias(t *testing.T) {
 func TestSnapshotAcquirePruneAcrossProcesses(t *testing.T) {
 	data := t.TempDir()
 	s := New(data, nil)
-	seedContextWithFile(t, s, "TACK_CORE.md", "atomic lease bytes")
+	seedContextWithFile(t, s, "PROFILE.md", "atomic lease bytes")
 	ready := filepath.Join(t.TempDir(), "ready")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSnapshotAcquirePruneRaceHelper$")
 	cmd.Env = append(os.Environ(), "GOTACK_WP3_RACE_DATA="+data, "GOTACK_WP3_RACE_READY="+ready)
@@ -95,8 +87,8 @@ func TestSnapshotAcquirePruneAcrossProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), snapshotPrefix) {
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), snapshotPrefix) {
 			t.Fatal("unleased generation leaked after race")
 		}
 	}
@@ -114,13 +106,13 @@ func TestSnapshotAcquirePruneRaceHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 		if i == 0 {
-			if err := os.WriteFile(os.Getenv("GOTACK_WP3_RACE_READY"), []byte("ok"), 0600); err != nil {
+			if err := os.WriteFile(os.Getenv("GOTACK_WP3_RACE_READY"), []byte("ok"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
 		time.Sleep(time.Millisecond)
-		b, err := os.ReadFile(filepath.Join(gen, "TACK_CORE.md"))
-		if err != nil || string(b) != "atomic lease bytes" {
+		data, err := os.ReadFile(profilePath(gen))
+		if err != nil || string(data) != profilePayload("atomic lease bytes") {
 			_ = lease.Release()
 			t.Fatalf("leased bytes lost during concurrent prune: %v", err)
 		}
@@ -132,14 +124,14 @@ func TestSnapshotAcquirePruneRaceHelper(t *testing.T) {
 
 func TestSnapshotBoundedRetentionAfterManyGenerations(t *testing.T) {
 	s := New(t.TempDir(), nil)
-	seedContextWithFile(t, s, "TACK_CORE.md", "old holder")
+	seedContextWithFile(t, s, "PROFILE.md", "old holder")
 	gen1, held, err := s.BuildPromptSnapshotLease()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer held.Release()
 	for i := 2; i <= 12; i++ {
-		seedContextWithFile(t, s, "TACK_CORE.md", fmt.Sprintf("generation %d", i))
+		seedContextWithFile(t, s, "PROFILE.md", fmt.Sprintf("generation %d", i))
 		gen, lease, err := s.BuildPromptSnapshotLease()
 		if err != nil {
 			t.Fatal(err)
@@ -155,8 +147,8 @@ func TestSnapshotBoundedRetentionAfterManyGenerations(t *testing.T) {
 			t.Fatal(err)
 		}
 		count := 0
-		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), snapshotPrefix) {
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), snapshotPrefix) {
 				count++
 			}
 		}
@@ -164,11 +156,8 @@ func TestSnapshotBoundedRetentionAfterManyGenerations(t *testing.T) {
 			t.Fatalf("retention exceeded holder/current/previous floor: %d", count)
 		}
 		locks, err := os.ReadDir(s.snapshotLeaseDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(locks) > 4 {
-			t.Fatalf("generation lease metadata leaked: %d", len(locks))
+		if err != nil || len(locks) > 4 {
+			t.Fatalf("generation lease metadata leaked: %d, %v", len(locks), err)
 		}
 		if _, err := os.Stat(gen1); err != nil {
 			t.Fatalf("old holder pruned: %v", err)

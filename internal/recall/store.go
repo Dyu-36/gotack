@@ -17,13 +17,11 @@ const (
 )
 
 type Store struct {
-	dataDir  string
-	indexDir string
-	log      *slog.Logger
-
-	mu    sync.Mutex
-	index *sql.DB
-
+	dataDir       string
+	indexDir      string
+	log           *slog.Logger
+	mu            sync.Mutex
+	index         *sql.DB
 	roleAvailable bool
 }
 
@@ -76,7 +74,6 @@ func (s *Store) syncLocked(ctx context.Context) error {
 	for _, note := range source.Degraded() {
 		s.log.Warn("recall: schema drift in crush.db", "detail", note)
 	}
-
 	index, err := s.ensureIndexLocked()
 	if err != nil {
 		return err
@@ -89,6 +86,7 @@ func (s *Store) syncLocked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Keep deletion reconciliation; speed must not resurrect deleted history.
 	sessionIDs, err := source.SessionIDs(ctx)
 	if err != nil {
 		return err
@@ -117,15 +115,13 @@ func (s *Store) watermark(ctx context.Context, index *sql.DB, key string) int64 
 	}
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if raw != "" && err != nil {
-		s.log.Warn("recall: watermark unparseable, rescanning", "key", key, "value", raw)
+		s.log.Warn("recall: watermark unparseable, rescanning", "key", key)
 		return 0
 	}
 	return value
 }
 
-func (s *Store) advanceWatermarks(ctx context.Context, index *sql.DB,
-	sessions []SourceSession, messages []SourceMessage,
-) error {
+func (s *Store) advanceWatermarks(ctx context.Context, index *sql.DB, sessions []SourceSession, messages []SourceMessage) error {
 	sessionWM := s.watermark(ctx, index, metaSessionWatermark)
 	for _, session := range sessions {
 		if session.UpdatedAt > sessionWM {
@@ -151,6 +147,16 @@ func (s *Store) ensureIndexLocked() (*sql.DB, error) {
 	index, err := openIndex(s.indexDir)
 	if err != nil {
 		return nil, err
+	}
+	// Apply after openIndex has upgraded legacy lineage columns. No rebuild.
+	for _, statement := range []string{
+		"CREATE INDEX IF NOT EXISTS idx_recall_session_time ON messages(session_id, created_at, id)",
+		"CREATE INDEX IF NOT EXISTS idx_recall_session_parent ON sessions(parent_session_id)",
+	} {
+		if _, err := index.Exec(statement); err != nil {
+			_ = index.Close()
+			return nil, fmt.Errorf("create recall lookup index: %w", err)
+		}
 	}
 	s.index = index
 	return index, nil
@@ -189,15 +195,20 @@ func orderClause(order SortOrder) string {
 type Detail string
 
 const (
+	DetailBrief    Detail = "brief"
 	DetailAdaptive Detail = "adaptive"
 	DetailFull     Detail = "full"
 )
 
 func parseDetail(value string) Detail {
-	if strings.EqualFold(strings.TrimSpace(value), string(DetailFull)) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(DetailFull):
 		return DetailFull
+	case string(DetailAdaptive):
+		return DetailAdaptive
+	default:
+		return DetailBrief
 	}
-	return DetailAdaptive
 }
 
 type SearchOptions struct {
@@ -210,6 +221,9 @@ type SearchOptions struct {
 }
 
 func (s *Store) SearchWithOptions(ctx context.Context, opts SearchOptions) ([]DiscoveryResult, error) {
+	if len(opts.Query) > 2048 {
+		return nil, fmt.Errorf("recall query is too long; use a few names or keywords")
+	}
 	match, err := buildMatch(opts.Query)
 	if err != nil {
 		return nil, err
@@ -228,19 +242,27 @@ func (s *Store) SearchWithOptions(ctx context.Context, opts SearchOptions) ([]Di
 	if err != nil {
 		return nil, err
 	}
-
 	results := make([]DiscoveryResult, 0, limit)
 	seen := make(map[string]struct{}, limit)
 	budget := newContentBudget(maxResponseContentBytes)
 	for _, hit := range hits {
-		if _, ok := seen[hit.sessionID]; ok {
+		if _, exists := seen[hit.sessionID]; exists {
 			continue
 		}
 		seen[hit.sessionID] = struct{}{}
-		full := opts.Detail == DetailFull || len(results) == 0
-		result, err := hydrateDiscovery(ctx, s.index, hit, full, budget)
-		if err != nil {
-			return nil, err
+		var result DiscoveryResult
+		if opts.Detail == DetailBrief {
+			result = DiscoveryResult{
+				SessionID: hit.sessionID, Title: clipUTF8(hit.title, 256), MatchedRole: hit.role,
+				MatchMessageID: hit.messageID, Snippet: clipUTF8(hit.snippet, 768), Detail: DetailBrief,
+				Messages: []Message{}, BookendStart: []Message{}, BookendEnd: []Message{},
+			}
+		} else {
+			full := opts.Detail == DetailFull || len(results) == 0
+			result, err = hydrateDiscovery(ctx, s.index, hit, full, budget)
+			if err != nil {
+				return nil, err
+			}
 		}
 		results = append(results, result)
 		if len(results) == limit {
@@ -250,6 +272,7 @@ func (s *Store) SearchWithOptions(ctx context.Context, opts SearchOptions) ([]Di
 	return results, nil
 }
 
+// Preserve the programmatic API; the MCP tool explicitly selects brief mode.
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]DiscoveryResult, error) {
 	return s.SearchWithOptions(ctx, SearchOptions{Query: query, Limit: limit, Detail: DetailAdaptive})
 }
@@ -274,7 +297,7 @@ func normalizeRoles(values []string) []string {
 		role := strings.ToLower(strings.TrimSpace(value))
 		switch role {
 		case "user", "assistant", "tool":
-			if _, ok := seen[role]; !ok {
+			if _, exists := seen[role]; !exists {
 				seen[role] = struct{}{}
 				roles = append(roles, role)
 			}

@@ -7,11 +7,11 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/guard"
+	"github.com/Dyu-36/gotack/internal/memory"
 )
 
 func main() {
 	if err := run(); err != nil {
-
 		os.Stderr.WriteString("gotack-guard: " + err.Error() + "\n")
 		os.Exit(1)
 	}
@@ -25,7 +25,6 @@ func run() error {
 	in := guard.ParseInput(data)
 	out := guard.Evaluate(in, optionsFor(in))
 	if out.Decision == guard.DecisionDeny {
-
 		os.Stderr.WriteString(out.Reason + "\n")
 	}
 	payload, err := guard.MarshalOutput(out)
@@ -43,7 +42,7 @@ func optionsFor(in guard.Input) guard.Options {
 	dir := appconfig.Dir()
 	return guard.Options{
 		WriteSafeRoot: in.CWD,
-		ContextDir:    filepath.Join(dir, "context"),
+		ContextDir:    memory.Directory(dir),
 		Unattended:    guard.RosterContains(filepath.Join(dir, guard.UnattendedRosterFileName), in.SessionID),
 		Review:        guard.ReviewRosterContains(filepath.Join(dir, guard.ReviewRosterFileName), in.SessionID),
 	}

@@ -2,43 +2,17 @@ package main
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 
 	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/crushapi"
 )
 
-func resolveContextSourceDir() string {
-	executable, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	root := filepath.Dir(executable)
-	for _, candidate := range []string{
-		filepath.Join(root, "resources", "context"),
-		filepath.Join(root, "..", "resources", "context"),
-	} {
-		if info, err := os.Stat(filepath.Join(candidate, "TACK_CORE.md")); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-	return ""
-}
-
 func (a *App) ensureContextSeed() {
 	if a.contextSeeder == nil {
 		return
 	}
-	source := resolveContextSourceDir()
-	if source == "" {
-		if a.log != nil {
-			a.log.Debug("context: bundled context files not found, skipping seed")
-		}
-		return
-	}
-	if err := a.contextSeeder.Seed(source); err != nil && a.log != nil {
-		a.log.Warn("context: failed to seed bundled context files", "err", err)
+	if err := a.contextSeeder.Seed(""); err != nil && a.log != nil {
+		a.log.Warn("assistant: personal context initialization failed; originals preserved", "err", err)
 	}
 }
 
@@ -65,10 +39,9 @@ func (a *App) registerContextPaths(workspaceID string) {
 		return
 	}
 	svc, err := a.services()
-	if err != nil {
-		return
+	if err == nil {
+		registrar.Register(a.ctx, svc.api, workspaceID)
 	}
-	registrar.Register(a.ctx, svc.api, workspaceID)
 }
 
 func (a *App) clearContextPath(ctx context.Context, api *crushapi.Client, workspaceID string) {
@@ -92,12 +65,24 @@ func (a *App) releaseAllContextLeases() {
 
 func (a *App) refreshCurrentContextSnapshot() {
 	c := a.getConn()
-	if c == nil || c.ws == nil {
+	if c == nil || c.ws == nil || a.contextSeeder == nil {
 		return
 	}
 	desc, ok := c.ws.Current()
 	if !ok {
 		return
 	}
-	a.registerContextPaths(desc.WorkspaceID)
+	// Pin while comparing and registering; prune must not remove a generation
+	// between publication and the registrar's acknowledgement.
+	generation, lease, err := a.contextSeeder.BuildPromptSnapshotLease()
+	if err != nil {
+		if a.log != nil {
+			a.log.Warn("assistant context refresh deferred", "err", err)
+		}
+		return
+	}
+	defer lease.Release()
+	if generation != a.contextLeaseGeneration(desc.WorkspaceID) {
+		a.registerContextPaths(desc.WorkspaceID)
+	}
 }

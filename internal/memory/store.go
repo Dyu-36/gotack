@@ -12,15 +12,18 @@ import (
 type Target string
 
 const (
-	TargetMemory Target = "memory"
-	TargetUser   Target = "user"
+	TargetMemory  Target = "memory"
+	TargetProfile Target = "profile"
+	TargetUser           = TargetProfile // Source compatibility for existing callers.
 )
 
 const (
-	MemoryFileName = "MEMORY.md"
-	UserFileName   = "USER.md"
-	MemoryCap      = 2200
-	UserCap        = 1375
+	MemoryFileName  = "MEMORY.md"
+	ProfileFileName = "PROFILE.md"
+	UserFileName    = ProfileFileName
+	MemoryCap       = 2200
+	ProfileCap      = 1375
+	UserCap         = ProfileCap
 )
 
 const (
@@ -55,16 +58,23 @@ func NewStore(dir string) *Store {
 	return &Store{dir: dir, persist: writeFileAtomic}
 }
 
+func canonicalTarget(target Target) Target {
+	if target == "user" {
+		return TargetProfile
+	}
+	return target
+}
+
 func FileNameFor(target Target) string {
-	if target == TargetUser {
-		return UserFileName
+	if canonicalTarget(target) == TargetProfile {
+		return ProfileFileName
 	}
 	return MemoryFileName
 }
 
 func CapFor(target Target) int {
-	if target == TargetUser {
-		return UserCap
+	if canonicalTarget(target) == TargetProfile {
+		return ProfileCap
 	}
 	return MemoryCap
 }
@@ -86,13 +96,16 @@ func (s *Store) Remove(ctx context.Context, target Target, oldText string) (Resu
 }
 
 func (s *Store) Apply(ctx context.Context, target Target, operations []Operation) (Result, error) {
-	if target != TargetMemory && target != TargetUser {
+	target = canonicalTarget(target)
+	if target != TargetMemory && target != TargetProfile {
 		return Result{}, ErrUnknownTarget
 	}
 	if len(operations) == 0 {
 		return Result{}, ErrEmptyBatch
 	}
-
+	if len(operations) > 32 {
+		return Result{}, fmt.Errorf("too many memory operations: %w", ErrArguments)
+	}
 	for index, operation := range operations {
 		action := strings.TrimSpace(operation.Action)
 		if action != actionAdd && action != actionReplace {
@@ -102,61 +115,58 @@ func (s *Store) Apply(ctx context.Context, target Target, operations []Operation
 		if content == "" {
 			content = operation.NewText
 		}
+		if len(content) > MaxPromptFileBytes {
+			return Result{}, ErrPromptFileTooLarge
+		}
+		if !utf8.ValidString(content) {
+			return Result{}, ErrInvalidUTF8
+		}
 		if strings.TrimSpace(content) != "" {
 			if err := Scan(strings.TrimSpace(content)); err != nil {
 				return Result{}, fmt.Errorf("operation %d: %w", index+1, err)
 			}
 		}
 	}
-
 	release, err := acquireFileLock(ctx, s.Path(target)+".lock")
 	if err != nil {
 		return Result{}, fmt.Errorf("memory: lock %s: %w", FileNameFor(target), err)
 	}
 	defer release()
-
 	current, err := s.load(target)
 	if err != nil {
 		return Result{}, err
 	}
 	working := append([]string(nil), current...)
 	duplicateOnly := len(operations) == 1 && strings.TrimSpace(operations[0].Action) == actionAdd
-
 	for index, operation := range operations {
-		operationChanged, err := applyOperation(&working, operation)
+		changed, err := applyOperation(&working, operation)
 		if err != nil {
 			return Result{}, withState(target, fmt.Errorf("operation %d: %w", index+1, err), current)
 		}
-		if operationChanged {
+		if changed {
 			duplicateOnly = false
 		}
 	}
 	if duplicateOnly && equalEntries(current, working) {
 		return successResult(target, working, "Entry already exists (no duplicate added)."), nil
 	}
-
 	body := serializeEntries(working)
 	size := utf8.RuneCountInString(body)
 	capacity := CapFor(target)
 	if size > capacity {
 		return Result{}, &OverCapError{
-			Target:  target,
-			Used:    utf8.RuneCountInString(serializeEntries(current)),
-			Cap:     capacity,
-			Wanted:  size,
-			Entries: append([]string(nil), current...),
+			Target: target, Used: utf8.RuneCountInString(serializeEntries(current)),
+			Cap: capacity, Wanted: size, Entries: append([]string(nil), current...),
 		}
 	}
-
 	if !equalEntries(current, working) {
 		if err := s.persist(s.Path(target), []byte(Render(target, body))); err != nil {
 			return Result{}, fmt.Errorf("memory: persist %s: %w", FileNameFor(target), err)
 		}
 	}
-
 	message := fmt.Sprintf("Applied %d operation(s).", len(operations))
 	if len(operations) == 1 {
-		switch operations[0].Action {
+		switch strings.TrimSpace(operations[0].Action) {
 		case actionAdd:
 			message = "Entry added."
 		case actionReplace:
@@ -176,7 +186,6 @@ func applyOperation(entries *[]string, operation Operation) (bool, error) {
 	}
 	content = strings.TrimSpace(content)
 	oldText := strings.TrimSpace(operation.OldText)
-
 	switch action {
 	case actionAdd:
 		if content == "" {
@@ -189,7 +198,6 @@ func applyOperation(entries *[]string, operation Operation) (bool, error) {
 		}
 		*entries = append(*entries, content)
 		return true, nil
-
 	case actionReplace:
 		if oldText == "" {
 			return false, ErrMissingOldText
@@ -204,10 +212,8 @@ func applyOperation(entries *[]string, operation Operation) (bool, error) {
 		if (*entries)[index] == content {
 			return false, nil
 		}
-
 		(*entries)[index] = content
 		return true, nil
-
 	case actionRemove:
 		if oldText == "" {
 			return false, ErrMissingOldText
@@ -218,7 +224,6 @@ func applyOperation(entries *[]string, operation Operation) (bool, error) {
 		}
 		*entries = append((*entries)[:index], (*entries)[index+1:]...)
 		return true, nil
-
 	default:
 		return false, ErrUnknownAction
 	}
@@ -252,22 +257,17 @@ func successResult(target Target, entries []string, message string) Result {
 		}
 	}
 	return Result{
-		Success:    true,
-		Done:       true,
-		Target:     string(target),
-		Usage:      fmt.Sprintf("%d%% — %s/%s chars", percent, group(current), group(capacity)),
-		EntryCount: len(entries),
-		Message:    message,
-		Note:       "Write saved. This update is complete — do not repeat it.",
+		Success: true, Done: true, Target: string(target),
+		Usage: fmt.Sprintf("%d%% — %s/%s chars", percent, group(current), group(capacity)),
+		EntryCount: len(entries), Message: message,
+		Note: "Write saved. This update is complete — do not repeat it.",
 	}
 }
 
 func withState(target Target, cause error, entries []string) error {
 	return &operationError{
-		cause:   cause,
-		entries: append([]string(nil), entries...),
-		used:    utf8.RuneCountInString(serializeEntries(entries)),
-		cap:     CapFor(target),
+		cause: cause, entries: append([]string(nil), entries...),
+		used: utf8.RuneCountInString(serializeEntries(entries)), cap: CapFor(target),
 	}
 }
 
@@ -284,12 +284,9 @@ func equalEntries(left, right []string) bool {
 }
 
 func (s *Store) load(target Target) ([]string, error) {
-	data, err := os.ReadFile(s.Path(target))
+	data, err := ReadPromptFile(s.Path(target))
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("memory: read %s: %w", FileNameFor(target), err)
+		return nil, promptReadError(s.Path(target), err)
 	}
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("memory: read %s: %w", FileNameFor(target), ErrInvalidUTF8)
@@ -299,7 +296,7 @@ func (s *Store) load(target Target) ([]string, error) {
 
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
 	temporary, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")

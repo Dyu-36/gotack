@@ -12,42 +12,23 @@ import (
 
 const ToolName = "memory"
 
-var toolDescription = fmt.Sprintf(
-	"Curate bounded persistent memory already visible in the system prompt. Prefer one atomic operations batch for multiple changes or consolidation. Each item uses add, whole-entry replace, or remove; replace/remove identify one entry with a unique old_text substring. Targets: memory (stable environment facts, %d chars) and user (identity/preferences, %d chars). Successful writes are terminal; do not repeat them. Skip task progress, raw dumps, transient facts, and reusable procedures (those belong in a skill).",
-	MemoryCap, UserCap,
-)
+var toolDescription = fmt.Sprintf("Curate small persistent personal context. Targets: profile (identity/preferences, %d characters) and memory (key durable facts, %d characters). Legacy target user means profile. Use one atomic operations batch to consolidate whole entries. Do not increase limits or save transcripts, task progress, temporary errors, secrets, or procedures. Retrieve older details with session_search. A successful write is complete; do not repeat it.", ProfileCap, MemoryCap)
 
 var toolSchema = json.RawMessage(`{
-	"type": "object",
-	"properties": {
-		"action": {"type": "string", "enum": ["add", "replace", "remove"], "description": "Single-operation shape; omit when using operations."},
-		"target": {"type": "string", "enum": ["memory", "user"], "description": "memory for durable notes; user for user profile."},
-		"content": {"type": "string", "description": "Entry for add/replace."},
-		"new_text": {"type": "string", "description": "Alias for content."},
-		"old_text": {"type": "string", "description": "Unique substring required for replace/remove."},
-		"operations": {
-			"type": "array",
-			"description": "Preferred atomic all-or-nothing batch; final state alone is checked against the character cap.",
-			"items": {
-				"type": "object",
-				"properties": {
-					"action": {"type": "string", "enum": ["add", "replace", "remove"]},
-					"content": {"type": "string"},
-					"new_text": {"type": "string"},
-					"old_text": {"type": "string"}
-				},
-				"required": ["action"]
-			}
-		}
-	},
-	"required": ["target"]
+ "type":"object","properties":{
+ "action":{"type":"string","enum":["add","replace","remove"]},
+ "target":{"type":"string","enum":["profile","memory","user"]},
+ "content":{"type":"string","description":"Concise whole entry for add/replace."},
+ "new_text":{"type":"string","description":"Alias for content."},
+ "old_text":{"type":"string","description":"Unique substring for replace/remove."},
+ "operations":{"type":"array","maxItems":32,"description":"Atomic batch; consolidate instead of growing the limit.","items":{"type":"object","properties":{
+ "action":{"type":"string","enum":["add","replace","remove"]},"content":{"type":"string"},"new_text":{"type":"string"},"old_text":{"type":"string"}},"required":["action"]}}
+ },"required":["target"]
 }`)
 
 func Tool(store *Store) mcp.Tool {
 	return mcp.Tool{
-		Name:        ToolName,
-		Description: toolDescription,
-		Schema:      toolSchema,
+		Name: ToolName, Description: toolDescription, Schema: toolSchema,
 		Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
 			req, err := decodeArgs(args)
 			if err != nil {
@@ -79,6 +60,9 @@ func decodeArgs(args json.RawMessage) (request, error) {
 	if len(args) == 0 {
 		return request{}, fmt.Errorf("arguments are required: %w", ErrArguments)
 	}
+	if len(args) > MaxPromptFileBytes {
+		return request{}, ErrPromptFileTooLarge
+	}
 	var req request
 	if err := json.Unmarshal(args, &req); err != nil {
 		return request{}, fmt.Errorf("decode arguments: %v: %w", err, ErrArguments)
@@ -87,27 +71,23 @@ func decodeArgs(args json.RawMessage) (request, error) {
 }
 
 func dispatch(ctx context.Context, store *Store, req request) (Result, error) {
-	target := Target(strings.TrimSpace(req.Target))
+	target := canonicalTarget(Target(strings.TrimSpace(req.Target)))
 	if target == "" {
 		target = TargetMemory
 	}
-	if target != TargetMemory && target != TargetUser {
+	if target != TargetMemory && target != TargetProfile {
 		return Result{}, fmt.Errorf("target %q: %w", req.Target, ErrUnknownTarget)
 	}
 	if req.Operations != nil {
 		return store.Apply(ctx, target, req.Operations)
 	}
-
 	content := req.Content
 	if content == "" {
 		content = req.NewText
 	}
-	operation := Operation{
-		Action:  strings.TrimSpace(req.Action),
-		Content: content,
-		OldText: req.OldText,
-	}
-	return store.Apply(ctx, target, []Operation{operation})
+	return store.Apply(ctx, target, []Operation{{
+		Action: strings.TrimSpace(req.Action), Content: content, OldText: req.OldText,
+	}})
 }
 
 type failureResult struct {
@@ -118,8 +98,7 @@ type failureResult struct {
 }
 
 func encodeFailure(err error) string {
-	result := failureResult{Success: false, Error: err.Error()}
-
+	result := failureResult{Success: false, Error: truncateRunes(err.Error(), 512)}
 	var overCap *OverCapError
 	if errors.As(err, &overCap) {
 		result.CurrentEntries = overCap.Entries
@@ -131,7 +110,17 @@ func encodeFailure(err error) string {
 			result.Usage = fmt.Sprintf("%s/%s", group(operation.used), group(operation.cap))
 		}
 	}
-
+	// Do not echo an externally enlarged file wholesale into the conversation.
+	remaining := 4 * (MemoryCap + ProfileCap)
+	bounded := make([]string, 0, len(result.CurrentEntries))
+	for _, entry := range result.CurrentEntries {
+		if len(entry) > remaining {
+			continue
+		}
+		bounded = append(bounded, entry)
+		remaining -= len(entry)
+	}
+	result.CurrentEntries = bounded
 	encoded, marshalErr := json.Marshal(result)
 	if marshalErr != nil {
 		return `{"success":false,"error":"memory: could not encode error"}`

@@ -18,9 +18,8 @@ func input(t *testing.T, cwd, tool string, toolInput map[string]any) Input {
 
 func TestEvaluateTierMatrix(t *testing.T) {
 	root := t.TempDir()
-	contextDir := filepath.Join(root, "context")
+	contextDir := filepath.Join(root, "assistant")
 	outside := filepath.Join(t.TempDir(), "elsewhere.txt")
-
 	cases := []struct {
 		name      string
 		in        Input
@@ -29,122 +28,26 @@ func TestEvaluateTierMatrix(t *testing.T) {
 		reasonHas string
 		wantHalt  bool
 	}{
-		{
-			name: "blocklist beats everything even interactively",
-			in:   input(t, root, "bash", map[string]any{"command": "format C:"}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionDeny, reasonHas: ruleDiskFormatWipe, wantHalt: true,
-		},
-		{
-			name: "read tool is auto-approved interactively",
-			in:   input(t, root, "view", map[string]any{"file_path": outside}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionAllow,
-		},
-		{
-			name: "read tool is auto-approved unattended",
-			in:   input(t, root, "grep", map[string]any{"pattern": "x"}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionAllow,
-		},
-		{
-			name: "write inside the safe root is auto-approved",
-			in:   input(t, root, "write", map[string]any{"file_path": filepath.Join(root, "notes.txt")}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionAllow,
-		},
-		{
-			name: "relative write resolving inside the root is auto-approved",
-			in:   input(t, root, "edit", map[string]any{"file_path": "src/main.go"}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionAllow,
-		},
-		{
-			name: "write outside the safe root is denied",
-			in:   input(t, root, "write", map[string]any{"file_path": outside}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionDeny, reasonHas: ruleWriteOutsideRoot,
-		},
-		{
-			name: "write into the memory context dir is denied even inside the root",
-			in:   input(t, root, "write", map[string]any{"file_path": filepath.Join(contextDir, "memory.md")}),
-			opts: Options{WriteSafeRoot: root, ContextDir: contextDir},
-			want: DecisionDeny, reasonHas: ruleContextWrite,
-		},
-		{
-			name: "context-dir denial names the memory rule before the root rule",
-			in:   input(t, root, "multiedit", map[string]any{"file_path": filepath.Join(contextDir, "caps.md")}),
-			opts: Options{WriteSafeRoot: "", ContextDir: contextDir},
-			want: DecisionDeny, reasonHas: ruleContextWrite,
-		},
-		{
-			name: "write boundary beats unattended posture",
-			in:   input(t, root, "write", map[string]any{"file_path": outside}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionDeny, reasonHas: ruleWriteOutsideRoot,
-		},
-		{
-			name: "write without a path falls through to ask interactively",
-			in:   input(t, root, "write", map[string]any{}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionNone,
-		},
-		{
-			name: "write without a path is denied unattended",
-			in:   input(t, root, "write", map[string]any{}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionDeny, reasonHas: ruleUnattendedApproval,
-		},
-		{
-			name: "benign shell command asks interactively",
-			in:   input(t, root, "bash", map[string]any{"command": "go build ./..."}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionNone,
-		},
-		{
-			name: "shell command is denied unattended instead of prompting",
-			in:   input(t, root, "bash", map[string]any{"command": "go build ./..."}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionDeny, reasonHas: ruleUnattendedApproval,
-		},
-		{
-			name: "network fetch asks interactively",
-			in:   input(t, root, "download", map[string]any{"url": "https://example.com/file.zip"}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionNone,
-		},
-		{
-			name: "network fetch is denied unattended",
-			in:   input(t, root, "fetch", map[string]any{"url": "https://example.com"}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionDeny, reasonHas: ruleUnattendedApproval,
-		},
-		{
-			name: "delegation is denied unattended (sub-agent hole mitigation)",
-			in:   input(t, root, "agent", map[string]any{"prompt": "do it"}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionDeny, reasonHas: ruleUnattendedApproval,
-		},
-		{
-			name: "question falls back to plain text unattended",
-			in:   input(t, root, "question", map[string]any{"questions": []any{}}),
-			opts: Options{WriteSafeRoot: root, Unattended: true},
-			want: DecisionDeny, reasonHas: ruleUnattendedQuestion,
-		},
-		{
-			name: "unknown tool asks interactively",
-			in:   input(t, root, "future_tool", map[string]any{}),
-			opts: Options{WriteSafeRoot: root},
-			want: DecisionNone,
-		},
-		{
-			name: "empty safe root disables the root check",
-			in:   input(t, root, "write", map[string]any{"file_path": outside}),
-			opts: Options{},
-			want: DecisionAllow,
-		},
+		{"blocklist beats interactive policy", input(t, root, "bash", map[string]any{"command": "format C:"}), Options{WriteSafeRoot: root}, DecisionDeny, ruleDiskFormatWipe, true},
+		{"read outside root is approved", input(t, root, "view", map[string]any{"file_path": outside}), Options{WriteSafeRoot: root}, DecisionAllow, "", false},
+		{"unattended read is approved", input(t, root, "grep", map[string]any{"pattern": "x"}), Options{WriteSafeRoot: root, Unattended: true}, DecisionAllow, "", false},
+		{"write inside safe root", input(t, root, "write", map[string]any{"file_path": filepath.Join(root, "notes.txt")}), Options{WriteSafeRoot: root}, DecisionAllow, "", false},
+		{"relative write inside root", input(t, root, "edit", map[string]any{"file_path": "src/main.go"}), Options{WriteSafeRoot: root}, DecisionAllow, "", false},
+		{"write outside safe root", input(t, root, "write", map[string]any{"file_path": outside}), Options{WriteSafeRoot: root}, DecisionDeny, ruleWriteOutsideRoot, false},
+		{"personal memory protected inside root", input(t, root, "write", map[string]any{"file_path": filepath.Join(contextDir, "MEMORY.md")}), Options{WriteSafeRoot: root, ContextDir: contextDir}, DecisionDeny, ruleContextWrite, false},
+		{"personal memory rule before root rule", input(t, root, "multiedit", map[string]any{"file_path": filepath.Join(contextDir, "PROFILE.md")}), Options{ContextDir: contextDir}, DecisionDeny, ruleContextWrite, false},
+		{"write boundary before unattended posture", input(t, root, "write", map[string]any{"file_path": outside}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleWriteOutsideRoot, false},
+		{"write without path asks interactively", input(t, root, "write", map[string]any{}), Options{WriteSafeRoot: root}, DecisionNone, "", false},
+		{"write without path denied unattended", input(t, root, "write", map[string]any{}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedApproval, false},
+		{"benign shell asks interactively", input(t, root, "bash", map[string]any{"command": "go build ./..."}), Options{WriteSafeRoot: root}, DecisionNone, "", false},
+		{"shell denied unattended", input(t, root, "bash", map[string]any{"command": "go build ./..."}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedApproval, false},
+		{"download asks interactively", input(t, root, "download", map[string]any{"url": "https://example.com/file.zip"}), Options{WriteSafeRoot: root}, DecisionNone, "", false},
+		{"fetch denied unattended", input(t, root, "fetch", map[string]any{"url": "https://example.com"}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedApproval, false},
+		{"delegation denied unattended", input(t, root, "agent", map[string]any{"prompt": "do it"}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedApproval, false},
+		{"question uses plain text unattended", input(t, root, "question", map[string]any{"questions": []any{}}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedQuestion, false},
+		{"unknown tool asks interactively", input(t, root, "future_tool", map[string]any{}), Options{WriteSafeRoot: root}, DecisionNone, "", false},
+		{"empty safe root disables root check", input(t, root, "write", map[string]any{"file_path": outside}), Options{}, DecisionAllow, "", false},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := Evaluate(tc.in, tc.opts)
@@ -164,10 +67,7 @@ func TestEvaluateTierMatrix(t *testing.T) {
 }
 
 func TestUnattendedQuestionReasonRequiresPlainTextFallback(t *testing.T) {
-	got := Evaluate(
-		input(t, t.TempDir(), "question", map[string]any{}),
-		Options{Unattended: true},
-	)
+	got := Evaluate(input(t, t.TempDir(), "question", map[string]any{}), Options{Unattended: true})
 	if got.Decision != DecisionDeny || !strings.Contains(got.Reason, "ask for the missing information directly") {
 		t.Fatalf("got %+v, want plain-text fallback instruction", got)
 	}
@@ -183,8 +83,8 @@ func TestWithinPathBoundaries(t *testing.T) {
 	}{
 		{"exact root", root, root, true},
 		{"nested file", root, filepath.Join(root, "a", "b.txt"), true},
-		{"sibling prefix dir is outside", root, root + "-x", false},
-		{"nested sibling prefix is outside", root, filepath.Join(root+"-x", "b.txt"), false},
+		{"sibling prefix outside", root, root + "-x", false},
+		{"nested sibling prefix outside", root, filepath.Join(root+"-x", "b.txt"), false},
 		{"empty root matches nothing", "", filepath.Join(root, "a"), false},
 	}
 	for _, tc := range cases {
@@ -199,16 +99,7 @@ func TestWithinPathBoundaries(t *testing.T) {
 func TestBackgroundReviewWhitelist(t *testing.T) {
 	root := t.TempDir()
 	opts := Options{WriteSafeRoot: root, Unattended: true, Review: true}
-	allowed := []string{
-		"ls",
-		"glob",
-		"grep",
-		"view",
-		"mcp_gotack-memory_memory",
-		"mcp_gotack-skills_skill_view",
-		"mcp_gotack-skills_skill_manage",
-	}
-	for _, tool := range allowed {
+	for _, tool := range []string{"memory", "mcp_gotack-memory_memory"} {
 		t.Run("allows "+tool, func(t *testing.T) {
 			got := Evaluate(input(t, root, tool, map[string]any{}), opts)
 			if got.Decision != DecisionAllow {
@@ -216,22 +107,16 @@ func TestBackgroundReviewWhitelist(t *testing.T) {
 			}
 		})
 	}
-
 	denied := []string{
-		"sourcegraph",
-		"bash",
-		"write",
-		"download",
-		"fetch",
-		"agent",
-		"future_tool",
-		"mcp_untrusted_memory",
+		"ls", "glob", "grep", "view", "sourcegraph", "bash", "write", "edit", "multiedit",
+		"download", "fetch", "agent", "question", "future_tool", "mcp_untrusted_memory",
+		"skill_view", "skill_manage", "mcp_gotack-skills_skill_view", "mcp_gotack-skills_skill_manage",
 		"mcp_untrusted_skill_manage",
 	}
 	for _, tool := range denied {
 		t.Run("denies "+tool, func(t *testing.T) {
 			toolInput := map[string]any{}
-			if tool == "write" {
+			if isWriteTool(tool) {
 				toolInput["file_path"] = filepath.Join(root, "safe.txt")
 			}
 			got := Evaluate(input(t, root, tool, toolInput), opts)
@@ -243,26 +128,16 @@ func TestBackgroundReviewWhitelist(t *testing.T) {
 }
 
 func TestBackgroundReviewKeepsSecurityFloor(t *testing.T) {
-	got := Evaluate(
-		input(t, t.TempDir(), "bash", map[string]any{"command": "format C:"}),
-		Options{Unattended: true, Review: true},
-	)
+	got := Evaluate(input(t, t.TempDir(), "bash", map[string]any{"command": "format C:"}), Options{Unattended: true, Review: true})
 	if got.Decision != DecisionDeny || !got.Halt || !strings.Contains(got.Reason, ruleDiskFormatWipe) {
-		t.Fatalf("got %+v, want unrecoverable-command denial before review policy", got)
+		t.Fatalf("got %+v, want destructive-command denial before review policy", got)
 	}
 }
 
 func TestSkillContextInjection(t *testing.T) {
-	tools := []string{
-		"mcp_gotack-skills_skill_view",
-		"mcp_gotack-skills_skill_manage",
-	}
-	for _, tool := range tools {
+	for _, tool := range []string{"mcp_gotack-skills_skill_view", "mcp_gotack-skills_skill_manage"} {
 		t.Run("foreground "+tool, func(t *testing.T) {
-			in := input(t, t.TempDir(), tool, map[string]any{
-				"_session_id":        "forged",
-				"_background_review": true,
-			})
+			in := input(t, t.TempDir(), tool, map[string]any{"_session_id": "forged", "_background_review": true})
 			in.SessionID = "trusted-session"
 			got := Evaluate(in, Options{})
 			if got.Decision != DecisionNone {
@@ -270,22 +145,19 @@ func TestSkillContextInjection(t *testing.T) {
 			}
 			assertSkillPatch(t, got, "trusted-session", false)
 		})
-
 		t.Run("review "+tool, func(t *testing.T) {
 			in := input(t, t.TempDir(), tool, map[string]any{})
 			in.SessionID = "review-session"
 			got := Evaluate(in, Options{Unattended: true, Review: true})
-			if got.Decision != DecisionAllow {
-				t.Fatalf("review decision = %q, want allow", got.Decision)
+			if got.Decision != DecisionDeny || !strings.Contains(got.Reason, ruleReviewWhitelist) || len(got.UpdatedInput) != 0 {
+				t.Fatalf("got %+v, want memory-only review to reject skill operations", got)
 			}
-			assertSkillPatch(t, got, "review-session", true)
 		})
 	}
-
 	memory := input(t, t.TempDir(), "mcp_gotack-memory_memory", map[string]any{})
 	memory.SessionID = "review-session"
 	if got := Evaluate(memory, Options{Review: true}); len(got.UpdatedInput) != 0 {
-		t.Fatalf("memory must not receive skills-only hidden fields: %s", got.UpdatedInput)
+		t.Fatalf("memory must not receive skills-only fields: %s", got.UpdatedInput)
 	}
 }
 

@@ -3,212 +3,64 @@ package contextseed
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/Dyu-36/gotack/internal/assistant"
+	"github.com/Dyu-36/gotack/internal/memory"
 )
 
-func writeSource(t *testing.T, sourceDir, rel, content string) {
+func writeSource(t *testing.T, root, name, content string) {
 	t.Helper()
-	target := filepath.Join(sourceDir, rel)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		t.Fatalf("create source dir: %v", err)
-	}
-	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
-		t.Fatalf("write source file: %v", err)
-	}
+	writeContextFixture(t, filepath.Join(root, filepath.FromSlash(name)), content)
 }
 
-func readSeeded(t *testing.T, seeder *Seeder, rel string) string {
+func readSeeded(t *testing.T, s *Seeder, name string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(seeder.ContextDir(), rel))
+	return string(mustRead(t, filepath.Join(s.ContextDir(), filepath.FromSlash(name))))
+}
+
+func TestSeedUsesEmbeddedCoreAndPreservesPersonalFiles(t *testing.T) {
+	s := New(t.TempDir(), nil)
+	source := t.TempDir()
+	writeSource(t, source, "TACK_CORE.md", "external product override")
+	writeSource(t, source, "USER.md", "external user template")
+	if err := s.Seed(source); err != nil {
+		t.Fatal(err)
+	}
+	if s.ContextDir() != memory.Directory(s.dataDir) {
+		t.Fatal("personal context uses a different directory than the memory service")
+	}
+	writeSource(t, s.ContextDir(), memory.ProfileFileName, "My preference")
+	if err := s.Seed(source); err != nil {
+		t.Fatal(err)
+	}
+	if got := readSeeded(t, s, memory.ProfileFileName); got != "My preference" {
+		t.Fatalf("existing profile was overwritten: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(s.ContextDir(), "TACK_CORE.md")); !os.IsNotExist(err) {
+		t.Fatal("external core was copied into personal data")
+	}
+	gen, err := s.BuildPromptSnapshot()
 	if err != nil {
-		t.Fatalf("read seeded file: %v", err)
+		t.Fatal(err)
 	}
-	return string(data)
-}
-
-func TestSeed(t *testing.T) {
-	tests := []struct {
-		name string
-		run  func(t *testing.T, sourceDir string, seeder *Seeder)
-	}{
-		{
-			name: "fresh seed copies every bundled file",
-			run: func(t *testing.T, sourceDir string, seeder *Seeder) {
-				writeSource(t, sourceDir, "TACK.md", "persona v1")
-				writeSource(t, sourceDir, "memory/MEMORY.md", "facts v1")
-
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("Seed: %v", err)
-				}
-
-				if got := readSeeded(t, seeder, "TACK.md"); got != "persona v1" {
-					t.Errorf("TACK.md = %q, want persona v1", got)
-				}
-				if got := readSeeded(t, seeder, "memory/MEMORY.md"); got != "facts v1" {
-					t.Errorf("memory/MEMORY.md = %q, want facts v1", got)
-				}
-				if _, err := os.Stat(filepath.Join(seeder.ContextDir(), ".seed-report.json")); err != nil {
-					t.Errorf("seed report missing: %v", err)
-				}
-			},
-		},
-		{
-			name: "re-seed without changes is idempotent",
-			run: func(t *testing.T, sourceDir string, seeder *Seeder) {
-				writeSource(t, sourceDir, "TACK.md", "persona v1")
-
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("first Seed: %v", err)
-				}
-				reportBefore, err := os.ReadFile(filepath.Join(seeder.ContextDir(), ".seed-report.json"))
-				if err != nil {
-					t.Fatalf("read report: %v", err)
-				}
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("second Seed: %v", err)
-				}
-				reportAfter, err := os.ReadFile(filepath.Join(seeder.ContextDir(), ".seed-report.json"))
-				if err != nil {
-					t.Fatalf("read report: %v", err)
-				}
-
-				if got := readSeeded(t, seeder, "TACK.md"); got != "persona v1" {
-					t.Errorf("TACK.md = %q after re-seed, want persona v1", got)
-				}
-				if string(reportBefore) != string(reportAfter) {
-					t.Errorf("report changed on idempotent re-seed: %s -> %s", reportBefore, reportAfter)
-				}
-			},
-		},
-		{
-			name: "user-modified file is preserved even when the bundle updates",
-			run: func(t *testing.T, sourceDir string, seeder *Seeder) {
-				writeSource(t, sourceDir, "TACK.md", "persona v1")
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("first Seed: %v", err)
-				}
-
-				userEdit := filepath.Join(seeder.ContextDir(), "TACK.md")
-				if err := os.WriteFile(userEdit, []byte("persona v1, user additions"), 0o644); err != nil {
-					t.Fatalf("simulate user edit: %v", err)
-				}
-
-				writeSource(t, sourceDir, "TACK.md", "persona v2 with different length")
-
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("second Seed: %v", err)
-				}
-				if got := readSeeded(t, seeder, "TACK.md"); got != "persona v1, user additions" {
-					t.Errorf("TACK.md = %q, want the user edit preserved", got)
-				}
-			},
-		},
-		{
-			name: "updated bundled file propagates when the destination is untouched",
-			run: func(t *testing.T, sourceDir string, seeder *Seeder) {
-				writeSource(t, sourceDir, "TACK.md", "persona v1")
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("first Seed: %v", err)
-				}
-				writeSource(t, sourceDir, "TACK.md", "persona v2 with different length")
-
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("second Seed: %v", err)
-				}
-				if got := readSeeded(t, seeder, "TACK.md"); got != "persona v2 with different length" {
-					t.Errorf("TACK.md = %q, want the updated bundle propagated", got)
-				}
-			},
-		},
-		{
-			name: "pre-existing user file is never overwritten on first seed",
-			run: func(t *testing.T, sourceDir string, seeder *Seeder) {
-				if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
-					t.Fatalf("create context dir: %v", err)
-				}
-				userFile := filepath.Join(seeder.ContextDir(), "TACK.md")
-				if err := os.WriteFile(userFile, []byte("hand-written preferences"), 0o644); err != nil {
-					t.Fatalf("write user file: %v", err)
-				}
-				writeSource(t, sourceDir, "TACK.md", "persona v1")
-
-				if err := seeder.Seed(sourceDir); err != nil {
-					t.Fatalf("Seed: %v", err)
-				}
-				if got := readSeeded(t, seeder, "TACK.md"); got != "hand-written preferences" {
-					t.Errorf("TACK.md = %q, want the pre-existing user file untouched", got)
-				}
-			},
-		},
-		{
-			name: "empty source dir is a no-op",
-			run: func(t *testing.T, sourceDir string, seeder *Seeder) {
-				if err := seeder.Seed(""); err != nil {
-					t.Fatalf("Seed(\"\") = %v, want nil", err)
-				}
-				if _, err := os.Stat(seeder.ContextDir()); !os.IsNotExist(err) {
-					t.Errorf("context dir should not be created for an empty source, stat err = %v", err)
-				}
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sourceDir := t.TempDir()
-			seeder := New(t.TempDir(), nil)
-			tt.run(t, sourceDir, seeder)
-		})
+	if got := string(mustRead(t, filepath.Join(gen, managedCoreName))); got != assistant.CorePrompt {
+		t.Fatal("snapshot did not use the embedded core")
 	}
 }
 
-func TestSeedRejectsMalformedReportWithoutChangingUserFile(t *testing.T) {
-	sourceDir := t.TempDir()
-	seeder := New(t.TempDir(), nil)
-	writeSource(t, sourceDir, "TACK.md", "bundled replacement")
-	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
-		t.Fatalf("create context dir: %v", err)
+func TestSeedFreshInstallNeedsNoResourceBundle(t *testing.T) {
+	s := New(t.TempDir(), nil)
+	if err := s.Seed(""); err != nil {
+		t.Fatal(err)
 	}
-	userPath := filepath.Join(seeder.ContextDir(), "TACK.md")
-	if err := os.WriteFile(userPath, []byte("keep my context"), 0o644); err != nil {
-		t.Fatalf("write user context: %v", err)
+	if err := New(s.dataDir, nil).Seed(filepath.Join(t.TempDir(), "missing")); err != nil {
+		t.Fatal(err)
 	}
-	reportPath := filepath.Join(seeder.ContextDir(), ".seed-report.json")
-	if err := os.WriteFile(reportPath, []byte(`{"files":`), 0o644); err != nil {
-		t.Fatalf("write malformed report: %v", err)
+	if s.SnapshotOwner() != "managed" {
+		t.Fatal("fresh personal assistant has no managed identity")
 	}
-
-	err := seeder.Seed(sourceDir)
-	if err == nil || !strings.Contains(err.Error(), "parse "+reportPath) {
-		t.Fatalf("Seed error = %v, want malformed report diagnostic", err)
-	}
-	if got := readSeeded(t, seeder, "TACK.md"); got != "keep my context" {
-		t.Fatalf("TACK.md = %q after malformed report, want user content", got)
-	}
-}
-
-func TestRepoTrackedLayeredContext(t *testing.T) {
-	root := filepath.Join("..", "..", "resources", "context")
-	data, err := os.ReadFile(filepath.Join(root, managedCoreName))
-	if err != nil {
-		t.Fatalf("resources/context/%s must exist: %v", managedCoreName, err)
-	}
-	text := string(data)
-	if strings.Contains(text, "{{") {
-		t.Errorf("%s contains a template directive", managedCoreName)
-	}
-	for _, marker := range []string{"Tack", "Windows", "Zalo", "memory", "skills"} {
-		if !strings.Contains(strings.ToLower(text), strings.ToLower(marker)) {
-			t.Errorf("%s lost Gotack marker %q", managedCoreName, marker)
-		}
-	}
-	if strings.Contains(text, "## Implementation Methodology") {
-		t.Error("generic coding methodology belongs in the engine template, not TACK_CORE.md")
-	}
-	if _, err := os.Stat(filepath.Join(root, userContextName)); err != nil {
-		t.Fatalf("resources/context/%s must exist: %v", userContextName, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, legacyContextName)); !os.IsNotExist(err) {
-		t.Fatalf("new installs must not ship %s", legacyContextName)
+	if _, err := s.BuildPromptSnapshot(); err != nil {
+		t.Fatal(err)
 	}
 }

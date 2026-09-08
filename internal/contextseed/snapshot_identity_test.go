@@ -1,240 +1,118 @@
 package contextseed
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Dyu-36/gotack/internal/memory"
 )
 
-// contentIdentityPattern matches a content-addressed snapshot directory
-// name: the literal prefix followed by a base64url-encoded HMAC-SHA256
-// digest (43 characters). A timestamp-based name can never match because
-// decimal digits are not valid base64url alphabet at this length.
-var contentIdentityPattern = regexp.MustCompile(`^snapshot-[A-Za-z0-9_-]{43}$`)
-
-func seedContextWithFile(t *testing.T, seeder *Seeder, rel, content string) {
-	t.Helper()
-	path := filepath.Join(seeder.ContextDir(), filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func TestSnapshotIdentityStableAcrossRefreshRestartAndMtime(t *testing.T) {
+	s := New(t.TempDir(), nil)
+	first := snapshotWithProfile(t, s, "same preference")
+	path := filepath.Join(s.ContextDir(), memory.ProfileFileName)
+	if err := os.Chtimes(path, time.Unix(10, 0), time.Unix(20, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
+	second, err := s.BuildPromptSnapshot()
+	if err != nil || first != second {
+		t.Fatalf("mtime changed identity: %q %q %v", first, second, err)
+	}
+	restarted, err := New(s.dataDir, nil).BuildPromptSnapshot()
+	if err != nil || first != restarted {
+		t.Fatalf("restart changed identity: %q %q %v", first, restarted, err)
 	}
 }
 
-func TestSnapshotIdentityIsContentAddressedAndReused(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "core policy")
+func TestSameSizePersonalEditRotatesIdentity(t *testing.T) {
+	s := New(t.TempDir(), nil)
+	first := snapshotWithProfile(t, s, "Alpha")
+	second := snapshotWithProfile(t, s, "Bravo")
+	if first == second {
+		t.Fatal("same-size content change did not rotate identity")
+	}
+	if string(mustRead(t, profilePath(first))) != profilePayload("Alpha") {
+		t.Fatal("new publication modified a committed revision")
+	}
+}
 
-	first, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("BuildPromptSnapshot = %v", err)
-	}
-	if !contentIdentityPattern.MatchString(filepath.Base(first)) {
-		t.Fatalf("snapshot name %q is not content-addressed", filepath.Base(first))
-	}
-
-	second, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("second BuildPromptSnapshot = %v", err)
-	}
-	if second != first {
-		t.Fatalf("identical content produced a different snapshot: %q vs %q", second, first)
-	}
-	entries, err := os.ReadDir(seeder.PromptContextRoot())
+func TestSnapshotIdentityUsesInstallKeyAndVersionedManifest(t *testing.T) {
+	s := New(t.TempDir(), nil)
+	gen := snapshotWithProfile(t, s, "same preference")
+	key, err := parseSnapshotIdentityKey(mustRead(t, s.identityKeyPath()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirs := 0
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), snapshotPrefix) {
-			dirs++
-		}
-	}
-	if dirs != 1 {
-		t.Fatalf("snapshot root holds %d snapshot dirs, want 1 (immutable reuse)", dirs)
-	}
-}
-
-func TestSnapshotIdentitySurvivesRestart(t *testing.T) {
-	dataDir := t.TempDir()
-	first := New(dataDir, nil)
-	seedContextWithFile(t, first, "TACK_CORE.md", "core policy")
-	before, err := first.BuildPromptSnapshot()
+	manifest, err := s.collectSnapshot(s.ContextDir())
 	if err != nil {
-		t.Fatalf("BuildPromptSnapshot = %v", err)
+		t.Fatal(err)
 	}
-
-	// A restarted process creates a fresh Seeder; the identity key is
-	// reloaded from disk, so the same content must produce the same
-	// physical snapshot directory.
-	second := New(dataDir, nil)
-	after, err := second.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("restarted BuildPromptSnapshot = %v", err)
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(snapshotIdentityDomain))
+	mac.Write([]byte{0})
+	mac.Write(manifest.encode())
+	want := snapshotPrefix + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if filepath.Base(gen) != want {
+		t.Fatal("snapshot identity is not the keyed canonical manifest")
 	}
-	if after != before {
-		t.Fatalf("restart changed snapshot identity: %q vs %q", before, after)
+	other := New(t.TempDir(), nil)
+	if otherGen := snapshotWithProfile(t, other, "same preference"); filepath.Base(otherGen) == filepath.Base(gen) {
+		t.Fatal("separate installs share a user-content fingerprint")
 	}
-}
-
-func TestSnapshotSameSizeEditChangesIdentityOnce(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "ABCD")
-
-	before, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("BuildPromptSnapshot = %v", err)
-	}
-	// Same byte count, different content: the identity must change.
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "WXYZ")
-	after, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("same-size edit BuildPromptSnapshot = %v", err)
-	}
-	if after == before {
-		t.Fatal("same-size content edit did not change the snapshot identity")
-	}
-	again, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("rebuild BuildPromptSnapshot = %v", err)
-	}
-	if again != after {
-		t.Fatalf("unchanged content drifted again: %q vs %q", again, after)
-	}
-	if _, err := os.Stat(before); err != nil {
-		t.Fatalf("previous committed revision was removed by refresh: %v", err)
-	}
-}
-
-func TestSnapshotIdentityIgnoresWindowsPathCasing(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("NTFS case-insensitive aliasing contract is Windows-only")
-	}
-	dataDir := t.TempDir()
-	seeder := New(dataDir, nil)
-	seedContextWithFile(t, seeder, "Notes/Guide.md", "guide body")
-	before, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("BuildPromptSnapshot = %v", err)
-	}
-
-	// Case-only rename of a directory must not change the identity: the
-	// filesystem is case-insensitive under contract v1.
-	source := seeder.ContextDir()
-	if err := os.Rename(filepath.Join(source, "Notes"), filepath.Join(source, "notes")); err != nil {
-		t.Fatalf("case-only rename failed: %v", err)
-	}
-	after, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("post-rename BuildPromptSnapshot = %v", err)
-	}
-	if after != before {
-		t.Fatalf("case-only directory rename changed snapshot identity: %q vs %q", before, after)
-	}
-
-	// A differently-cased data-dir alias must resolve to the same
-	// identity name (the snapshot root itself moves with the data dir,
-	// but the engine folds rendered path case on Windows, so the
-	// invariant that matters is the directory identity).
-	alias := New(strings.ToUpper(dataDir), nil)
-	fromAlias, err := alias.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("alias BuildPromptSnapshot = %v", err)
-	}
-	if filepath.Base(fromAlias) != filepath.Base(before) {
-		t.Fatalf("data-dir casing alias changed snapshot identity: %q vs %q", fromAlias, before)
+	if !strings.Contains(string(manifest.encode()), "version=2\n") {
+		t.Fatal("new prompt layout did not change the identity contract")
 	}
 }
 
 func TestFailedSnapshotRefreshKeepsCommittedRevision(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "committed policy")
-	committed, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("BuildPromptSnapshot = %v", err)
-	}
-
-	// A failing refresh (source removed) must leave the previously
-	// committed revision fully intact and reusable.
-	if err := os.RemoveAll(seeder.ContextDir()); err != nil {
+	s := New(t.TempDir(), nil)
+	gen := snapshotWithProfile(t, s, "committed preference")
+	if err := os.RemoveAll(s.ContextDir()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seeder.BuildPromptSnapshot(); err == nil {
-		t.Fatal("BuildPromptSnapshot succeeded after the source directory was removed")
+	if _, err := s.BuildPromptSnapshot(); err == nil {
+		t.Fatal("missing source directory was accepted")
 	}
-	got, err := os.ReadFile(filepath.Join(committed, "TACK_CORE.md"))
-	if err != nil {
-		t.Fatalf("committed revision unavailable after failed refresh: %v", err)
-	}
-	if string(got) != "committed policy" {
-		t.Fatalf("committed revision content changed: %q", got)
+	if string(mustRead(t, profilePath(gen))) != profilePayload("committed preference") {
+		t.Fatal("failed source refresh changed committed bytes")
 	}
 }
 
-func TestSnapshotIdentityKeyFailureIsFailClosed(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "policy")
-	committed, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatalf("BuildPromptSnapshot = %v", err)
-	}
-
-	// Corrupt the identity key: the refresh must fail closed instead of
-	// falling back to an unkeyed hash, and the committed revision must
-	// stay untouched.
-	keyPath := seeder.identityKeyPath()
-	if err := os.WriteFile(keyPath, []byte("not-hex"), 0o600); err != nil {
+func TestSnapshotKeyFailureHasNoUnkeyedFallback(t *testing.T) {
+	s := New(t.TempDir(), nil)
+	gen := snapshotWithProfile(t, s, "committed preference")
+	if err := os.WriteFile(s.identityKeyPath(), []byte("not-a-key"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "changed policy")
-	if _, err := seeder.BuildPromptSnapshot(); err == nil {
-		t.Fatal("BuildPromptSnapshot fell back to an unkeyed identity after key corruption")
+	seedContextWithFile(t, s, memory.ProfileFileName, "new preference")
+	if _, err := s.BuildPromptSnapshot(); err == nil {
+		t.Fatal("invalid key fell back to a new identity")
 	}
-	if got := string(mustRead(t, filepath.Join(committed, "TACK_CORE.md"))); got != "policy" {
-		t.Fatalf("committed revision content changed: %q", got)
+	if string(mustRead(t, profilePath(gen))) != profilePayload("committed preference") {
+		t.Fatal("key failure modified committed bytes")
 	}
 }
 
-func TestSnapshotRetentionKeepsPreviousGeneration(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "one")
-	first, err := seeder.BuildPromptSnapshot()
-	if err != nil {
+func TestWindowsPersonalSourceCaseAliasKeepsIdentity(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows filesystem alias contract")
+	}
+	s := New(t.TempDir(), nil)
+	first := snapshotWithProfile(t, s, "same preference")
+	upper := filepath.Join(s.ContextDir(), memory.ProfileFileName)
+	lower := filepath.Join(s.ContextDir(), strings.ToLower(memory.ProfileFileName))
+	if err := os.Rename(upper, lower); err != nil {
 		t.Fatal(err)
 	}
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "two")
-	second, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The generation a concurrent run may still reference survives one
-	// prune cycle.
-	seeder.PrunePromptSnapshots(second)
-	if _, err := os.Stat(first); err != nil {
-		t.Fatalf("previous generation pruned too early: %v", err)
-	}
-	if _, err := os.Stat(second); err != nil {
-		t.Fatalf("current generation pruned: %v", err)
-	}
-
-	seedContextWithFile(t, seeder, "TACK_CORE.md", "three")
-	third, err := seeder.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	seeder.PrunePromptSnapshots(third)
-	if _, err := os.Stat(first); !os.IsNotExist(err) {
-		t.Fatalf("oldest generation was not bounded: %v", err)
-	}
-	if _, err := os.Stat(second); err != nil {
-		t.Fatalf("previous generation pruned early: %v", err)
-	}
-	if _, err := os.Stat(third); err != nil {
-		t.Fatalf("current generation pruned: %v", err)
+	second, err := s.BuildPromptSnapshot()
+	if err != nil || first != second {
+		t.Fatalf("case-only rename rotated identity: %v", err)
 	}
 }
