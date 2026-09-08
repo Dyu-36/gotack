@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/engineapi"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -15,18 +14,6 @@ const (
 	codexBackendURL   = providerdomain.CodexBackendURL
 	codexProviderType = providerdomain.CodexType
 )
-
-func selectionStrandedOnLegacyOpenAI(cfg engineapi.WorkspaceConfig, savedProvider string) bool {
-	return providerdomain.SelectionStrandedOnLegacyOpenAI(cfg, savedProvider)
-}
-
-func chatGPTRedirectCandidate(settings SettingsInfo, apiKey string) bool {
-	return providerdomain.ChatGPTRedirectCandidate(providerSettingsFromInfo(settings), apiKey)
-}
-
-func selectChatGPTModel(providers []engineapi.Provider, current string) (string, error) {
-	return providerdomain.SelectChatGPTModel(providers, current)
-}
 
 func (a *App) migrateChatGPTProviderCredential(svc *bridgeServices) {
 	workspaceID, err := a.configWorkspaceID(a.ctx, svc)
