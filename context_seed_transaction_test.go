@@ -34,105 +34,80 @@ func newContextLeaseTestApp(t *testing.T, seeder *contextseed.Seeder, fake *cont
 	return app
 }
 
+func writeContextLeaseProfile(t *testing.T, s *contextseed.Seeder, body string) {
+	t.Helper()
+	if err := os.MkdirAll(s.ContextDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.ContextDir(), "PROFILE.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRegisterContextPathsRefreshFailureRollsBackAcknowledgedConfig(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := contextseed.New(dataDir, nil)
-	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	core := filepath.Join(seeder.ContextDir(), "TACK_CORE.md")
-	if err := os.WriteFile(core, []byte("gen one"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	seeder := contextseed.New(t.TempDir(), nil)
+	writeContextLeaseProfile(t, seeder, "gen one")
 	fake := &contextRegistrationAPI{t: t}
 	app := newContextLeaseTestApp(t, seeder, fake)
 	app.registerContextPaths("ws-rollback")
 	if len(fake.contextPath) != 1 {
-		t.Fatalf("initial context path = %v", fake.contextPath)
+		t.Fatal("initial registration failed")
 	}
 	acknowledged := fake.contextPath[0]
-
-	if err := os.WriteFile(core, []byte("gen two"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeContextLeaseProfile(t, seeder, "gen two")
 	fake.calls = nil
 	fake.failNextRefresh = true
 	app.registerContextPaths("ws-rollback")
-
-	if len(fake.contextPath) != 1 || filepath.Clean(fake.contextPath[0]) != filepath.Clean(acknowledged) {
-		t.Fatalf("refresh failure left config on unacknowledged generation: got %v want %q", fake.contextPath, acknowledged)
+	if !equalStrings(fake.contextPath, []string{acknowledged}) {
+		t.Fatal("refresh failure left an unacknowledged generation configured")
 	}
-	wantCalls := []string{"get", "set", "refresh", "set"}
-	if !equalStrings(fake.calls, wantCalls) {
-		t.Fatalf("refresh rollback calls = %v, want %v", fake.calls, wantCalls)
+	if !equalStrings(fake.calls, []string{"get", "set", "refresh", "set"}) {
+		t.Fatalf("refresh rollback calls = %v", fake.calls)
 	}
 	if _, err := os.Stat(acknowledged); err != nil {
-		t.Fatalf("acknowledged generation lost after refresh failure: %v", err)
+		t.Fatal("acknowledged generation lost after refresh failure")
 	}
 }
 
 func TestClearContextPathRefreshFailureRestoresAcknowledgedConfig(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := contextseed.New(dataDir, nil)
-	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(seeder.ContextDir(), "TACK_CORE.md"), []byte("gen one"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	seeder := contextseed.New(t.TempDir(), nil)
+	writeContextLeaseProfile(t, seeder, "gen one")
 	fake := &contextRegistrationAPI{t: t}
 	app := newContextLeaseTestApp(t, seeder, fake)
 	app.registerContextPaths("ws-clear")
 	acknowledged := fake.contextPath[0]
-
 	fake.calls = nil
 	fake.failNextRefresh = true
 	app.clearContextPath(context.Background(), app.getConn().api, "ws-clear")
-	if len(fake.contextPath) != 1 || filepath.Clean(fake.contextPath[0]) != filepath.Clean(acknowledged) {
-		t.Fatalf("failed removal refresh lost acknowledged config: got %v want %q", fake.contextPath, acknowledged)
+	if !equalStrings(fake.contextPath, []string{acknowledged}) {
+		t.Fatal("failed removal refresh lost acknowledged config")
 	}
-	wantCalls := []string{"get", "remove", "refresh", "set"}
-	if !equalStrings(fake.calls, wantCalls) {
-		t.Fatalf("clear rollback calls = %v, want %v", fake.calls, wantCalls)
+	if !equalStrings(fake.calls, []string{"get", "remove", "refresh", "set"}) {
+		t.Fatalf("clear rollback calls = %v", fake.calls)
 	}
 }
 
 func TestRegisterContextPathsRollbackFailurePinsAcknowledgedAndUncertainGenerations(t *testing.T) {
 	dataDir := t.TempDir()
 	seeder := contextseed.New(dataDir, nil)
-	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	core := filepath.Join(seeder.ContextDir(), "TACK_CORE.md")
-	if err := os.WriteFile(core, []byte("gen one"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeContextLeaseProfile(t, seeder, "gen one")
 	fake := &contextRegistrationAPI{t: t}
 	app := newContextLeaseTestApp(t, seeder, fake)
 	app.registerContextPaths("ws-uncertain")
 	acknowledged := fake.contextPath[0]
-
-	if err := os.WriteFile(core, []byte("gen two"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeContextLeaseProfile(t, seeder, "gen two")
 	fake.calls = nil
 	fake.failNextRefresh = true
 	fake.failSetAfterRefresh = true
 	app.registerContextPaths("ws-uncertain")
 	if len(fake.contextPath) != 1 {
-		t.Fatalf("uncertain config path = %v", fake.contextPath)
+		t.Fatal("uncertain config path missing")
 	}
 	uncertain := fake.contextPath[0]
-	if filepath.Clean(uncertain) == filepath.Clean(acknowledged) {
-		t.Fatal("fixture did not advance to uncertain generation")
+	if uncertain == acknowledged || !equalStrings(fake.calls, []string{"get", "set", "refresh", "set"}) {
+		t.Fatal("fixture did not enter the rollback-failure state")
 	}
-	if got, want := fake.calls, []string{"get", "set", "refresh", "set"}; !equalStrings(got, want) {
-		t.Fatalf("rollback-failure calls = %v want %v", got, want)
-	}
-
-	if err := os.WriteFile(core, []byte("gen three"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeContextLeaseProfile(t, seeder, "gen three")
 	gen3, err := seeder.BuildPromptSnapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -141,29 +116,19 @@ func TestRegisterContextPathsRollbackFailurePinsAcknowledgedAndUncertainGenerati
 	if err := pruner.PrunePromptSnapshotsChecked(gen3); err != nil {
 		t.Fatal(err)
 	}
-	for label, path := range map[string]string{"acknowledged": acknowledged, "uncertain": uncertain} {
+	for _, path := range []string{acknowledged, uncertain} {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("%s generation was pruned while rollback state was uncertain: %v", label, err)
+			t.Fatal("rollback uncertainty lost a potentially active generation")
 		}
 	}
-
-	// A later successful refresh establishes a single acknowledged generation
-	// and releases both the old acknowledged lease and the uncertain lease.
-	fake.calls = nil
 	app.registerContextPaths("ws-uncertain")
-	if len(fake.contextPath) != 1 {
-		t.Fatalf("recovered config path = %v", fake.contextPath)
-	}
 	recovered := fake.contextPath[0]
 	if err := pruner.PrunePromptSnapshotsChecked(recovered); err != nil {
 		t.Fatal(err)
 	}
-	for label, path := range map[string]string{"old acknowledged": acknowledged, "old uncertain": uncertain} {
-		if filepath.Clean(path) == filepath.Clean(recovered) {
-			continue
-		}
+	for _, path := range []string{acknowledged, uncertain} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("%s generation should be prunable after recovery: %v", label, err)
+			t.Fatal("old generation leaked after successful recovery")
 		}
 	}
 }
@@ -171,41 +136,23 @@ func TestRegisterContextPathsRollbackFailurePinsAcknowledgedAndUncertainGenerati
 func TestRegisterContextPathsReconnectCapturesServerGenerationBeforeRefresh(t *testing.T) {
 	dataDir := t.TempDir()
 	seeder := contextseed.New(dataDir, nil)
-	if err := os.MkdirAll(seeder.ContextDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	core := filepath.Join(seeder.ContextDir(), "TACK_CORE.md")
-	if err := os.WriteFile(core, []byte("gen one"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeContextLeaseProfile(t, seeder, "gen one")
 	fake := &contextRegistrationAPI{t: t}
 	first := newContextLeaseTestApp(t, seeder, fake)
 	first.registerContextPaths("ws-reconnect")
 	serverGeneration := fake.contextPath[0]
 	first.releaseAllContextLeases()
-
-	// Simulate a host reconnect/restart: server config survives, but the new App
-	// has no in-memory acknowledged lease map.
 	second := newContextLeaseTestApp(t, seeder, fake)
-	if got := second.contextLeaseGeneration("ws-reconnect"); got != "" {
-		t.Fatalf("new app unexpectedly inherited lease %q", got)
+	if second.contextLeaseGeneration("ws-reconnect") != "" {
+		t.Fatal("new app inherited an in-memory lease")
 	}
-	if err := os.WriteFile(core, []byte("gen two"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	fake.calls = nil
+	writeContextLeaseProfile(t, seeder, "gen two")
 	fake.failNextRefresh = true
 	second.registerContextPaths("ws-reconnect")
-	if len(fake.contextPath) != 1 || filepath.Clean(fake.contextPath[0]) != filepath.Clean(serverGeneration) {
-		t.Fatalf("reconnect rollback did not restore server generation: got %v want %q", fake.contextPath, serverGeneration)
+	if !equalStrings(fake.contextPath, []string{serverGeneration}) || second.contextLeaseGeneration("ws-reconnect") != serverGeneration {
+		t.Fatal("reconnect failed to restore and pin the server generation")
 	}
-	if got := second.contextLeaseGeneration("ws-reconnect"); filepath.Clean(got) != filepath.Clean(serverGeneration) {
-		t.Fatalf("reconnect did not adopt lease for restored server generation: got %q want %q", got, serverGeneration)
-	}
-
-	if err := os.WriteFile(core, []byte("gen three"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeContextLeaseProfile(t, seeder, "gen three")
 	gen3, err := seeder.BuildPromptSnapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -214,6 +161,6 @@ func TestRegisterContextPathsReconnectCapturesServerGenerationBeforeRefresh(t *t
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(serverGeneration); err != nil {
-		t.Fatalf("restored server generation was pruned after reconnect: %v", err)
+		t.Fatal("restored server generation was pruned after reconnect")
 	}
 }
