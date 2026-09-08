@@ -18,7 +18,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/runmetrics"
 	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
-	"github.com/Dyu-36/gotack/internal/terminal"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
 	workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
@@ -33,7 +32,6 @@ type conn struct {
 	sess  *session.Service
 	perms *permission.Relay
 	diffs *changes.Service
-	term  *terminal.Service
 }
 
 type engineController interface {
@@ -134,11 +132,6 @@ func (a *App) startup(ctx context.Context) {
 	a.startScheduler()
 	a.startReflection()
 
-	a.swapConn(func(c *conn) *conn {
-		c.term = terminal.New(a.log, a.emit)
-		return c
-	})
-
 	a.registerFileDrop()
 	go attachments.PruneCache()
 
@@ -170,9 +163,6 @@ func (a *App) shutdown(ctx context.Context) {
 	a.stopScheduler()
 	if a.zalo != nil {
 		a.zalo.Stop()
-	}
-	if c.term != nil {
-		c.term.CloseAll()
 	}
 	if a.cfg != nil {
 		_ = appconfig.Save(a.cfg)
