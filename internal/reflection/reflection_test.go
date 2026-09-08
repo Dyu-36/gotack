@@ -215,7 +215,9 @@ func TestReviewIterationsAreBoundedAndDeduplicated(t *testing.T) {
 	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err != nil { t.Fatal(err) }
 	for i := 1; i < MaxReviewIterations; i++ {
 		id := strings.Repeat("m", i)
-		if tracker.AssistantIteration("review-1", id, true) || tracker.AssistantIteration("review-1", id, true) {
+		first := tracker.AssistantIteration("review-1", id, true)
+		duplicate := tracker.AssistantIteration("review-1", id, true)
+		if first || duplicate {
 			t.Fatal("duplicate iteration exhausted the limit early")
 		}
 	}
