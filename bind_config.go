@@ -34,10 +34,6 @@ func (a *App) GetSettings() SettingsInfo {
 	}
 }
 
-func resolvedProviderCredential(config engineapi.ProviderConfig) (kind, value string, ok bool) {
-	return providerdomain.ResolvedCredential(config)
-}
-
 func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
 	if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
 		return desc.WorkspaceID, nil
@@ -141,7 +137,7 @@ func (a *App) DeleteProvider(providerID string) error {
 		return fmt.Errorf("read provider state before deletion: %w", err)
 	}
 	clearSelection := a.cfg != nil && strings.TrimSpace(a.cfg.Provider) == providerID
-	clearModels := clearSelection || preferredModelsUseProvider(engineConfig.Models, providerID)
+	clearModels := clearSelection || providerdomain.PreferredModelsUseProvider(engineConfig.Models, providerID)
 	if clearSelection {
 		next := *a.cfg
 		next.Provider, next.Model, next.CustomURL = "", "", ""
@@ -155,10 +151,6 @@ func (a *App) DeleteProvider(providerID string) error {
 	}
 	a.vision.Clear()
 	return nil
-}
-
-func preferredModelsUseProvider(models map[string]engineapi.SelectedModel, providerID string) bool {
-	return providerdomain.PreferredModelsUseProvider(models, providerID)
 }
 
 func (a *App) SaveSettings(settings SettingsInfo) error {
