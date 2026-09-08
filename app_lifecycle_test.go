@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type lifecycleEngine struct {
@@ -13,12 +13,12 @@ type lifecycleEngine struct {
 
 func (*lifecycleEngine) Owned() bool { return true }
 
-func (*lifecycleEngine) Locate(context.Context) (crushapi.Endpoint, bool) {
-	return crushapi.Endpoint{}, false
+func (*lifecycleEngine) Locate(context.Context) (engineapi.Endpoint, bool) {
+	return engineapi.Endpoint{}, false
 }
 
-func (*lifecycleEngine) Start() (crushapi.Endpoint, error) {
-	return crushapi.Endpoint{}, nil
+func (*lifecycleEngine) Start() (engineapi.Endpoint, error) {
+	return engineapi.Endpoint{}, nil
 }
 
 func (e *lifecycleEngine) Stop() error {

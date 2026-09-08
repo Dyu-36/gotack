@@ -1,4 +1,4 @@
-package crushapi
+package engineapi
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func (m *Model) UnmarshalJSON(data []byte) error {
 
 func (c *Client) ListProviders(ctx context.Context, wsID string) ([]Provider, error) {
 	if wsID == "" {
-		return nil, errors.New("crushapi: workspace id is required")
+		return nil, errors.New("engineapi: workspace id is required")
 	}
 	resp, err := c.do(ctx, http.MethodGet, "/v1/workspaces/"+wsID+"/providers", nil)
 	if err != nil {
@@ -68,11 +68,11 @@ func (c *Client) ListProviders(ctx context.Context, wsID string) ([]Provider, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("crushapi: list providers: %s", resp.Status)
+		return nil, fmt.Errorf("engineapi: list providers: %s", resp.Status)
 	}
 	var providers []Provider
 	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
-		return nil, fmt.Errorf("crushapi: decode providers: %w", err)
+		return nil, fmt.Errorf("engineapi: decode providers: %w", err)
 	}
 
 	return providers, nil

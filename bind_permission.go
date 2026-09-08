@@ -3,13 +3,13 @@ package main
 import (
 	"errors"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func (a *App) AnswerPermission(requestID string, decision string) (bool, error) {
-	action := crushapi.PermissionAction(decision)
+	action := engineapi.PermissionAction(decision)
 	switch action {
-	case crushapi.PermissionAllow, crushapi.PermissionAllowForSession, crushapi.PermissionDeny:
+	case engineapi.PermissionAllow, engineapi.PermissionAllowForSession, engineapi.PermissionDeny:
 	default:
 		return false, errors.New("invalid decision: " + decision)
 	}

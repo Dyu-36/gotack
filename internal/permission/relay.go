@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const DefaultTTL = 5 * time.Minute
@@ -18,7 +18,7 @@ type Relay struct {
 }
 
 type entry struct {
-	req        crushapi.PermissionRequest
+	req        engineapi.PermissionRequest
 	timer      *time.Timer
 	generation uint64
 }
@@ -33,7 +33,7 @@ func NewRelay(ttl time.Duration) *Relay {
 	}
 }
 
-func (r *Relay) Pending(req crushapi.PermissionRequest) int64 {
+func (r *Relay) Pending(req engineapi.PermissionRequest) int64 {
 	if req.ID == "" {
 		return 0
 	}
@@ -62,12 +62,12 @@ func (r *Relay) drop(id string, generation uint64) {
 	delete(r.pending, id)
 }
 
-func (r *Relay) Take(id string) (crushapi.PermissionRequest, bool) {
+func (r *Relay) Take(id string) (engineapi.PermissionRequest, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	e, ok := r.pending[id]
 	if !ok {
-		return crushapi.PermissionRequest{}, false
+		return engineapi.PermissionRequest{}, false
 	}
 	e.timer.Stop()
 	delete(r.pending, id)

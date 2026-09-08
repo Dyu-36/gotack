@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/officecli"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -202,7 +202,7 @@ func TestRegisterOfficeRuntimePreservesExistingSkillsPaths(t *testing.T) {
 				existingEnv: map[string]string{"CUSTOM": "keep"},
 			}
 
-			api := crushapi.NewClient(&http.Client{Transport: fake})
+			api := engineapi.NewClient(&http.Client{Transport: fake})
 			app := NewApp()
 			app.ctx = context.Background()
 			app.officeSeeder = &officeSeeder{seeder: officecli.New(dataDir, nil)}
@@ -214,7 +214,7 @@ func TestRegisterOfficeRuntimePreservesExistingSkillsPaths(t *testing.T) {
 			})
 
 			scope, started := app.link.BeginConnect(context.Background())
-			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+			if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 				t.Fatal("link rejected the test connect scope")
 			}
 			app.link.MarkRunning()
@@ -241,7 +241,7 @@ func TestRegisterOfficeRuntimeAppendsUserAndProjectSkillsDirs(t *testing.T) {
 	bundled := filepath.Join(dataDir, "skills")
 	fake := &skillsPathsAPI{t: t, existing: []string{"~/user/skills-a"}}
 
-	api := crushapi.NewClient(&http.Client{Transport: fake})
+	api := engineapi.NewClient(&http.Client{Transport: fake})
 	app := NewApp()
 	app.ctx = context.Background()
 	app.officeSeeder = &officeSeeder{seeder: officecli.New(dataDir, nil)}
@@ -252,7 +252,7 @@ func TestRegisterOfficeRuntimeAppendsUserAndProjectSkillsDirs(t *testing.T) {
 		return c
 	})
 	scope, started := app.link.BeginConnect(context.Background())
-	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("link rejected the test connect scope")
 	}
 	app.link.MarkRunning()

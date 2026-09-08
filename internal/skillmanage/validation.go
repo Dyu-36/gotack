@@ -44,7 +44,7 @@ func validateOperation(operation Operation) error {
 			return errors.New("patch accepts only name, old_string, new_string, and optional file_path")
 		}
 		if operation.OldString == "" {
-			return errors.New("old_string is required for patch; load the exact current file with Crush view first")
+			return errors.New("old_string is required for patch; load the exact current file with Tack view first")
 		}
 		if operation.NewString == nil {
 			return errors.New("new_string is required for patch; use an empty string to delete the match")

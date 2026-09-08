@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 var (
@@ -21,10 +21,10 @@ var StreamKinds = []string{
 }
 
 type EventConsumer interface {
-	Consume(events <-chan crushapi.StreamEvent)
+	Consume(events <-chan engineapi.StreamEvent)
 }
 
-func AttachStream(scope context.Context, api *crushapi.Client, consumer EventConsumer, workspaceID string, lost func(scope context.Context, reason string)) error {
+func AttachStream(scope context.Context, api *engineapi.Client, consumer EventConsumer, workspaceID string, lost func(scope context.Context, reason string)) error {
 	events, stop, err := api.Stream(scope, workspaceID, StreamKinds...)
 	if err != nil {
 		return fmt.Errorf("event stream attach failed: %w", err)

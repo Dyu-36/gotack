@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const pollInterval = 300 * time.Millisecond
 
 var ErrEngineUnhealthy = errors.New("engine: not healthy within timeout")
 
-func WaitForHealthy(ctx context.Context, api *crushapi.Client, timeout time.Duration) error {
+func WaitForHealthy(ctx context.Context, api *engineapi.Client, timeout time.Duration) error {
 	if api == nil {
 		return errors.New("engine: nil client")
 	}

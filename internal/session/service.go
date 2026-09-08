@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/attachments"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 	"github.com/google/uuid"
 )
@@ -15,11 +15,11 @@ import (
 const defaultTitle = "New session"
 
 type Service struct {
-	api *crushapi.Client
+	api *engineapi.Client
 	ws  *workspace.Service
 }
 
-func NewService(api *crushapi.Client, ws *workspace.Service) *Service {
+func NewService(api *engineapi.Client, ws *workspace.Service) *Service {
 	return &Service{api: api, ws: ws}
 }
 
@@ -34,7 +34,7 @@ func (s *Service) currentWorkspaceID() (string, error) {
 	return desc.WorkspaceID, nil
 }
 
-func (s *Service) List(ctx context.Context) ([]crushapi.Session, error) {
+func (s *Service) List(ctx context.Context) ([]engineapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
 		return nil, err
@@ -45,47 +45,47 @@ func (s *Service) List(ctx context.Context) ([]crushapi.Session, error) {
 	return s.api.ListSessions(ctx, wsID)
 }
 
-func (s *Service) Create(ctx context.Context, title string) (crushapi.Session, error) {
+func (s *Service) Create(ctx context.Context, title string) (engineapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
-		return crushapi.Session{}, err
+		return engineapi.Session{}, err
 	}
 	if s.api == nil {
-		return crushapi.Session{}, errors.New("engine client not configured")
+		return engineapi.Session{}, errors.New("engine client not configured")
 	}
 	if strings.TrimSpace(title) == "" {
 		title = defaultTitle
 	}
 	sess, err := s.api.CreateSession(ctx, wsID, title)
 	if err != nil {
-		return crushapi.Session{}, fmt.Errorf("create session: %w", err)
+		return engineapi.Session{}, fmt.Errorf("create session: %w", err)
 	}
 	return sess, nil
 }
 
-func (s *Service) Rename(ctx context.Context, id, title string) (crushapi.Session, error) {
+func (s *Service) Rename(ctx context.Context, id, title string) (engineapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
-		return crushapi.Session{}, err
+		return engineapi.Session{}, err
 	}
 	if s.api == nil {
-		return crushapi.Session{}, errors.New("engine client not configured")
+		return engineapi.Session{}, errors.New("engine client not configured")
 	}
 	if id == "" {
-		return crushapi.Session{}, errors.New("session id is required")
+		return engineapi.Session{}, errors.New("session id is required")
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return crushapi.Session{}, errors.New("session title is required")
+		return engineapi.Session{}, errors.New("session title is required")
 	}
 	sess, err := s.api.GetSession(ctx, wsID, id)
 	if err != nil {
-		return crushapi.Session{}, fmt.Errorf("get session before rename: %w", err)
+		return engineapi.Session{}, fmt.Errorf("get session before rename: %w", err)
 	}
 	sess.Title = title
 	saved, err := s.api.SaveSession(ctx, wsID, sess)
 	if err != nil {
-		return crushapi.Session{}, fmt.Errorf("rename session: %w", err)
+		return engineapi.Session{}, fmt.Errorf("rename session: %w", err)
 	}
 	return saved, nil
 }
@@ -107,7 +107,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) Messages(ctx context.Context, id string) ([]crushapi.Message, error) {
+func (s *Service) Messages(ctx context.Context, id string) ([]engineapi.Message, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (s *Service) sendWithAttachmentsAndBudget(ctx context.Context, id, text str
 	if promptText == "" {
 		return "", errors.New("prompt text is required")
 	}
-	atts := make([]crushapi.Attachment, 0, len(items))
+	atts := make([]engineapi.Attachment, 0, len(items))
 	for _, item := range items {
 		if item.Attachment != nil {
 			atts = append(atts, *item.Attachment)

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,8 +40,8 @@ func TestEnsureKeyEmptyDir(t *testing.T) {
 func TestWriterRejectsNegativeSpanAndWritesRedactedShape(t *testing.T) {
 	dir := t.TempDir()
 	writer := New(dir, slog.Default())
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: map[string]int64{"stream": -1}}))
-	writer.Append(&crushapi.RunTelemetry{RunID: "run-1", CacheStatus: "unreported", StablePrefixHMAC: strings.Repeat("A", 43), StablePrefixBytes: 42})
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: map[string]int64{"stream": -1}}))
+	writer.Append(&engineapi.RunTelemetry{RunID: "run-1", CacheStatus: "unreported", StablePrefixHMAC: strings.Repeat("A", 43), StablePrefixBytes: 42})
 	content, err := os.ReadFile(writer.path)
 	require.NoError(t, err)
 	require.Contains(t, string(content), `"stable_prefix_hmac":"`+strings.Repeat("A", 43)+`"`)
@@ -50,45 +50,45 @@ func TestWriterRejectsNegativeSpanAndWritesRedactedShape(t *testing.T) {
 
 func TestValidateCacheStatus(t *testing.T) {
 	for _, cs := range []string{"hit", "miss", "unreported"} {
-		require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: cs}))
+		require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: cs}))
 	}
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unknown"}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unknown"}))
 }
 
 func TestValidatePrefixChangedReason(t *testing.T) {
 	for _, reason := range []string{"git_status", "date", "mcp", "skills", "context", "tool_set", "compaction", "model_switch", "none"} {
-		require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: reason}))
+		require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: reason}))
 	}
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "invalid_reason"}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "invalid_reason"}))
 }
 
 func TestValidateChangeReasons(t *testing.T) {
-	require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported",
+	require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported",
 		ChangeReasons: []string{"context", "date", "skills", "todo"}}))
 	// Dynamic-only reasons and initial never validate as a primary reason.
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "initial"}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "todo"}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"unknown_reason"}}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{""}}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"date", "date"}}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"skills", "context"}}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "initial"}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", PrefixChangedReason: "todo"}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"unknown_reason"}}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{""}}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"date", "date"}}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", ChangeReasons: []string{"skills", "context"}}))
 }
 
 func TestValidateNegativeDuration(t *testing.T) {
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", TotalMicros: -1}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RetryDelayMicros: -1}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", TotalMicros: -1}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", RetryDelayMicros: -1}))
 }
 
 func TestValidateRunIDFormat(t *testing.T) {
-	require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RunID: "run-abc_123.def"}))
-	require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RunID: ""}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RunID: "has spaces"}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", RunID: string(make([]byte, 300))}))
+	require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", RunID: "run-abc_123.def"}))
+	require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", RunID: ""}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", RunID: "has spaces"}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", RunID: string(make([]byte, 300))}))
 }
 
 func TestValidatePurpose(t *testing.T) {
-	base := func(p string) *crushapi.RunTelemetry {
-		return &crushapi.RunTelemetry{CacheStatus: "unreported", Purpose: p}
+	base := func(p string) *engineapi.RunTelemetry {
+		return &engineapi.RunTelemetry{CacheStatus: "unreported", Purpose: p}
 	}
 	require.NoError(t, Validate(base("")))
 	require.NoError(t, Validate(base("title")))
@@ -101,7 +101,7 @@ func TestValidatePurpose(t *testing.T) {
 }
 
 func TestRedactSensitiveFields(t *testing.T) {
-	telemetry := &crushapi.RunTelemetry{
+	telemetry := &engineapi.RunTelemetry{
 		RunID:             "run-1",
 		ProviderRequestID: "req-abc-123",
 		CacheStatus:       "hit",
@@ -127,7 +127,7 @@ func TestWriterNilSafe(t *testing.T) {
 func TestWriterNilLogger(t *testing.T) {
 	dir := t.TempDir()
 	writer := New(dir, nil)
-	writer.Append(&crushapi.RunTelemetry{CacheStatus: "unreported"})
+	writer.Append(&engineapi.RunTelemetry{CacheStatus: "unreported"})
 }
 
 func TestWriterConcurrentAppends(t *testing.T) {
@@ -137,7 +137,7 @@ func TestWriterConcurrentAppends(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- struct{}{} }()
-			writer.Append(&crushapi.RunTelemetry{
+			writer.Append(&engineapi.RunTelemetry{
 				RunID:       "run-concurrent",
 				CacheStatus: "unreported",
 			})
@@ -154,27 +154,27 @@ func TestWriterConcurrentAppends(t *testing.T) {
 
 func TestValidateProviderModelTooLong(t *testing.T) {
 	long := strings.Repeat("a", 200)
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", Provider: long}))
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", Model: long}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", Provider: long}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", Model: long}))
 }
 
 func TestNewWriterCreatesDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "log")
 	writer := New(dir, slog.Default())
-	writer.Append(&crushapi.RunTelemetry{CacheStatus: "unreported"})
+	writer.Append(&engineapi.RunTelemetry{CacheStatus: "unreported"})
 	_, err := os.Stat(writer.path)
 	require.NoError(t, err)
 }
 
 func TestOldTelemetryPayloadCompatibility(t *testing.T) {
 	oldPayload := `{"run_id":"old-run","total_us":100000,"cache_status":"unreported","attempt":1}`
-	var telemetry crushapi.RunTelemetry
+	var telemetry engineapi.RunTelemetry
 	require.NoError(t, json.Unmarshal([]byte(oldPayload), &telemetry))
 	require.Equal(t, "old-run", telemetry.RunID)
 	require.Equal(t, int64(100000), telemetry.TotalMicros)
 	require.Equal(t, "unreported", telemetry.CacheStatus)
 
-	newPayload, err := json.Marshal(&crushapi.RunTelemetry{
+	newPayload, err := json.Marshal(&engineapi.RunTelemetry{
 		RunID:       "new-run",
 		CacheStatus: "hit",
 		TotalMicros: 200000,
@@ -184,7 +184,7 @@ func TestOldTelemetryPayloadCompatibility(t *testing.T) {
 }
 
 func TestValidateEmptyTelemetry(t *testing.T) {
-	require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported"}))
+	require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported"}))
 }
 
 func TestValidateAllSpansNonNegative(t *testing.T) {
@@ -195,14 +195,14 @@ func TestValidateAllSpansNonNegative(t *testing.T) {
 		"stream":         300,
 		"summarize":      0,
 	}
-	require.NoError(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: spans}))
+	require.NoError(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: spans}))
 
 	spans["negative"] = -1
-	require.Error(t, Validate(&crushapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: spans}))
+	require.Error(t, Validate(&engineapi.RunTelemetry{CacheStatus: "unreported", SpansMicros: spans}))
 }
 
 func TestRedactionPreservesAllSafeFields(t *testing.T) {
-	telemetry := &crushapi.RunTelemetry{
+	telemetry := &engineapi.RunTelemetry{
 		RunID:               "run-safe",
 		Provider:            "openai",
 		Model:               "gpt-4",
@@ -243,16 +243,16 @@ func TestRedactionPreservesAllSafeFields(t *testing.T) {
 
 func TestRejectedTelemetryNeverEchoesInput(t *testing.T) {
 	const canary = "SYNTHETIC_SECRET_CANARY"
-	for _, mutate := range []func(*crushapi.RunTelemetry){
-		func(v *crushapi.RunTelemetry) { v.CacheStatus = canary },
-		func(v *crushapi.RunTelemetry) { v.PrefixChangedReason = canary },
-		func(v *crushapi.RunTelemetry) { v.SpansMicros = map[string]int64{canary: -1} },
-		func(v *crushapi.RunTelemetry) { v.StablePrefixHMAC = canary },
-		func(v *crushapi.RunTelemetry) { v.ReasoningEffort = canary },
+	for _, mutate := range []func(*engineapi.RunTelemetry){
+		func(v *engineapi.RunTelemetry) { v.CacheStatus = canary },
+		func(v *engineapi.RunTelemetry) { v.PrefixChangedReason = canary },
+		func(v *engineapi.RunTelemetry) { v.SpansMicros = map[string]int64{canary: -1} },
+		func(v *engineapi.RunTelemetry) { v.StablePrefixHMAC = canary },
+		func(v *engineapi.RunTelemetry) { v.ReasoningEffort = canary },
 	} {
 		var logs bytes.Buffer
 		writer := New(t.TempDir(), slog.New(slog.NewJSONHandler(&logs, nil)))
-		value := &crushapi.RunTelemetry{CacheStatus: "unreported"}
+		value := &engineapi.RunTelemetry{CacheStatus: "unreported"}
 		mutate(value)
 		require.Error(t, Validate(value))
 		writer.Append(value)
@@ -265,7 +265,7 @@ func TestRejectedTelemetryNeverEchoesInput(t *testing.T) {
 
 func TestRedactionOwnsNestedDataAndPreservesAbsence(t *testing.T) {
 	zero := int64(0)
-	original := &crushapi.RunTelemetry{CacheStatus: "miss", SpansMicros: map[string]int64{"stream": 7}, CachedInputTokens: &zero}
+	original := &engineapi.RunTelemetry{CacheStatus: "miss", SpansMicros: map[string]int64{"stream": 7}, CachedInputTokens: &zero}
 	copy := redactSensitive(original)
 	copy.SpansMicros["stream"] = 9
 	*copy.CachedInputTokens = 12
@@ -287,8 +287,8 @@ func TestWriterSinkNeverPersistsCanaryMaterial(t *testing.T) {
 	writer := New(dir, nil)
 	canary := "CANARY-gotack-9d2e1c-leak"
 
-	base := func() *crushapi.RunTelemetry {
-		return &crushapi.RunTelemetry{
+	base := func() *engineapi.RunTelemetry {
+		return &engineapi.RunTelemetry{
 			RunID: "run-canary", Provider: "e2e", Model: "fixture-model",
 			CacheStatus: "miss", TotalMicros: 10, Attempt: 1,
 		}

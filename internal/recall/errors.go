@@ -2,9 +2,9 @@ package recall
 
 import "errors"
 
-var ErrSchemaMismatch = errors.New("recall: crush.db schema does not match the recall contract")
+var ErrSchemaMismatch = errors.New("recall: tack.db schema does not match the recall contract")
 
-var ErrSourceMissing = errors.New("recall: crush.db not found in data directory")
+var ErrSourceMissing = errors.New("recall: tack.db not found in data directory")
 
 var ErrInvalidQuery = errors.New("recall: search query contains no searchable words")
 

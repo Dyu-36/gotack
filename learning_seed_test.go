@@ -19,11 +19,11 @@ func TestSkillsEntryShape(t *testing.T) {
 }
 
 func TestRecallEntryShape(t *testing.T) {
-	got := recallEntry("C:/bin/recall.exe", "C:/crush/data", "C:/gotack/recall/ws")
+	got := recallEntry("C:/bin/recall.exe", "C:/workspace/data", "C:/gotack/recall/ws")
 	want := map[string]any{
 		"command": "C:/bin/recall.exe",
 		"args": []string{
-			"--data-dir", "C:/crush/data",
+			"--data-dir", "C:/workspace/data",
 			"--index-dir", "C:/gotack/recall/ws",
 		},
 		"type":    "stdio",

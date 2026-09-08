@@ -1,4 +1,4 @@
-package crushapi
+package engineapi
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func compatHTTPResponse(req *http.Request, status int, body string) *http.Respon
 	}
 }
 
-func TestPreferredModelPairFallsBackToStockCrush(t *testing.T) {
+func TestPreferredModelPairFallsBackToStandardEngine(t *testing.T) {
 	selected := SelectedModel{Provider: "anthropic", Model: "claude", ReasoningEffort: "high", Think: true}
 	var (
 		paths []string
@@ -177,8 +177,8 @@ func TestSetConfigFieldsFallsBackToStandardConfigSet(t *testing.T) {
 	}
 }
 
-func TestIsHTTPStatusRecognizesWrappedCrushErrors(t *testing.T) {
-	err := fmt.Errorf("save settings: %w", fmt.Errorf("crushapi: POST /v1/workspaces/ws-1/config/models: 404 page not found"))
+func TestIsHTTPStatusRecognizesWrappedEngineErrors(t *testing.T) {
+	err := fmt.Errorf("save settings: %w", fmt.Errorf("engineapi: POST /v1/workspaces/ws-1/config/models: 404 page not found"))
 	if !isHTTPStatus(err, http.StatusNotFound) {
 		t.Fatalf("isHTTPStatus(%q, 404) = false", err)
 	}

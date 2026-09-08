@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const globalContextPathsKey = "options.global_context_paths"
@@ -36,7 +36,7 @@ func (r *Registrar) Seeder() *Seeder {
 	return r.seeder
 }
 
-func (r *Registrar) Register(base context.Context, api *crushapi.Client, workspaceID string) {
+func (r *Registrar) Register(base context.Context, api *engineapi.Client, workspaceID string) {
 	if r == nil || r.seeder == nil || api == nil || workspaceID == "" {
 		return
 	}
@@ -63,7 +63,7 @@ func (r *Registrar) Register(base context.Context, api *crushapi.Client, workspa
 		r.warn("context prompt snapshot failed; keeping committed revision", "err", snapshotErr)
 		return
 	}
-	if err := api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, globalContextPathsKey, []string{dir}); err != nil {
+	if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, globalContextPathsKey, []string{dir}); err != nil {
 		_ = lease.Release()
 		if transactionLease != nil {
 			r.restoreAcknowledged(workspaceID, transactionLease)
@@ -97,7 +97,7 @@ func (r *Registrar) Register(base context.Context, api *crushapi.Client, workspa
 	}
 }
 
-func (r *Registrar) Clear(ctx context.Context, api *crushapi.Client, workspaceID string) {
+func (r *Registrar) Clear(ctx context.Context, api *engineapi.Client, workspaceID string) {
 	if r == nil || r.seeder == nil || api == nil || workspaceID == "" {
 		return
 	}
@@ -109,7 +109,7 @@ func (r *Registrar) Clear(ctx context.Context, api *crushapi.Client, workspaceID
 		r.warn("context: failed to capture current registration before removal", "err", previousErr)
 		return
 	}
-	if err := api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, globalContextPathsKey); err != nil {
+	if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, globalContextPathsKey); err != nil {
 		if transactionLease != nil {
 			r.restoreAcknowledged(workspaceID, transactionLease)
 		}
@@ -134,7 +134,7 @@ func (r *Registrar) Clear(ctx context.Context, api *crushapi.Client, workspaceID
 	r.replace(workspaceID, nil)
 }
 
-func (r *Registrar) capture(ctx context.Context, api *crushapi.Client, workspaceID string) ([]string, *SnapshotLease, error) {
+func (r *Registrar) capture(ctx context.Context, api *engineapi.Client, workspaceID string) ([]string, *SnapshotLease, error) {
 	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
 		return nil, nil, err
@@ -169,11 +169,11 @@ func (r *Registrar) capture(ctx context.Context, api *crushapi.Client, workspace
 	return paths, lease, nil
 }
 
-func (r *Registrar) restoreRegistration(ctx context.Context, api *crushapi.Client, workspaceID string, paths []string) error {
+func (r *Registrar) restoreRegistration(ctx context.Context, api *engineapi.Client, workspaceID string, paths []string) error {
 	if len(paths) == 0 {
-		return api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, globalContextPathsKey)
+		return api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, globalContextPathsKey)
 	}
-	return api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, globalContextPathsKey, append([]string(nil), paths...))
+	return api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, globalContextPathsKey, append([]string(nil), paths...))
 }
 
 func (r *Registrar) LeaseGeneration(workspaceID string) string {

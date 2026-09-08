@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func textParts(text string) json.RawMessage {
@@ -19,11 +19,11 @@ func quote(s string) string {
 	return string(b)
 }
 
-func messageUpdate(id, sessionID, text string, parts json.RawMessage) crushapi.StreamEvent {
+func messageUpdate(id, sessionID, text string, parts json.RawMessage) engineapi.StreamEvent {
 	payload, _ := json.Marshal(map[string]any{
 		"id": id, "session_id": sessionID, "role": "assistant", "parts": parts,
 	})
-	return crushapi.StreamEvent{Kind: "message", Event: "updated", Payload: payload}
+	return engineapi.StreamEvent{Kind: "message", Event: "updated", Payload: payload}
 }
 
 type collector struct {
@@ -107,7 +107,7 @@ func TestForwarderCoalescesDeltas(t *testing.T) {
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(30 * time.Millisecond)
 
-	ch := make(chan crushapi.StreamEvent, 8)
+	ch := make(chan engineapi.StreamEvent, 8)
 	done := make(chan struct{})
 	go func() {
 		f.Consume(ch)
@@ -154,7 +154,7 @@ func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(time.Second)
 
-	ch := make(chan crushapi.StreamEvent, 4)
+	ch := make(chan engineapi.StreamEvent, 4)
 	done := make(chan struct{})
 	go func() {
 		f.Consume(ch)
@@ -162,8 +162,8 @@ func TestForwarderRunCompleteFlushesAndOrders(t *testing.T) {
 	}()
 
 	ch <- messageUpdate("m9", "s2", "", textParts("final words"))
-	rc, _ := json.Marshal(crushapi.RunComplete{SessionID: "s2", MessageID: "m9", Text: "final words"})
-	ch <- crushapi.StreamEvent{Kind: "run_complete", Payload: rc}
+	rc, _ := json.Marshal(engineapi.RunComplete{SessionID: "s2", MessageID: "m9", Text: "final words"})
+	ch <- engineapi.StreamEvent{Kind: "run_complete", Payload: rc}
 	close(ch)
 	<-done
 
@@ -189,7 +189,7 @@ func TestForwarderToolActivityImmediate(t *testing.T) {
 	f.setDelay(time.Hour)
 
 	parts := json.RawMessage(`[{"type":"tool_call","data":{"id":"t1","name":"bash","input":"ls","finished":true}}]`)
-	ch := make(chan crushapi.StreamEvent, 1)
+	ch := make(chan engineapi.StreamEvent, 1)
 	go f.Consume(ch)
 	ch <- messageUpdate("m", "s3", "", parts)
 	time.Sleep(50 * time.Millisecond)
@@ -223,21 +223,21 @@ func TestForwarderReportsLateSkillManageMetadata(t *testing.T) {
 func TestLearningToolResultAdmissionRequiresGuardedCallID(t *testing.T) {
 	cases := []struct {
 		name   string
-		result crushapi.ToolResult
+		result engineapi.ToolResult
 		want   int
 	}{
 		{
 			name:   "failed result",
-			result: crushapi.ToolResult{ToolCallID: "call-1", Name: "memory", IsError: true},
+			result: engineapi.ToolResult{ToolCallID: "call-1", Name: "memory", IsError: true},
 			want:   1,
 		},
 		{
 			name:   "missing call id",
-			result: crushapi.ToolResult{Name: "memory"},
+			result: engineapi.ToolResult{Name: "memory"},
 		},
 		{
 			name:   "successful result",
-			result: crushapi.ToolResult{ToolCallID: "call-1", Name: "memory"},
+			result: engineapi.ToolResult{ToolCallID: "call-1", Name: "memory"},
 			want:   1,
 		},
 	}
@@ -265,12 +265,12 @@ func TestForwarderReportsOnlyAdmittedLearningResults(t *testing.T) {
 	sink := &iterationSink{}
 	f := NewForwarder(slog.Default(), c.emit, sink.callbacks())
 	f.setDelay(time.Hour)
-	message := func(id string, result map[string]any) crushapi.StreamEvent {
+	message := func(id string, result map[string]any) engineapi.StreamEvent {
 		payload, _ := json.Marshal(map[string]any{
 			"id": id, "session_id": "s", "role": "tool",
 			"parts": []map[string]any{{"type": "tool_result", "data": result}},
 		})
-		return crushapi.StreamEvent{Kind: "message", Event: "updated", Payload: payload}
+		return engineapi.StreamEvent{Kind: "message", Event: "updated", Payload: payload}
 	}
 	f.handle(message("denied", map[string]any{
 		"tool_call_id": "d", "name": "memory", "content": "User denied permission",
@@ -293,7 +293,7 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
 	f.setDelay(20 * time.Millisecond)
 
-	ch := make(chan crushapi.StreamEvent, 4)
+	ch := make(chan engineapi.StreamEvent, 4)
 	done := make(chan struct{})
 	go func() {
 		f.Consume(ch)
@@ -303,8 +303,8 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 	ch <- messageUpdate("mA", "sA", "", textParts("Hello"))
 	time.Sleep(40 * time.Millisecond)
 	ch <- messageUpdate("mA", "sA", "", textParts("Hello world"))
-	rc, _ := json.Marshal(crushapi.RunComplete{SessionID: "sA", MessageID: "mA"})
-	ch <- crushapi.StreamEvent{Kind: "run_complete", Payload: rc}
+	rc, _ := json.Marshal(engineapi.RunComplete{SessionID: "sA", MessageID: "mA"})
+	ch <- engineapi.StreamEvent{Kind: "run_complete", Payload: rc}
 	close(ch)
 	<-done
 
@@ -342,15 +342,15 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 func TestForwarderTaskProgressIsSanitizedAndForwarded(t *testing.T) {
 	c := &collector{}
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
-	payload, err := json.Marshal(crushapi.TaskProgress{
+	payload, err := json.Marshal(engineapi.TaskProgress{
 		SessionID: "session-1", RunID: "run-1", State: "optimizing",
 		ElapsedSeconds: 35, LimitSeconds: 90, Solutions: 1, SoftViolationCount: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch := make(chan crushapi.StreamEvent, 1)
-	ch <- crushapi.StreamEvent{Kind: "task_progress", Event: "updated", Payload: payload}
+	ch := make(chan engineapi.StreamEvent, 1)
+	ch <- engineapi.StreamEvent{Kind: "task_progress", Event: "updated", Payload: payload}
 	close(ch)
 	f.Consume(ch)
 

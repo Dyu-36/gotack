@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -33,7 +33,7 @@ func TestGetChatGPTOAuthStatus_Connected(t *testing.T) {
 		return jsonHTTPResponse(http.StatusOK, body), nil
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	app := NewApp()
 	app.ctx = context.Background()
@@ -48,7 +48,7 @@ func TestGetChatGPTOAuthStatus_Connected(t *testing.T) {
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
 	app.link.MarkRunning()
@@ -88,7 +88,7 @@ func TestGetChatGPTOAuthStatus_Disconnected(t *testing.T) {
 		return jsonHTTPResponse(http.StatusOK, body), nil
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	app := NewApp()
 	app.ctx = context.Background()
@@ -103,7 +103,7 @@ func TestGetChatGPTOAuthStatus_Disconnected(t *testing.T) {
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
 	app.link.MarkRunning()
@@ -119,10 +119,10 @@ func TestGetChatGPTOAuthStatus_Disconnected(t *testing.T) {
 }
 
 func TestSelectChatGPTModelUsesLiveCatalog(t *testing.T) {
-	providers := []crushapi.Provider{{
+	providers := []engineapi.Provider{{
 		ID:                  codexProviderID,
 		DefaultLargeModelID: "gpt-default",
-		Models:              []crushapi.Model{{ID: "gpt-default"}, {ID: "gpt-existing"}},
+		Models:              []engineapi.Model{{ID: "gpt-default"}, {ID: "gpt-existing"}},
 	}}
 
 	model, err := selectChatGPTModel(providers, "gpt-existing")
@@ -203,7 +203,7 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 		}
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	app := NewApp()
 	app.ctx = context.Background()
@@ -218,7 +218,7 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
 	app.link.MarkRunning()
@@ -269,7 +269,7 @@ func TestRepointSavedModelAtCodexKeepsDeliberateProvider(t *testing.T) {
 		return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	app := NewApp()
 	app.ctx = context.Background()
 	app.cfg = &appconfig.Config{Provider: "anthropic", Model: "claude-sonnet"}
@@ -283,8 +283,8 @@ func TestRepointSavedModelAtCodexKeepsDeliberateProvider(t *testing.T) {
 
 func TestSelectionStrandedOnLegacyOpenAI(t *testing.T) {
 	credential := json.RawMessage(`{"access_token":"tok","account_id":"acc-123"}`)
-	withCodex := func(legacy crushapi.ProviderConfig) crushapi.WorkspaceConfig {
-		return crushapi.WorkspaceConfig{Providers: map[string]crushapi.ProviderConfig{
+	withCodex := func(legacy engineapi.ProviderConfig) engineapi.WorkspaceConfig {
+		return engineapi.WorkspaceConfig{Providers: map[string]engineapi.ProviderConfig{
 			codexProviderID:  {OAuth: credential},
 			openAIProviderID: legacy,
 		}}
@@ -292,16 +292,16 @@ func TestSelectionStrandedOnLegacyOpenAI(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		cfg      crushapi.WorkspaceConfig
+		cfg      engineapi.WorkspaceConfig
 		provider string
 		want     bool
 	}{
-		{"half-migrated install", withCodex(crushapi.ProviderConfig{Disable: true}), openAIProviderID, true},
-		{"no saved provider yet", withCodex(crushapi.ProviderConfig{}), "", true},
-		{"openai still holds an api key", withCodex(crushapi.ProviderConfig{APIKey: "sk-test"}), openAIProviderID, false},
-		{"deliberately chosen provider", withCodex(crushapi.ProviderConfig{}), "anthropic", false},
-		{"already repointed", withCodex(crushapi.ProviderConfig{}), codexProviderID, false},
-		{"codex holds no credential", crushapi.WorkspaceConfig{Providers: map[string]crushapi.ProviderConfig{openAIProviderID: {}}}, openAIProviderID, false},
+		{"half-migrated install", withCodex(engineapi.ProviderConfig{Disable: true}), openAIProviderID, true},
+		{"no saved provider yet", withCodex(engineapi.ProviderConfig{}), "", true},
+		{"openai still holds an api key", withCodex(engineapi.ProviderConfig{APIKey: "sk-test"}), openAIProviderID, false},
+		{"deliberately chosen provider", withCodex(engineapi.ProviderConfig{}), "anthropic", false},
+		{"already repointed", withCodex(engineapi.ProviderConfig{}), codexProviderID, false},
+		{"codex holds no credential", engineapi.WorkspaceConfig{Providers: map[string]engineapi.ProviderConfig{openAIProviderID: {}}}, openAIProviderID, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

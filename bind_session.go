@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/attachments"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -71,7 +71,7 @@ func (a *App) setCurrentSession(sessionID string) error {
 	}
 	if err := c.api.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err == nil {
 		return nil
-	} else if !crushapi.IsClientNotAttached(err) {
+	} else if !engineapi.IsClientNotAttached(err) {
 		return err
 	}
 
@@ -238,8 +238,8 @@ func (a *App) CancelPrompt(id string) error {
 
 const maxToolInputPreview = 4096
 
-func toMessageInfo(message crushapi.Message) MessageInfo {
-	text, refs := attachments.ParseAttachmentBlocks(crushapi.ExtractText(message.Parts))
+func toMessageInfo(message engineapi.Message) MessageInfo {
+	text, refs := attachments.ParseAttachmentBlocks(engineapi.ExtractText(message.Parts))
 	info := MessageInfo{
 		ID:        message.ID,
 		Role:      string(message.Role),
@@ -256,7 +256,7 @@ func toMessageInfo(message crushapi.Message) MessageInfo {
 			Path:     ref.Path,
 		})
 	}
-	for _, attachment := range crushapi.ExtractAttachments(message.Parts) {
+	for _, attachment := range engineapi.ExtractAttachments(message.Parts) {
 		content := ""
 		if strings.HasPrefix(attachment.MimeType, "image/") {
 			content = base64.StdEncoding.EncodeToString(attachment.Content)
@@ -273,7 +273,7 @@ func toMessageInfo(message crushapi.Message) MessageInfo {
 			Path:     attachment.FilePath,
 		})
 	}
-	for _, call := range crushapi.ExtractToolCalls(message.Parts) {
+	for _, call := range engineapi.ExtractToolCalls(message.Parts) {
 		input := string(call.Input)
 		if runes := []rune(input); len(runes) > maxToolInputPreview {
 			input = string(runes[:maxToolInputPreview]) + "…"
@@ -301,7 +301,7 @@ func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []at
 	return attachments.PrepareInputs(items, supportsVision)
 }
 
-func toSessionInfo(session crushapi.Session) SessionInfo {
+func toSessionInfo(session engineapi.Session) SessionInfo {
 	return SessionInfo{
 		ID:           session.ID,
 		Title:        session.Title,
@@ -312,7 +312,7 @@ func toSessionInfo(session crushapi.Session) SessionInfo {
 	}
 }
 
-func toSessionInfos(input []crushapi.Session) []SessionInfo {
+func toSessionInfos(input []engineapi.Session) []SessionInfo {
 	out := make([]SessionInfo, len(input))
 	for i, session := range input {
 		out[i] = toSessionInfo(session)

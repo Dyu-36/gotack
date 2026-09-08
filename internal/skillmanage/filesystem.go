@@ -504,14 +504,14 @@ func (m *Manager) requireReadMark(state *applyState, target string) error {
 	}
 	expected, ok := state.readMarks[key]
 	if !ok {
-		return errors.New("background review must load the exact current file with Crush view via skill_view before mutating it")
+		return errors.New("background review must load the exact current file with Tack view via skill_view before mutating it")
 	}
 	data, err := m.readRegularFile(target)
 	if err != nil {
 		return err
 	}
 	if viewDigest(string(data)) != expected {
-		return errors.New("background review Crush view via skill_view is stale; call skill_view for the exact current file again")
+		return errors.New("background review Tack view via skill_view is stale; call skill_view for the exact current file again")
 	}
 	return nil
 }

@@ -5,17 +5,17 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 var simpleEnvCredentialRef = regexp.MustCompile(`^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$`)
 
-func OAuthCredentialPresent(config crushapi.ProviderConfig) bool {
+func OAuthCredentialPresent(config engineapi.ProviderConfig) bool {
 	raw := strings.TrimSpace(string(config.OAuth))
 	return raw != "" && raw != "null" && raw != "{}"
 }
 
-func ResolvedCredential(config crushapi.ProviderConfig) (kind, value string, ok bool) {
+func ResolvedCredential(config engineapi.ProviderConfig) (kind, value string, ok bool) {
 	if OAuthCredentialPresent(config) {
 		return "oauth", "", true
 	}

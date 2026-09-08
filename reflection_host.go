@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/reflection"
 )
@@ -18,7 +18,7 @@ func (a *App) startReflection() {
 		LoadTranscript: a.reflectionLoadTranscript, CreateSession: a.reflectionCreateSession,
 		MarkReview: a.reflectionMarkReview, SendPrompt: a.reflectionSendPrompt,
 		SendPromptWithBudget: a.reflectionSendPromptWithBudget,
-		CancelSession: a.reflectionCancelSession, CleanupSession: a.reflectionCleanupSession,
+		CancelSession:        a.reflectionCancelSession, CleanupSession: a.reflectionCleanupSession,
 		Preflight: a.reflectionPreflight,
 	}, a.log)
 }
@@ -42,7 +42,7 @@ func (a *App) reflectionLoadTranscript(ctx context.Context, sourceID string) ([]
 		if message.Role != "user" && message.Role != "assistant" {
 			continue
 		}
-		out = append(out, reflection.Message{Role: message.Role, Text: crushapi.ExtractText(message.Parts)})
+		out = append(out, reflection.Message{Role: message.Role, Text: engineapi.ExtractText(message.Parts)})
 	}
 	return out, nil
 }

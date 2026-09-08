@@ -11,9 +11,9 @@ import (
 func TestPipeEndpointShape(t *testing.T) {
 
 	uid := currentUID()
-	wantSuffix := "crush.sock"
+	wantSuffix := "tack-engine.sock"
 	if uid != "" {
-		wantSuffix = "crush-" + uid + ".sock"
+		wantSuffix = "tack-engine-" + uid + ".sock"
 	}
 	ep := PipeEndpoint()
 	if runtime.GOOS == "windows" {
@@ -72,12 +72,12 @@ func TestDirOnWindows(t *testing.T) {
 func TestEndpointNameUID(t *testing.T) {
 	uid := currentUID()
 	if uid == "" {
-		if got := endpointName(); got != "crush.sock" {
-			t.Fatalf("no-uid name=%q want crush.sock", got)
+		if got := endpointName(); got != "tack-engine.sock" {
+			t.Fatalf("no-uid name=%q want tack-engine.sock", got)
 		}
 		return
 	}
-	want := "crush-" + uid + ".sock"
+	want := "tack-engine-" + uid + ".sock"
 	if got := endpointName(); got != want {
 		t.Fatalf("uid name=%q want %q", got, want)
 	}

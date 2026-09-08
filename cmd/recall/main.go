@@ -19,11 +19,11 @@ const (
 	serverName    = "gotack-recall"
 	serverVersion = "0.1.0"
 
-	dataDirEnv = "GOTACK_CRUSH_DATA_DIR"
+	dataDirEnv = "GOTACK_WORKSPACE_DATA_DIR"
 )
 
 func main() {
-	dataDir := flag.String("data-dir", "", "Crush data directory containing crush.db (default: $"+dataDirEnv+" or the gotack default workspace data dir)")
+	dataDir := flag.String("data-dir", "", "workspace data directory containing tack.db (default: $"+dataDirEnv+" or the gotack default workspace data dir)")
 	indexDir := flag.String("index-dir", "", "directory for recall.db (default: <appconfig dir>/recall)")
 	rebuild := flag.Bool("rebuild", false, "drop and rebuild the recall index before serving")
 	flag.Parse()

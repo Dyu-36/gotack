@@ -3,11 +3,11 @@ package runmetrics
 import (
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func BenchmarkValidate(b *testing.B) {
-	telemetry := &crushapi.RunTelemetry{
+	telemetry := &engineapi.RunTelemetry{
 		RunID:               "bench-run-001",
 		Provider:            "openai",
 		Model:               "gpt-4",
@@ -26,7 +26,7 @@ func BenchmarkValidate(b *testing.B) {
 }
 
 func BenchmarkRedactSensitive(b *testing.B) {
-	telemetry := &crushapi.RunTelemetry{
+	telemetry := &engineapi.RunTelemetry{
 		RunID:             "bench-run-002",
 		Provider:          "openai",
 		Model:             "gpt-4",

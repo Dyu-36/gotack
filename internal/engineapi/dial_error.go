@@ -1,4 +1,4 @@
-package crushapi
+package engineapi
 
 type dialError struct {
 	ep  Endpoint
@@ -9,9 +9,9 @@ type dialError struct {
 func (e *dialError) Error() string {
 	target := e.ep.Network + "://" + e.ep.Address
 	if e.err != nil {
-		return "crushapi: dial " + target + ": " + e.err.Error()
+		return "engineapi: dial " + target + ": " + e.err.Error()
 	}
-	return "crushapi: dial " + target + ": " + e.msg
+	return "engineapi: dial " + target + ": " + e.msg
 }
 
 func (e *dialError) Unwrap() error { return e.err }

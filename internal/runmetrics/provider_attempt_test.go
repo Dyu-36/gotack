@@ -3,7 +3,7 @@ package runmetrics
 import (
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -11,8 +11,8 @@ func TestValidateProviderAttemptTelemetry(t *testing.T) {
 	first := int64(10)
 	frame := int64(45)
 	delta := int64(35)
-	base := func() *crushapi.RunTelemetry {
-		return &crushapi.RunTelemetry{CacheStatus: "unreported", ProviderAttempts: []crushapi.ProviderAttemptTelemetry{{
+	base := func() *engineapi.RunTelemetry {
+		return &engineapi.RunTelemetry{CacheStatus: "unreported", ProviderAttempts: []engineapi.ProviderAttemptTelemetry{{
 			ModelCallID: 1, HTTPAttempt: 1, Purpose: "tool_loop",
 			FirstResponseByteMicros: &first, FirstSSEFrameMicros: &frame, FirstByteToFirstSSEMicros: &delta,
 		}}}
@@ -40,7 +40,7 @@ func TestValidateProviderAttemptTelemetry(t *testing.T) {
 
 func TestRedactionDeepCopiesProviderAttempts(t *testing.T) {
 	delta := int64(35)
-	original := &crushapi.RunTelemetry{CacheStatus: "unreported", ProviderAttempts: []crushapi.ProviderAttemptTelemetry{{
+	original := &engineapi.RunTelemetry{CacheStatus: "unreported", ProviderAttempts: []engineapi.ProviderAttemptTelemetry{{
 		ModelCallID: 1, HTTPAttempt: 1, Purpose: "tool_loop", FirstByteToFirstSSEMicros: &delta,
 	}}}
 	copy := redactSensitive(original)

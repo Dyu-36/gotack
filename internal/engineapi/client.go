@@ -1,4 +1,4 @@
-package crushapi
+package engineapi
 
 import (
 	"bytes"
@@ -247,7 +247,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body io.Reader
 		return nil
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("crushapi: decode %s: %w", path, err)
+		return fmt.Errorf("engineapi: decode %s: %w", path, err)
 	}
 	return nil
 }
@@ -264,7 +264,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*
 }
 
 func requestURL(path string) string {
-	return "http://crush" + path
+	return "http://tack-engine" + path
 }
 
 func decodeError(resp *http.Response) error {
@@ -282,7 +282,7 @@ func decodeError(resp *http.Response) error {
 	if msg == "" {
 		msg = http.StatusText(resp.StatusCode)
 	}
-	return fmt.Errorf("crushapi: %s %s: %d %s", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, msg)
+	return fmt.Errorf("engineapi: %s %s: %d %s", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, msg)
 }
 
 func IsClientNotAttached(err error) bool {

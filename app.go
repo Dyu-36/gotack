@@ -10,8 +10,8 @@ import (
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/contextseed"
-	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/permission"
@@ -28,7 +28,7 @@ import (
 )
 
 type conn struct {
-	api   *crushapi.Client
+	api   *engineapi.Client
 	fwd   *uievents.Forwarder
 	ws    *workspace.Service
 	sess  *session.Service

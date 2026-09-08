@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -59,7 +59,7 @@ func skillsHTTPResponse(status int, body string) *http.Response {
 
 func newSkillsTestApp(t *testing.T, transport http.RoundTripper) *App {
 	t.Helper()
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	app := NewApp()
 	app.ctx = context.Background()
 	app.swapConn(func(connection *conn) *conn {
@@ -69,7 +69,7 @@ func newSkillsTestApp(t *testing.T, transport http.RoundTripper) *App {
 		return connection
 	})
 	scope, started := app.link.BeginConnect(context.Background())
-	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("link rejected the test connect scope")
 	}
 	app.link.MarkRunning()

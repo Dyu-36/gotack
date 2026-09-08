@@ -68,7 +68,7 @@ func (s *Seeder) InstallPath() {
 	}
 }
 
-func (s *Seeder) CrushEnv() map[string]string {
+func (s *Seeder) EngineEnv() map[string]string {
 	path := os.Getenv("PATH")
 	if path == "" {
 		path = s.BinDir()

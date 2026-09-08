@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type Emitter func(name string, data any)
@@ -55,8 +55,8 @@ type ChangesUpdatedPayload struct {
 }
 
 type PermissionRequestPayload struct {
-	Request   crushapi.PermissionRequest `json:"request"`
-	ExpiresAt int64                      `json:"expires_at_ms"`
+	Request   engineapi.PermissionRequest `json:"request"`
+	ExpiresAt int64                       `json:"expires_at_ms"`
 }
 
 const coalesceDelay = 40 * time.Millisecond
@@ -71,8 +71,8 @@ type pendingMessage struct {
 	nextSeq int64
 }
 
-func (pm *pendingMessage) markToolStates(calls []crushapi.ToolCall) []crushapi.ToolCall {
-	var out []crushapi.ToolCall
+func (pm *pendingMessage) markToolStates(calls []engineapi.ToolCall) []engineapi.ToolCall {
+	var out []engineapi.ToolCall
 	for _, c := range calls {
 		if c.ID != "" {
 			if was, ok := pm.tools[c.ID]; ok && was == c.Finished {
@@ -89,11 +89,11 @@ func (pm *pendingMessage) markToolStates(calls []crushapi.ToolCall) []crushapi.T
 }
 
 type Callbacks struct {
-	PermissionPending    func(crushapi.PermissionRequest) int64
+	PermissionPending    func(engineapi.PermissionRequest) int64
 	RunDone              func(SessionDonePayload)
 	AssistantIteration   func(sessionID, messageID string, hasToolCalls bool)
 	LearningToolExecuted func(sessionID, toolCallID, toolName string)
-	RunTelemetry         func(*crushapi.RunTelemetry)
+	RunTelemetry         func(*engineapi.RunTelemetry)
 }
 
 type Forwarder struct {
@@ -138,7 +138,7 @@ func (f *Forwarder) nextDelay(bytesSinceLastFlush int) time.Duration {
 	}
 }
 
-func (f *Forwarder) Consume(events <-chan crushapi.StreamEvent) {
+func (f *Forwarder) Consume(events <-chan engineapi.StreamEvent) {
 	for ev := range events {
 		if f.isStopped() {
 			return
@@ -163,7 +163,7 @@ func (f *Forwarder) isStopped() bool {
 	return f.stopped
 }
 
-func (f *Forwarder) handle(ev crushapi.StreamEvent) {
+func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 	switch ev.Kind {
 	case "message":
 		if ev.Event == "updated" {
@@ -202,7 +202,7 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 	if msg.ID == "" {
 		return
 	}
-	parts := crushapi.ExtractParts(msg.Parts)
+	parts := engineapi.ExtractParts(msg.Parts)
 	if strings.EqualFold(msg.Role, "assistant") && f.callbacks.AssistantIteration != nil {
 		f.callbacks.AssistantIteration(msg.SessionID, msg.ID, len(parts.ToolCalls) > 0)
 	}
@@ -216,7 +216,7 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 	f.schedule(msg.SessionID, msg.ID, parts)
 }
 
-func learningResultAdmitted(result crushapi.ToolResult) bool {
+func learningResultAdmitted(result engineapi.ToolResult) bool {
 	if result.ToolCallID == "" {
 		return false
 	}
@@ -242,7 +242,7 @@ func learningResultAdmitted(result crushapi.ToolResult) bool {
 	return true
 }
 
-func (f *Forwarder) schedule(sessionID, messageID string, parts crushapi.Parts) {
+func (f *Forwarder) schedule(sessionID, messageID string, parts engineapi.Parts) {
 	f.mu.Lock()
 	pm, ok := f.pending[messageID]
 	if !ok {
@@ -290,7 +290,7 @@ func (f *Forwarder) flush(messageID string) {
 }
 
 func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
-	var rc crushapi.RunComplete
+	var rc engineapi.RunComplete
 	if err := json.Unmarshal(payload, &rc); err != nil {
 		if f.log != nil {
 			f.log.Debug("uievents: failed to decode run_complete", "err", err)
@@ -311,7 +311,7 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 }
 
 func (f *Forwarder) handleTaskProgress(payload json.RawMessage) {
-	var progress crushapi.TaskProgress
+	var progress engineapi.TaskProgress
 	if err := json.Unmarshal(payload, &progress); err != nil {
 		if f.log != nil {
 			f.log.Debug("uievents: failed to decode task_progress", "err", err)
@@ -336,7 +336,7 @@ func (f *Forwarder) handleTaskProgress(payload json.RawMessage) {
 }
 
 func (f *Forwarder) handlePermission(payload json.RawMessage) {
-	var req crushapi.PermissionRequest
+	var req engineapi.PermissionRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		if f.log != nil {
 			f.log.Debug("uievents: failed to decode permission_request", "err", err)
@@ -351,7 +351,7 @@ func (f *Forwarder) handlePermission(payload json.RawMessage) {
 }
 
 func (f *Forwarder) handleFile(payload json.RawMessage) {
-	var file crushapi.File
+	var file engineapi.File
 	if err := json.Unmarshal(payload, &file); err != nil {
 		if f.log != nil {
 			f.log.Debug("uievents: failed to decode file event", "err", err)

@@ -2,13 +2,13 @@
 // the first_byte_to_first_sse span) into the engine's RunTelemetry before the
 // run_metrics writer appends it. The observer owns a small per-runID purpose
 // cache so the merge can identify the (runID, attempt, purpose) tuple the
-// crushapi registry used.
+// engineapi registry used.
 package engineobserver
 
 import (
 	"sync"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 // SpanFirstByteToFirstSSE is the spans_us key the observer writes when both
@@ -19,18 +19,18 @@ const SpanFirstByteToFirstSSE = "first_byte_to_first_sse"
 // the host App. It is constructed once at startup and re-used across all
 // RunTelemetry callbacks.
 type Observer struct {
-	reg *crushapi.TTFBRegistry
+	reg *engineapi.TTFBRegistry
 	mu  sync.Mutex
 	// lastPurposeByRun remembers the most recent purpose stamped on a
-	// SendPrompt for the duration of the run. The crushapi registry is
+	// SendPrompt for the duration of the run. The engineapi registry is
 	// indexed by (runID, attempt, purpose); the SSE side does not yet echo
 	// purpose, so the merge site uses this cache to recover the key.
 	lastPurposeByRun map[string]string
 }
 
-// New wires the observer to the per-Client crushapi registry. The registry
+// New wires the observer to the per-Client engineapi registry. The registry
 // pointer is exposed as an interface to avoid a circular package import.
-func New(reg *crushapi.TTFBRegistry) *Observer {
+func New(reg *engineapi.TTFBRegistry) *Observer {
 	return &Observer{
 		reg:              reg,
 		lastPurposeByRun: make(map[string]string),
@@ -38,8 +38,8 @@ func New(reg *crushapi.TTFBRegistry) *Observer {
 }
 
 // RememberPurpose stamps the most-recent purpose for a runID so the eventual
-// merge can locate the (runID, attempt, purpose) entry the crushapi registry
-// created. The crushapi Client itself does not need this hint; the observer
+// merge can locate the (runID, attempt, purpose) entry the engineapi registry
+// created. The engineapi Client itself does not need this hint; the observer
 // uses it only when the engine does not echo `purpose` on RunTelemetry.
 func (o *Observer) RememberPurpose(runID, purpose string) {
 	if runID == "" || purpose == "" {
@@ -75,7 +75,7 @@ func (o *Observer) ForgetPurpose(runID string) {
 //   - queued_cancellation: same — no entry exists.
 //   - Cancel after SSE opened: the body's Read returns an error before any
 //     data: line is decoded, sseFirst stays nil.
-func (o *Observer) Merge(telemetry *crushapi.RunTelemetry) map[string]int64 {
+func (o *Observer) Merge(telemetry *engineapi.RunTelemetry) map[string]int64 {
 	if telemetry == nil || o.reg == nil {
 		return nil
 	}

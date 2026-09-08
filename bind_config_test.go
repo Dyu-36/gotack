@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -55,7 +55,7 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 		return jsonHTTPResponse(http.StatusOK, body), nil
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	app := NewApp()
 	app.ctx = context.Background()
@@ -70,7 +70,7 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
 	app.link.MarkRunning()
@@ -111,7 +111,7 @@ func jsonHTTPResponse(status int, body string) *http.Response {
 
 func TestResolvedProviderCredentialRejectsUnsetEnvTemplate(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "")
-	kind, value, ok := resolvedProviderCredential(crushapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
+	kind, value, ok := resolvedProviderCredential(engineapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
 	if ok || kind != "" || value != "" {
 		t.Fatalf("unset env template reported usable: kind=%q value=%q ok=%v", kind, value, ok)
 	}
@@ -119,23 +119,23 @@ func TestResolvedProviderCredentialRejectsUnsetEnvTemplate(t *testing.T) {
 
 func TestResolvedProviderCredentialResolvesEnvTemplate(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "minimax-secret")
-	kind, value, ok := resolvedProviderCredential(crushapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
+	kind, value, ok := resolvedProviderCredential(engineapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
 	if !ok || kind != "api_key" || value != "minimax-secret" {
 		t.Fatalf("resolved env credential = kind=%q value=%q ok=%v", kind, value, ok)
 	}
 }
 
 func TestResolvedProviderCredentialAcceptsLiteralKey(t *testing.T) {
-	kind, value, ok := resolvedProviderCredential(crushapi.ProviderConfig{APIKey: "literal-secret"})
+	kind, value, ok := resolvedProviderCredential(engineapi.ProviderConfig{APIKey: "literal-secret"})
 	if !ok || kind != "api_key" || value != "literal-secret" {
 		t.Fatalf("literal credential = kind=%q value=%q ok=%v", kind, value, ok)
 	}
 }
 
-func TestCrushReasoningPreservesMax(t *testing.T) {
-	effort, think := crushReasoning("max")
+func TestProviderReasoningPreservesMax(t *testing.T) {
+	effort, think := providerReasoning("max")
 	if effort != "max" || !think {
-		t.Fatalf("crushReasoning(max) = effort=%q think=%v", effort, think)
+		t.Fatalf("providerReasoning(max) = effort=%q think=%v", effort, think)
 	}
 }
 
@@ -256,7 +256,7 @@ func TestDeleteProviderIsSafetyFirstAndRetryableAtEveryFailureBoundary(t *testin
 				}
 			})
 
-			api := crushapi.NewClient(&http.Client{Transport: transport})
+			api := engineapi.NewClient(&http.Client{Transport: transport})
 			ws := workspace.NewService(api)
 			app := NewApp()
 			app.ctx = context.Background()
@@ -268,7 +268,7 @@ func TestDeleteProviderIsSafetyFirstAndRetryableAtEveryFailureBoundary(t *testin
 				return c
 			})
 			scope, started := app.link.BeginConnect(context.Background())
-			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+			if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 				t.Fatal("could not attach test engine")
 			}
 			app.link.MarkRunning()

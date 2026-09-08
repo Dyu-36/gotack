@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/reflection"
 	"github.com/Dyu-36/gotack/internal/schedule"
@@ -84,7 +84,7 @@ func reviewTestApp(t *testing.T, transport *reviewTransport) *App {
 		resolveMemoryCommand = oldMemory
 		resolveSkillsCommand = oldSkills
 	})
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	app := NewApp()
 	app.ctx = context.Background()
 	app.cfg = &appconfig.Config{Model: "test-model"}
@@ -95,7 +95,7 @@ func reviewTestApp(t *testing.T, transport *reviewTransport) *App {
 		return c
 	})
 	scope, started := app.link.BeginConnect(context.Background())
-	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("link rejected test connection")
 	}
 	app.link.MarkRunning()
@@ -154,7 +154,7 @@ func TestScheduledRunSuppressesAndForgetsBackgroundReview(t *testing.T) {
 	}
 	launched := make(chan struct{}, 1)
 	app.scheduler = schedule.New(schedulePath, schedule.Runtime{
-		CreateSession: func(context.Context, string) (string, error) { return "src-1", nil },
+		CreateSession:  func(context.Context, string) (string, error) { return "src-1", nil },
 		MarkUnattended: func(context.Context, string) error { return nil },
 		SendPrompt: func(context.Context, string, string) error {
 			launched <- struct{}{}

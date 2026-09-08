@@ -1,4 +1,4 @@
-package crushapi
+package engineapi
 
 import (
 	"bytes"
@@ -61,7 +61,7 @@ func (e *ttfbEntry) setSSEFirst(t time.Time) {
 // (runID, attempt, purpose) tuple. Map insertion is mutex-guarded; entry
 // mutations are lock-free atomic stores. The type is exposed by name so
 // the engineobserver package can consume the registry without depending on
-// crushapi internals.
+// engineapi internals.
 type TTFBRegistry struct {
 	mu      sync.Mutex
 	entries map[string]*ttfbEntry

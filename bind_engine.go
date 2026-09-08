@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Dyu-36/gotack/internal/changes"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/enginelink"
 	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
@@ -79,7 +79,7 @@ func (a *App) tryConnect() bool {
 }
 
 func (a *App) connect(scope context.Context) {
-	err := a.link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
+	err := a.link.Connect(scope, func(ctx context.Context, api *engineapi.Client, ep engineapi.Endpoint, version string) error {
 		callbacks := uievents.Callbacks{
 			RunDone:              a.runDone,
 			AssistantIteration:   a.assistantIteration,
@@ -134,8 +134,8 @@ func (a *App) connect(scope context.Context) {
 	}
 }
 
-func (a *App) telemetryCallback(api *crushapi.Client) func(*crushapi.RunTelemetry) {
-	return func(telemetry *crushapi.RunTelemetry) {
+func (a *App) telemetryCallback(api *engineapi.Client) func(*engineapi.RunTelemetry) {
+	return func(telemetry *engineapi.RunTelemetry) {
 		if telemetry == nil {
 			return
 		}
@@ -152,12 +152,12 @@ func (a *App) telemetryCallback(api *crushapi.Client) func(*crushapi.RunTelemetr
 
 func (a *App) commitAttach(
 	ctx context.Context,
-	api *crushapi.Client,
+	api *engineapi.Client,
 	fwd *uievents.Forwarder,
 	ws *workspace.Service,
 	sess *session.Service,
 	diffs *changes.Service,
-	ep crushapi.Endpoint,
+	ep engineapi.Endpoint,
 	version string,
 ) bool {
 	if a.getConn() == nil {
@@ -264,7 +264,7 @@ func (a *App) stopTransport() {
 }
 
 type bridgeServices struct {
-	api   *crushapi.Client
+	api   *engineapi.Client
 	ws    *workspace.Service
 	sess  *session.Service
 	diffs *changes.Service

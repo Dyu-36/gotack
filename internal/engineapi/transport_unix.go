@@ -1,8 +1,8 @@
-// transport_unix.go -- role: dial the Crush unix socket on linux and macOS.
+// transport_unix.go -- role: dial the Tack engine unix socket on Linux and macOS.
 //
 //go:build unix
 
-package crushapi
+package engineapi
 
 import (
 	"context"

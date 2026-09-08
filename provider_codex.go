@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -16,7 +16,7 @@ const (
 	codexProviderType = providerdomain.CodexType
 )
 
-func selectionStrandedOnLegacyOpenAI(cfg crushapi.WorkspaceConfig, savedProvider string) bool {
+func selectionStrandedOnLegacyOpenAI(cfg engineapi.WorkspaceConfig, savedProvider string) bool {
 	return providerdomain.SelectionStrandedOnLegacyOpenAI(cfg, savedProvider)
 }
 
@@ -24,7 +24,7 @@ func chatGPTRedirectCandidate(settings SettingsInfo, apiKey string) bool {
 	return providerdomain.ChatGPTRedirectCandidate(providerSettingsFromInfo(settings), apiKey)
 }
 
-func selectChatGPTModel(providers []crushapi.Provider, current string) (string, error) {
+func selectChatGPTModel(providers []engineapi.Provider, current string) (string, error) {
 	return providerdomain.SelectChatGPTModel(providers, current)
 }
 

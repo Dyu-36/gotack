@@ -342,7 +342,7 @@ func (m *Manager) patch(operation Operation, state *applyState) (string, error) 
 	content := string(data)
 	matches := strings.Count(content, operation.OldString)
 	if matches == 0 {
-		return "", errors.New("old_string was not found; load the exact current file with Crush view and copy its text")
+		return "", errors.New("old_string was not found; load the exact current file with Tack view and copy its text")
 	}
 	if matches > 1 {
 		return "", fmt.Errorf("old_string matches %d times; provide a unique excerpt", matches)

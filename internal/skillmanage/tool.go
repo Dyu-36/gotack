@@ -26,7 +26,7 @@ func manageTool(manager *Manager) mcp.Tool {
 	return mcp.Tool{
 		Name: ManageToolName,
 		Description: "Create or update procedural skills atomically. A single mutation is an operations array of one; " +
-			"for an existing target, understand it with Crush view and call skill_view immediately before changing it.",
+			"for an existing target, understand it with Tack view and call skill_view immediately before changing it.",
 		Schema: json.RawMessage(`{
 			"type":"object",
 			"additionalProperties":false,

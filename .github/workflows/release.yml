@@ -9,6 +9,7 @@ permissions:
 env:
   WAILS_VERSION: v2.15.0
   PNPM_VERSION: 11.20.0
+  ENGINE_REPOSITORY_URL: ${{ vars.ENGINE_REPOSITORY_URL }}
 
 jobs:
   windows-portable:
@@ -46,9 +47,9 @@ jobs:
       - name: Generate Wails bindings
         run: wails generate module
 
-      - name: Load Crush pin
+      - name: Load engine pin
         shell: pwsh
-        run: Add-Content $env:GITHUB_ENV ("CRUSH_COMMIT=" + (Get-Content .tack-pin -Raw).Trim())
+        run: Add-Content $env:GITHUB_ENV ("ENGINE_COMMIT=" + (Get-Content .tack-pin -Raw).Trim())
 
       - name: Verify source
         shell: pwsh
@@ -70,14 +71,17 @@ jobs:
         shell: pwsh
         run: wails build -platform windows/amd64 -clean -webview2 download
 
-      - name: Build pinned Crush
+      - name: Build pinned engine
         shell: pwsh
         run: |
-          git clone --filter=blob:none https://github.com/charmbracelet/crush.git "$env:RUNNER_TEMP\crush"
-          git -C "$env:RUNNER_TEMP\crush" checkout $env:CRUSH_COMMIT
-          ./scripts/apply-crush-patches.ps1 -CrushDir "$env:RUNNER_TEMP\crush"
+          if ([string]::IsNullOrWhiteSpace($env:ENGINE_REPOSITORY_URL)) {
+            throw "Repository variable ENGINE_REPOSITORY_URL is required"
+          }
+          $engineSource = Join-Path $env:RUNNER_TEMP "tack-engine-source"
+          git clone --filter=blob:none $env:ENGINE_REPOSITORY_URL $engineSource
+          git -C $engineSource checkout $env:ENGINE_COMMIT
           New-Item -ItemType Directory -Force build\bin\resources | Out-Null
-          Push-Location "$env:RUNNER_TEMP\crush"
+          Push-Location $engineSource
           go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\tack-engine.exe" .
           Pop-Location
 

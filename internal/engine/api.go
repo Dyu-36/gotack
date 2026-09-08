@@ -3,15 +3,15 @@ package engine
 import (
 	"context"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type EngineAPI interface {
 	Owned() bool
 
-	Locate(ctx context.Context) (crushapi.Endpoint, bool)
+	Locate(ctx context.Context) (engineapi.Endpoint, bool)
 
-	Start() (crushapi.Endpoint, error)
+	Start() (engineapi.Endpoint, error)
 
 	Stop() error
 }
