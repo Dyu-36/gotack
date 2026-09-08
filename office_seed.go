@@ -91,28 +91,6 @@ func (a *App) ensureOfficeSeed() {
 	}
 }
 
-func (a *App) registerOfficeRuntime(workspaceID string) {
-	if a.officeSeeder == nil {
-		return
-	}
-	svc, err := a.services()
-	if err != nil {
-		return
-	}
-	desc, _ := svc.ws.Current()
-	if err := workspaceconfig.RegisterOffice(a.ctx, svc.api, workspaceID, desc, a.officeSeeder, userSkillsDir()); err != nil && a.log != nil {
-		a.log.Warn("office runtime config registration failed", "err", err)
-	}
-}
-
 func userSkillsDir() string {
 	return filepath.Join(appconfig.Dir(), "skills")
-}
-
-func mergeConfigEnv(existing, additions map[string]string) map[string]string {
-	return workspaceconfig.MergeConfigEnv(existing, additions)
-}
-
-func mergeSkillsPaths(existing []string, additions ...string) []string {
-	return workspaceconfig.MergeSkillsPaths(existing, additions...)
 }
