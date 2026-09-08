@@ -21,7 +21,7 @@ var toolSchema = json.RawMessage(`{
  "content":{"type":"string","description":"Concise whole entry for add/replace."},
  "new_text":{"type":"string","description":"Alias for content."},
  "old_text":{"type":"string","description":"Unique substring for replace/remove."},
- "operations":{"type":"array","maxItems":32,"description":"Atomic batch; consolidate instead of growing the limit.","items":{"type":"object","properties":{
+ "operations":{"type":"array","description":"Atomic batch; consolidate related edits into one write.","items":{"type":"object","properties":{
  "action":{"type":"string","enum":["add","replace","remove"]},"content":{"type":"string"},"new_text":{"type":"string"},"old_text":{"type":"string"}},"required":["action"]}}
  },"required":["target"]
 }`)
