@@ -104,10 +104,11 @@ func (a *App) startup(ctx context.Context) {
 	a.cfg = cfg
 
 	logger, err := logging.Setup(appconfig.LogDir(), cfg.Debug)
-	if err == nil {
-		a.log = logger
-	} else {
+	if err != nil {
 		a.log = slog.Default()
+		a.log.Error("logging setup failed", "err", err)
+	} else {
+		a.log = logger
 	}
 	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.sup = sup
