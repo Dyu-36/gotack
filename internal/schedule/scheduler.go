@@ -28,16 +28,6 @@ type Runtime struct {
 	Preflight func(ctx context.Context) error
 }
 
-type flight struct {
-	sessionID string
-}
-
-type jobSnapshot struct {
-	id     string
-	name   string
-	prompt string
-}
-
 type Scheduler struct {
 	path string
 	rt   Runtime
@@ -53,7 +43,7 @@ type Scheduler struct {
 	file        File
 	engineReady bool
 	started     bool
-	inflight    map[string]*flight
+	inflight    map[string]string
 	retryAfter  map[string]time.Time
 	wake        chan struct{}
 	cancel      context.CancelFunc
@@ -73,7 +63,7 @@ func New(path string, rt Runtime, log *slog.Logger) *Scheduler {
 		failThreshold: defaultFailureThreshold,
 		retryDelay:    defaultRetryDelay,
 		fireTimeout:   defaultFireTimeout,
-		inflight:      make(map[string]*flight),
+		inflight:      make(map[string]string),
 		retryAfter:    make(map[string]time.Time),
 		wake:          make(chan struct{}, 1),
 	}
@@ -143,8 +133,8 @@ func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) bool
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, fl := range s.inflight {
-		if fl.sessionID != sessionID {
+	for id, currentSessionID := range s.inflight {
+		if currentSessionID != sessionID {
 			continue
 		}
 		delete(s.inflight, id)
@@ -192,20 +182,21 @@ func (s *Scheduler) evaluate(ctx context.Context) {
 		s.mu.Unlock()
 		return
 	}
-	var due []jobSnapshot
+	var due []string
 	for _, job := range s.file.Jobs {
 		if s.dueLocked(job, now) {
-			due = append(due, jobSnapshot{id: job.ID, name: job.Name, prompt: job.Prompt})
+			due = append(due, job.ID)
 		}
 	}
 	s.mu.Unlock()
+
 	var launches sync.WaitGroup
 	launches.Add(len(due))
-	for _, job := range due {
-		go func(snapshot jobSnapshot) {
+	for _, jobID := range due {
+		go func() {
 			defer launches.Done()
-			s.fire(ctx, snapshot)
-		}(job)
+			s.fire(ctx, jobID)
+		}()
 	}
 	launches.Wait()
 }
@@ -226,60 +217,59 @@ func (s *Scheduler) dueLocked(job *Job, now time.Time) bool {
 	return !now.Before(NextDue(job, now))
 }
 
-func (s *Scheduler) fire(ctx context.Context, snapshot jobSnapshot) {
+func (s *Scheduler) fire(ctx context.Context, jobID string) {
 	fctx, cancel := context.WithTimeout(ctx, s.fireTimeout)
 	defer cancel()
 
 	if s.rt.Preflight != nil {
 		if err := s.rt.Preflight(fctx); err != nil {
-			s.noteSkip(snapshot.id, err)
+			s.noteSkip(jobID, err)
 			return
 		}
 	}
 
 	now := s.now()
 	s.mu.Lock()
-	job := s.jobLocked(snapshot.id)
+	job := s.jobLocked(jobID)
 	if !s.started || !s.engineReady || job == nil || !job.Enabled || strings.TrimSpace(job.Prompt) == "" {
 		s.mu.Unlock()
 		return
 	}
-	if _, busy := s.inflight[snapshot.id]; busy {
+	if _, busy := s.inflight[jobID]; busy {
 		s.mu.Unlock()
 		return
 	}
-
 	if !s.dueLocked(job, now) {
 		s.mu.Unlock()
 		return
 	}
+
 	previousRun := job.LastRun
 	previousOutcome := job.LastOutcome
-
 	job.LastRun = &now
 	job.LastOutcome = "fired"
-	s.inflight[snapshot.id] = &flight{}
-	if err := s.persistLocked(snapshot.id); err != nil {
+	s.inflight[jobID] = ""
+	if err := s.persistLocked(jobID); err != nil {
 		job.LastRun = previousRun
 		job.LastOutcome = previousOutcome
-		delete(s.inflight, snapshot.id)
+		delete(s.inflight, jobID)
 		s.mu.Unlock()
 		return
 	}
 
-	title := "Schedule: " + strings.TrimSpace(job.Name)
-	if strings.TrimSpace(job.Name) == "" {
-		title = "Schedule: " + snapshot.id
+	name := strings.TrimSpace(job.Name)
+	title := "Schedule: " + name
+	if name == "" {
+		title = "Schedule: " + jobID
 	}
 	prompt := job.Prompt
 	s.mu.Unlock()
 
 	sessionID, err := s.rt.CreateSession(fctx, title)
 	if err == nil {
-
 		s.mu.Lock()
-		if current, ok := s.inflight[snapshot.id]; ok {
-			current.sessionID = sessionID
+		if _, ok := s.inflight[jobID]; ok {
+			s.inflight[jobID] = sessionID
 		}
 		s.mu.Unlock()
 		err = s.rt.MarkUnattended(fctx, sessionID)
@@ -290,21 +280,20 @@ func (s *Scheduler) fire(ctx context.Context, snapshot jobSnapshot) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	job = s.jobLocked(snapshot.id)
+	job = s.jobLocked(jobID)
 	if err != nil {
-		delete(s.inflight, snapshot.id)
+		delete(s.inflight, jobID)
 		if job != nil {
 			s.recordLaunchFailureLocked(job, previousRun, err)
 		}
 		return
 	}
-	delete(s.retryAfter, snapshot.id)
+	delete(s.retryAfter, jobID)
 	if job == nil {
-		delete(s.inflight, snapshot.id)
+		delete(s.inflight, jobID)
 		return
 	}
 	job.RecentFires = append(pruneFires(job.RecentFires, now), now)
-
 	_ = s.persistLocked(job.ID)
 }
 
@@ -331,10 +320,7 @@ func (s *Scheduler) noteSkip(jobID string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	job := s.jobLocked(jobID)
-	if job == nil {
-		return
-	}
-	if job.LastOutcome == reason {
+	if job == nil || job.LastOutcome == reason {
 		return
 	}
 	job.LastOutcome = reason
@@ -343,10 +329,7 @@ func (s *Scheduler) noteSkip(jobID string, err error) {
 
 func (s *Scheduler) jobLocked(id string) *Job {
 	for _, job := range s.file.Jobs {
-		if job == nil {
-			continue
-		}
-		if job.ID == id {
+		if job != nil && job.ID == id {
 			return job
 		}
 	}
@@ -371,25 +354,11 @@ func (s *Scheduler) loadLocked() error {
 	}
 	now := s.now()
 	for _, job := range file.Jobs {
-
 		if job.Enabled {
 			job.DisabledReason = ""
-			job.ConsecutiveFailures = 0
 		}
 		job.RecentFires = pruneFires(job.RecentFires, now)
 	}
 	s.file = *file
 	return nil
-}
-
-func (s *Scheduler) load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadLocked()
-}
-
-func (s *Scheduler) inflightCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.inflight)
 }
