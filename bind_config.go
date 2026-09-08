@@ -20,8 +20,8 @@ type SettingsInfo struct {
 	ProviderOnly       bool   `json:"provider_only,omitempty"`
 	Model              string `json:"model"`
 	Thinking           string `json:"thinking"`
-	APIKey              string `json:"api_key"`
-	CustomURL           string `json:"custom_url"`
+	APIKey             string `json:"api_key"`
+	CustomURL          string `json:"custom_url"`
 }
 
 func (a *App) GetSettings() SettingsInfo {
