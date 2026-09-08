@@ -263,7 +263,7 @@ func validateStagedSnapshot(staging string, manifest *snapshotManifest) error {
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(data, want) {
+		if !bytesEqual(data, want) {
 			return fmt.Errorf("snapshot file %q differs from committed input", rel)
 		}
 		seen[rel] = true

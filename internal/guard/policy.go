@@ -15,9 +15,9 @@ const (
 
 type Options struct {
 	WriteSafeRoot string
-	ContextDir   string
-	Unattended   bool
-	Review       bool
+	ContextDir    string
+	Unattended    bool
+	Review        bool
 }
 
 func Evaluate(in Input, o Options) Output {

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/openaioauth"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -83,7 +82,7 @@ func (a *App) getChatGPTProviderUsage(now time.Time) (ProviderUsageInfo, error) 
 	return providerUsageInfoFromDomain(usage), err
 }
 
-func fetchChatGPTUsage(ctx context.Context, client *http.Client, endpoint string, token openaioauth.Token, now time.Time) (ProviderUsageInfo, error) {
+func fetchChatGPTUsage(ctx context.Context, client *http.Client, endpoint string, token providerdomain.OpenAIOAuthToken, now time.Time) (ProviderUsageInfo, error) {
 	usage, err := providerdomain.FetchChatGPTUsage(ctx, client, endpoint, token, now)
 	return providerUsageInfoFromDomain(usage), err
 }
