@@ -26,9 +26,7 @@ type EngineInfo struct {
 }
 
 func (a *App) engineInfo() EngineInfo {
-	info := EngineInfo{
-		Status: string(engine.StatusStopped),
-	}
+	info := EngineInfo{Status: string(engine.StatusStopped)}
 	if a.link != nil {
 		status := a.link.Status()
 		info.Status = string(status)
@@ -43,9 +41,7 @@ func (a *App) engineInfo() EngineInfo {
 	return info
 }
 
-func (a *App) EngineStatus() EngineInfo {
-	return a.engineInfo()
-}
+func (a *App) EngineStatus() EngineInfo { return a.engineInfo() }
 
 func (a *App) StartEngine() EngineInfo {
 	a.tryConnect()
@@ -166,10 +162,7 @@ func (a *App) commitAttach(
 		stillCurrent = true
 		return c
 	})
-	if !stillCurrent {
-		return false
-	}
-	return a.link.CommitAttach(ctx, ep, version)
+	return stillCurrent && a.link.CommitAttach(ctx, ep, version)
 }
 
 func (a *App) permsFromConn() *permission.Relay {
@@ -242,6 +235,7 @@ func (a *App) stopTransport() {
 		c.diffs = nil
 		return c
 	})
+	a.vision.Clear()
 	a.link.Disconnect()
 	a.setSchedulerReady(false)
 	if fwd != nil {
@@ -253,17 +247,12 @@ func (a *App) stopTransport() {
 	a.emit(uievents.EngineStatus, a.engineInfo())
 }
 
-type bridgeServices struct {
-	api   *engineapi.Client
-	ws    *workspace.Service
-	sess  *session.Service
-	diffs *changes.Service
-}
+type bridgeServices = conn
 
 func (a *App) services() (*bridgeServices, error) {
 	c := a.getConn()
 	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || a.link.Status() != engine.StatusRunning {
 		return nil, errors.New("engine is not running")
 	}
-	return &bridgeServices{api: c.api, ws: c.ws, sess: c.sess, diffs: c.diffs}, nil
+	return c, nil
 }
