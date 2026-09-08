@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -52,14 +53,16 @@ type App struct {
 	officeSeeder  *officeSeeder
 	contextSeeder *contextseed.Seeder
 
-	contextRegistrar *contextseed.Registrar
-	workspaceRuntime *workspaceconfig.Manager
+	contextRegistrar     *contextseed.Registrar
+	workspaceRuntime     *workspaceconfig.Manager
+	workspaceRuntimeOnce sync.Once
 
 	scheduler  *schedule.Scheduler
 	reflection *reflection.Tracker
 	runMetrics *runmetrics.Writer
 
-	conn atomic.Pointer[conn]
+	vision sync.Map
+	conn   atomic.Pointer[conn]
 }
 
 func (a *App) swapConn(mutate func(*conn) *conn) *conn {
@@ -79,16 +82,11 @@ func (a *App) swapConn(mutate func(*conn) *conn) *conn {
 	}
 }
 
-func (a *App) getConn() *conn {
-	return a.conn.Load()
-}
+func (a *App) getConn() *conn { return a.conn.Load() }
 
 func NewApp() *App {
-	a := &App{}
-	a.link = engine.NewLink(nil)
-	a.conn.Store(&conn{
-		perms: permission.NewRelay(permission.DefaultTTL),
-	})
+	a := &App{link: engine.NewLink(nil)}
+	a.conn.Store(&conn{perms: permission.NewRelay(permission.DefaultTTL)})
 	return a
 }
 

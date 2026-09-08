@@ -8,18 +8,20 @@ import (
 )
 
 func (a *App) workspaceRuntimeManager() *workspaceconfig.Manager {
-	a.workspaceRuntime = workspaceconfig.NewManager(workspaceconfig.Options{
-		Log:             a.log,
-		Office:          a.officeSeeder,
-		Context:         a.ensureContextRegistrar(),
-		UserSkillsDir:   userSkillsDir(),
-		RecallIndexRoot: filepath.Join(appconfig.Dir(), "recall"),
-		Resolvers: workspaceconfig.Resolvers{
-			Memory: func() string { return resolveMemoryCommand() },
-			Skills: func() string { return resolveSkillsCommand() },
-			Recall: func() string { return resolveRecallCommand() },
-			Guard:  func() string { return resolveGuardCommand() },
-		},
+	a.workspaceRuntimeOnce.Do(func() {
+		a.workspaceRuntime = workspaceconfig.NewManager(workspaceconfig.Options{
+			Log:             a.log,
+			Office:          a.officeSeeder,
+			Context:         a.ensureContextRegistrar(),
+			UserSkillsDir:   userSkillsDir(),
+			RecallIndexRoot: filepath.Join(appconfig.Dir(), "recall"),
+			Resolvers: workspaceconfig.Resolvers{
+				Memory: resolveMemoryCommand,
+				Skills: resolveSkillsCommand,
+				Recall: resolveRecallCommand,
+				Guard:  resolveGuardCommand,
+			},
+		})
 	})
 	return a.workspaceRuntime
 }
