@@ -9,10 +9,6 @@ func resolvedProviderCredential(config engineapi.ProviderConfig) (kind, value st
 	return providerdomain.ResolvedCredential(config)
 }
 
-func preferredModelsUseProvider(models map[string]engineapi.SelectedModel, providerID string) bool {
-	return providerdomain.PreferredModelsUseProvider(models, providerID)
-}
-
 func providerReasoning(value string) (effort string, think bool) {
 	return providerdomain.Reasoning(value)
 }
