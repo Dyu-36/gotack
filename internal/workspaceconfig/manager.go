@@ -49,18 +49,15 @@ func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspa
 	if m == nil || api == nil || desc.WorkspaceID == "" {
 		return
 	}
-
 	if err := RegisterOffice(ctx, api, desc.WorkspaceID, desc, m.office, m.userSkillsDir); err != nil {
 		m.warn("workspace runtime: office registration failed", "err", err)
 	}
-	if err := RegisterMemory(ctx, api, desc.WorkspaceID, resolve(m.resolvers.Memory)); err != nil {
-		m.warn("workspace runtime: memory registration failed", "err", err)
-	}
-	if err := RegisterSkills(ctx, api, desc.WorkspaceID, resolve(m.resolvers.Skills), m.userSkillsDir); err != nil {
-		m.warn("workspace runtime: skills registration failed", "err", err)
-	}
-	if err := RegisterRecall(ctx, api, desc.WorkspaceID, desc, resolve(m.resolvers.Recall), m.recallIndexRoot); err != nil {
-		m.warn("workspace runtime: recall registration failed", "err", err)
+	if err := registerTools(
+		ctx, api, desc.WorkspaceID, desc,
+		resolve(m.resolvers.Memory), resolve(m.resolvers.Skills), resolve(m.resolvers.Recall),
+		m.userSkillsDir, m.recallIndexRoot,
+	); err != nil {
+		m.warn("workspace runtime: tool registration failed", "err", err)
 	}
 	if m.context != nil {
 		m.context.Register(ctx, api, desc.WorkspaceID)

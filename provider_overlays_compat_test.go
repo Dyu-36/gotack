@@ -15,9 +15,7 @@ const (
 
 type localProviderSpec = providerdomain.LocalSpec
 
-func mistralProviderSpec() localProviderSpec {
-	return providerdomain.MistralSpec()
-}
+func mistralProviderSpec() localProviderSpec { return providerdomain.MistralSpec() }
 
 func mergeLocalProviderOverlays(providers []engineapi.Provider) ([]engineapi.Provider, map[string]bool) {
 	return providerdomain.MergeLocalOverlays(providers)

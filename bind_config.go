@@ -20,9 +20,8 @@ type SettingsInfo struct {
 	ProviderOnly       bool   `json:"provider_only,omitempty"`
 	Model              string `json:"model"`
 	Thinking           string `json:"thinking"`
-
-	APIKey    string `json:"api_key"`
-	CustomURL string `json:"custom_url"`
+	APIKey             string `json:"api_key"`
+	CustomURL          string `json:"custom_url"`
 }
 
 func (a *App) GetSettings() SettingsInfo {
@@ -30,17 +29,9 @@ func (a *App) GetSettings() SettingsInfo {
 		return SettingsInfo{Theme: "system"}
 	}
 	return SettingsInfo{
-		Theme:     a.cfg.Theme,
-		Provider:  a.cfg.Provider,
-		Model:     a.cfg.Model,
-		Thinking:  a.cfg.Thinking,
-		APIKey:    "",
-		CustomURL: a.cfg.CustomURL,
+		Theme: a.cfg.Theme, Provider: a.cfg.Provider, Model: a.cfg.Model,
+		Thinking: a.cfg.Thinking, CustomURL: a.cfg.CustomURL,
 	}
-}
-
-func resolvedProviderCredential(config engineapi.ProviderConfig) (kind, value string, ok bool) {
-	return providerdomain.ResolvedCredential(config)
 }
 
 func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
@@ -74,10 +65,10 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	if a.cfg != nil && a.cfg.ModelCapabilities != nil {
-		for i := range providers {
-			for j := range providers[i].Models {
-				model := &providers[i].Models[j]
+	for i := range providers {
+		for j := range providers[i].Models {
+			model := &providers[i].Models[j]
+			if a.cfg != nil && a.cfg.ModelCapabilities != nil {
 				if override, ok := a.cfg.ModelCapabilities[model.ID]; ok {
 					if override.SupportsVision != nil && !*override.SupportsVision {
 						model.SupportsVision = false
@@ -87,6 +78,12 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 					}
 				}
 			}
+		}
+	}
+	a.vision.Clear()
+	for _, provider := range providers {
+		for _, model := range provider.Models {
+			a.vision.Store(visionCacheKey{workspaceID: workspaceID, providerID: provider.ID, modelID: model.ID}, model.SupportsVision)
 		}
 	}
 	return providers, nil
@@ -140,22 +137,20 @@ func (a *App) DeleteProvider(providerID string) error {
 		return fmt.Errorf("read provider state before deletion: %w", err)
 	}
 	clearSelection := a.cfg != nil && strings.TrimSpace(a.cfg.Provider) == providerID
-	clearModels := clearSelection || preferredModelsUseProvider(engineConfig.Models, providerID)
+	clearModels := clearSelection || providerdomain.PreferredModelsUseProvider(engineConfig.Models, providerID)
 	if clearSelection {
 		next := *a.cfg
-		next.Provider = ""
-		next.Model = ""
-		next.CustomURL = ""
+		next.Provider, next.Model, next.CustomURL = "", "", ""
 		if err := appconfig.Save(&next); err != nil {
 			return fmt.Errorf("save cleared provider selection: %w", err)
 		}
 		a.cfg = &next
 	}
-	return providerdomain.DeleteEngineConfig(ctx, svc.api, desc.WorkspaceID, providerID, clearModels)
-}
-
-func preferredModelsUseProvider(models map[string]engineapi.SelectedModel, providerID string) bool {
-	return providerdomain.PreferredModelsUseProvider(models, providerID)
+	if err := providerdomain.DeleteEngineConfig(ctx, svc.api, desc.WorkspaceID, providerID, clearModels); err != nil {
+		return err
+	}
+	a.vision.Clear()
+	return nil
 }
 
 func (a *App) SaveSettings(settings SettingsInfo) error {
@@ -185,5 +180,6 @@ func (a *App) SaveSettings(settings SettingsInfo) error {
 		return err
 	}
 	a.cfg = &next
+	a.vision.Clear()
 	return nil
 }
