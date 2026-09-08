@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/openaioauth"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
 func TestProviderUsageFromChatGPTPreservesProviderWindows(t *testing.T) {
@@ -88,7 +88,7 @@ func TestFetchChatGPTUsageSendsAccountScopedHeaders(t *testing.T) {
 	defer server.Close()
 
 	now := time.Unix(1_700_000_000, 0)
-	usage, err := fetchChatGPTUsage(context.Background(), server.Client(), server.URL, openaioauth.Token{
+	usage, err := fetchChatGPTUsage(context.Background(), server.Client(), server.URL, providerdomain.OpenAIOAuthToken{
 		AccessToken:    "access-token",
 		AccountID:      "account-123",
 		AccountFedRAMP: true,
