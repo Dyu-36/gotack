@@ -1,6 +1,9 @@
 package schedule
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func (s *Scheduler) load() error {
 	s.mu.Lock()
@@ -15,7 +18,7 @@ func (s *Scheduler) inflightCount() int {
 }
 
 func TestLoadPreservesConsecutiveFailures(t *testing.T) {
-	path := t.TempDir() + "/" + FileName
+	path := filepath.Join(t.TempDir(), FileName)
 	file := &File{Jobs: []*Job{{
 		ID:                  "job1",
 		Prompt:              "work",
