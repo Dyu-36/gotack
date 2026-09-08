@@ -16,20 +16,13 @@ const snapshotLeaseHelperEnv = "GOTACK_SNAPSHOT_LEASE_HELPER"
 func TestSnapshotLeaseSurvivesCrossProcessPruneAndCrashReleasesLock(t *testing.T) {
 	dataDir := t.TempDir()
 	publisher := New(dataDir, nil)
-	seedContextWithFile(t, publisher, "TACK_CORE.md", "gen one")
-	gen1, err := publisher.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	gen1 := snapshotWithProfile(t, publisher, "gen one")
 	ready := filepath.Join(t.TempDir(), "ready")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSnapshotLeaseHelperProcess$")
-	cmd.Env = append(os.Environ(),
-		snapshotLeaseHelperEnv+"=1",
+	cmd.Env = append(os.Environ(), snapshotLeaseHelperEnv+"=1",
 		"GOTACK_SNAPSHOT_LEASE_DATA="+dataDir,
 		"GOTACK_SNAPSHOT_LEASE_GENERATION="+gen1,
-		"GOTACK_SNAPSHOT_LEASE_READY="+ready,
-	)
+		"GOTACK_SNAPSHOT_LEASE_READY="+ready)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +33,6 @@ func TestSnapshotLeaseSurvivesCrossProcessPruneAndCrashReleasesLock(t *testing.T
 			_, _ = cmd.Process.Wait()
 		}
 	}()
-
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		data, readErr := os.ReadFile(ready)
@@ -55,22 +47,9 @@ func TestSnapshotLeaseSurvivesCrossProcessPruneAndCrashReleasesLock(t *testing.T
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
-	seedContextWithFile(t, publisher, "TACK_CORE.md", "gen two")
-	if _, err := publisher.BuildPromptSnapshot(); err != nil {
-		t.Fatal(err)
-	}
-	seedContextWithFile(t, publisher, "TACK_CORE.md", "gen three")
-	_, err = publisher.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	seedContextWithFile(t, publisher, "TACK_CORE.md", "gen four")
-	gen4, err := publisher.BuildPromptSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
+	snapshotWithProfile(t, publisher, "gen two")
+	snapshotWithProfile(t, publisher, "gen three")
+	gen4 := snapshotWithProfile(t, publisher, "gen four")
 	pruner := New(dataDir, nil)
 	if err := pruner.PrunePromptSnapshotsChecked(gen4); err != nil {
 		t.Fatal(err)
@@ -78,13 +57,11 @@ func TestSnapshotLeaseSurvivesCrossProcessPruneAndCrashReleasesLock(t *testing.T
 	if _, err := os.Stat(gen1); err != nil {
 		t.Fatalf("cross-process leased generation was pruned: %v", err)
 	}
-
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = cmd.Process.Wait()
 	childDone = true
-
 	if err := pruner.PrunePromptSnapshotsChecked(gen4); err != nil {
 		t.Fatal(err)
 	}

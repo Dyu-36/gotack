@@ -3,303 +3,246 @@ package reflection
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log/slog"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
 type fakeRuntime struct {
-	mu        sync.Mutex
-	calls     []string
 	messages  []Message
+	created   []string
+	marked    []string
+	sent      []string
+	budgets   []int64
+	cancelled []string
+	deleted   []string
 	markErr   error
-	budget    int64
-	useBudget bool
 }
 
-func (f *fakeRuntime) runtime() Runtime {
+func newTracker(t *testing.T) (*Tracker, *fakeRuntime) {
+	t.Helper()
+	f := &fakeRuntime{messages: []Message{{Role: "user", Text: "Prefer concise answers"}}}
 	rt := Runtime{
-		LoadTranscript: func(_ context.Context, source string) ([]Message, error) {
-			f.record("load:" + source)
-			return f.messages, nil
-		},
-		CreateSession: func(context.Context, string) (string, error) {
-			f.record("create")
+		LoadTranscript: func(context.Context, string) ([]Message, error) { return f.messages, nil },
+		CreateSession: func(_ context.Context, title string) (string, error) {
+			f.created = append(f.created, title)
 			return "review-1", nil
 		},
-		MarkReview: func(context.Context, string) error {
-			f.record("mark")
+		MarkReview: func(_ context.Context, id string) error {
+			f.marked = append(f.marked, id)
 			return f.markErr
 		},
-		SendPrompt: func(_ context.Context, id, prompt string) (string, error) {
-			f.record("send:" + id)
-			if !strings.Contains(prompt, "Review the conversation") {
-				return "", errors.New("missing instructions")
+		SendPromptWithBudget: func(_ context.Context, id, prompt string, budget int64) (string, error) {
+			if len(f.marked) == 0 || f.marked[len(f.marked)-1] != id {
+				t.Error("review sent before restricted-session marking")
 			}
-			return "run-1", nil
+			f.sent = append(f.sent, prompt)
+			f.budgets = append(f.budgets, budget)
+			return id, nil
 		},
 		CancelSession: func(_ context.Context, id string) error {
-			f.record("cancel:" + id)
+			f.cancelled = append(f.cancelled, id)
 			return nil
 		},
 		CleanupSession: func(_ context.Context, id string) error {
-			f.record("cleanup:" + id)
+			f.deleted = append(f.deleted, id)
 			return nil
 		},
 	}
-	if f.useBudget {
-		rt.SendPromptWithBudget = func(_ context.Context, id, prompt string, budget int64) (string, error) {
-			f.record("send-budget:" + id)
-			f.budget = budget
-			if !strings.Contains(prompt, "Review the conversation") {
-				return "", errors.New("missing instructions")
-			}
-			return "run-1", nil
-		}
-	}
-	return rt
+	tracker := New(rt, nil)
+	tracker.idleDelay = 0
+	return tracker, f
 }
 
-func TestFireUsesHermesReviewInputBudget(t *testing.T) {
-	fake := &fakeRuntime{useBudget: true}
-	if err := newTracker(fake.runtime()).Fire(t.Context(), "source", Review{Memory: true}); err != nil {
-		t.Fatal(err)
-	}
-	if fake.budget != MaxReviewInputTokens || !strings.Contains(fmt.Sprint(fake.snapshot()), "send-budget:review-1") {
-		t.Fatalf("review budget = %d, calls = %v", fake.budget, fake.snapshot())
-	}
-}
-
-func (f *fakeRuntime) record(call string) {
-	f.mu.Lock()
-	f.calls = append(f.calls, call)
-	f.mu.Unlock()
-}
-
-func (f *fakeRuntime) snapshot() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.calls...)
-}
-
-func newTracker(rt Runtime) *Tracker { return New(rt, slog.New(slog.DiscardHandler)) }
-
-func TestHermesCadenceAndFailureGate(t *testing.T) {
-	tracker := newTracker(Runtime{})
-	tracker.Hydrate("s", 9)
+func TestMemoryReviewCadenceAndForegroundLearningReset(t *testing.T) {
+	tracker, _ := newTracker(t)
+	tracker.Hydrate("s", MemoryInterval-1)
 	tracker.UserTurnAccepted("s")
-	for i := 0; i < SkillInterval; i++ {
-		tracker.AssistantIteration("s", fmt.Sprintf("m-%d", i), true)
+	review, _ := tracker.RunDone("s", "done", "", false)
+	if !review.Memory || review.Skills {
+		t.Fatalf("cadence review = %+v", review)
 	}
-	if review, _ := tracker.RunDone("s", "partial", "", true); review.Any() {
-		t.Fatalf("cancelled run reviewed: %+v", review)
+	if again, _ := tracker.RunDone("s", "duplicate done", "", false); again.Any() {
+		t.Fatal("duplicate completion repeated a review")
 	}
-	if review, _ := tracker.RunDone("s", "next", "", false); review.Any() {
-		t.Fatalf("consumed cadence leaked: %+v", review)
-	}
-}
-
-func TestLateSkillManageSnapshotResetsWithoutDoubleCount(t *testing.T) {
-	tracker := newTracker(Runtime{})
-	tracker.Hydrate("s", 0)
-	for i := 0; i < 9; i++ {
-		tracker.AssistantIteration("s", fmt.Sprintf("before-%d", i), true)
-	}
-	tracker.AssistantIteration("s", "manage", false)
-	tracker.AssistantIteration("s", "manage", true)
-	tracker.LearningToolExecuted("s", "call-1", "skill_manage")
-	for i := 0; i < 9; i++ {
-		tracker.AssistantIteration("s", fmt.Sprintf("after-%d", i), true)
-	}
-	if review, _ := tracker.RunDone("s", "ok", "", false); review.Any() {
-		t.Fatalf("skill cadence was not reset: %+v", review)
-	}
-}
-
-func TestSkillCadenceDoesNotDependOnMemoryHydration(t *testing.T) {
-	tracker := newTracker(Runtime{})
-	for i := 0; i < SkillInterval; i++ {
-		tracker.AssistantIteration("s", fmt.Sprintf("m-%d", i), true)
-	}
-	review, _ := tracker.RunDone("s", "ok", "", false)
-	if !review.Skills || review.Memory {
-		t.Fatalf("review = %+v", review)
-	}
-}
-
-func TestLearningToolResetsOnlyAdmittedCadenceAndDeduplicates(t *testing.T) {
-	tracker := newTracker(Runtime{})
-	tracker.Hydrate("s", 0)
-	tracker.UserTurnAccepted("s")
-	tracker.AssistantIteration("s", "m-1", true)
-	tracker.LearningToolExecuted("s", "memory-1", "memory")
-	tracker.LearningToolExecuted("s", "memory-1", "memory")
-	for i := 1; i < MemoryInterval; i++ {
+	for i := 0; i < MemoryInterval-1; i++ {
 		tracker.UserTurnAccepted("s")
 	}
-	if review, _ := tracker.RunDone("s", "ok", "", false); review.Memory {
-		t.Fatalf("duplicate memory result reset cadence incorrectly: %+v", review)
-	}
-
-	for i := 0; i < SkillInterval; i++ {
-		tracker.AssistantIteration("s", fmt.Sprintf("skill-%d", i), true)
-	}
-	tracker.LearningToolExecuted("s", "skill-1", "skill_manage")
-	tracker.LearningToolExecuted("s", "skill-1", "skill_manage")
-	for i := 0; i < SkillInterval-1; i++ {
-		tracker.AssistantIteration("s", fmt.Sprintf("after-%d", i), true)
-	}
-	if review, _ := tracker.RunDone("s", "ok", "", false); review.Skills {
-		t.Fatalf("duplicate skill result reset cadence incorrectly: %+v", review)
-	}
-}
-
-func TestMemoryResultDoesNotClearAlreadyDueReview(t *testing.T) {
-	tracker := newTracker(Runtime{})
-	tracker.Hydrate("s", 9)
+	tracker.LearningToolExecuted("s", "call", "mcp_gotack-memory_memory")
 	tracker.UserTurnAccepted("s")
-	tracker.LearningToolExecuted("s", "memory-1", "memory")
-	if review, _ := tracker.RunDone("s", "ok", "", false); !review.Memory {
-		t.Fatal("admitted memory call cleared the review due for this turn")
+	if review, _ := tracker.RunDone("s", "done", "", false); review.Any() {
+		t.Fatal("explicit memory use did not reset cadence")
+	}
+	tracker.Forget("s")
+	if !tracker.NeedsHydration("s") {
+		t.Fatal("deleted session retained learning state")
 	}
 }
 
-func TestFireOrderFailureCleanupAndSingleInflight(t *testing.T) {
-	fake := &fakeRuntime{messages: []Message{{Role: "user", Text: "preference"}}}
-	tracker := newTracker(fake.runtime())
-	if err := tracker.Fire(t.Context(), "source", Review{Memory: true}); err != nil {
+func TestSkillIterationsNeverScheduleBackgroundSkillMutation(t *testing.T) {
+	tracker, _ := newTracker(t)
+	tracker.Hydrate("s", 0)
+	for i := 0; i < 100; i++ {
+		tracker.AssistantIteration("s", strings.Repeat("x", i+1), true)
+	}
+	if review, _ := tracker.RunDone("s", "done", "", false); review.Any() || review.Skills {
+		t.Fatal("ordinary tool work scheduled automatic skill learning")
+	}
+	if (Review{Skills: true}).Any() {
+		t.Fatal("skills-only background review is active")
+	}
+}
+
+func TestHydrationDoesNotOverwriteLiveCounter(t *testing.T) {
+	tracker, _ := newTracker(t)
+	tracker.Hydrate("s", MemoryInterval-2)
+	tracker.UserTurnAccepted("s")
+	tracker.Hydrate("s", 0)
+	tracker.UserTurnAccepted("s")
+	if review, _ := tracker.RunDone("s", "done", "", false); !review.Memory {
+		t.Fatal("repeated hydration clobbered live cadence")
+	}
+}
+
+func TestCancelledFailedAndEmptyTurnsDoNotReview(t *testing.T) {
+	for _, mode := range []string{"cancelled", "failed", "empty"} {
+		t.Run(mode, func(t *testing.T) {
+			tracker, _ := newTracker(t)
+			tracker.Hydrate("s", MemoryInterval-1)
+			tracker.UserTurnAccepted("s")
+			text, runErr := "done", ""
+			if mode == "failed" { runErr = "failed" }
+			if mode == "empty" { text = "" }
+			if review, _ := tracker.RunDone("s", text, runErr, mode == "cancelled"); review.Any() {
+				t.Fatal("unsuccessful turn scheduled learning")
+			}
+		})
+	}
+}
+
+func TestFireUsesRestrictedSessionAndCumulativeInputBudget(t *testing.T) {
+	tracker, f := newTracker(t)
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprint(fake.snapshot()); got != "[load:source create mark send:review-1]" {
-		t.Fatalf("launch order = %s", got)
+	if len(f.created) != 1 || len(f.marked) != 1 || len(f.sent) != 1 || f.budgets[0] != MaxReviewInputTokens {
+		t.Fatal("review launch or budget contract was not preserved")
 	}
-	if err := tracker.Fire(t.Context(), "other", Review{Skills: true}); err == nil {
-		t.Fatal("second review launched")
+	if !strings.Contains(f.sent[0], "Prefer concise answers") || strings.Contains(f.sent[0], "Be ACTIVE") {
+		t.Fatal("review lost personal evidence or retained automatic skill directives")
 	}
-	if _, cleanup := tracker.RunDone("review-1", "done", "", false); cleanup != "review-1" {
-		t.Fatalf("cleanup id = %q", cleanup)
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err == nil {
+		t.Fatal("concurrent review launch was accepted")
 	}
-
-	failed := &fakeRuntime{markErr: errors.New("roster")}
-	if err := newTracker(failed.runtime()).Fire(t.Context(), "source", Review{Skills: true}); err == nil {
-		t.Fatal("mark failure was ignored")
+	if err := tracker.CancelForLiveTurn(context.Background(), "live"); err != nil || len(f.cancelled) != 1 {
+		t.Fatal("foreground turn did not preempt review")
 	}
-	if !strings.Contains(fmt.Sprint(failed.snapshot()), "cleanup:review-1") {
-		t.Fatalf("failed launch not cleaned: %v", failed.snapshot())
+	if review, id := tracker.RunDone("review-1", "Nothing to save.", "", false); review.Any() || id != "review-1" {
+		t.Fatal("review completion failed to release its detached-session identity")
 	}
 }
 
-func TestReviewCeilingAcceptsLateToolMetadata(t *testing.T) {
-	fake := &fakeRuntime{}
-	tracker := newTracker(fake.runtime())
-	if err := tracker.Fire(t.Context(), "source", Review{Skills: true}); err != nil {
+func TestReviewCannotFallBackToAnUnbudgetedSend(t *testing.T) {
+	tracker, _ := newTracker(t)
+	tracker.rt.SendPromptWithBudget = nil
+	called := false
+	tracker.rt.SendPrompt = func(context.Context, string, string) (string, error) {
+		called = true
+		return "unexpected", nil
+	}
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err == nil || called {
+		t.Fatal("missing budget-aware runtime enabled unbounded review")
+	}
+}
+
+func TestPartialReviewLaunchFailureCleansDetachedSession(t *testing.T) {
+	tracker, f := newTracker(t)
+	f.markErr = errors.New("marker unavailable")
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err == nil {
+		t.Fatal("unmarked review launch succeeded")
+	}
+	if len(f.sent) != 0 || len(f.deleted) != 1 || f.deleted[0] != "review-1" || tracker.inflight {
+		t.Fatal("partial launch leaked an active/unrestricted session")
+	}
+}
+
+func TestIdleReviewIsCancelledBeforeAnyModelCall(t *testing.T) {
+	tracker, f := newTracker(t)
+	tracker.idleDelay = time.Hour
+	finished := make(chan error, 1)
+	go func() { finished <- tracker.Fire(context.Background(), "source", Review{Memory: true}) }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		tracker.mu.Lock()
+		inflight := tracker.inflight
+		tracker.mu.Unlock()
+		if inflight { break }
+		if time.Now().After(deadline) { t.Fatal("review launcher did not reserve its slot") }
+		time.Sleep(time.Millisecond)
+	}
+	if err := tracker.CancelForLiveTurn(context.Background(), "live"); err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i <= MaxReviewIterations; i++ {
-		if tracker.AssistantIteration("review-1", fmt.Sprintf("m-%d", i), false) {
-			t.Fatalf("text-only iteration %d cancelled", i)
+	select {
+	case err := <-finished:
+		if !errors.Is(err, context.Canceled) { t.Fatalf("cancel error = %v", err) }
+	case <-time.After(time.Second):
+		t.Fatal("idle review did not stop")
+	}
+	if len(f.created) != 0 || len(f.sent) != 0 {
+		t.Fatal("cancelled idle review reached the model")
+	}
+}
+
+func TestFireLoadTimeoutReleasesReservation(t *testing.T) {
+	tracker, _ := newTracker(t)
+	tracker.fireTimeout = 20 * time.Millisecond
+	tracker.rt.LoadTranscript = func(ctx context.Context, _ string) ([]Message, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout = %v", err)
+	}
+	if tracker.inflight {
+		t.Fatal("timed-out launch retained its reservation")
+	}
+}
+
+func TestReviewIterationsAreBoundedAndDeduplicated(t *testing.T) {
+	tracker, _ := newTracker(t)
+	if err := tracker.Fire(context.Background(), "source", Review{Memory: true}); err != nil { t.Fatal(err) }
+	for i := 1; i < MaxReviewIterations; i++ {
+		id := strings.Repeat("m", i)
+		if tracker.AssistantIteration("review-1", id, true) || tracker.AssistantIteration("review-1", id, true) {
+			t.Fatal("duplicate iteration exhausted the limit early")
 		}
 	}
-	if !tracker.AssistantIteration("review-1", "m-16", true) {
-		t.Fatal("late tool metadata did not enforce ceiling")
+	if !tracker.AssistantIteration("review-1", "limit", true) {
+		t.Fatal("review exceeded its iteration limit")
+	}
+	if id, err := tracker.Stop(context.Background()); err != nil || id != "review-1" {
+		t.Fatalf("stop = %q %v", id, err)
 	}
 }
 
-func TestStopCancelsAndReturnsDetachedSession(t *testing.T) {
-	fake := &fakeRuntime{}
-	tracker := newTracker(fake.runtime())
-	if err := tracker.Fire(t.Context(), "source", Review{Memory: true}); err != nil {
-		t.Fatal(err)
+func TestDigestIsBoundedAndOmitsToolDumps(t *testing.T) {
+	messages := make([]Message, 50)
+	for i := range messages {
+		messages[i] = Message{Role: "user", Text: strings.Repeat("ệ ", 3000),
+			Results: []ToolResult{{Name: "tool", Content: "tool-only-secret"}}}
 	}
-	id, err := tracker.Stop(t.Context())
-	if err != nil || id != "review-1" || !strings.Contains(fmt.Sprint(fake.snapshot()), "cancel:review-1") {
-		t.Fatalf("Stop = id %q err %v calls %v", id, err, fake.snapshot())
+	messages[len(messages)-1] = Message{Role: "user", Text: "Newest important preference"}
+	got := Digest(messages)
+	if utf8.RuneCountInString(got) > maxDigestRunes || !utf8.ValidString(got) {
+		t.Fatal("digest exceeded its budget or split Unicode")
 	}
-	if err := tracker.Fire(t.Context(), "other", Review{Skills: true}); err != nil {
-		t.Fatalf("stop left review claim: %v", err)
+	if strings.Contains(got, "tool-only-secret") || !strings.Contains(got, "Newest important preference") {
+		t.Fatal("digest exposed tools or lost the newest personal evidence")
 	}
-}
-
-func TestDigestKeepsOnlyLatestTwentyFourItems(t *testing.T) {
-	messages := make([]Message, digestTail+2)
-	for index := range messages {
-		messages[index] = Message{Role: "user", Text: fmt.Sprintf("message-%02d", index)}
-	}
-
-	digest := Digest(messages)
-	if strings.Contains(digest, "message-00") || strings.Contains(digest, "message-01") {
-		t.Fatalf("digest retained items older than the latest %d: %s", digestTail, digest)
-	}
-	if !strings.Contains(digest, "message-02") || !strings.Contains(digest, "message-25") {
-		t.Fatalf("digest dropped a retained boundary item: %s", digest)
-	}
-	if got := strings.Count(digest, "[USER]\n"); got != digestTail {
-		t.Fatalf("digest item count = %d, want %d", got, digestTail)
-	}
-}
-
-func TestDigestBoundsMessageAndToolPreviewsByRunes(t *testing.T) {
-	digest := Digest([]Message{
-		{Role: "user", Text: strings.Repeat("界", messagePreviewRunes+25) + "USER-END"},
-		{Role: "assistant", Text: strings.Repeat("答", messagePreviewRunes+25) + "ASSISTANT-END", Tools: []string{"read"}},
-		{Role: "tool", Results: []ToolResult{{Name: "read", Content: strings.Repeat("工", toolResultPreviewRunes+25) + "TOOL-END"}}},
-	})
-
-	userPreview := digestLineAfter(t, digest, "[USER]")
-	assistantPreview := digestLineAfter(t, digest, "[ASSISTANT]")
-	toolPreview := strings.TrimPrefix(
-		digestLineWithPrefix(t, digest, "TOOL[read]: "),
-		"TOOL[read]: ",
-	)
-	for label, value := range map[string]string{
-		"user": userPreview, "assistant": assistantPreview,
-	} {
-		if got := runeLen(value); got != messagePreviewRunes {
-			t.Fatalf("%s preview runes = %d, want %d", label, got, messagePreviewRunes)
-		}
-	}
-	if got := runeLen(toolPreview); got != toolResultPreviewRunes {
-		t.Fatalf("tool preview runes = %d, want %d", got, toolResultPreviewRunes)
-	}
-	if strings.Contains(digest, "USER-END") || strings.Contains(digest, "ASSISTANT-END") || strings.Contains(digest, "TOOL-END") {
-		t.Fatalf("digest leaked content beyond a preview boundary: %s", digest)
-	}
-	if strings.Count(digest, truncationMarker) != 3 || !utf8.ValidString(digest) {
-		t.Fatalf("digest truncation was not explicit and rune-safe: %s", digest)
-	}
-}
-
-func digestLineAfter(t *testing.T, digest, header string) string {
-	t.Helper()
-	lines := strings.Split(digest, "\n")
-	for index, line := range lines {
-		if line == header && index+1 < len(lines) {
-			return lines[index+1]
-		}
-	}
-	t.Fatalf("missing digest header %q in %s", header, digest)
-	return ""
-}
-
-func digestLineWithPrefix(t *testing.T, digest, prefix string) string {
-	t.Helper()
-	for _, line := range strings.Split(digest, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return line
-		}
-	}
-	t.Fatalf("missing digest line prefix %q in %s", prefix, digest)
-	return ""
-}
-
-func TestCombinedPromptDoesNotStopBeforeSkillOrMemoryReview(t *testing.T) {
-	prompt := Prompt([]Message{{Role: "user", Text: "Remember that I prefer CSV."}}, Review{Memory: true, Skills: true})
-	if !strings.Contains(prompt, "Act on either dimension that has a real signal") ||
-		strings.Contains(prompt, "If nothing is worth saving, just say") ||
-		strings.Contains(prompt, "no correction or reusable technique") {
-		t.Fatalf("combined prompt has an early single-dimension stop: %s", prompt)
+	prompt := Prompt(messages, Review{Memory: true})
+	if !strings.Contains(prompt, "read-only evidence") || !strings.Contains(prompt, "Use only memory") {
+		t.Fatal("review prompt lost its restricted-purpose boundary")
 	}
 }

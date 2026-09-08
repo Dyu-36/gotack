@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"github.com/Dyu-36/gotack/internal/contextseed"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Dyu-36/gotack/internal/contextseed"
 )
 
 func TestContextReconnectFailureKeepsServerLease(t *testing.T) {
@@ -18,16 +19,7 @@ func TestContextReconnectFailureKeepsServerLease(t *testing.T) {
 			}
 			data := t.TempDir()
 			s := contextseed.New(data, nil)
-			if err := os.MkdirAll(s.ContextDir(), 0755); err != nil {
-				t.Fatal(err)
-			}
-			core := filepath.Join(s.ContextDir(), "TACK_CORE.md")
-			write := func(body string) {
-				t.Helper()
-				if err := os.WriteFile(core, []byte(body), 0644); err != nil {
-					t.Fatal(err)
-				}
-			}
+			write := func(body string) { t.Helper(); writeContextLeaseProfile(t, s, body) }
 			write("generation one")
 			fake := &contextRegistrationAPI{t: t}
 			first := newContextLeaseTestApp(t, s, fake)
@@ -48,7 +40,7 @@ func TestContextReconnectFailureKeepsServerLease(t *testing.T) {
 			}
 			switch failure {
 			case "build":
-				if err := os.WriteFile(filepath.Join(gen1, "TACK_CORE.md"), []byte("corrupt committed"), 0644); err != nil {
+				if err := os.WriteFile(filepath.Join(gen1, "TACK_CORE.md"), []byte("corrupt committed"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			case "set":

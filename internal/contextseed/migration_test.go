@@ -1,175 +1,117 @@
 package contextseed
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/Dyu-36/gotack/internal/memory"
 )
 
 func writeContextFixture(t *testing.T, path, content string) {
 	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-}
-
-func layeredSource(t *testing.T, stockText string) string {
-	t.Helper()
-	dir := t.TempDir()
-	writeContextFixture(t, filepath.Join(dir, managedCoreName), "managed-core")
-	writeContextFixture(t, filepath.Join(dir, userContextName), "default-user")
-	basePath := filepath.Join("legacy", "TACK-v1.md")
-	writeContextFixture(t, filepath.Join(dir, basePath), stockText)
-	manifest := stockManifest{Version: 1, LegacyStocks: []legacyStock{{SHA256: bytesSHA256([]byte(stockText)), Path: basePath}}}
-	data, err := json.Marshal(manifest)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, stockManifestName), data, 0o644))
-	return dir
-}
-
-func TestLayeredSeedFreshInstallIsDurableAndIdempotent(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := New(dataDir, nil)
-	source := layeredSource(t, "legacy-stock")
-	require.NoError(t, seeder.Seed(source))
-	first := seeder.MigrationStatus()
-	require.Equal(t, MigrationCommitted, first.Mode)
-	require.NotZero(t, first.Generation)
-	require.Equal(t, "managed", seeder.SnapshotOwner())
-	require.NoFileExists(t, filepath.Join(seeder.ContextDir(), legacyContextName))
-	require.NoError(t, New(dataDir, nil).Seed(source))
-	require.Equal(t, first.Generation, New(dataDir, nil).MigrationStatus().Generation)
-}
-
-func TestStockLegacyAutoMigratesAndRollbackSurvivesRestart(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := New(dataDir, nil)
-	require.NoError(t, os.MkdirAll(seeder.ContextDir(), 0o755))
-	writeContextFixture(t, filepath.Join(seeder.ContextDir(), legacyContextName), "legacy-stock")
-	source := layeredSource(t, "legacy-stock")
-	require.NoError(t, seeder.Seed(source))
-	status := seeder.MigrationStatus()
-	require.Equal(t, MigrationCommitted, status.Mode)
-	require.NotEmpty(t, status.BackupToken)
-	rolled, err := seeder.RollbackMigration(RollbackMigrationRequest{ExpectedGeneration: status.Generation, Token: status.BackupToken})
-	require.NoError(t, err)
-	require.Equal(t, MigrationRolledBack, rolled.Mode)
-	require.Equal(t, "legacy-stock", readSeeded(t, seeder, legacyContextName))
-	restarted := New(dataDir, nil)
-	require.NoError(t, restarted.Seed(source))
-	require.Equal(t, MigrationRolledBack, restarted.MigrationStatus().Mode)
-	require.Equal(t, "legacy", restarted.SnapshotOwner())
-}
-
-func TestModifiedUnknownLegacyRequiresManualCAS(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	require.NoError(t, os.MkdirAll(seeder.ContextDir(), 0o755))
-	legacyPath := filepath.Join(seeder.ContextDir(), legacyContextName)
-	writeContextFixture(t, legacyPath, "unknown custom legacy")
-	require.NoError(t, seeder.Seed(layeredSource(t, "known stock")))
-	preview, err := seeder.PreviewMigration()
-	require.NoError(t, err)
-	require.Equal(t, MigrationPending, preview.Status.Mode)
-	require.False(t, preview.BaseKnown)
-	require.True(t, preview.RequiresResolution)
-	writeContextFixture(t, legacyPath, "concurrent edit")
-	_, err = seeder.AcceptMigration(AcceptMigrationRequest{ExpectedGeneration: preview.Status.Generation, ExpectedLegacyHash: preview.Status.LegacyHash, ExpectedUserHash: preview.Status.UserHash, ExpectedCoreHash: preview.Status.CoreHash, ResolvedUser: "reviewed"})
-	require.ErrorIs(t, err, ErrMigrationConflict)
-	require.Equal(t, "concurrent edit", readSeeded(t, seeder, legacyContextName))
-}
-
-func TestKnownBasePreviewAcceptRestartAndRollback(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := New(dataDir, nil)
-	require.NoError(t, os.MkdirAll(seeder.ContextDir(), 0o755))
-	base := "stock base"
-	writeContextFixture(t, filepath.Join(seeder.ContextDir(), legacyContextName), base+"\nuser edit")
-	report := fmt.Sprintf(`{"files":{"TACK.md":%d},"hashes":{"TACK.md":%q}}`, len(base), bytesSHA256([]byte(base)))
-	writeContextFixture(t, filepath.Join(seeder.ContextDir(), ".seed-report.json"), report)
-	source := layeredSource(t, base)
-	require.NoError(t, seeder.Seed(source))
-	preview, err := seeder.PreviewMigration()
-	require.NoError(t, err)
-	require.True(t, preview.BaseKnown)
-	require.True(t, preview.HasConflicts)
-	_, err = seeder.AcceptMigration(AcceptMigrationRequest{ExpectedGeneration: preview.Status.Generation, ExpectedLegacyHash: preview.Status.LegacyHash, ExpectedUserHash: preview.Status.UserHash, ExpectedCoreHash: preview.Status.CoreHash, ResolvedUser: preview.CandidateUser})
-	require.ErrorContains(t, err, "resolve all")
-	accepted, err := seeder.AcceptMigration(AcceptMigrationRequest{ExpectedGeneration: preview.Status.Generation, ExpectedLegacyHash: preview.Status.LegacyHash, ExpectedUserHash: preview.Status.UserHash, ExpectedCoreHash: preview.Status.CoreHash, ResolvedUser: "reviewed user rules"})
-	require.NoError(t, err)
-	require.Equal(t, MigrationCommitted, accepted.Mode)
-	restarted := New(dataDir, nil)
-	require.NoError(t, restarted.Seed(source))
-	require.Equal(t, "reviewed user rules", readSeeded(t, restarted, userContextName))
-	snapshot, err := restarted.BuildPromptSnapshot()
-	require.NoError(t, err)
-	require.NoFileExists(t, filepath.Join(snapshot, legacyContextName))
-	require.FileExists(t, filepath.Join(snapshot, managedCoreName))
-	rolled, err := restarted.RollbackMigration(RollbackMigrationRequest{ExpectedGeneration: restarted.MigrationStatus().Generation, Token: accepted.BackupToken})
-	require.NoError(t, err)
-	require.Equal(t, MigrationRolledBack, rolled.Mode)
-}
-
-func TestInterruptedStagedCommitRecoversOnRestart(t *testing.T) {
-	dataDir := t.TempDir()
-	seeder := New(dataDir, nil)
-	require.NoError(t, os.MkdirAll(seeder.ContextDir(), 0o755))
-	legacy := []byte("legacy-stock")
-	writeContextFixture(t, filepath.Join(seeder.ContextDir(), legacyContextName), string(legacy))
-	stage := migrationStage{Token: "migration-recovery", PreviousMode: MigrationLegacy, ExpectedLegacyHash: bytesSHA256(legacy), TargetCoreHash: bytesSHA256([]byte("managed-core")), TargetUserHash: bytesSHA256([]byte("default-user"))}
-	require.NoError(t, os.MkdirAll(seeder.stageDir(stage.Token), 0o700))
-	writeContextFixture(t, filepath.Join(seeder.stageDir(stage.Token), managedCoreName), "managed-core")
-	writeContextFixture(t, filepath.Join(seeder.stageDir(stage.Token), userContextName), "default-user")
-	require.NoError(t, seeder.saveMigrationStatus(MigrationStatus{Mode: MigrationStaged, Version: 1, Generation: 2, LegacyHash: stage.ExpectedLegacyHash, Stage: &stage}))
-	restarted := New(dataDir, nil)
-	require.NoError(t, restarted.Seed(layeredSource(t, string(legacy))))
-	status := restarted.MigrationStatus()
-	require.Equal(t, MigrationCommitted, status.Mode)
-	require.FileExists(t, filepath.Join(restarted.backupDir(), status.BackupToken, legacyContextName))
-	require.NoFileExists(t, filepath.Join(restarted.ContextDir(), legacyContextName))
-}
-
-func TestRollbackRejectsUnissuedToken(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	_, err := seeder.RollbackMigration(RollbackMigrationRequest{Token: "some-file", ExpectedGeneration: 0})
-	require.True(t, errors.Is(err, ErrMigrationConflict))
-}
-
-func TestManagedCoreUpdatesButUserContextIsPreserved(t *testing.T) {
-	seeder := New(t.TempDir(), nil)
-	source := layeredSource(t, "stock")
-	require.NoError(t, seeder.Seed(source))
-	writeContextFixture(t, filepath.Join(seeder.ContextDir(), userContextName), "my preferences")
-	writeContextFixture(t, filepath.Join(source, managedCoreName), "managed-core-v2")
-	require.NoError(t, seeder.Seed(source))
-	require.Equal(t, "my preferences", readSeeded(t, seeder, userContextName))
-	require.Equal(t, "managed-core-v2", readSeeded(t, seeder, managedCoreName))
-}
-
-// TestStockManifestAcceptsPortableSlashPaths pins the shipped-manifest
-// contract: stock-manifest.json records legacy base paths with forward
-// slashes so one artifact loads on every platform. The loader must
-// normalize before validating (a Windows filepath.Clean would otherwise
-// reject every shipped manifest) and must still reject traversal and
-// absolute forms.
-func TestStockManifestAcceptsPortableSlashPaths(t *testing.T) {
-	dir := t.TempDir()
-	base := "stock base"
-	writeContextFixture(t, filepath.Join(dir, "legacy", "TACK-v1.md"), base)
-	manifest := fmt.Sprintf(`{"version":1,"legacy_stocks":[{"sha256":%q,"path":"legacy/TACK-v1.md"}]}`, bytesSHA256([]byte(base)))
-	writeContextFixture(t, filepath.Join(dir, stockManifestName), manifest)
-	if _, err := loadStockManifest(dir); err != nil {
-		t.Fatalf("shipped forward-slash manifest rejected: %v", err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	for _, bad := range []string{"../legacy/TACK-v1.md", "C:/legacy/TACK-v1.md", "legacy//TACK-v1.md"} {
-		badManifest := fmt.Sprintf(`{"version":1,"legacy_stocks":[{"sha256":%q,"path":%q}]}`, bytesSHA256([]byte(base)), bad)
-		writeContextFixture(t, filepath.Join(dir, stockManifestName), badManifest)
-		if _, err := loadStockManifest(dir); err == nil {
-			t.Fatalf("manifest path %q must be rejected", bad)
+// Migration is now additive: rollback is the untouched source, not a mutable
+// legacy/layered state machine. Preserve the no-loss/restart/overwrite invariants.
+func TestLegacyPersonalImportIsAdditiveAndRestartSafe(t *testing.T) {
+	data := t.TempDir()
+	old := filepath.Join(data, "context", "memory", "USER.md")
+	writeContextFixture(t, old, "Prefers Vietnamese")
+	s := New(data, nil)
+	if err := s.Seed(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(mustRead(t, old)); got != "Prefers Vietnamese" {
+		t.Fatal("legacy original was changed")
+	}
+	if got := readSeeded(t, s, memory.ProfileFileName); !strings.Contains(got, "Prefers Vietnamese") {
+		t.Fatal("legacy profile was not imported")
+	}
+	writeContextFixture(t, filepath.Join(s.ContextDir(), memory.ProfileFileName), "A newer preference")
+	if err := New(data, nil).Seed(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := readSeeded(t, s, memory.ProfileFileName); got != "A newer preference" {
+		t.Fatal("restart overwrote a newer profile")
+	}
+	report, err := memory.ReadImportReport(data)
+	if err != nil || report.Version != 1 {
+		t.Fatalf("import report: %+v, %v", report, err)
+	}
+	if got := string(mustRead(t, filepath.Join(report.BackupDir, "memory-USER.md"))); got != "Prefers Vietnamese" {
+		t.Fatal("legacy backup is not intact")
+	}
+}
+
+func TestLegacyCustomInstructionsArePreservedButNotPromoted(t *testing.T) {
+	data := t.TempDir()
+	for _, name := range []string{"USER.md", "TACK.md"} {
+		writeContextFixture(t, filepath.Join(data, "context", name), "custom-legacy-policy")
+	}
+	s := New(data, nil)
+	if err := s.Seed(""); err != nil {
+		t.Fatal(err)
+	}
+	report, err := memory.ReadImportReport(data)
+	if err != nil || len(report.NeedsReview) != 2 {
+		t.Fatalf("custom context was not surfaced for review: %+v, %v", report, err)
+	}
+	gen, err := s.BuildPromptSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(mustRead(t, filepath.Join(gen, managedCoreName))), "custom-legacy-policy") {
+		t.Fatal("legacy user text was promoted into product policy")
+	}
+	for _, name := range []string{"USER.md", "TACK.md"} {
+		if got := string(mustRead(t, filepath.Join(data, "context", name))); got != "custom-legacy-policy" {
+			t.Fatal("legacy custom instructions were removed")
 		}
+	}
+}
+
+func TestInterruptedImportPreservesAlreadyWrittenProfile(t *testing.T) {
+	data := t.TempDir()
+	s := New(data, nil)
+	writeContextFixture(t, filepath.Join(data, "context", "memory", "USER.md"), "Older profile")
+	writeContextFixture(t, filepath.Join(data, "context", "memory", "MEMORY.md"), "Durable fact")
+	writeContextFixture(t, filepath.Join(s.ContextDir(), memory.ProfileFileName), "New profile")
+	if err := s.Seed(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := readSeeded(t, s, memory.ProfileFileName); got != "New profile" {
+		t.Fatal("import overwrote a completed/newer profile")
+	}
+	if !strings.Contains(readSeeded(t, s, memory.MemoryFileName), "Durable fact") {
+		t.Fatal("retry did not import the remaining memory file")
+	}
+}
+
+func TestLegacyOversizedEntriesRemainAvailableInOriginal(t *testing.T) {
+	data := t.TempDir()
+	body := "Durable fact" + memory.EntryDelimiter + strings.Repeat("x", memory.MemoryCap+1)
+	old := filepath.Join(data, "context", "memory", "MEMORY.md")
+	writeContextFixture(t, old, body)
+	s := New(data, nil)
+	if err := s.Seed(""); err != nil {
+		t.Fatal(err)
+	}
+	if string(mustRead(t, old)) != body {
+		t.Fatal("bounded import destroyed the original")
+	}
+	report, err := memory.ReadImportReport(data)
+	if err != nil || len(report.NeedsReview) == 0 {
+		t.Fatal("omitted entries were not reported for review")
+	}
+	if memory.PromptBodyChars(readSeeded(t, s, memory.MemoryFileName)) > memory.MemoryCap {
+		t.Fatal("import bypassed the hot-memory cap")
 	}
 }

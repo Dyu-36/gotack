@@ -1,4 +1,3 @@
-
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
 export type EngineInfo = {
@@ -9,18 +8,15 @@ export type EngineInfo = {
   owned: boolean
   error?: string
 }
-
 export type WorkspaceInfo = { path: string; workspace_id: string; is_default: boolean }
 export type SessionInfo = { id: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
 export type AttachmentInfo = { file_name: string; mime_type: string; size: number; content?: string; path?: string }
-
 export type PromptAttachment = { file_name: string; mime_type?: string; content?: string; path?: string }
 export type PromptFilePick = { file_name: string; mime_type: string; size: number; path: string }
 export type AttachmentLimitsInfo = { max_bytes: number; max_derived_lines: number; max_derived_bytes: number }
 export type ToolCallInfo = { id: string; name: string; input?: string; finished: boolean }
 export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; model: string; provider: string; created_at: number; attachments?: AttachmentInfo[]; tool_calls?: ToolCallInfo[] }
 export type ChangedFileInfo = { path: string; size: number; updated_at: number }
-
 export type ModelCatalogEntry = {
   id: string
   name: string
@@ -33,7 +29,6 @@ export type ModelCatalogEntry = {
   cost_per_1m_in?: number
   cost_per_1m_out?: number
 }
-
 export type ProviderCatalogEntry = {
   id: string
   name: string
@@ -45,7 +40,6 @@ export type ProviderCatalogEntry = {
   configured: boolean
   credential_kind?: 'api_key' | 'oauth'
 }
-
 export type ZaloConfigInfo = {
   enabled: boolean
   paired_chats: string[]
@@ -66,12 +60,7 @@ export type ZaloStatusInfo = {
   last_error?: string
 }
 export type ZaloFileRequest = { path: string; chat_id?: string }
-export type ChatGPTOAuthStatus = {
-  connected: boolean
-  email?: string
-  plan?: string
-  expires_at?: number
-}
+export type ChatGPTOAuthStatus = { connected: boolean; email?: string; plan?: string; expires_at?: number }
 export type ProviderUsageWindow = {
   id: string
   name?: string
@@ -90,7 +79,6 @@ export type ProviderUsageInfo = {
   updated_at: number
   unavailable_reason?: string
 }
-
 export type SettingsInfo = {
   theme: string
   provider: string
@@ -101,7 +89,6 @@ export type SettingsInfo = {
   api_key: string
   custom_url: string
 }
-
 export type PermissionRequestEvent = {
   id: string
   session_id: string
@@ -112,9 +99,7 @@ export type PermissionRequestEvent = {
   params: unknown
   path: string
 }
-
 export type PermissionRequestPayload = { request: PermissionRequestEvent; expires_at_ms: number }
-
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
@@ -132,48 +117,23 @@ export type TaskProgressEvent = {
 }
 export type TerminalDataEvent = { id: string; data: string }
 export type TerminalExitEvent = { id: string; code?: number; error?: string }
-
-export type MigrationMode = 'legacy' | 'pending' | 'staged' | 'committed-layered' | 'rolled-back'
-export type MigrationStage = {
-  token: string
-  previous_mode: MigrationMode
-  expected_legacy_hash: string
-  expected_user_hash?: string
-  user_existed: boolean
-  target_core_hash: string
-  target_user_hash: string
+export type AssistantContextInfo = {
+  directory: string
+  profile_cap_chars: number
+  memory_cap_chars: number
+  snapshot: {
+    layout_version: number
+    files: number
+    payload_bytes: number
+    max_bytes: number
+    profile_chars: number
+    memory_chars: number
+    omitted_entries: number
+    build_micros: number
+    reused: boolean
+  }
+  import: { version: number; imported?: string[]; needs_review?: string[]; backup_dir?: string }
 }
-export type MigrationStatus = {
-  mode: MigrationMode
-  version: number
-  generation: number
-  legacy_hash?: string
-  user_hash?: string
-  core_hash?: string
-  base_hash?: string
-  backup_token?: string
-  updated_at: number
-  stage?: MigrationStage
-}
-export type MigrationPreview = {
-  status: MigrationStatus
-  legacy?: string
-  known_base?: string
-  managed_core?: string
-  user_context?: string
-  candidate_user?: string
-  base_known: boolean
-  has_conflicts: boolean
-  requires_resolution: boolean
-}
-export type AcceptMigrationRequest = {
-  expected_generation: number
-  expected_legacy_hash: string
-  expected_user_hash?: string
-  expected_core_hash: string
-  resolved_user: string
-}
-export type RollbackMigrationRequest = { expected_generation: number; token: string }
 
 type BackendApp = {
   BackendReady: () => Promise<boolean>
@@ -217,7 +177,6 @@ type BackendApp = {
   GetChatGPTOAuthStatus: () => Promise<ChatGPTOAuthStatus>
   LogoutChatGPTOAuth: () => Promise<void>
   GetZaloConfig: () => Promise<ZaloConfigInfo>
-
   SaveZaloConfig: (update: ZaloConfigUpdate) => Promise<ZaloStatusInfo>
   TestZaloConnection: () => Promise<ZaloStatusInfo>
   RemoveZaloToken: () => Promise<ZaloStatusInfo>
@@ -225,35 +184,24 @@ type BackendApp = {
   UnpairZaloChat: (chatID: string) => Promise<ZaloStatusInfo>
   ZaloStatus: () => Promise<ZaloStatusInfo>
   SendZaloFile: (req: ZaloFileRequest) => Promise<string>
-  ContextMigrationPreview: () => Promise<MigrationPreview>
-  AcceptContextMigration: (req: AcceptMigrationRequest) => Promise<MigrationStatus>
-  RollbackContextMigration: (req: RollbackMigrationRequest) => Promise<MigrationStatus>
+  AssistantContextInfo: () => Promise<AssistantContextInfo>
 }
 
 declare global {
-  interface Window {
-    go?: { main?: { App?: Partial<BackendApp> } }
-  }
+  interface Window { go?: { main?: { App?: Partial<BackendApp> } } }
 }
-
-function app(): BackendApp | null {
-  const bound = window.go?.main?.App
-  return (bound as BackendApp) ?? null
-}
-
+function app(): BackendApp | null { return (window.go?.main?.App as BackendApp) ?? null }
 import { events, type EventName } from './events.generated'
 export { events, type EventName }
 export function on<T>(event: EventName, handler: (payload: T) => void): () => void {
   const wrapped = (...data: unknown[]) => handler(data[0] as T)
   return EventsOn(event, wrapped)
 }
-
 function call<K extends keyof BackendApp>(method: K, ...args: Parameters<BackendApp[K]>): ReturnType<BackendApp[K]> {
   const fn = app()?.[method] as ((...a: unknown[]) => Promise<unknown>) | undefined
   if (!fn) return Promise.reject(new Error(`backend method ${String(method)} unavailable`)) as ReturnType<BackendApp[K]>
   return fn(...args) as ReturnType<BackendApp[K]>
 }
-
 export const desktop = {
   available: () => app() !== null,
   backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
@@ -264,23 +212,10 @@ export const desktop = {
   pickPromptFiles: () => call('PickPromptFiles'), attachmentLimits: () => call('AttachmentLimits'),
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
-  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID),
-  fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
-  openTerminal: (cwd: string) => call('OpenTerminal', cwd),
-  writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data),
-  resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows),
-  closeTerminal: (id: string) => call('CloseTerminal', id),
-  getZaloConfig: () => call('GetZaloConfig'),
-  saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update),
-  testZaloConnection: () => call('TestZaloConnection'),
-  removeZaloToken: () => call('RemoveZaloToken'),
-  regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'),
-  unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID),
-  zaloStatus: () => call('ZaloStatus'),
-  sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
-  contextMigrationPreview: () => call('ContextMigrationPreview'),
-  acceptContextMigration: (req: AcceptMigrationRequest) => call('AcceptContextMigration', req),
-  rollbackContextMigration: (req: RollbackMigrationRequest) => call('RollbackContextMigration', req),
+  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
+  openTerminal: (cwd: string) => call('OpenTerminal', cwd), writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data), resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows), closeTerminal: (id: string) => call('CloseTerminal', id),
+  getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
+  assistantContextInfo: () => call('AssistantContextInfo'),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
   listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
   loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'),

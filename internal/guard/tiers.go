@@ -7,24 +7,11 @@ import (
 )
 
 var readTools = map[string]bool{
-	"ls":          true,
-	"glob":        true,
-	"grep":        true,
-	"view":        true,
-	"sourcegraph": true,
+	"ls": true, "glob": true, "grep": true, "view": true, "sourcegraph": true,
 }
 
 var writeTools = map[string]bool{
-	"write":     true,
-	"edit":      true,
-	"multiedit": true,
-}
-
-var backgroundReviewReadTools = map[string]bool{
-	"ls":   true,
-	"glob": true,
-	"grep": true,
-	"view": true,
+	"write": true, "edit": true, "multiedit": true,
 }
 
 func isReadTool(name string) bool  { return readTools[name] }
@@ -39,10 +26,9 @@ func isSkillTool(name string) bool {
 	}
 }
 
+// Personal memory review is not a general-purpose background agent.
 func isBackgroundReviewTool(name string) bool {
-	return backgroundReviewReadTools[name] ||
-		name == "memory" || name == "mcp_gotack-memory_memory" ||
-		isSkillTool(name)
+	return name == "memory" || name == "mcp_gotack-memory_memory"
 }
 
 func resolvePath(cwd, target string) string {
@@ -61,8 +47,7 @@ func withinPath(root, target string) bool {
 	if equalPath(root, target) {
 		return true
 	}
-	prefix := root + string(filepath.Separator)
-	return hasPathPrefix(target, prefix)
+	return hasPathPrefix(target, root+string(filepath.Separator))
 }
 
 func equalPath(a, b string) bool {
