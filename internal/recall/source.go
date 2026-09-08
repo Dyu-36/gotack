@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const engineDBFile = "crush.db"
+const engineDBFile = "tack.db"
 
 var (
 	requiredSessionColumns = []string{"id", "updated_at"}
@@ -103,24 +103,24 @@ func probeSchema(ctx context.Context, db *sql.DB) (sourceSchema, error) {
 		return schema, err
 	}
 	if sessions == nil {
-		return schema, fmt.Errorf("%w: table %q is missing from crush.db", ErrSchemaMismatch, "sessions")
+		return schema, fmt.Errorf("%w: table %q is missing from tack.db", ErrSchemaMismatch, "sessions")
 	}
 	messages, err := tableColumns(ctx, db, "messages")
 	if err != nil {
 		return schema, err
 	}
 	if messages == nil {
-		return schema, fmt.Errorf("%w: table %q is missing from crush.db", ErrSchemaMismatch, "messages")
+		return schema, fmt.Errorf("%w: table %q is missing from tack.db", ErrSchemaMismatch, "messages")
 	}
 
 	for _, column := range requiredSessionColumns {
 		if !sessions[column] {
-			return schema, fmt.Errorf("%w: sessions.%s is missing from crush.db", ErrSchemaMismatch, column)
+			return schema, fmt.Errorf("%w: sessions.%s is missing from tack.db", ErrSchemaMismatch, column)
 		}
 	}
 	for _, column := range requiredMessageColumns {
 		if !messages[column] {
-			return schema, fmt.Errorf("%w: messages.%s is missing from crush.db", ErrSchemaMismatch, column)
+			return schema, fmt.Errorf("%w: messages.%s is missing from tack.db", ErrSchemaMismatch, column)
 		}
 	}
 	for _, column := range optionalSessionColumns {

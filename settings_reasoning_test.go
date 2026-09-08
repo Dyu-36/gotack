@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestCrushReasoning(t *testing.T) {
+func TestProviderReasoning(t *testing.T) {
 	tests := []struct {
 		name       string
 		value      string
@@ -22,9 +22,9 @@ func TestCrushReasoning(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			effort, think := crushReasoning(tc.value)
+			effort, think := providerReasoning(tc.value)
 			if effort != tc.wantEffort || think != tc.wantThink {
-				t.Fatalf("crushReasoning(%q) = (%q, %v), want (%q, %v)", tc.value, effort, think, tc.wantEffort, tc.wantThink)
+				t.Fatalf("providerReasoning(%q) = (%q, %v), want (%q, %v)", tc.value, effort, think, tc.wantEffort, tc.wantThink)
 			}
 		})
 	}

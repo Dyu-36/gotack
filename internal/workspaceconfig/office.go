@@ -7,14 +7,14 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
 const LegacyOfficeMCPName = "gotack-office"
 
 type OfficeRuntime interface {
-	CrushEnv() map[string]string
+	EngineEnv() map[string]string
 	SkillsPath() string
 }
 
@@ -64,15 +64,15 @@ func MergeSkillsPaths(existing []string, additions ...string) []string {
 	return merged
 }
 
-func RegisterOffice(base context.Context, api *crushapi.Client, workspaceID string, desc workspace.Descriptor, office OfficeRuntime, userSkillsDir string) error {
+func RegisterOffice(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, office OfficeRuntime, userSkillsDir string) error {
 	if office == nil {
 		return nil
 	}
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 
-	cleanupErr := api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, "mcp_servers."+LegacyOfficeMCPName)
-	env := office.CrushEnv()
+	cleanupErr := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "mcp_servers."+LegacyOfficeMCPName)
+	env := office.EngineEnv()
 	additions := make([]string, 0, 3)
 	if skillsPath := office.SkillsPath(); skillsPath != "" {
 		additions = append(additions, skillsPath)
@@ -101,7 +101,7 @@ func RegisterOffice(base context.Context, api *crushapi.Client, workspaceID stri
 	if len(additions) > 0 {
 		fields["options.skills_paths"] = MergeSkillsPaths(current.SkillsPaths(), additions...)
 	}
-	if err := api.SetConfigFields(ctx, workspaceID, crushapi.ConfigScopeWorkspace, fields); err != nil {
+	if err := api.SetConfigFields(ctx, workspaceID, engineapi.ConfigScopeWorkspace, fields); err != nil {
 		return fmt.Errorf("office runtime config registration: %w", err)
 	}
 	if cleanupErr != nil {

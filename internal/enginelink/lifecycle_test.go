@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func TestLifecycleConnectCancelReconnect(t *testing.T) {
@@ -33,7 +33,7 @@ func TestLifecycleConnectCancelReconnect(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := link.Connect(scope, func(ctx context.Context, _ *crushapi.Client, ep crushapi.Endpoint, version string) error {
+			err := link.Connect(scope, func(ctx context.Context, _ *engineapi.Client, ep engineapi.Endpoint, version string) error {
 				if !link.CommitAttach(ctx, ep, version) {
 					return ErrAttachSuperseded
 				}
@@ -64,7 +64,7 @@ func TestLifecycleConnectCancelReconnect(t *testing.T) {
 		t.Fatal("settled link refused the final reconnect")
 	}
 	var calls int
-	if err := link.Connect(scope, func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error {
+	if err := link.Connect(scope, func(ctx context.Context, api *engineapi.Client, ep engineapi.Endpoint, version string) error {
 		calls++
 		if !link.CommitAttach(ctx, ep, version) {
 			return ErrAttachSuperseded
@@ -94,7 +94,7 @@ func TestConnectScopeCancellationAbandons(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- link.Connect(scope, func(ctx context.Context, _ *crushapi.Client, ep crushapi.Endpoint, version string) error {
+		done <- link.Connect(scope, func(ctx context.Context, _ *engineapi.Client, ep engineapi.Endpoint, version string) error {
 			if !link.CommitAttach(ctx, ep, version) {
 				return ErrAttachSuperseded
 			}
@@ -128,7 +128,7 @@ type recordingConsumer struct {
 	closed bool
 }
 
-func (r *recordingConsumer) Consume(events <-chan crushapi.StreamEvent) {
+func (r *recordingConsumer) Consume(events <-chan engineapi.StreamEvent) {
 	for range events {
 		r.mu.Lock()
 		r.count++
@@ -147,7 +147,7 @@ func TestAttachStreamReportsUnexpectedClose(t *testing.T) {
 
 `
 	tr := &engineTransport{version: "1.2.3", streamBody: sseBody(envelope)}
-	api := crushapi.NewClient(&http.Client{Transport: tr.roundTrip()})
+	api := engineapi.NewClient(&http.Client{Transport: tr.roundTrip()})
 
 	consumer := &recordingConsumer{done: make(chan struct{})}
 	lost := make(chan string, 1)
@@ -180,7 +180,7 @@ func TestAttachStreamReportsUnexpectedClose(t *testing.T) {
 
 func TestAttachStreamSilentOnCancellation(t *testing.T) {
 	tr := &engineTransport{version: "1.2.3", streamBody: blockingBody}
-	api := crushapi.NewClient(&http.Client{Transport: tr.roundTrip()})
+	api := engineapi.NewClient(&http.Client{Transport: tr.roundTrip()})
 
 	consumer := &recordingConsumer{done: make(chan struct{})}
 	var lostCalls int
@@ -210,7 +210,7 @@ func TestAttachStreamSilentOnCancellation(t *testing.T) {
 
 func TestAttachStreamSurfacesServerError(t *testing.T) {
 
-	api := crushapi.NewClient(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	api := engineapi.NewClient(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: 500,
 			Body:       io.NopCloser(strings.NewReader(`{"message":"boom"}`)),

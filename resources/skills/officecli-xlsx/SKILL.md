@@ -72,7 +72,7 @@ If any of the above fails, STOP and fix before declaring done.
 # Summary / chart / dashboard sheet (small, ≤ ~40 rows): fit to a single page.
 officecli set "$FILE" "/Summary" --prop orientation=landscape --prop fitToPage=true
 # Tall data table (dozens+ rows): fit WIDTH only, let height paginate naturally.
-# fitToPage=true here crushes every row onto one page → unreadable (### dates, 5px rows).
+# fitToPage=true here compresses every row onto one page → unreadable (### dates, 5px rows).
 officecli set "$FILE" "/Data" --prop orientation=landscape --prop fitToPage=1x0
 ```
 
@@ -408,7 +408,7 @@ Your first workbook is almost never correct. Treat QA as a bug hunt, not a confi
    ```bash
    # Short summary / chart sheet → fit to one page.
    officecli set "$FILE" "/Summary" --prop orientation=landscape --prop fitToPage=true
-   # Tall data table → fit width only (fitToPage=true would crush all rows onto one unreadable page).
+   # Tall data table → fit width only (fitToPage=true would compress all rows onto one unreadable page).
    officecli set "$FILE" "/Data" --prop orientation=landscape --prop fitToPage=1x0
    ```
    Outcome: charts/wide tables print without mid-chart splits; tall tables stay readable across natural page breaks. Apply to every sheet that holds a chart or a > 8-column table.

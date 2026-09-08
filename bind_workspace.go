@@ -105,10 +105,10 @@ func (a *App) reapplySavedWorkspaceSettings() {
 		CustomURL: a.cfg.CustomURL,
 	}
 
-	effective, err := a.applyEffectiveCrushSettings(saved, "")
+	effective, err := a.applyEffectiveProviderSettings(saved, "")
 	if err != nil {
 		if a.log != nil {
-			a.log.Warn("could not reapply saved Crush settings", "err", err)
+			a.log.Warn("could not reapply saved provider settings", "err", err)
 		}
 		return
 	}

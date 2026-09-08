@@ -232,7 +232,7 @@ func TestBackgroundReviewOwnershipAndFreshRead(t *testing.T) {
 		t.Fatalf("background create = %+v", created)
 	}
 	blocked = manager.ApplyWithMeta(context.Background(), []Operation{{Action: actionPatch, Name: "agent-owned", OldString: "Original.", NewString: &replacement}}, review)
-	if blocked.Success || !strings.Contains(blocked.Error, "Crush view") {
+	if blocked.Success || !strings.Contains(blocked.Error, "Tack view") {
 		t.Fatalf("patch without fresh view = %+v", blocked)
 	}
 	mustView(t, manager, "agent-owned", "", review)
@@ -247,7 +247,7 @@ func TestBackgroundReviewOwnershipAndFreshRead(t *testing.T) {
 	}
 	second := "Again."
 	blocked = manager.ApplyWithMeta(context.Background(), []Operation{{Action: actionPatch, Name: "agent-owned", OldString: replacement, NewString: &second}}, review)
-	if blocked.Success || !strings.Contains(blocked.Error, "Crush view") {
+	if blocked.Success || !strings.Contains(blocked.Error, "Tack view") {
 		t.Fatalf("consumed read mark reused: %+v", blocked)
 	}
 	if len(manager.readMarks[review.SessionID]) != 0 {

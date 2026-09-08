@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
@@ -66,50 +66,50 @@ func RecallEntry(command, dataDir, indexDir string) map[string]any {
 	}
 }
 
-func RegisterMemory(base context.Context, api *crushapi.Client, workspaceID, command string) error {
+func RegisterMemory(base context.Context, api *engineapi.Client, workspaceID, command string) error {
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 	key := "mcp_servers." + MemoryMCPName
 	if command == "" {
-		if err := api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, key); err != nil {
+		if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key); err != nil {
 			return fmt.Errorf("memory registration removal: %w", err)
 		}
 		return nil
 	}
-	if err := api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, key, MemoryEntry(command)); err != nil {
+	if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key, MemoryEntry(command)); err != nil {
 		return fmt.Errorf("memory registration: %w", err)
 	}
 	return nil
 }
 
-func RegisterSkills(base context.Context, api *crushapi.Client, workspaceID, command, root string) error {
+func RegisterSkills(base context.Context, api *engineapi.Client, workspaceID, command, root string) error {
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 	key := "mcp_servers." + SkillsMCPName
 	if command == "" {
-		if err := api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, key); err != nil {
+		if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key); err != nil {
 			return fmt.Errorf("skills registration removal: %w", err)
 		}
 		return nil
 	}
-	if err := api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, key, SkillsEntry(command, root)); err != nil {
+	if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key, SkillsEntry(command, root)); err != nil {
 		return fmt.Errorf("skills registration: %w", err)
 	}
 	return nil
 }
 
-func RegisterRecall(base context.Context, api *crushapi.Client, workspaceID string, desc workspace.Descriptor, command, indexRoot string) error {
+func RegisterRecall(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, command, indexRoot string) error {
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 	key := "mcp_servers." + RecallMCPName
 	if command == "" || desc.WorkspaceID != workspaceID || desc.DataDir == "" {
-		if err := api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, key); err != nil {
+		if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key); err != nil {
 			return fmt.Errorf("recall registration removal: %w", err)
 		}
 		return nil
 	}
 	entry := RecallEntry(command, desc.DataDir, filepath.Join(indexRoot, workspaceID))
-	if err := api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, key, entry); err != nil {
+	if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, key, entry); err != nil {
 		return fmt.Errorf("recall registration: %w", err)
 	}
 	return nil

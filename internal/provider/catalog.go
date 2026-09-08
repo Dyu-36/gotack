@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const (
@@ -32,14 +32,14 @@ type LocalEngineModel struct {
 }
 
 type LocalSpec struct {
-	Provider       crushapi.Provider
+	Provider       engineapi.Provider
 	APIKeyTemplate string
 	OAuthOnly      bool
 }
 
 func CodexSpec() LocalSpec {
 	return LocalSpec{
-		Provider: crushapi.Provider{
+		Provider: engineapi.Provider{
 			ID:          CodexID,
 			Name:        CodexName,
 			Type:        CodexType,
@@ -50,7 +50,7 @@ func CodexSpec() LocalSpec {
 }
 
 func MistralSpec() LocalSpec {
-	models := []crushapi.Model{
+	models := []engineapi.Model{
 		{
 			ID:             "mistral-medium-3-5",
 			Name:           "Mistral Medium 3.5",
@@ -74,7 +74,7 @@ func MistralSpec() LocalSpec {
 		},
 	}
 	return LocalSpec{
-		Provider: crushapi.Provider{
+		Provider: engineapi.Provider{
 			ID:                  MistralID,
 			Name:                "Mistral AI",
 			Type:                OpenAICompatType,
@@ -98,7 +98,7 @@ func localSpecFor(providerID string) (LocalSpec, bool) {
 	}
 }
 
-func MergeLocalOverlays(providers []crushapi.Provider) ([]crushapi.Provider, map[string]bool) {
+func MergeLocalOverlays(providers []engineapi.Provider) ([]engineapi.Provider, map[string]bool) {
 	seen := make(map[string]bool, len(providers))
 	for _, candidate := range providers {
 		seen[candidate.ID] = true
@@ -116,10 +116,10 @@ func MergeLocalOverlays(providers []crushapi.Provider) ([]crushapi.Provider, map
 	return providers, overlaid
 }
 
-func MergeModels(primary, fallback []crushapi.Model) []crushapi.Model {
-	result := make([]crushapi.Model, 0, len(primary)+len(fallback))
+func MergeModels(primary, fallback []engineapi.Model) []engineapi.Model {
+	result := make([]engineapi.Model, 0, len(primary)+len(fallback))
 	seen := make(map[string]bool, len(primary)+len(fallback))
-	for _, models := range [][]crushapi.Model{primary, fallback} {
+	for _, models := range [][]engineapi.Model{primary, fallback} {
 		for _, model := range models {
 			if model.ID == "" || seen[model.ID] {
 				continue
@@ -165,7 +165,7 @@ func ConfigFields(spec LocalSpec) map[string]any {
 	return fields
 }
 
-func PrepareLocal(ctx context.Context, api *crushapi.Client, workspaceID string, scope int, providerID string) (bool, error) {
+func PrepareLocal(ctx context.Context, api *engineapi.Client, workspaceID string, scope int, providerID string) (bool, error) {
 	spec, supported := localSpecFor(providerID)
 	if !supported {
 		return false, nil
@@ -195,12 +195,12 @@ func PrepareLocal(ctx context.Context, api *crushapi.Client, workspaceID string,
 	return true, nil
 }
 
-func IdentityMatches(configured crushapi.ProviderConfig, spec LocalSpec) bool {
+func IdentityMatches(configured engineapi.ProviderConfig, spec LocalSpec) bool {
 	return strings.TrimSpace(configured.Name) == spec.Provider.Name &&
 		strings.TrimSpace(configured.Type) == spec.Provider.Type
 }
 
-func FinalizeLocal(ctx context.Context, api *crushapi.Client, workspaceID string, scope int, providerID string) error {
+func FinalizeLocal(ctx context.Context, api *engineapi.Client, workspaceID string, scope int, providerID string) error {
 	spec, supported := localSpecFor(providerID)
 	if !supported || spec.OAuthOnly {
 		return nil
@@ -211,7 +211,7 @@ func FinalizeLocal(ctx context.Context, api *crushapi.Client, workspaceID string
 	return nil
 }
 
-func ListCatalog(ctx context.Context, api *crushapi.Client, workspaceID string) ([]crushapi.Provider, error) {
+func ListCatalog(ctx context.Context, api *engineapi.Client, workspaceID string) ([]engineapi.Provider, error) {
 	providers, err := api.ListProviders(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -219,7 +219,7 @@ func ListCatalog(ctx context.Context, api *crushapi.Client, workspaceID string) 
 	providers, localOverlays := MergeLocalOverlays(providers)
 	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("get resolved Crush config: %w", err)
+		return nil, fmt.Errorf("get resolved engine config: %w", err)
 	}
 	for i := range providers {
 		configured, exists := cfg.Providers[providers[i].ID]

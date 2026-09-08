@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
+func TestApplyEffectiveProviderSettingsRedirectsStaleSelection(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("AppData", configRoot)
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
@@ -59,7 +59,7 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 		}
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	app := NewApp()
 	app.ctx = context.Background()
@@ -74,7 +74,7 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
 	app.link.MarkRunning()
@@ -90,9 +90,9 @@ func TestApplyEffectiveCrushSettingsRedirectsStaleSelection(t *testing.T) {
 		CustomURL: codexBackendURL,
 	}
 
-	effective, err := app.applyEffectiveCrushSettings(stale, "")
+	effective, err := app.applyEffectiveProviderSettings(stale, "")
 	if err != nil {
-		t.Fatalf("applyEffectiveCrushSettings() error = %v", err)
+		t.Fatalf("applyEffectiveProviderSettings() error = %v", err)
 	}
 
 	if effective.Provider != codexProviderID || effective.Model != "gpt-subscription" {
@@ -134,7 +134,7 @@ func TestChatGPTRedirectCandidate(t *testing.T) {
 	}
 }
 
-func TestApplyCrushSettingsValidatesBeforeMutation(t *testing.T) {
+func TestApplyProviderSettingsValidatesBeforeMutation(t *testing.T) {
 	cases := []struct {
 		name     string
 		settings SettingsInfo
@@ -164,7 +164,7 @@ func TestApplyCrushSettingsValidatesBeforeMutation(t *testing.T) {
 				}
 			})
 
-			api := crushapi.NewClient(&http.Client{Transport: transport})
+			api := engineapi.NewClient(&http.Client{Transport: transport})
 			ws := workspace.NewService(api)
 			app := NewApp()
 			app.ctx = context.Background()
@@ -175,7 +175,7 @@ func TestApplyCrushSettingsValidatesBeforeMutation(t *testing.T) {
 				return c
 			})
 			scope, started := app.link.BeginConnect(context.Background())
-			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+			if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 				t.Fatal("could not attach test engine")
 			}
 			app.link.MarkRunning()
@@ -184,8 +184,8 @@ func TestApplyCrushSettingsValidatesBeforeMutation(t *testing.T) {
 			}
 			opened = true
 
-			if err := app.applyCrushSettings(tc.settings, tc.apiKey); err == nil {
-				t.Fatal("applyCrushSettings() succeeded, want validation error")
+			if err := app.applyProviderSettings(tc.settings, tc.apiKey); err == nil {
+				t.Fatal("applyProviderSettings() succeeded, want validation error")
 			}
 			if len(mutationPhaseRequests) != 0 {
 				t.Fatalf("validation performed engine requests: %#v", mutationPhaseRequests)
@@ -194,7 +194,7 @@ func TestApplyCrushSettingsValidatesBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestApplyCrushSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) {
+func TestApplyProviderSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) {
 	cases := []struct {
 		name          string
 		settings      SettingsInfo
@@ -288,7 +288,7 @@ func TestApplyCrushSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) 
 				}
 			})
 
-			api := crushapi.NewClient(&http.Client{Transport: transport})
+			api := engineapi.NewClient(&http.Client{Transport: transport})
 			ws := workspace.NewService(api)
 			app := NewApp()
 			app.ctx = context.Background()
@@ -299,7 +299,7 @@ func TestApplyCrushSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) 
 				return c
 			})
 			scope, started := app.link.BeginConnect(context.Background())
-			if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+			if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 				t.Fatal("could not attach test engine")
 			}
 			app.link.MarkRunning()
@@ -307,13 +307,13 @@ func TestApplyCrushSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) 
 				t.Fatalf("open workspace: %v", err)
 			}
 
-			err := app.applyCrushSettings(tc.settings, tc.apiKey)
+			err := app.applyProviderSettings(tc.settings, tc.apiKey)
 			if tc.fail == "" {
 				if err != nil {
-					t.Fatalf("applyCrushSettings() error = %v", err)
+					t.Fatalf("applyProviderSettings() error = %v", err)
 				}
 			} else if err == nil {
-				t.Fatal("applyCrushSettings() succeeded despite injected failure")
+				t.Fatal("applyProviderSettings() succeeded despite injected failure")
 			}
 			if !slices.Equal(mutations, tc.wantMutations) {
 				t.Fatalf("mutations = %#v, want %#v", mutations, tc.wantMutations)
@@ -321,8 +321,8 @@ func TestApplyCrushSettingsMakesProviderReadyBeforeModelSelection(t *testing.T) 
 			if tc.fail == "finalize" {
 				fail = ""
 				mutations = nil
-				if err := app.applyCrushSettings(tc.settings, tc.apiKey); err != nil {
-					t.Fatalf("retry applyCrushSettings() error = %v", err)
+				if err := app.applyProviderSettings(tc.settings, tc.apiKey); err != nil {
+					t.Fatalf("retry applyProviderSettings() error = %v", err)
 				}
 				wantRetry := []string{"credential", "finalize", "models"}
 				if !slices.Equal(mutations, wantRetry) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const (
@@ -14,8 +14,8 @@ const (
 	GuardHookTimeout = 10
 )
 
-func FilterGuardHook(hooks []crushapi.HookEntry) []crushapi.HookEntry {
-	out := make([]crushapi.HookEntry, 0, len(hooks))
+func FilterGuardHook(hooks []engineapi.HookEntry) []engineapi.HookEntry {
+	out := make([]engineapi.HookEntry, 0, len(hooks))
 	for _, hook := range hooks {
 		if hook.Name == GuardHookName {
 			continue
@@ -25,7 +25,7 @@ func FilterGuardHook(hooks []crushapi.HookEntry) []crushapi.HookEntry {
 	return out
 }
 
-func RegisterGuard(base context.Context, api *crushapi.Client, workspaceID, command string) error {
+func RegisterGuard(base context.Context, api *engineapi.Client, workspaceID, command string) error {
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 
@@ -36,24 +36,24 @@ func RegisterGuard(base context.Context, api *crushapi.Client, workspaceID, comm
 	existing := FilterGuardHook(cfg.Hooks[GuardHookEvent])
 	if command == "" {
 		if len(existing) == 0 {
-			if err := api.RemoveConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, GuardHookKey); err != nil {
+			if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, GuardHookKey); err != nil {
 				return fmt.Errorf("guard hook removal: %w", err)
 			}
 			return nil
 		}
-		if err := api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, GuardHookKey, existing); err != nil {
+		if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, GuardHookKey, existing); err != nil {
 			return fmt.Errorf("guard hook removal rewrite: %w", err)
 		}
 		return nil
 	}
 
-	merged := append(existing, crushapi.HookEntry{
+	merged := append(existing, engineapi.HookEntry{
 		Name:    GuardHookName,
 		Matcher: "",
 		Command: command,
 		Timeout: GuardHookTimeout,
 	})
-	if err := api.SetConfigField(ctx, workspaceID, crushapi.ConfigScopeWorkspace, GuardHookKey, merged); err != nil {
+	if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, GuardHookKey, merged); err != nil {
 		return fmt.Errorf("guard hook registration: %w", err)
 	}
 	return nil

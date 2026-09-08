@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const keyFileName = "run-metrics.key"
@@ -102,7 +102,7 @@ func New(logDir string, log *slog.Logger) *Writer {
 	return &Writer{path: filepath.Join(logDir, "input-pipeline.jsonl"), log: log}
 }
 
-func (writer *Writer) Append(telemetry *crushapi.RunTelemetry) {
+func (writer *Writer) Append(telemetry *engineapi.RunTelemetry) {
 	if telemetry == nil {
 		return
 	}
@@ -134,7 +134,7 @@ func (writer *Writer) Append(telemetry *crushapi.RunTelemetry) {
 	}
 }
 
-func Validate(telemetry *crushapi.RunTelemetry) error {
+func Validate(telemetry *engineapi.RunTelemetry) error {
 	if telemetry == nil {
 		return errors.New("telemetry_missing")
 	}
@@ -249,7 +249,7 @@ func enum(value string, allowed ...string) bool {
 	return false
 }
 
-func cloneProviderAttempt(in crushapi.ProviderAttemptTelemetry) crushapi.ProviderAttemptTelemetry {
+func cloneProviderAttempt(in engineapi.ProviderAttemptTelemetry) engineapi.ProviderAttemptTelemetry {
 	out := in
 	cloneInt64 := func(value *int64) *int64 {
 		if value == nil {
@@ -267,12 +267,12 @@ func cloneProviderAttempt(in crushapi.ProviderAttemptTelemetry) crushapi.Provide
 	return out
 }
 
-func redactSensitive(telemetry *crushapi.RunTelemetry) *crushapi.RunTelemetry {
+func redactSensitive(telemetry *engineapi.RunTelemetry) *engineapi.RunTelemetry {
 	out := *telemetry
 	out.ProviderRequestID = ""
 	out.SpansMicros = maps.Clone(telemetry.SpansMicros)
 	if len(telemetry.ProviderAttempts) > 0 {
-		out.ProviderAttempts = make([]crushapi.ProviderAttemptTelemetry, len(telemetry.ProviderAttempts))
+		out.ProviderAttempts = make([]engineapi.ProviderAttemptTelemetry, len(telemetry.ProviderAttempts))
 		for i, attempt := range telemetry.ProviderAttempts {
 			out.ProviderAttempts[i] = cloneProviderAttempt(attempt)
 		}

@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 var safeID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -35,7 +35,7 @@ func Reasoning(value string) (effort string, think bool) {
 	}
 }
 
-func ProviderUsesOAuth(ctx context.Context, api *crushapi.Client, workspaceID, providerID string) (bool, error) {
+func ProviderUsesOAuth(ctx context.Context, api *engineapi.Client, workspaceID, providerID string) (bool, error) {
 	if providerID == CodexID {
 		return true, nil
 	}
@@ -47,7 +47,7 @@ func ProviderUsesOAuth(ctx context.Context, api *crushapi.Client, workspaceID, p
 	return ok && OAuthCredentialPresent(configured), nil
 }
 
-func Apply(ctx context.Context, api *crushapi.Client, workspaceID string, settings Settings, apiKey string) error {
+func Apply(ctx context.Context, api *engineapi.Client, workspaceID string, settings Settings, apiKey string) error {
 	providerID := strings.TrimSpace(settings.Provider)
 	credentialProvider := strings.TrimSpace(settings.CredentialProvider)
 	if credentialProvider == "" {
@@ -63,7 +63,7 @@ func Apply(ctx context.Context, api *crushapi.Client, workspaceID string, settin
 		return errors.New("codex signs in with ChatGPT, not an API key; use the openai provider for an API key")
 	}
 	if (settings.ProviderOnly || endpoint != "") && !ValidID(credentialProvider) {
-		return fmt.Errorf("provider id %q cannot be used in a Crush config path", credentialProvider)
+		return fmt.Errorf("provider id %q cannot be used in an engine config path", credentialProvider)
 	}
 	if endpoint != "" {
 		oauthBacked, err := ProviderUsesOAuth(ctx, api, workspaceID, credentialProvider)
@@ -75,7 +75,7 @@ func Apply(ctx context.Context, api *crushapi.Client, workspaceID string, settin
 		}
 	}
 
-	scope := crushapi.ConfigScopeGlobal
+	scope := engineapi.ConfigScopeGlobal
 	managedLocalProvider := false
 	var err error
 	if credentialProvider != "" {
@@ -91,12 +91,12 @@ func Apply(ctx context.Context, api *crushapi.Client, workspaceID string, settin
 	}
 	if apiKey != "" {
 		if err := api.SetProviderAPIKey(ctx, workspaceID, scope, credentialProvider, apiKey); err != nil {
-			return fmt.Errorf("apply Crush provider credential: %w", err)
+			return fmt.Errorf("apply engine provider credential: %w", err)
 		}
 	}
 	if endpoint != "" {
 		if err := api.SetConfigField(ctx, workspaceID, scope, "providers."+credentialProvider+".base_url", endpoint); err != nil {
-			return fmt.Errorf("apply Crush provider endpoint: %w", err)
+			return fmt.Errorf("apply engine provider endpoint: %w", err)
 		}
 	}
 	if managedLocalProvider {
@@ -106,20 +106,20 @@ func Apply(ctx context.Context, api *crushapi.Client, workspaceID string, settin
 	}
 	if !settings.ProviderOnly && providerID != "" && modelID != "" {
 		effort, think := Reasoning(settings.Thinking)
-		selected := crushapi.SelectedModel{Provider: providerID, Model: modelID, ReasoningEffort: effort, Think: think}
+		selected := engineapi.SelectedModel{Provider: providerID, Model: modelID, ReasoningEffort: effort, Think: think}
 		if err := api.SetPreferredModelPair(ctx, workspaceID, scope, selected); err != nil {
-			return fmt.Errorf("apply Crush model selection: %w", err)
+			return fmt.Errorf("apply engine model selection: %w", err)
 		}
 	}
 	if providerID != "" && modelID != "" {
 		if err := api.EnsureAgent(ctx, workspaceID, true); err != nil {
-			return fmt.Errorf("initialize Crush agent: %w", err)
+			return fmt.Errorf("initialize engine agent: %w", err)
 		}
 	}
 	return nil
 }
 
-func PreferredModelsUseProvider(models map[string]crushapi.SelectedModel, providerID string) bool {
+func PreferredModelsUseProvider(models map[string]engineapi.SelectedModel, providerID string) bool {
 	for _, modelType := range []string{"large", "small"} {
 		if strings.TrimSpace(models[modelType].Provider) == providerID {
 			return true
@@ -128,9 +128,9 @@ func PreferredModelsUseProvider(models map[string]crushapi.SelectedModel, provid
 	return false
 }
 
-func DeleteEngineConfig(ctx context.Context, api *crushapi.Client, workspaceID, providerID string, clearModels bool) error {
+func DeleteEngineConfig(ctx context.Context, api *engineapi.Client, workspaceID, providerID string, clearModels bool) error {
 	base := "providers." + providerID
-	scope := crushapi.ConfigScopeGlobal
+	scope := engineapi.ConfigScopeGlobal
 	if err := api.SetConfigField(ctx, workspaceID, scope, base+".disable", true); err != nil {
 		return fmt.Errorf("disable provider: %w", err)
 	}

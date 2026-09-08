@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/runmetrics"
 )
 
@@ -20,7 +20,7 @@ type Supervisor struct {
 	mu       sync.Mutex
 	cmd      *exec.Cmd
 	owned    bool
-	endpoint crushapi.Endpoint
+	endpoint engineapi.Endpoint
 	logFile  *os.File
 }
 
@@ -40,7 +40,7 @@ func (s *Supervisor) Owned() bool {
 	return s.owned
 }
 
-func (s *Supervisor) Start() (crushapi.Endpoint, error) {
+func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 	s.mu.Lock()
 	if s.cmd != nil && s.cmd.Process != nil {
 		running := s.endpoint
@@ -73,7 +73,7 @@ func (s *Supervisor) Start() (crushapi.Endpoint, error) {
 		if logFile != nil {
 			_ = logFile.Close()
 		}
-		return crushapi.Endpoint{}, fmt.Errorf("engine: start %s: %w", bin, err)
+		return engineapi.Endpoint{}, fmt.Errorf("engine: start %s: %w", bin, err)
 	}
 
 	s.mu.Lock()

@@ -30,7 +30,7 @@ func settingsInfoFromProvider(settings providerdomain.Settings) SettingsInfo {
 	}
 }
 
-func (a *App) applyEffectiveCrushSettings(settings SettingsInfo, apiKey string) (SettingsInfo, error) {
+func (a *App) applyEffectiveProviderSettings(settings SettingsInfo, apiKey string) (SettingsInfo, error) {
 	if svc, err := a.services(); err == nil {
 		if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
 			redirected, err := a.redirectStrandedChatGPTSelection(svc, desc.WorkspaceID, settings, apiKey)
@@ -40,13 +40,13 @@ func (a *App) applyEffectiveCrushSettings(settings SettingsInfo, apiKey string) 
 			settings = redirected
 		}
 	}
-	return settings, a.applyCrushSettings(settings, apiKey)
+	return settings, a.applyProviderSettings(settings, apiKey)
 }
 
-func (a *App) applyCrushSettings(settings SettingsInfo, apiKey string) error {
+func (a *App) applyProviderSettings(settings SettingsInfo, apiKey string) error {
 	svc, err := a.services()
 	if err != nil {
-		return needWorkspace(apiKey, "Crush is not running")
+		return needWorkspace(apiKey, "Tack engine is not running")
 	}
 	desc, ok := svc.ws.Current()
 	if !ok || desc.WorkspaceID == "" {
@@ -62,6 +62,6 @@ func needWorkspace(apiKey, reason string) error {
 	return fmt.Errorf("cannot store API key: %s", reason)
 }
 
-func crushReasoning(value string) (effort string, think bool) {
+func providerReasoning(value string) (effort string, think bool) {
 	return providerdomain.Reasoning(value)
 }

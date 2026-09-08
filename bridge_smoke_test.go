@@ -9,8 +9,8 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/changes"
-	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -25,13 +25,13 @@ func TestBridgeSmoke(t *testing.T) {
 		t.Skipf("engine not reachable at %s %s", ep.Network, ep.Address)
 	}
 
-	hc, err := crushapi.Dial(ctx, ep)
+	hc, err := engineapi.Dial(ctx, ep)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	api := crushapi.NewClient(hc)
+	api := engineapi.NewClient(hc)
 
-	if err := crushapi.Ping(hc, ctx); err != nil {
+	if err := engineapi.Ping(hc, ctx); err != nil {
 		t.Fatalf("health: %v", err)
 	}
 	vi, err := api.Version(ctx)
@@ -92,7 +92,7 @@ func TestBridgeSmoke(t *testing.T) {
 		t.Log("stream open, idle as expected")
 	}
 
-	resolved, err := api.GrantPermission(ctx, ws.ID, crushapi.PermissionRequest{ID: "no-such"}, crushapi.PermissionDeny)
+	resolved, err := api.GrantPermission(ctx, ws.ID, engineapi.PermissionRequest{ID: "no-such"}, engineapi.PermissionDeny)
 	if err != nil {
 		t.Fatalf("grant permission: %v", err)
 	}
@@ -112,11 +112,11 @@ func TestBridgeServicesSmoke(t *testing.T) {
 		t.Skipf("engine not reachable at %s %s", ep.Network, ep.Address)
 	}
 
-	hc, err := crushapi.Dial(ctx, ep)
+	hc, err := engineapi.Dial(ctx, ep)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	api := crushapi.NewClient(hc)
+	api := engineapi.NewClient(hc)
 
 	root, err := os.MkdirTemp("", "gotack-smoke-svc-*")
 	if err != nil {

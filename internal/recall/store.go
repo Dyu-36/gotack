@@ -72,7 +72,7 @@ func (s *Store) syncLocked(ctx context.Context) error {
 	defer func() { _ = source.Close() }()
 	s.roleAvailable = source.schema.messageHas("role")
 	for _, note := range source.Degraded() {
-		s.log.Warn("recall: schema drift in crush.db", "detail", note)
+		s.log.Warn("recall: schema drift in tack.db", "detail", note)
 	}
 	index, err := s.ensureIndexLocked()
 	if err != nil {

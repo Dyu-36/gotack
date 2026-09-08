@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -39,7 +39,7 @@ func (a *App) GetSettings() SettingsInfo {
 	}
 }
 
-func resolvedProviderCredential(config crushapi.ProviderConfig) (kind, value string, ok bool) {
+func resolvedProviderCredential(config engineapi.ProviderConfig) (kind, value string, ok bool) {
 	return providerdomain.ResolvedCredential(config)
 }
 
@@ -58,7 +58,7 @@ func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (strin
 	return ws.ID, nil
 }
 
-func (a *App) ListProviders() ([]crushapi.Provider, error) {
+func (a *App) ListProviders() ([]engineapi.Provider, error) {
 	svc, err := a.services()
 	if err != nil {
 		return nil, err
@@ -154,13 +154,13 @@ func (a *App) DeleteProvider(providerID string) error {
 	return providerdomain.DeleteEngineConfig(ctx, svc.api, desc.WorkspaceID, providerID, clearModels)
 }
 
-func preferredModelsUseProvider(models map[string]crushapi.SelectedModel, providerID string) bool {
+func preferredModelsUseProvider(models map[string]engineapi.SelectedModel, providerID string) bool {
 	return providerdomain.PreferredModelsUseProvider(models, providerID)
 }
 
 func (a *App) SaveSettings(settings SettingsInfo) error {
 	apiKey := strings.TrimSpace(settings.APIKey)
-	effective, err := a.applyEffectiveCrushSettings(settings, apiKey)
+	effective, err := a.applyEffectiveProviderSettings(settings, apiKey)
 	if err != nil {
 		return err
 	}

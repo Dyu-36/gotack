@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const maxMessageTextBytes = 64 * 1024
@@ -14,7 +14,7 @@ func extractPartsText(raw, role string) string {
 	if trimmed == "" || trimmed == "[]" {
 		return ""
 	}
-	parts := crushapi.ExtractParts(json.RawMessage(trimmed))
+	parts := engineapi.ExtractParts(json.RawMessage(trimmed))
 	var sb strings.Builder
 	appendField(&sb, parts.Text)
 	if strings.EqualFold(strings.TrimSpace(role), "assistant") {

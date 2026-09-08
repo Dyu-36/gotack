@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
-func testReq(id string) crushapi.PermissionRequest {
-	return crushapi.PermissionRequest{ID: id, SessionID: "s1", ToolName: "bash"}
+func testReq(id string) engineapi.PermissionRequest {
+	return engineapi.PermissionRequest{ID: id, SessionID: "s1", ToolName: "bash"}
 }
 
 func pendingCount(r *Relay) int {

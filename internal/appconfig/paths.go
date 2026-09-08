@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func Dir() string {
@@ -46,15 +46,15 @@ func currentUID() string {
 func endpointName() string {
 	uid := currentUID()
 	if uid == "" {
-		return "crush.sock"
+		return "tack-engine.sock"
 	}
-	return "crush-" + uid + ".sock"
+	return "tack-engine-" + uid + ".sock"
 }
 
-func PipeEndpoint() crushapi.Endpoint {
+func PipeEndpoint() engineapi.Endpoint {
 	name := endpointName()
 	if runtime.GOOS == "windows" {
-		return crushapi.Endpoint{
+		return engineapi.Endpoint{
 			Network: "npipe",
 			Address: `\\.\pipe\` + name,
 		}
@@ -65,7 +65,7 @@ func PipeEndpoint() crushapi.Endpoint {
 	if len(addr) >= 108 {
 		addr = filepath.Join("/tmp", name)
 	}
-	return crushapi.Endpoint{
+	return engineapi.Endpoint{
 		Network: "unix",
 		Address: addr,
 	}

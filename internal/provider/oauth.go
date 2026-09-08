@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/openaioauth"
 )
 
@@ -18,10 +18,10 @@ type AuthStatus struct {
 	ExpiresAt int64
 }
 
-func ChatGPTAuthStatus(ctx context.Context, api *crushapi.Client, workspaceID string, now time.Time) (AuthStatus, error) {
+func ChatGPTAuthStatus(ctx context.Context, api *engineapi.Client, workspaceID string, now time.Time) (AuthStatus, error) {
 	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
-		return AuthStatus{}, fmt.Errorf("get Crush config: %w", err)
+		return AuthStatus{}, fmt.Errorf("get engine config: %w", err)
 	}
 	configured, ok := cfg.Providers[CodexID]
 	if !ok || configured.Disable {
@@ -40,12 +40,12 @@ func ChatGPTAuthStatus(ctx context.Context, api *crushapi.Client, workspaceID st
 		if token.RefreshToken == "" {
 			return AuthStatus{Connected: false}, nil
 		}
-		if err := api.RefreshProviderOAuthToken(ctx, workspaceID, crushapi.ConfigScopeGlobal, CodexID); err != nil {
+		if err := api.RefreshProviderOAuthToken(ctx, workspaceID, engineapi.ConfigScopeGlobal, CodexID); err != nil {
 			return AuthStatus{Connected: false}, nil
 		}
 		cfg, err = api.GetWorkspaceConfig(ctx, workspaceID)
 		if err != nil {
-			return AuthStatus{}, fmt.Errorf("get refreshed Crush config: %w", err)
+			return AuthStatus{}, fmt.Errorf("get refreshed engine config: %w", err)
 		}
 		configured = cfg.Providers[CodexID]
 		if err := json.Unmarshal(configured.OAuth, &token); err != nil || token.AccessToken == "" || token.AccountID == "" {

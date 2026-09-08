@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/Dyu-36/gotack/internal/contextseed"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
@@ -45,7 +45,7 @@ func NewManager(options Options) *Manager {
 	}
 }
 
-func (m *Manager) Apply(ctx context.Context, api *crushapi.Client, desc workspace.Descriptor) {
+func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspace.Descriptor) {
 	if m == nil || api == nil || desc.WorkspaceID == "" {
 		return
 	}

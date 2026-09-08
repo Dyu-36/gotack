@@ -54,14 +54,14 @@ func TestInstallPathPrependsBinDir(t *testing.T) {
 	}
 }
 
-func TestCrushEnvAndSkillsPath(t *testing.T) {
+func TestEngineEnvAndSkillsPath(t *testing.T) {
 	root := t.TempDir()
 	seeder := New(root, nil)
 	t.Setenv("PATH", "")
 	seeder.InstallPath()
-	env := seeder.CrushEnv()
+	env := seeder.EngineEnv()
 	if env["PATH"] == "" || !strings.Contains(env["PATH"], seeder.BinDir()) {
-		t.Fatalf("Crush env missing bin dir: %+v", env)
+		t.Fatalf("engine env missing bin dir: %+v", env)
 	}
 	if seeder.SkillsPathArg() != seeder.SkillsDir() {
 		t.Fatalf("SkillsPathArg should match SkillsDir")

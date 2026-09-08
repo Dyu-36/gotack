@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
-func findProvider(t *testing.T, providers []crushapi.Provider, id string) crushapi.Provider {
+func findProvider(t *testing.T, providers []engineapi.Provider, id string) engineapi.Provider {
 	t.Helper()
 	for _, provider := range providers {
 		if provider.ID == id {
@@ -17,11 +17,11 @@ func findProvider(t *testing.T, providers []crushapi.Provider, id string) crusha
 		}
 	}
 	t.Fatalf("provider %q is missing from %#v", id, providers)
-	return crushapi.Provider{}
+	return engineapi.Provider{}
 }
 
 func TestMergeLocalProviderOverlaysAddsLocalProvidersWhenMissing(t *testing.T) {
-	providers, overlays := mergeLocalProviderOverlays([]crushapi.Provider{{ID: "openai", Name: "OpenAI"}})
+	providers, overlays := mergeLocalProviderOverlays([]engineapi.Provider{{ID: "openai", Name: "OpenAI"}})
 	if len(providers) != 3 {
 		t.Fatalf("provider count = %d, want 3", len(providers))
 	}
@@ -47,14 +47,14 @@ func TestMergeLocalProviderOverlaysAddsLocalProvidersWhenMissing(t *testing.T) {
 }
 
 func TestMergeLocalProviderOverlaysLetsUpstreamMistralWin(t *testing.T) {
-	upstream := crushapi.Provider{
+	upstream := engineapi.Provider{
 		ID:          mistralProviderID,
 		Name:        "Mistral upstream",
 		Type:        "openai-compat",
 		APIEndpoint: "https://upstream.example/v1",
-		Models:      []crushapi.Model{{ID: "upstream-model", Name: "Upstream model"}},
+		Models:      []engineapi.Model{{ID: "upstream-model", Name: "Upstream model"}},
 	}
-	providers, overlays := mergeLocalProviderOverlays([]crushapi.Provider{upstream})
+	providers, overlays := mergeLocalProviderOverlays([]engineapi.Provider{upstream})
 	mistral := findProvider(t, providers, mistralProviderID)
 	if mistral.Name != upstream.Name || mistral.APIEndpoint != upstream.APIEndpoint || mistral.Models[0].ID != "upstream-model" {
 		t.Fatalf("upstream Mistral was changed: %#v", mistral)
@@ -65,8 +65,8 @@ func TestMergeLocalProviderOverlaysLetsUpstreamMistralWin(t *testing.T) {
 }
 
 func TestMergeProviderModelsKeepsConfiguredMetadataFirst(t *testing.T) {
-	configured := []crushapi.Model{{ID: "mistral-medium-3-5", Name: "Configured", SupportsVision: false}}
-	fallback := []crushapi.Model{
+	configured := []engineapi.Model{{ID: "mistral-medium-3-5", Name: "Configured", SupportsVision: false}}
+	fallback := []engineapi.Model{
 		{ID: "mistral-medium-3-5", Name: "Overlay", SupportsVision: true},
 		{ID: "mistral-small-2603", Name: "Small", SupportsVision: true},
 	}
@@ -78,22 +78,22 @@ func TestMergeProviderModelsKeepsConfiguredMetadataFirst(t *testing.T) {
 
 func TestLocalProviderIdentityMatchesOnlyStableManagedIdentity(t *testing.T) {
 	spec := mistralProviderSpec()
-	if !localProviderIdentityMatches(crushapi.ProviderConfig{
+	if !localProviderIdentityMatches(engineapi.ProviderConfig{
 		Name:    spec.Provider.Name,
 		Type:    spec.Provider.Type,
 		BaseURL: "https://custom.example/v1",
 	}, spec) {
 		t.Fatal("custom endpoint made a Gotack-managed provider lose ownership")
 	}
-	if localProviderIdentityMatches(crushapi.ProviderConfig{Name: "User Mistral", Type: spec.Provider.Type}, spec) {
+	if localProviderIdentityMatches(engineapi.ProviderConfig{Name: "User Mistral", Type: spec.Provider.Type}, spec) {
 		t.Fatal("hand-written provider was treated as Gotack-managed")
 	}
-	if localProviderIdentityMatches(crushapi.ProviderConfig{Name: spec.Provider.Name, Type: "custom"}, spec) {
+	if localProviderIdentityMatches(engineapi.ProviderConfig{Name: spec.Provider.Name, Type: "custom"}, spec) {
 		t.Fatal("provider with a custom type was treated as Gotack-managed")
 	}
 }
 
-func TestPrepareLocalProviderConfigSeedsCrushWireFields(t *testing.T) {
+func TestPrepareLocalProviderConfigSeedsProviderFields(t *testing.T) {
 	var (
 		batchRequests int
 		setFields     map[string]json.RawMessage
@@ -119,8 +119,8 @@ func TestPrepareLocalProviderConfigSeedsCrushWireFields(t *testing.T) {
 			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 		}
 	})
-	api := crushapi.NewClient(&http.Client{Transport: transport})
-	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID)
+	api := engineapi.NewClient(&http.Client{Transport: transport})
+	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID)
 	if err != nil {
 		t.Fatalf("prepareLocalProviderConfig() error = %v", err)
 	}
@@ -174,18 +174,18 @@ func TestPrepareLocalProviderConfigRetriesWholeBatchAfterFailure(t *testing.T) {
 			return nil, nil
 		}
 	})
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 
-	if _, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID); err == nil {
+	if _, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID); err == nil {
 		t.Fatal("first prepare succeeded despite batch failure")
 	}
 	failBatch = false
-	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID)
+	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID)
 	if err != nil || !seeded {
 		t.Fatalf("retry prepare = seeded:%v err:%v", seeded, err)
 	}
 	upstreamProviderVisible = true
-	managed, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, mistralProviderID)
+	managed, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID)
 	if err != nil || !managed {
 		t.Fatalf("completed provider prepare = managed:%v err:%v", managed, err)
 	}
@@ -220,8 +220,8 @@ func TestPrepareLocalProviderConfigOmitsCredentialFieldsForCodex(t *testing.T) {
 			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 		}
 	})
-	api := crushapi.NewClient(&http.Client{Transport: transport})
-	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, codexProviderID)
+	api := engineapi.NewClient(&http.Client{Transport: transport})
+	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, codexProviderID)
 	if err != nil {
 		t.Fatalf("prepareLocalProviderConfig() error = %v", err)
 	}
@@ -249,8 +249,8 @@ func TestFinalizeLocalProviderConfigSkipsCodex(t *testing.T) {
 		t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
 		return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 	})
-	api := crushapi.NewClient(&http.Client{Transport: transport})
-	if err := finalizeLocalProviderConfig(context.Background(), api, "ws", crushapi.ConfigScopeGlobal, codexProviderID); err != nil {
+	api := engineapi.NewClient(&http.Client{Transport: transport})
+	if err := finalizeLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, codexProviderID); err != nil {
 		t.Fatalf("finalizeLocalProviderConfig() error = %v", err)
 	}
 }

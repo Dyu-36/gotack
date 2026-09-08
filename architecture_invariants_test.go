@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestHostDoesNotImportCrushInternals(t *testing.T) {
+func TestHostDoesNotImportEngineSourceInternals(t *testing.T) {
 	for _, name := range scopedGoFiles(t) {
 		file, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.ImportsOnly)
 		if err != nil {
@@ -22,8 +22,8 @@ func TestHostDoesNotImportCrushInternals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unquote import in %s: %v", name, err)
 			}
-			if strings.Contains(path, "third_party/crush/internal/") {
-				t.Errorf("%s imports forbidden Crush internal package %q", name, path)
+			if strings.Contains(path, "third_party/engine-source/internal/") {
+				t.Errorf("%s imports forbidden engine source internal package %q", name, path)
 			}
 		}
 	}

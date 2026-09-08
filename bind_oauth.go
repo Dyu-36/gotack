@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/openaioauth"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -47,10 +47,10 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 	if err != nil {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("chatgpt oauth login failed: %w", err)
 	}
-	if err := providerdomain.SeedCodex(a.ctx, svc.api, workspaceID, crushapi.ConfigScopeGlobal); err != nil {
+	if err := providerdomain.SeedCodex(a.ctx, svc.api, workspaceID, engineapi.ConfigScopeGlobal); err != nil {
 		return ChatGPTOAuthStatus{}, err
 	}
-	if err := svc.api.SetProviderOAuthToken(a.ctx, workspaceID, crushapi.ConfigScopeGlobal, codexProviderID, token); err != nil {
+	if err := svc.api.SetProviderOAuthToken(a.ctx, workspaceID, engineapi.ConfigScopeGlobal, codexProviderID, token); err != nil {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("save oauth token to engine: %w", err)
 	}
 

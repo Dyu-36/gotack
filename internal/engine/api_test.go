@@ -5,14 +5,14 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func quietSupervisor() *Supervisor {
 	return NewSupervisor(slog.New(slog.DiscardHandler), "")
 }
 
-func markStartedForTest(s *Supervisor, ep crushapi.Endpoint) {
+func markStartedForTest(s *Supervisor, ep engineapi.Endpoint) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cmd = &exec.Cmd{Path: "test-stub"}
@@ -27,7 +27,7 @@ func TestEngineAPI_StartStop(t *testing.T) {
 		t.Fatalf("fresh supervisor must not be owned")
 	}
 
-	ep := crushapi.Endpoint{Network: "pipe", Address: "test-engine"}
+	ep := engineapi.Endpoint{Network: "pipe", Address: "test-engine"}
 	markStartedForTest(api.(*Supervisor), ep)
 
 	if !api.Owned() {
@@ -45,7 +45,7 @@ func TestEngineAPI_AdoptedNotKilled(t *testing.T) {
 	s.mu.Lock()
 	s.cmd = &exec.Cmd{Path: "test-adopted"}
 	s.owned = false
-	s.endpoint = crushapi.Endpoint{Network: "pipe", Address: "adopted"}
+	s.endpoint = engineapi.Endpoint{Network: "pipe", Address: "adopted"}
 	adoptedCmd := s.cmd
 	s.mu.Unlock()
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -54,7 +54,7 @@ func (f *memoryAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func newMemoryTestApp(t *testing.T, fake *memoryAPI) *App {
 	t.Helper()
-	api := crushapi.NewClient(&http.Client{Transport: fake})
+	api := engineapi.NewClient(&http.Client{Transport: fake})
 	app := NewApp()
 	app.ctx = context.Background()
 	app.swapConn(func(c *conn) *conn {
@@ -64,7 +64,7 @@ func newMemoryTestApp(t *testing.T, fake *memoryAPI) *App {
 		return c
 	})
 	scope, started := app.link.BeginConnect(context.Background())
-	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("link rejected the test connect scope")
 	}
 	app.link.MarkRunning()

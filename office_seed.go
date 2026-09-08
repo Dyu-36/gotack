@@ -77,8 +77,8 @@ func (s *officeSeeder) startup() {
 	s.seeder.InstallPath()
 }
 
-func (s *officeSeeder) CrushEnv() map[string]string {
-	return s.seeder.CrushEnv()
+func (s *officeSeeder) EngineEnv() map[string]string {
+	return s.seeder.EngineEnv()
 }
 
 func (s *officeSeeder) SkillsPath() string {

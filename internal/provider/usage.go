@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/openaioauth"
 )
 
@@ -60,7 +60,7 @@ type ChatGPTRateLimitWindow struct {
 	ResetAt            int64   `json:"reset_at"`
 }
 
-func ConfiguredChatGPTToken(config crushapi.ProviderConfig) (openaioauth.Token, bool) {
+func ConfiguredChatGPTToken(config engineapi.ProviderConfig) (openaioauth.Token, bool) {
 	if config.Disable {
 		return openaioauth.Token{}, false
 	}
@@ -201,11 +201,11 @@ func UsageWindowID(name string, index int) string {
 	return fmt.Sprintf("%s-%d", name, index)
 }
 
-func LoadChatGPTUsage(ctx context.Context, api *crushapi.Client, workspaceID string, client *http.Client, endpoint string, now time.Time) (UsageInfo, error) {
+func LoadChatGPTUsage(ctx context.Context, api *engineapi.Client, workspaceID string, client *http.Client, endpoint string, now time.Time) (UsageInfo, error) {
 	unavailable := UnavailableUsage(CodexID, CodexName, "Chưa đăng nhập ChatGPT.", now)
 	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
-		return unavailable, fmt.Errorf("get Crush config for provider usage: %w", err)
+		return unavailable, fmt.Errorf("get engine config for provider usage: %w", err)
 	}
 	token, ok := ConfiguredChatGPTToken(cfg.Providers[CodexID])
 	if !ok {
@@ -217,13 +217,13 @@ func LoadChatGPTUsage(ctx context.Context, api *crushapi.Client, workspaceID str
 			unavailable.UnavailableReason = "Phiên ChatGPT đã hết hạn; hãy đăng nhập lại."
 			return unavailable, nil
 		}
-		if err := api.RefreshProviderOAuthToken(ctx, workspaceID, crushapi.ConfigScopeGlobal, CodexID); err != nil {
+		if err := api.RefreshProviderOAuthToken(ctx, workspaceID, engineapi.ConfigScopeGlobal, CodexID); err != nil {
 			unavailable.UnavailableReason = "Không thể làm mới phiên ChatGPT; hãy đăng nhập lại."
 			return unavailable, nil
 		}
 		cfg, err = api.GetWorkspaceConfig(ctx, workspaceID)
 		if err != nil {
-			return unavailable, fmt.Errorf("get refreshed Crush config for provider usage: %w", err)
+			return unavailable, fmt.Errorf("get refreshed engine config for provider usage: %w", err)
 		}
 		token, ok = ConfiguredChatGPTToken(cfg.Providers[CodexID])
 		if !ok {

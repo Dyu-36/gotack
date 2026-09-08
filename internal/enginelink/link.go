@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type Status string
@@ -27,9 +27,9 @@ var ErrAttachSuperseded = errors.New("enginelink: attach scope superseded")
 
 var ErrNoSupervisor = errors.New("enginelink: engine supervisor unavailable")
 
-type DialFunc func(ctx context.Context, ep crushapi.Endpoint) (*http.Client, error)
+type DialFunc func(ctx context.Context, ep engineapi.Endpoint) (*http.Client, error)
 
-type ReadyFunc func(ctx context.Context, api *crushapi.Client, ep crushapi.Endpoint, version string) error
+type ReadyFunc func(ctx context.Context, api *engineapi.Client, ep engineapi.Endpoint, version string) error
 
 type Link struct {
 	sup              engine.EngineAPI
@@ -39,7 +39,7 @@ type Link struct {
 	mu          sync.Mutex
 	status      Status
 	lastError   string
-	ep          crushapi.Endpoint
+	ep          engineapi.Endpoint
 	version     string
 	scopeCancel context.CancelFunc
 }
@@ -47,7 +47,7 @@ type Link struct {
 func NewLink(sup engine.EngineAPI) *Link {
 	return &Link{
 		sup:              sup,
-		dial:             crushapi.Dial,
+		dial:             engineapi.Dial,
 		handshakeTimeout: defaultHandshakeTimeout,
 		status:           StatusStopped,
 	}
@@ -65,7 +65,7 @@ func (l *Link) LastError() string {
 	return l.lastError
 }
 
-func (l *Link) Endpoint() crushapi.Endpoint {
+func (l *Link) Endpoint() engineapi.Endpoint {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.ep
@@ -111,7 +111,7 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 		return fmt.Errorf("dial %s %s: %w", ep.Network, ep.Address, err)
 	}
 
-	api := crushapi.NewClient(hc)
+	api := engineapi.NewClient(hc)
 	if err := engine.WaitForHealthy(scope, api, l.handshakeTimeout); err != nil {
 		return fmt.Errorf("handshake: %w", err)
 	}
@@ -123,7 +123,7 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 	return ready(scope, api, ep, vi.Version)
 }
 
-func (l *Link) CommitAttach(scope context.Context, ep crushapi.Endpoint, version string) bool {
+func (l *Link) CommitAttach(scope context.Context, ep engineapi.Endpoint, version string) bool {
 	if scope.Err() != nil {
 		return false
 	}
@@ -169,7 +169,7 @@ func (l *Link) Disconnect() {
 	l.scopeCancel = nil
 	l.status = StatusStopped
 	l.lastError = ""
-	l.ep = crushapi.Endpoint{}
+	l.ep = engineapi.Endpoint{}
 	l.version = ""
 	l.mu.Unlock()
 	if cancel != nil {

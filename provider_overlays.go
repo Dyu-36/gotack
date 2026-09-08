@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -19,22 +19,22 @@ func mistralProviderSpec() localProviderSpec {
 	return providerdomain.MistralSpec()
 }
 
-func mergeLocalProviderOverlays(providers []crushapi.Provider) ([]crushapi.Provider, map[string]bool) {
+func mergeLocalProviderOverlays(providers []engineapi.Provider) ([]engineapi.Provider, map[string]bool) {
 	return providerdomain.MergeLocalOverlays(providers)
 }
 
-func mergeProviderModels(primary, fallback []crushapi.Model) []crushapi.Model {
+func mergeProviderModels(primary, fallback []engineapi.Model) []engineapi.Model {
 	return providerdomain.MergeModels(primary, fallback)
 }
 
-func prepareLocalProviderConfig(ctx context.Context, api *crushapi.Client, workspaceID string, scope int, providerID string) (bool, error) {
+func prepareLocalProviderConfig(ctx context.Context, api *engineapi.Client, workspaceID string, scope int, providerID string) (bool, error) {
 	return providerdomain.PrepareLocal(ctx, api, workspaceID, scope, providerID)
 }
 
-func localProviderIdentityMatches(configured crushapi.ProviderConfig, spec localProviderSpec) bool {
+func localProviderIdentityMatches(configured engineapi.ProviderConfig, spec localProviderSpec) bool {
 	return providerdomain.IdentityMatches(configured, spec)
 }
 
-func finalizeLocalProviderConfig(ctx context.Context, api *crushapi.Client, workspaceID string, scope int, providerID string) error {
+func finalizeLocalProviderConfig(ctx context.Context, api *engineapi.Client, workspaceID string, scope int, providerID string) error {
 	return providerdomain.FinalizeLocal(ctx, api, workspaceID, scope, providerID)
 }

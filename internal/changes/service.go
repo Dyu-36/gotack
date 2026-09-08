@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
@@ -18,11 +18,11 @@ type FileStatus struct {
 }
 
 type Service struct {
-	api *crushapi.Client
+	api *engineapi.Client
 	ws  *workspace.Service
 }
 
-func NewService(api *crushapi.Client, ws *workspace.Service) *Service {
+func NewService(api *engineapi.Client, ws *workspace.Service) *Service {
 	return &Service{api: api, ws: ws}
 }
 
@@ -42,7 +42,7 @@ func (s *Service) ChangedFiles(ctx context.Context, sessionID string) ([]FileSta
 		return nil, fmt.Errorf("fetch history: %w", err)
 	}
 
-	latest := make(map[string]crushapi.File, len(history))
+	latest := make(map[string]engineapi.File, len(history))
 	for _, f := range history {
 		path := strings.TrimSpace(f.Path)
 		if path == "" {
@@ -108,9 +108,9 @@ func (s *Service) currentWorkspaceID() (string, error) {
 	return desc.WorkspaceID, nil
 }
 
-func versionsForPath(history []crushapi.File, path string) []crushapi.File {
+func versionsForPath(history []engineapi.File, path string) []engineapi.File {
 	target := strings.TrimSpace(path)
-	var out []crushapi.File
+	var out []engineapi.File
 	for _, f := range history {
 		if strings.TrimSpace(f.Path) == target {
 			out = append(out, f)

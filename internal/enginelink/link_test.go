@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type fakeSupervisor struct {
 	mu         sync.Mutex
-	ep         crushapi.Endpoint
+	ep         engineapi.Endpoint
 	found      bool
 	startErr   error
 	startCalls int
@@ -29,18 +29,18 @@ func (f *fakeSupervisor) Owned() bool {
 	return f.owned
 }
 
-func (f *fakeSupervisor) Locate(context.Context) (crushapi.Endpoint, bool) {
+func (f *fakeSupervisor) Locate(context.Context) (engineapi.Endpoint, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.ep, f.found
 }
 
-func (f *fakeSupervisor) Start() (crushapi.Endpoint, error) {
+func (f *fakeSupervisor) Start() (engineapi.Endpoint, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.startCalls++
 	if f.startErr != nil {
-		return crushapi.Endpoint{}, f.startErr
+		return engineapi.Endpoint{}, f.startErr
 	}
 	f.owned = true
 	return f.ep, nil
@@ -85,10 +85,10 @@ func (tr *engineTransport) roundTrip() http.RoundTripper {
 
 func newTestLink(t *testing.T, sup *fakeSupervisor, tr *engineTransport) *Link {
 	t.Helper()
-	sup.ep = crushapi.Endpoint{Network: "pipe", Address: "fake-engine"}
+	sup.ep = engineapi.Endpoint{Network: "pipe", Address: "fake-engine"}
 	sup.found = true
 	link := NewLink(sup)
-	link.dial = func(context.Context, crushapi.Endpoint) (*http.Client, error) {
+	link.dial = func(context.Context, engineapi.Endpoint) (*http.Client, error) {
 		return &http.Client{Transport: tr.roundTrip()}, nil
 	}
 
@@ -96,8 +96,8 @@ func newTestLink(t *testing.T, sup *fakeSupervisor, tr *engineTransport) *Link {
 	return link
 }
 
-func readyRecorder(calls *int, epOut *crushapi.Endpoint, versionOut *string) ReadyFunc {
-	return func(_ context.Context, _ *crushapi.Client, ep crushapi.Endpoint, version string) error {
+func readyRecorder(calls *int, epOut *engineapi.Endpoint, versionOut *string) ReadyFunc {
+	return func(_ context.Context, _ *engineapi.Client, ep engineapi.Endpoint, version string) error {
 		*calls++
 		if epOut != nil {
 			*epOut = ep
@@ -147,9 +147,9 @@ func TestConnectHandshakeSuccess(t *testing.T) {
 	}
 
 	var calls int
-	var ep crushapi.Endpoint
+	var ep engineapi.Endpoint
 	var version string
-	err := link.Connect(scope, func(ctx context.Context, api *crushapi.Client, gotEP crushapi.Endpoint, gotVersion string) error {
+	err := link.Connect(scope, func(ctx context.Context, api *engineapi.Client, gotEP engineapi.Endpoint, gotVersion string) error {
 		if !link.CommitAttach(ctx, gotEP, gotVersion) {
 			t.Fatal("commit attach rejected the live connect scope")
 		}
@@ -211,7 +211,7 @@ func TestConnectFailureAllowsRetry(t *testing.T) {
 	tr := &engineTransport{version: "1.2.3", streamBody: sseBody("")}
 	link := newTestLink(t, sup, tr)
 	dialErr := errors.New("pipe busy")
-	link.dial = func(context.Context, crushapi.Endpoint) (*http.Client, error) {
+	link.dial = func(context.Context, engineapi.Endpoint) (*http.Client, error) {
 		return nil, dialErr
 	}
 
@@ -232,7 +232,7 @@ func TestConnectFailureAllowsRetry(t *testing.T) {
 		t.Fatalf("last error = %q, want the dial reason", link.LastError())
 	}
 
-	link.dial = func(context.Context, crushapi.Endpoint) (*http.Client, error) {
+	link.dial = func(context.Context, engineapi.Endpoint) (*http.Client, error) {
 		return &http.Client{Transport: tr.roundTrip()}, nil
 	}
 	scope2, started := link.BeginConnect(context.Background())
@@ -273,7 +273,7 @@ func TestCommitAttachRejectsDeadScope(t *testing.T) {
 	link := NewLink(&fakeSupervisor{})
 	scope, cancel := context.WithCancel(context.Background())
 	cancel()
-	if link.CommitAttach(scope, crushapi.Endpoint{Address: "late"}, "v1") {
+	if link.CommitAttach(scope, engineapi.Endpoint{Address: "late"}, "v1") {
 		t.Fatal("commit attach accepted a cancelled scope")
 	}
 	if got := link.Endpoint(); got.Address == "late" {
@@ -323,7 +323,7 @@ func TestTransportLostIgnoresCancelledScope(t *testing.T) {
 func TestDisconnectResetsState(t *testing.T) {
 	link := NewLink(&fakeSupervisor{})
 	scope, _ := link.BeginConnect(context.Background())
-	link.CommitAttach(scope, crushapi.Endpoint{Address: "ep"}, "v9")
+	link.CommitAttach(scope, engineapi.Endpoint{Address: "ep"}, "v9")
 	link.MarkRunning()
 
 	link.Disconnect()

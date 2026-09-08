@@ -174,7 +174,7 @@ func viewTool(manager *Manager) mcp.Tool {
 	return mcp.Tool{
 		Name: ViewToolName,
 		Description: "Read one managed skill file and record an exact background-review safety mark. " +
-			"Crush supplies the catalog and canonical view; use this handshake only before skill_manage changes.",
+			"Tack supplies the catalog and canonical view; use this handshake only before skill_manage changes.",
 		Schema: json.RawMessage(`{
 			"type":"object",
 			"additionalProperties":false,

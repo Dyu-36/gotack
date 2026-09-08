@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
-func SupportsVision(ctx context.Context, api *crushapi.Client, workspaceID, providerID, modelID string) (bool, error) {
+func SupportsVision(ctx context.Context, api *engineapi.Client, workspaceID, providerID, modelID string) (bool, error) {
 	providers, err := api.ListProviders(ctx, workspaceID)
 	if err != nil {
 		return false, err

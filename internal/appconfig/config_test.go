@@ -102,7 +102,7 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("RecentWorkspaces=%v want nil", d.RecentWorkspaces)
 	}
 	if d.Provider != "" || d.Model != "" || d.Thinking != "" {
-		t.Errorf("agent settings must default empty so Crush catalog defaults apply, got provider=%q model=%q thinking=%q", d.Provider, d.Model, d.Thinking)
+		t.Errorf("agent settings must default empty so engine catalog defaults apply, got provider=%q model=%q thinking=%q", d.Provider, d.Model, d.Thinking)
 	}
 	if d.AutoApprove {
 		t.Errorf("AutoApprove=%v want false", d.AutoApprove)

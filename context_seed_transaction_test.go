@@ -8,14 +8,14 @@ import (
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/contextseed"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
 func newContextLeaseTestApp(t *testing.T, seeder *contextseed.Seeder, fake *contextRegistrationAPI) *App {
 	t.Helper()
-	api := crushapi.NewClient(&http.Client{Transport: fake})
+	api := engineapi.NewClient(&http.Client{Transport: fake})
 	app := NewApp()
 	t.Cleanup(app.releaseAllContextLeases)
 	app.ctx = context.Background()
@@ -27,7 +27,7 @@ func newContextLeaseTestApp(t *testing.T, seeder *contextseed.Seeder, fake *cont
 		return c
 	})
 	scope, started := app.link.BeginConnect(context.Background())
-	if !started || !app.link.CommitAttach(scope, crushapi.Endpoint{}, "test") {
+	if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("link rejected test connect scope")
 	}
 	app.link.MarkRunning()

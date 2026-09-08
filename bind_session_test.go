@@ -13,7 +13,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -23,7 +23,7 @@ func TestToMessageInfoIncludesConversationModel(t *testing.T) {
 		{"type":"text","data":{"text":"hello"}},
 		{"type":"binary","data":{"Path":"photo.png","MIMEType":"image/png","Data":"iVBORw=="}}
 	]`)
-	got := toMessageInfo(crushapi.Message{
+	got := toMessageInfo(engineapi.Message{
 		ID:        "message-1",
 		Role:      "assistant",
 		Parts:     parts,
@@ -105,7 +105,7 @@ func TestDecodePromptAttachmentsFailsSoftPerFile(t *testing.T) {
 	}
 }
 
-func TestCurrentModelVisionUsesCrushCatalog(t *testing.T) {
+func TestCurrentModelVisionUsesEngineCatalog(t *testing.T) {
 	workspacePath := t.TempDir()
 	transport := catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		switch {
@@ -120,7 +120,7 @@ func TestCurrentModelVisionUsesCrushCatalog(t *testing.T) {
 		}
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	if _, err := ws.Open(context.Background(), workspacePath); err != nil {
 		t.Fatalf("open workspace: %v", err)
@@ -129,7 +129,7 @@ func TestCurrentModelVisionUsesCrushCatalog(t *testing.T) {
 	a.ctx = context.Background()
 	a.cfg = &appconfig.Config{Provider: "opencode-go", Model: "minimax-m3"}
 	if a.isCurrentModelVision(&bridgeServices{api: api, ws: ws}) {
-		t.Fatal("opencode-go/minimax-m3 was treated as vision despite Crush catalog false")
+		t.Fatal("opencode-go/minimax-m3 was treated as vision despite engine catalog false")
 	}
 }
 
@@ -173,7 +173,7 @@ func TestSetCurrentSessionReattachesMissingEventStream(t *testing.T) {
 		}
 	})
 
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	if _, err := ws.Open(context.Background(), workspacePath); err != nil {
 		t.Fatalf("open workspace: %v", err)

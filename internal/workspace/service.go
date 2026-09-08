@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 type Descriptor struct {
@@ -20,13 +20,13 @@ type Descriptor struct {
 }
 
 type Service struct {
-	api *crushapi.Client
+	api *engineapi.Client
 
 	mu      sync.RWMutex
 	current Descriptor
 }
 
-func NewService(api *crushapi.Client) *Service {
+func NewService(api *engineapi.Client) *Service {
 	return &Service{api: api}
 }
 
@@ -49,8 +49,6 @@ func (s *Service) open(ctx context.Context, path, dataDir string) (Descriptor, e
 	if err != nil {
 		return Descriptor{}, err
 	}
-
-	_ = MigrateLegacyDataDir(clean)
 
 	ws, err := s.findOrCreate(ctx, clean, dataDir)
 	if err != nil {
@@ -86,9 +84,9 @@ func (s *Service) preparePath(path string) (string, error) {
 	return clean, nil
 }
 
-func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (crushapi.Workspace, error) {
+func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (engineapi.Workspace, error) {
 	if s.api == nil {
-		return crushapi.Workspace{}, errors.New("engine client not configured")
+		return engineapi.Workspace{}, errors.New("engine client not configured")
 	}
 
 	existing, err := s.api.ListWorkspaces(ctx)
@@ -102,7 +100,7 @@ func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (crus
 
 	ws, err := s.api.CreateWorkspaceWithDataDir(ctx, clean, dataDir, true)
 	if err != nil {
-		return crushapi.Workspace{}, fmt.Errorf("create workspace: %w", err)
+		return engineapi.Workspace{}, fmt.Errorf("create workspace: %w", err)
 	}
 	return ws, nil
 }
@@ -125,24 +123,4 @@ func samePath(a, b string) bool {
 		return strings.EqualFold(ca, cb)
 	}
 	return ca == cb
-}
-
-// MigrateLegacyDataDir checks if a legacy .crush directory exists in the workspace
-// and renames it to .tack if .tack does not already exist.
-func MigrateLegacyDataDir(workspacePath string) error {
-	if workspacePath == "" {
-		return nil
-	}
-	legacyDir := filepath.Join(workspacePath, ".crush")
-	targetDir := filepath.Join(workspacePath, ".tack")
-
-	info, err := os.Stat(legacyDir)
-	if err != nil || !info.IsDir() {
-		return nil
-	}
-	if _, err := os.Stat(targetDir); err == nil {
-		// Target .tack directory already exists; do not overwrite.
-		return nil
-	}
-	return os.Rename(legacyDir, targetDir)
 }

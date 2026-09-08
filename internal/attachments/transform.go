@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/office"
 )
 
@@ -28,7 +28,7 @@ type Prepared struct {
 
 	PromptBlock string
 
-	Attachment *crushapi.Attachment
+	Attachment *engineapi.Attachment
 
 	Warning string
 }
@@ -106,7 +106,7 @@ func transform(name, declaredMime string, content []byte, path string, supportsV
 	case KindImage:
 		if supportsVision {
 
-			attachment := crushapi.Attachment{FilePath: path, FileName: name, MimeType: mimeType, Content: bytes.Clone(content)}
+			attachment := engineapi.Attachment{FilePath: path, FileName: name, MimeType: mimeType, Content: bytes.Clone(content)}
 			out.Attachment = &attachment
 			break
 		}

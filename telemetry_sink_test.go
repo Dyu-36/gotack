@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/runmetrics"
 	"github.com/Dyu-36/gotack/internal/uievents"
 )
@@ -35,7 +35,7 @@ func TestWorkspaceStreamCannotFabricateProviderSpanInHostSink(t *testing.T) {
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, srv.Listener.Addr().String())
 	}
-	api := crushapi.NewClient(&http.Client{Transport: transport})
+	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	events, stop, err := api.Stream(ctx, "fixture", "run_complete")
@@ -57,7 +57,7 @@ func TestWorkspaceStreamCannotFabricateProviderSpanInHostSink(t *testing.T) {
 		t.Fatalf("sink records=%d, want 2", len(lines))
 	}
 	for _, line := range lines {
-		var record crushapi.RunTelemetry
+		var record engineapi.RunTelemetry
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			t.Fatal(err)
 		}

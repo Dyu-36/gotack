@@ -81,10 +81,9 @@ Desktop.ini
 # ==========================================
 # Workspace runtime data directories
 /.tack/
-/.crush/
 
 # Vendored upstream source (own git history)
-/third_party/crush/
+/third_party/engine-source/
 
 # Reproducible downloaded runtime payloads; scripts/prepare-resources.ps1
 # recreates these before packaging.

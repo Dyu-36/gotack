@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/openaioauth"
 )
 
-func SeedCodex(ctx context.Context, api *crushapi.Client, workspaceID string, scope int) error {
+func SeedCodex(ctx context.Context, api *engineapi.Client, workspaceID string, scope int) error {
 	fields := ConfigFields(CodexSpec())
 	fields["providers."+CodexID+".disable"] = false
 	if err := api.SetConfigFields(ctx, workspaceID, scope, fields); err != nil {
@@ -19,8 +19,8 @@ func SeedCodex(ctx context.Context, api *crushapi.Client, workspaceID string, sc
 	return nil
 }
 
-func MigrateChatGPTOAuthToCodex(ctx context.Context, api *crushapi.Client, workspaceID string) (bool, error) {
-	scope := crushapi.ConfigScopeGlobal
+func MigrateChatGPTOAuthToCodex(ctx context.Context, api *engineapi.Client, workspaceID string) (bool, error) {
+	scope := engineapi.ConfigScopeGlobal
 	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
 		return false, fmt.Errorf("read provider config before Codex migration: %w", err)
@@ -46,7 +46,7 @@ func MigrateChatGPTOAuthToCodex(ctx context.Context, api *crushapi.Client, works
 	return true, clearLegacyChatGPTCredential(ctx, api, workspaceID, scope, legacy)
 }
 
-func clearLegacyChatGPTCredential(ctx context.Context, api *crushapi.Client, workspaceID string, scope int, legacy crushapi.ProviderConfig) error {
+func clearLegacyChatGPTCredential(ctx context.Context, api *engineapi.Client, workspaceID string, scope int, legacy engineapi.ProviderConfig) error {
 	base := "providers." + OpenAIID
 	removals := []string{
 		base + ".oauth",
@@ -70,7 +70,7 @@ func clearLegacyChatGPTCredential(ctx context.Context, api *crushapi.Client, wor
 	return nil
 }
 
-func SelectionStrandedOnLegacyOpenAI(cfg crushapi.WorkspaceConfig, savedProvider string) bool {
+func SelectionStrandedOnLegacyOpenAI(cfg engineapi.WorkspaceConfig, savedProvider string) bool {
 	switch strings.TrimSpace(savedProvider) {
 	case "", OpenAIID:
 	default:
@@ -83,10 +83,10 @@ func SelectionStrandedOnLegacyOpenAI(cfg crushapi.WorkspaceConfig, savedProvider
 	return strings.TrimSpace(legacy.APIKey) == "" && !OAuthCredentialPresent(legacy)
 }
 
-func codexCatalogEntry(ctx context.Context, api *crushapi.Client, workspaceID string) (crushapi.Provider, error) {
+func codexCatalogEntry(ctx context.Context, api *engineapi.Client, workspaceID string) (engineapi.Provider, error) {
 	providers, err := api.ListProviders(ctx, workspaceID)
 	if err != nil {
-		return crushapi.Provider{}, fmt.Errorf("read the provider catalog: %w", err)
+		return engineapi.Provider{}, fmt.Errorf("read the provider catalog: %w", err)
 	}
 	entry := CodexSpec().Provider
 	for _, candidate := range providers {
@@ -97,7 +97,7 @@ func codexCatalogEntry(ctx context.Context, api *crushapi.Client, workspaceID st
 	}
 	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
-		return crushapi.Provider{}, fmt.Errorf("read the stored Codex catalog: %w", err)
+		return engineapi.Provider{}, fmt.Errorf("read the stored Codex catalog: %w", err)
 	}
 	stored := cfg.Providers[CodexID]
 	if stored.BaseURL != "" {
@@ -107,7 +107,7 @@ func codexCatalogEntry(ctx context.Context, api *crushapi.Client, workspaceID st
 	return entry, nil
 }
 
-func SelectChatGPTModel(providers []crushapi.Provider, current string) (string, error) {
+func SelectChatGPTModel(providers []engineapi.Provider, current string) (string, error) {
 	for _, candidate := range providers {
 		if candidate.ID != CodexID {
 			continue
@@ -127,18 +127,18 @@ func SelectChatGPTModel(providers []crushapi.Provider, current string) (string, 
 	return "", fmt.Errorf("ChatGPT subscription returned no selectable models")
 }
 
-func SelectCodexModel(ctx context.Context, api *crushapi.Client, workspaceID, currentModel, thinking string) (string, error) {
+func SelectCodexModel(ctx context.Context, api *engineapi.Client, workspaceID, currentModel, thinking string) (string, error) {
 	entry, err := codexCatalogEntry(ctx, api, workspaceID)
 	if err != nil {
 		return "", err
 	}
-	modelID, err := SelectChatGPTModel([]crushapi.Provider{entry}, strings.TrimSpace(currentModel))
+	modelID, err := SelectChatGPTModel([]engineapi.Provider{entry}, strings.TrimSpace(currentModel))
 	if err != nil {
 		return "", err
 	}
 	effort, think := Reasoning(thinking)
-	selected := crushapi.SelectedModel{Provider: CodexID, Model: modelID, ReasoningEffort: effort, Think: think}
-	if err := api.SetPreferredModelPair(ctx, workspaceID, crushapi.ConfigScopeGlobal, selected); err != nil {
+	selected := engineapi.SelectedModel{Provider: CodexID, Model: modelID, ReasoningEffort: effort, Think: think}
+	if err := api.SetPreferredModelPair(ctx, workspaceID, engineapi.ConfigScopeGlobal, selected); err != nil {
 		return "", fmt.Errorf("repoint the saved model at the Codex provider: %w", err)
 	}
 	return modelID, nil
@@ -159,7 +159,7 @@ func ChatGPTRedirectCandidate(settings Settings, apiKey string) bool {
 	}
 }
 
-func RedirectStrandedChatGPTSelection(ctx context.Context, api *crushapi.Client, workspaceID string, settings Settings, apiKey string) (Settings, error) {
+func RedirectStrandedChatGPTSelection(ctx context.Context, api *engineapi.Client, workspaceID string, settings Settings, apiKey string) (Settings, error) {
 	if !ChatGPTRedirectCandidate(settings, apiKey) {
 		return settings, nil
 	}
@@ -174,7 +174,7 @@ func RedirectStrandedChatGPTSelection(ctx context.Context, api *crushapi.Client,
 	if err != nil {
 		return settings, err
 	}
-	modelID, err := SelectChatGPTModel([]crushapi.Provider{entry}, strings.TrimSpace(settings.Model))
+	modelID, err := SelectChatGPTModel([]engineapi.Provider{entry}, strings.TrimSpace(settings.Model))
 	if err != nil {
 		return settings, err
 	}
@@ -187,7 +187,7 @@ func RedirectStrandedChatGPTSelection(ctx context.Context, api *crushapi.Client,
 	return settings, nil
 }
 
-func ApplyChatGPTLoginSelection(ctx context.Context, api *crushapi.Client, workspaceID, currentModel, thinking string) (string, error) {
+func ApplyChatGPTLoginSelection(ctx context.Context, api *engineapi.Client, workspaceID, currentModel, thinking string) (string, error) {
 	providers, err := api.ListProviders(ctx, workspaceID)
 	if err != nil {
 		return "", fmt.Errorf("load ChatGPT subscription models: %w", err)
@@ -197,8 +197,8 @@ func ApplyChatGPTLoginSelection(ctx context.Context, api *crushapi.Client, works
 		return "", err
 	}
 	effort, think := Reasoning(thinking)
-	selected := crushapi.SelectedModel{Provider: CodexID, Model: modelID, ReasoningEffort: effort, Think: think}
-	if err := api.SetPreferredModelPair(ctx, workspaceID, crushapi.ConfigScopeGlobal, selected); err != nil {
+	selected := engineapi.SelectedModel{Provider: CodexID, Model: modelID, ReasoningEffort: effort, Think: think}
+	if err := api.SetPreferredModelPair(ctx, workspaceID, engineapi.ConfigScopeGlobal, selected); err != nil {
 		return "", fmt.Errorf("select ChatGPT model: %w", err)
 	}
 	return modelID, nil

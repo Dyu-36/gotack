@@ -1,4 +1,4 @@
-package crushapi
+package engineapi
 
 import (
 	"context"
@@ -47,7 +47,7 @@ type ProviderConfig struct {
 
 func (c *Client) GetWorkspaceConfig(ctx context.Context, wsID string) (WorkspaceConfig, error) {
 	if wsID == "" {
-		return WorkspaceConfig{}, errors.New("crushapi: workspace id is required")
+		return WorkspaceConfig{}, errors.New("engineapi: workspace id is required")
 	}
 	var cfg WorkspaceConfig
 	if err := c.doJSON(ctx, "GET", expandPath("/v1/workspaces/{id}/config", "id", wsID), nil, &cfg); err != nil {

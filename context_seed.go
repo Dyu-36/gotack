@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/Dyu-36/gotack/internal/contextseed"
-	"github.com/Dyu-36/gotack/internal/crushapi"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 func (a *App) ensureContextSeed() {
@@ -44,7 +44,7 @@ func (a *App) registerContextPaths(workspaceID string) {
 	}
 }
 
-func (a *App) clearContextPath(ctx context.Context, api *crushapi.Client, workspaceID string) {
+func (a *App) clearContextPath(ctx context.Context, api *engineapi.Client, workspaceID string) {
 	if registrar := a.ensureContextRegistrar(); registrar != nil {
 		registrar.Clear(ctx, api, workspaceID)
 	}
