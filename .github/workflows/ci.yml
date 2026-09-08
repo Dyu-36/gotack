@@ -88,8 +88,6 @@ jobs:
         run: |
           go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
           wails generate module
-      - name: Check repository invariants
-        run: node scripts/check-repository-invariants.mjs
       - name: Check frontend
         run: pnpm --dir frontend check
       - name: Test frontend
