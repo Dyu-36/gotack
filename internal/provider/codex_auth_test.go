@@ -1,4 +1,4 @@
-package openaioauth
+package provider
 
 import (
 	"context"
@@ -12,41 +12,41 @@ import (
 	"time"
 )
 
-func TestGeneratePKCE(t *testing.T) {
-	v, c, err := GeneratePKCE()
+func TestGenerateOpenAIPKCE(t *testing.T) {
+	v, c, err := generateOpenAIPKCE()
 	if err != nil {
-		t.Fatalf("GeneratePKCE() error = %v", err)
+		t.Fatalf("generateOpenAIPKCE() error = %v", err)
 	}
 	if len(v) == 0 {
-		t.Fatal("GeneratePKCE() returned empty verifier")
+		t.Fatal("generateOpenAIPKCE() returned empty verifier")
 	}
 	if len(c) == 0 {
-		t.Fatal("GeneratePKCE() returned empty challenge")
+		t.Fatal("generateOpenAIPKCE() returned empty challenge")
 	}
 	if v == c {
 		t.Fatal("verifier and challenge should differ")
 	}
 }
 
-func TestParseIDTokenClaims(t *testing.T) {
+func TestParseOpenAIIDTokenClaims(t *testing.T) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 	claims := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/profile":{"email":"user@example.com"},"https://api.openai.com/auth":{"chatgpt_plan_type":"plus","chatgpt_account_id":"acct_123","chatgpt_user_id":"user_123","chatgpt_account_is_fedramp":true}}`))
 	jwt := fmt.Sprintf("%s.%s.signature", header, claims)
 
-	email, plan := ParseIDTokenClaims(jwt)
+	email, plan := parseOpenAIIDTokenClaims(jwt)
 	if email != "user@example.com" {
 		t.Errorf("got email %q, want user@example.com", email)
 	}
 	if plan != "plus" {
 		t.Errorf("got plan %q, want plus", plan)
 	}
-	metadata := ParseIDTokenMetadata(jwt)
+	metadata := parseOpenAIIDTokenMetadata(jwt)
 	if metadata.AccountID != "acct_123" || metadata.ChatGPTUserID != "user_123" || !metadata.AccountFedRAMP {
 		t.Fatalf("unexpected account metadata: %+v", metadata)
 	}
 }
 
-func TestOAuthLogin(t *testing.T) {
+func TestOpenAIOAuthLogin(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -80,12 +80,11 @@ func TestOAuthLogin(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	opts := DefaultOptions()
+	opts := DefaultOpenAIOAuthOptions()
 	opts.TokenURL = tokenServer.URL
 	opts.Port = 14560
 	opts.LoginTimeout = 5 * time.Second
 	opts.OpenBrowser = func(authURL string) error {
-
 		u, err := url.Parse(authURL)
 		if err != nil {
 			return err
@@ -104,12 +103,10 @@ func TestOAuthLogin(t *testing.T) {
 		return nil
 	}
 
-	ctx := context.Background()
-	token, err := StartLogin(ctx, opts)
+	token, err := StartOpenAIOAuthLogin(context.Background(), opts)
 	if err != nil {
-		t.Fatalf("StartLogin() error = %v", err)
+		t.Fatalf("StartOpenAIOAuthLogin() error = %v", err)
 	}
-
 	if token.AccessToken != "access-token-123" {
 		t.Errorf("got access token %q, want access-token-123", token.AccessToken)
 	}

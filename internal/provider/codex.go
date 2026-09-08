@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/openaioauth"
 )
 
 func SeedCodex(ctx context.Context, api *engineapi.Client, workspaceID string, scope int) error {
@@ -33,7 +32,7 @@ func MigrateChatGPTOAuthToCodex(ctx context.Context, api *engineapi.Client, work
 		return true, clearLegacyChatGPTCredential(ctx, api, workspaceID, scope, legacy)
 	}
 
-	var token openaioauth.Token
+	var token OpenAIOAuthToken
 	if err := json.Unmarshal(legacy.OAuth, &token); err != nil || token.AccessToken == "" {
 		return false, nil
 	}
@@ -54,7 +53,7 @@ func clearLegacyChatGPTCredential(ctx context.Context, api *engineapi.Client, wo
 		base + ".discover_models",
 		base + ".flat_rate",
 	}
-	var token openaioauth.Token
+	var token OpenAIOAuthToken
 	_ = json.Unmarshal(legacy.OAuth, &token)
 	if token.AccessToken != "" && strings.TrimSpace(legacy.APIKey) == token.AccessToken {
 		removals = append(removals, base+".api_key")
