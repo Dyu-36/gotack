@@ -38,11 +38,6 @@ type ProviderUsageInfo struct {
 	UnavailableReason string                `json:"unavailable_reason,omitempty"`
 }
 
-type chatGPTUsagePayload = providerdomain.ChatGPTUsagePayload
-type chatGPTAdditionalRateLimit = providerdomain.ChatGPTAdditionalRateLimit
-type chatGPTRateLimitDetails = providerdomain.ChatGPTRateLimitDetails
-type chatGPTRateLimitWindow = providerdomain.ChatGPTRateLimitWindow
-
 func (a *App) GetProviderUsage(providerID string) (ProviderUsageInfo, error) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" && a.cfg != nil {
@@ -80,15 +75,6 @@ func (a *App) getChatGPTProviderUsage(now time.Time) (ProviderUsageInfo, error) 
 	}
 	usage, err := providerdomain.LoadChatGPTUsage(ctx, svc.api, workspaceID, providerUsageHTTPClient, chatGPTUsageEndpoint, now)
 	return providerUsageInfoFromDomain(usage), err
-}
-
-func fetchChatGPTUsage(ctx context.Context, client *http.Client, endpoint string, token providerdomain.OpenAIOAuthToken, now time.Time) (ProviderUsageInfo, error) {
-	usage, err := providerdomain.FetchChatGPTUsage(ctx, client, endpoint, token, now)
-	return providerUsageInfoFromDomain(usage), err
-}
-
-func providerUsageFromChatGPT(payload chatGPTUsagePayload, now time.Time) ProviderUsageInfo {
-	return providerUsageInfoFromDomain(providerdomain.UsageFromChatGPT(payload, now))
 }
 
 func unavailableProviderUsage(providerID, providerName, reason string, now time.Time) ProviderUsageInfo {
