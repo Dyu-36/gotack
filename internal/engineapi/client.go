@@ -33,20 +33,11 @@ const (
 type Client struct {
 	hc       *http.Client
 	clientID string
-	observer *TTFBRegistry
 }
 
 func NewClient(hc *http.Client) *Client {
-	c := &Client{hc: hc, clientID: uuid.NewString()}
-	if hc != nil {
-		hc.Transport = &ttfbTransport{inner: hc.Transport}
-	}
-	c.observer = NewTTFBRegistry()
-	return c
+	return &Client{hc: hc, clientID: uuid.NewString()}
 }
-
-// Observer exposes the per-Client TTFB registry for read-only merging by the
-func (c *Client) Observer() *TTFBRegistry { return c.observer }
 
 func (c *Client) ID() string { return c.clientID }
 
@@ -153,9 +144,6 @@ func (c *Client) SendPromptWithAttachmentsAndBudget(ctx context.Context, wsID, s
 	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, maxInputTokens, "")
 }
 
-// SendPromptWithPurpose stamps the request with a purpose so the host can
-// correlate the first_byte_to_first_sse span with the originating call
-// (title, tool loop, summarize, retry, prep error, queued cancellation).
 func (c *Client) SendPromptWithPurpose(ctx context.Context, wsID, sessionID, text, runID, purpose string, attachments []Attachment) error {
 	return c.sendPromptWithAttachments(ctx, wsID, sessionID, text, runID, attachments, 0, purpose)
 }
