@@ -8,8 +8,6 @@ const (
 	TaskProgress      = "task:progress"
 	PermissionRequest = "permission:request"
 	ChangesUpdated    = "changes:updated"
-	TerminalData      = "terminal:data"
-	TerminalExit      = "terminal:exit"
 
 	PromptFiles = "prompt:files"
 )

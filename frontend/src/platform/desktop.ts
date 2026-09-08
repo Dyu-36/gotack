@@ -115,8 +115,6 @@ export type TaskProgressEvent = {
   hard_constraints_satisfied?: boolean
   soft_violation_count?: number
 }
-export type TerminalDataEvent = { id: string; data: string }
-export type TerminalExitEvent = { id: string; code?: number; error?: string }
 export type AssistantContextInfo = {
   directory: string
   profile_cap_chars: number
@@ -163,10 +161,6 @@ type BackendApp = {
   AnswerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => Promise<boolean>
   ChangedFiles: (sessionID: string) => Promise<ChangedFileInfo[]>
   FileDiff: (sessionID: string, path: string) => Promise<string>
-  OpenTerminal: (cwd: string) => Promise<string>
-  WriteTerminal: (id: string, data: string) => Promise<void>
-  ResizeTerminal: (id: string, cols: number, rows: number) => Promise<void>
-  CloseTerminal: (id: string) => Promise<void>
   GetSettings: () => Promise<SettingsInfo>
   SaveSettings: (settings: SettingsInfo) => Promise<void>
   ListProviders: () => Promise<ProviderCatalogEntry[]>
@@ -213,7 +207,6 @@ export const desktop = {
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
-  openTerminal: (cwd: string) => call('OpenTerminal', cwd), writeTerminal: (id: string, data: string) => call('WriteTerminal', id, data), resizeTerminal: (id: string, cols: number, rows: number) => call('ResizeTerminal', id, cols, rows), closeTerminal: (id: string) => call('CloseTerminal', id),
   getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
   assistantContextInfo: () => call('AssistantContextInfo'),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
