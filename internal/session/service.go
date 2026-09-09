@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/engineapi"
@@ -42,7 +43,28 @@ func (s *Service) List(ctx context.Context) ([]engineapi.Session, error) {
 	if s.api == nil {
 		return nil, errors.New("engine client not configured")
 	}
-	return s.api.ListSessions(ctx, wsID)
+	sessions, err := s.api.ListSessions(ctx, wsID)
+	if err != nil {
+		return nil, err
+	}
+	var pending sync.WaitGroup
+	for worker := 0; worker < min(4, len(sessions)); worker++ {
+		pending.Go(func() {
+			for i := worker; i < len(sessions); i += 4 {
+				if !isDefaultTitle(sessions[i].Title) || sessions[i].MessageCount == 0 {
+					continue
+				}
+				messages, err := s.api.Messages(ctx, wsID, sessions[i].ID)
+				if err == nil {
+					if title := titleFromMessages(messages); title != "" {
+						sessions[i].Title = title
+					}
+				}
+			}
+		})
+	}
+	pending.Wait()
+	return sessions, ctx.Err()
 }
 
 func (s *Service) Create(ctx context.Context, title string) (engineapi.Session, error) {

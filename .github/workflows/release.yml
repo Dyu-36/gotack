@@ -81,9 +81,7 @@ jobs:
           git clone --filter=blob:none $env:ENGINE_REPOSITORY_URL $engineSource
           git -C $engineSource checkout $env:ENGINE_COMMIT
           New-Item -ItemType Directory -Force build\bin\resources | Out-Null
-          Push-Location $engineSource
-          go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\tack-engine.exe" .
-          Pop-Location
+          ./scripts/build-engine.ps1 -EngineSource $engineSource -Output "$env:GITHUB_WORKSPACE\build\bin\resources\tack-engine.exe"
 
       - name: Build guard approval hook
         shell: pwsh
@@ -131,6 +129,7 @@ jobs:
           New-Item -ItemType Directory -Force "$out\resources" | Out-Null
           Copy-Item build\bin\tack.exe "$out\tack.exe"
           Copy-Item build\bin\resources\tack-engine.exe "$out\resources\tack-engine.exe"
+          Copy-Item build\bin\resources\tack-engine.exe.build.json "$out\resources\tack-engine.exe.build.json"
           Copy-Item build\bin\resources\guard.exe "$out\resources\guard.exe"
           Copy-Item build\bin\resources\memory.exe "$out\resources\memory.exe"
           Copy-Item build\bin\resources\skills.exe "$out\resources\skills.exe"

@@ -15,7 +15,7 @@ export type PromptAttachment = { file_name: string; mime_type?: string; content?
 export type PromptFilePick = { file_name: string; mime_type: string; size: number; path: string }
 export type AttachmentLimitsInfo = { max_bytes: number; max_derived_lines: number; max_derived_bytes: number }
 export type ToolCallInfo = { id: string; name: string; input?: string; finished: boolean }
-export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; model: string; provider: string; created_at: number; attachments?: AttachmentInfo[]; tool_calls?: ToolCallInfo[] }
+export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; model: string; provider: string; created_at: number; completed_at?: number; attachments?: AttachmentInfo[]; tool_calls?: ToolCallInfo[] }
 export type ChangedFileInfo = { path: string; size: number; updated_at: number }
 export type ModelCatalogEntry = {
   id: string
@@ -102,6 +102,7 @@ export type PermissionRequestEvent = {
 export type PermissionRequestPayload = { request: PermissionRequestEvent; expires_at_ms: number }
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
+export type SessionUpdatedEvent = { session_id: string; title: string; updated_at: number }
 export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
 export type TaskProgressEvent = {
   session_id: string

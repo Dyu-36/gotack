@@ -61,6 +61,13 @@ type Message struct {
 	UpdatedAt int64           `json:"updated_at"`
 }
 
+func TimestampMillis(value int64) int64 {
+	if value > 0 && value < 1_000_000_000_000 {
+		return value * 1000
+	}
+	return value
+}
+
 type Attachment struct {
 	FilePath string `json:"file_path"`
 	FileName string `json:"file_name"`
@@ -159,18 +166,27 @@ type ProviderAttemptTelemetry struct {
 }
 
 type RunTelemetry struct {
-	RunID            string                     `json:"run_id,omitempty"`
-	Provider         string                     `json:"provider,omitempty"`
-	Model            string                     `json:"model,omitempty"`
-	ReasoningEffort  string                     `json:"reasoning_effort,omitempty"`
-	Attempt          int                        `json:"attempt"`
-	RetryCount       int                        `json:"retry_count"`
-	RetryDelayMicros int64                      `json:"retry_delay_us,omitempty"`
-	SpansMicros      map[string]int64           `json:"spans_us,omitempty"`
-	TotalMicros      int64                      `json:"total_us"`
-	FirstSemantic    string                     `json:"first_semantic,omitempty"`
-	ProviderAttempts []ProviderAttemptTelemetry `json:"provider_attempts,omitempty"`
-	Purpose          string                     `json:"purpose,omitempty"`
+	SessionID                string                     `json:"session_id,omitempty"`
+	StartedAt                string                     `json:"started_at,omitempty"`
+	EngineBuild              *BuildTelemetry            `json:"engine_build,omitempty"`
+	AppBuild                 *BuildTelemetry            `json:"app_build,omitempty"`
+	RequestedReasoningEffort string                     `json:"requested_reasoning_effort,omitempty"`
+	ResolvedReasoningEffort  string                     `json:"resolved_reasoning_effort,omitempty"`
+	ModelCalls               []ModelCallTelemetry       `json:"model_calls,omitempty"`
+	ToolCalls                []ToolCallTelemetry        `json:"tool_calls,omitempty"`
+	ExecutionRecordsDropped  int                        `json:"execution_records_dropped,omitempty"`
+	RunID                    string                     `json:"run_id,omitempty"`
+	Provider                 string                     `json:"provider,omitempty"`
+	Model                    string                     `json:"model,omitempty"`
+	ReasoningEffort          string                     `json:"reasoning_effort,omitempty"`
+	Attempt                  int                        `json:"attempt"`
+	RetryCount               int                        `json:"retry_count"`
+	RetryDelayMicros         int64                      `json:"retry_delay_us,omitempty"`
+	SpansMicros              map[string]int64           `json:"spans_us,omitempty"`
+	TotalMicros              int64                      `json:"total_us"`
+	FirstSemantic            string                     `json:"first_semantic,omitempty"`
+	ProviderAttempts         []ProviderAttemptTelemetry `json:"provider_attempts,omitempty"`
+	Purpose                  string                     `json:"purpose,omitempty"`
 	// Per-kind one-shot semantic offsets. Pointer semantics: nil means
 	// the kind never appeared this run (absent, never zero); a non-nil
 	// zero is a real sub-microsecond offset.
@@ -214,6 +230,7 @@ type partWrapper struct {
 
 type Parts struct {
 	Text        string
+	CompletedAt int64
 	ToolCalls   []ToolCall
 	ToolResults []ToolResult
 	Attachments []Attachment
@@ -231,6 +248,13 @@ func ExtractParts(parts json.RawMessage) Parts {
 	var b strings.Builder
 	for _, w := range ws {
 		switch w.Type {
+		case "finish":
+			var finish struct {
+				Time int64 `json:"time"`
+			}
+			if err := json.Unmarshal(w.Data, &finish); err == nil && finish.Time > 0 {
+				out.CompletedAt = TimestampMillis(finish.Time)
+			}
 		case "text":
 			var t TextPart
 			if err := json.Unmarshal(w.Data, &t); err != nil || t.Text == "" {

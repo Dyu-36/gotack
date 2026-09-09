@@ -90,16 +90,17 @@ func EnsureKey(dataDir string) (string, error) {
 }
 
 type Writer struct {
-	path string
-	log  *slog.Logger
-	mu   sync.Mutex
+	path  string
+	log   *slog.Logger
+	mu    sync.Mutex
+	build engineapi.BuildTelemetry
 }
 
 func New(logDir string, log *slog.Logger) *Writer {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Writer{path: filepath.Join(logDir, "input-pipeline.jsonl"), log: log}
+	return &Writer{path: filepath.Join(logDir, "input-pipeline.jsonl"), log: log, build: applicationBuild()}
 }
 
 func (writer *Writer) Append(telemetry *engineapi.RunTelemetry) {
@@ -111,6 +112,8 @@ func (writer *Writer) Append(telemetry *engineapi.RunTelemetry) {
 		return
 	}
 	sanitized := redactSensitive(telemetry)
+	build := writer.build
+	sanitized.AppBuild = &build
 	encoded, err := json.Marshal(sanitized)
 	if err != nil {
 		writer.log.Warn("runmetrics: failed to encode telemetry", "err", err)
@@ -137,6 +140,9 @@ func (writer *Writer) Append(telemetry *engineapi.RunTelemetry) {
 func Validate(telemetry *engineapi.RunTelemetry) error {
 	if telemetry == nil {
 		return errors.New("telemetry_missing")
+	}
+	if err := validateExecution(telemetry); err != nil {
+		return err
 	}
 	if telemetry.TotalMicros < 0 || telemetry.RetryDelayMicros < 0 {
 		return errors.New("telemetry durations must be non-negative")
@@ -270,6 +276,7 @@ func cloneProviderAttempt(in engineapi.ProviderAttemptTelemetry) engineapi.Provi
 func redactSensitive(telemetry *engineapi.RunTelemetry) *engineapi.RunTelemetry {
 	out := *telemetry
 	out.ProviderRequestID = ""
+	cloneExecution(&out)
 	out.SpansMicros = maps.Clone(telemetry.SpansMicros)
 	if len(telemetry.ProviderAttempts) > 0 {
 		out.ProviderAttempts = make([]engineapi.ProviderAttemptTelemetry, len(telemetry.ProviderAttempts))

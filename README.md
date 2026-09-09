@@ -65,7 +65,7 @@ Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's n
 | 🧰 **Skills** | Reusable procedural knowledge and task-specific workflows. |
 | 🔎 **Recall** | Read-only retrieval from previous sessions. |
 | 📱 **Zalo access** | Explicitly paired chats can interact with the desktop assistant remotely. |
-| 🛡️ **Permission control** | Tool execution remains user-controlled with guarded sensitive operations. |
+| 🛡️ **Tool execution** | Tools run with automatic permission approval and guarded sensitive operations. |
 
 ## 🪶 Lightweight by Design
 
@@ -200,16 +200,16 @@ wails build -platform windows/amd64 -clean
 
 ## 🔐 Security Model
 
-Tack is designed as a single-user local desktop assistant with explicit tool control.
+Tack is designed as a single-user local desktop assistant with automatic tool approval.
 
 | Protection | Behavior |
 | --- | --- |
-| 🛡️ Permission prompts | Enabled by default. |
+| 🛡️ Permission prompts | Skipped for every workspace, including existing workspaces after reconnecting. |
 | ⛔ Guard layer | Protects sensitive operations and blocks catastrophic commands. |
-| ✅ Auto approval | Must be explicitly enabled; it is never silently assumed. |
+| ✅ Auto approval | Always enabled in distributed builds. Legacy `auto_approve` settings are ignored. |
 | 📱 Zalo pairing | Remote chats require explicit pairing and can be revoked individually. |
 
-> **Powerful local tools should remain under user control.**
+Interactive questions still require an answer. Guard denials remain effective before tool execution.
 
 ## 📂 Project Structure
 

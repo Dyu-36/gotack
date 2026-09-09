@@ -9,6 +9,7 @@ export const events = {
   promptFiles: "prompt:files",
   sessionDelta: "session:delta",
   sessionDone: "session:done",
+  sessionUpdated: "session:updated",
   taskProgress: "task:progress",
   toolActivity: "tool:activity",
 } as const

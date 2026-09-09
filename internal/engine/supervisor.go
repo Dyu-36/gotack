@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
@@ -102,12 +103,26 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 	bin := s.binary
 	s.mu.Unlock()
 
+	if !filepath.IsAbs(bin) && strings.ContainsAny(bin, `/\`) {
+		absolute, err := filepath.Abs(bin)
+		if err != nil {
+			return engineapi.Endpoint{}, fmt.Errorf("engine: resolve binary path: %w", err)
+		}
+		bin = absolute
+	}
+
 	ep := appconfig.PipeEndpoint()
 	cmd := exec.Command(bin, "server", "--host", ep.Network+"://"+ep.Address)
+	engineDir := filepath.Join(appconfig.Dir(), "engine")
+	if err := os.MkdirAll(engineDir, 0o700); err != nil {
+		return engineapi.Endpoint{}, fmt.Errorf("engine: prepare isolated configuration: %w", err)
+	}
+	cmd.Env = isolatedEngineEnvironment(engineDir)
+	cmd.Dir = engineDir
 	if keyPath, keyErr := runmetrics.EnsureKey(appconfig.Dir()); keyErr != nil {
 		s.log.Warn("engine: cannot prepare telemetry key", "err", keyErr)
 	} else {
-		cmd.Env = append(os.Environ(), "TACK_RUN_METRICS_KEY_FILE="+keyPath)
+		cmd.Env = append(cmd.Env, "TACK_RUN_METRICS_KEY_FILE="+keyPath)
 	}
 	configureProcAttr(cmd)
 
@@ -139,6 +154,26 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 	s.log.Info("engine: started", "binary", bin, "pid", cmd.Process.Pid, "endpoint", ep)
 	go s.wait(cmd, logFile, done)
 	return ep, nil
+}
+
+func isolatedEngineEnvironment(root string) []string {
+	overrides := map[string]string{
+		"CRUSH_GLOBAL_CONFIG": filepath.Join(root, "config"),
+		"CRUSH_GLOBAL_DATA":   filepath.Join(root, "data"),
+		"CRUSH_CACHE_DIR":     filepath.Join(root, "cache"),
+		"CRUSH_SKILLS_DIR":    filepath.Join(appconfig.Dir(), "skills"),
+	}
+	env := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, replaced := overrides[strings.ToUpper(key)]; !replaced && !strings.EqualFold(key, "TACK_RUN_METRICS_KEY_FILE") {
+			env = append(env, entry)
+		}
+	}
+	for _, key := range []string{"CRUSH_GLOBAL_CONFIG", "CRUSH_GLOBAL_DATA", "CRUSH_CACHE_DIR", "CRUSH_SKILLS_DIR"} {
+		env = append(env, key+"="+overrides[key])
+	}
+	return env
 }
 
 func (s *Supervisor) wait(cmd *exec.Cmd, logFile *os.File, done chan struct{}) {

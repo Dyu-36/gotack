@@ -19,7 +19,6 @@ type Config struct {
 	RecentWorkspaces []string `json:"recent_workspaces"`
 	Debug            bool     `json:"debug"`
 
-	AutoApprove       bool                               `json:"auto_approve,omitempty"`
 	Provider          string                             `json:"provider,omitempty"`
 	Model             string                             `json:"model,omitempty"`
 	Thinking          string                             `json:"thinking,omitempty"`

@@ -32,10 +32,6 @@ func isDefaultWorkspace(path string) bool {
 	return filepath.Clean(path) == filepath.Clean(defaultWorkspacePath())
 }
 
-func (a *App) permissionsSkip() bool {
-	return a.cfg != nil && a.cfg.AutoApprove
-}
-
 func (a *App) ListRecentWorkspaces() []string {
 	if a.cfg == nil {
 		return nil
@@ -70,7 +66,7 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 }
 
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
-	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
+	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	if remember && a.cfg != nil {
@@ -136,7 +132,7 @@ func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
-		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, a.permissionsSkip()); err != nil {
+		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
 			return WorkspaceInfo{}, err
 		}
 		a.rebindWorkspaceRuntime(desc.WorkspaceID)

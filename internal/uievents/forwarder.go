@@ -28,6 +28,12 @@ type SessionDonePayload struct {
 	Cancelled bool   `json:"cancelled"`
 }
 
+type SessionUpdatedPayload struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 type ToolActivityPayload struct {
 	SessionID  string          `json:"session_id"`
 	Name       string          `json:"name"`
@@ -171,6 +177,13 @@ func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 		}
 	case "run_complete":
 		f.handleRunComplete(ev.Payload)
+	case "session":
+		if ev.Event == "updated" {
+			var session engineapi.Session
+			if err := json.Unmarshal(ev.Payload, &session); err == nil && session.ID != "" {
+				f.send(SessionUpdated, SessionUpdatedPayload{SessionID: session.ID, Title: session.Title, UpdatedAt: engineapi.TimestampMillis(session.UpdatedAt)})
+			}
+		}
 	case "task_progress":
 		f.handleTaskProgress(ev.Payload)
 	case "permission_request":

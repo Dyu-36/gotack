@@ -7,6 +7,7 @@ import {
   type PromptFilePick,
   type SessionDeltaEvent,
   type SessionDoneEvent,
+  type SessionUpdatedEvent,
   type ToolActivityEvent,
   type TaskProgressEvent,
 } from '../../platform/desktop'
@@ -14,6 +15,7 @@ import { setAttachmentLimit } from './attachments'
 import { applyDelta } from './merge-delta'
 import { ChatMessage, type Conversation, type ReasoningEffort } from './types.svelte'
 import { catalog } from './catalog.svelte'
+import { conversationTitle, isDefaultTitle } from './title'
 
 const RECONNECT_MAX_MS = 30_000
 type SettingsPayload = { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }
@@ -122,6 +124,15 @@ export function createEngineState(deps: EngineDeps) {
     unsubscribers.length = 0
     unsubscribers.push(
       on<EngineInfo>(events.engineStatus, (info) => { void handleEngine(info) }),
+      on<SessionUpdatedEvent>(events.sessionUpdated, (event) => {
+        deps.updateConversation(event.session_id, (c) => {
+          const firstUser = c.messages.find((message) => message.role === 'user')
+          const title = isDefaultTitle(event.title)
+            ? conversationTitle(c.title, firstUser?.content, firstUser?.attachments.map((file) => file.fileName))
+            : event.title.trim()
+          return { ...c, title, updatedAt: Math.max(c.updatedAt, event.updated_at || 0) }
+        })
+      }),
       on<SessionDeltaEvent>(events.sessionDelta, (event) => {
         deps.updateConversation(event.session_id, (c) => {
           let m = c.messages.find((x) => x.id === event.message_id)

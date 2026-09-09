@@ -31,6 +31,7 @@ type MessageInfo struct {
 	Model       string           `json:"model"`
 	Provider    string           `json:"provider"`
 	CreatedAt   int64            `json:"created_at"`
+	CompletedAt int64            `json:"completed_at,omitempty"`
 	Attachments []AttachmentInfo `json:"attachments,omitempty"`
 	ToolCalls   []ToolCallInfo   `json:"tool_calls,omitempty"`
 }
@@ -262,14 +263,21 @@ func toolInputPreview(input string) string {
 }
 
 func toMessageInfo(message engineapi.Message) MessageInfo {
-	text, refs := attachments.ParseAttachmentBlocks(engineapi.ExtractText(message.Parts))
+	parts := engineapi.ExtractParts(message.Parts)
+	text, refs := attachments.ParseAttachmentBlocks(parts.Text)
 	info := MessageInfo{
 		ID:        message.ID,
 		Role:      string(message.Role),
 		Text:      text,
 		Model:     message.Model,
 		Provider:  message.Provider,
-		CreatedAt: message.CreatedAt,
+		CreatedAt: engineapi.TimestampMillis(message.CreatedAt),
+	}
+	if message.Role == "assistant" {
+		info.CompletedAt = parts.CompletedAt
+		if info.CompletedAt == 0 && message.UpdatedAt > message.CreatedAt {
+			info.CompletedAt = engineapi.TimestampMillis(message.UpdatedAt)
+		}
 	}
 	for _, ref := range refs {
 		info.Attachments = append(info.Attachments, AttachmentInfo{
@@ -279,7 +287,7 @@ func toMessageInfo(message engineapi.Message) MessageInfo {
 			Path:     ref.Path,
 		})
 	}
-	for _, attachment := range engineapi.ExtractAttachments(message.Parts) {
+	for _, attachment := range parts.Attachments {
 		content := ""
 		if strings.HasPrefix(attachment.MimeType, "image/") {
 			content = base64.StdEncoding.EncodeToString(attachment.Content)
@@ -296,7 +304,7 @@ func toMessageInfo(message engineapi.Message) MessageInfo {
 			Path:     attachment.FilePath,
 		})
 	}
-	for _, call := range engineapi.ExtractToolCalls(message.Parts) {
+	for _, call := range parts.ToolCalls {
 		info.ToolCalls = append(info.ToolCalls, ToolCallInfo{
 			ID:       call.ID,
 			Name:     call.Name,
@@ -326,7 +334,7 @@ func toSessionInfo(session engineapi.Session) SessionInfo {
 		Title:        session.Title,
 		MessageCount: session.MessageCount,
 		Cost:         session.Cost,
-		UpdatedAt:    session.UpdatedAt,
+		UpdatedAt:    engineapi.TimestampMillis(session.UpdatedAt),
 		IsBusy:       session.IsBusy,
 	}
 }

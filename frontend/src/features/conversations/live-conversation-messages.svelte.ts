@@ -2,8 +2,8 @@ import { desktop, type MessageInfo, type PromptFilePick, type WorkspaceInfo } fr
 import { catalog } from './catalog.svelte'
 import { fileToAttachment, pathToAttachment } from './attachments'
 import { ChatMessage, type ChatAttachment, type Conversation, type Message } from './types.svelte'
+import { conversationTitle, NEW_CONVERSATION_TITLE } from './title'
 
-const NEW_CONVERSATION_TITLE = 'Hội thoại mới'
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const DEFAULT_WORKSPACE_LABEL = 'C:\\'
 
@@ -70,7 +70,7 @@ export function createMessageState(deps: MessageDeps) {
         path: attachment.path,
       }))
       if (row.text.trim() || attachments.length) {
-        const inst = new ChatMessage(row.id, 'assistant', row.created_at)
+        const inst = new ChatMessage(row.id, 'assistant', row.completed_at || row.created_at)
         inst.content = row.text
         inst.attachments = attachments
         out.push(inst)
@@ -93,7 +93,12 @@ export function createMessageState(deps: MessageDeps) {
     const generation = ++loadGeneration
     const rows = await desktop.sessionMessages(id)
     if (generation !== loadGeneration) return undefined
-    deps.updateConversation(id, (c) => ({ ...c, messages: buildMessages(rows) }))
+    const firstUser = rows.find((row) => row.role === 'user')
+    deps.updateConversation(id, (c) => ({
+      ...c,
+      title: conversationTitle(c.title, firstUser?.text, firstUser?.attachments?.map((file) => file.file_name)),
+      messages: buildMessages(rows),
+    }))
     return latestSelection(rows)
   }
 
@@ -101,7 +106,7 @@ export function createMessageState(deps: MessageDeps) {
     const rows = await desktop.listSessions()
     deps.conversations.value = rows.map((s) => ({
       id: s.id,
-      title: s.title || NEW_CONVERSATION_TITLE,
+      title: conversationTitle(s.title),
       updatedAt: s.updated_at || Date.now(),
       pinned: false,
       status: s.is_busy ? 'streaming' : 'idle',
@@ -220,7 +225,9 @@ export function createMessageState(deps: MessageDeps) {
     const userMessage = new ChatMessage(localId('user'), 'user')
     userMessage.content = text
     userMessage.attachments = attachments
-    deps.updateConversation(current.id, (c) => ({ ...c, status: 'streaming', messages: [...c.messages, userMessage] }))
+    const previousTitle = current.title
+    const pendingTitle = conversationTitle(current.title, text, attachments.map((file) => file.fileName))
+    deps.updateConversation(current.id, (c) => ({ ...c, title: pendingTitle, status: 'streaming', messages: [...c.messages, userMessage] }))
     try {
       await desktop.sendPrompt(current.id, text, attachments.map((attachment) => ({
         file_name: attachment.fileName,
@@ -234,6 +241,7 @@ export function createMessageState(deps: MessageDeps) {
       if (!deps.attachments.value.length) deps.attachments.value = attachments
       deps.updateConversation(current.id, (c) => ({
         ...c,
+        title: c.title === pendingTitle ? previousTitle : c.title,
         status: 'idle',
         messages: c.messages.filter((message) => message.id !== userMessage.id),
       }))
