@@ -28,6 +28,8 @@ func ValidID(providerID string) bool {
 
 func Reasoning(value string) (effort string, think bool) {
 	switch normalized := strings.ToLower(strings.TrimSpace(value)); normalized {
+	case "none", "off":
+		return "none", false
 	case "minimal", "low", "medium", "high", "xhigh", "max":
 		return normalized, true
 	default:

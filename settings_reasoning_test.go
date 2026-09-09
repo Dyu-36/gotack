@@ -9,7 +9,8 @@ func TestProviderReasoning(t *testing.T) {
 		wantEffort string
 		wantThink  bool
 	}{
-		{name: "off", value: "none", wantEffort: "", wantThink: false},
+		{name: "off", value: "none", wantEffort: "none", wantThink: false},
+		{name: "off alias", value: " OFF ", wantEffort: "none", wantThink: false},
 		{name: "blank", value: "", wantEffort: "", wantThink: false},
 		{name: "minimal", value: " Minimal ", wantEffort: "minimal", wantThink: true},
 		{name: "low", value: "low", wantEffort: "low", wantThink: true},
