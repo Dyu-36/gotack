@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,11 +20,12 @@ type Supervisor struct {
 	log    *slog.Logger
 	binary string
 
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	owned    bool
-	endpoint engineapi.Endpoint
-	logFile  *os.File
+	lifecycle sync.Mutex
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	owned     bool
+	endpoint  engineapi.Endpoint
+	done      chan struct{}
 }
 
 func NewSupervisor(log *slog.Logger, binary string) *Supervisor {
@@ -88,17 +90,20 @@ func (s *Supervisor) Owned() bool {
 }
 
 func (s *Supervisor) Start() (engineapi.Endpoint, error) {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+
 	s.mu.Lock()
 	if s.cmd != nil && s.cmd.Process != nil {
 		running := s.endpoint
 		s.mu.Unlock()
-		return running, fmt.Errorf("engine: already started")
+		return running, nil
 	}
 	bin := s.binary
 	s.mu.Unlock()
 
 	ep := appconfig.PipeEndpoint()
-	cmd := exec.Command(bin, "server")
+	cmd := exec.Command(bin, "server", "--host", ep.Network+"://"+ep.Address)
 	if keyPath, keyErr := runmetrics.EnsureKey(appconfig.Dir()); keyErr != nil {
 		s.log.Warn("engine: cannot prepare telemetry key", "err", keyErr)
 	} else {
@@ -123,38 +128,53 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 		return engineapi.Endpoint{}, fmt.Errorf("engine: start %s: %w", bin, err)
 	}
 
+	done := make(chan struct{})
 	s.mu.Lock()
 	s.cmd = cmd
 	s.owned = true
 	s.endpoint = ep
-	s.logFile = logFile
+	s.done = done
 	s.mu.Unlock()
 
 	s.log.Info("engine: started", "binary", bin, "pid", cmd.Process.Pid, "endpoint", ep)
+	go s.wait(cmd, logFile, done)
 	return ep, nil
 }
 
+func (s *Supervisor) wait(cmd *exec.Cmd, logFile *os.File, done chan struct{}) {
+	err := cmd.Wait()
+	if logFile != nil {
+		_ = logFile.Close()
+	}
+	s.mu.Lock()
+	if s.cmd == cmd {
+		s.cmd = nil
+		s.owned = false
+		s.done = nil
+	}
+	s.mu.Unlock()
+	s.log.Debug("engine: exited", "pid", cmd.Process.Pid, "err", err)
+	close(done)
+}
+
 func (s *Supervisor) Stop() error {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+
 	s.mu.Lock()
 	cmd := s.cmd
 	if cmd == nil || cmd.Process == nil || !s.owned {
 		s.mu.Unlock()
 		return nil
 	}
-	logFile := s.logFile
-	s.cmd = nil
-	s.owned = false
-	s.logFile = nil
+	done := s.done
 	s.mu.Unlock()
 
-	if logFile != nil {
-		defer logFile.Close()
+	if err := killTree(cmd); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		if killErr := cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+			return fmt.Errorf("engine: stop: %w", errors.Join(err, killErr))
+		}
 	}
-
-	if err := killTree(cmd); err != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("engine: stop: %w", err)
-	}
-	_, _ = cmd.Process.Wait()
+	<-done
 	return nil
 }
