@@ -2,7 +2,9 @@ package guard
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -46,7 +48,9 @@ func TestEvaluateTierMatrix(t *testing.T) {
 		{"delegation denied unattended", input(t, root, "agent", map[string]any{"prompt": "do it"}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedApproval, false},
 		{"question uses plain text unattended", input(t, root, "question", map[string]any{"questions": []any{}}), Options{WriteSafeRoot: root, Unattended: true}, DecisionDeny, ruleUnattendedQuestion, false},
 		{"unknown tool asks interactively", input(t, root, "future_tool", map[string]any{}), Options{WriteSafeRoot: root}, DecisionNone, "", false},
-		{"empty safe root disables root check", input(t, root, "write", map[string]any{"file_path": outside}), Options{}, DecisionAllow, "", false},
+		{"empty safe root defers to host", input(t, root, "write", map[string]any{"file_path": outside}), Options{}, DecisionNone, "", false},
+		{"empty safe root denied unattended", input(t, root, "write", map[string]any{"file_path": outside}), Options{Unattended: true}, DecisionDeny, ruleUnattendedApproval, false},
+		{"bash with malformed tool input fails closed", Input{Event: "PreToolUse", SessionID: "s", CWD: root, ToolName: "bash", ToolInput: json.RawMessage(`["rm","-rf","/"]`)}, Options{WriteSafeRoot: root}, DecisionDeny, "cannot decode tool_input", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,6 +97,46 @@ func TestWithinPathBoundaries(t *testing.T) {
 				t.Fatalf("withinPath(%q, %q) = %v, want %v", tc.root, tc.target, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWithinPathVolumeRoots(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("drive-root containment is a Windows concern")
+	}
+	cases := []struct {
+		root   string
+		target string
+		want   bool
+	}{
+		{`C:\`, `C:\Windows\notepad.exe`, true},
+		{`C:/`, `C:\Users\x\a.txt`, true},
+		{`c:\`, `C:\Windows\a.txt`, true},
+		{`C:\`, `D:\elsewhere\a.txt`, false},
+		{`C:\Users`, `C:\Users-x\a.txt`, false},
+	}
+	for _, tc := range cases {
+		if got := withinPath(tc.root, tc.target); got != tc.want {
+			t.Fatalf("withinPath(%q, %q) = %v, want %v", tc.root, tc.target, got, tc.want)
+		}
+	}
+	if got := withinPath("/", "/etc/passwd"); !got {
+		t.Fatal("withinPath(\"/\", \"/etc/passwd\") = false, want true")
+	}
+}
+
+func TestWithinPathFollowsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "out")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	target := filepath.Join(link, ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if withinPath(evalPath(root), evalPath(target)) {
+		t.Fatal("symlink escaping the safe root must not count as contained")
 	}
 }
 

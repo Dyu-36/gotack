@@ -38,12 +38,21 @@ func encode(payload any) (string, error) {
 		return "", err
 	}
 	remaining := maxToolTextBytes
-	trimRecallText(bounded, &remaining)
-	bounded["output_truncated"] = true
-	bounded["note"] = "Output is bounded. Use a result's session_id and match_message_id as around_message_id with a smaller window to read more."
-	out, err = json.Marshal(bounded)
-	if err != nil {
-		return "", err
+	for attempt := 0; ; attempt++ {
+		trimRecallText(bounded, &remaining)
+		bounded["output_truncated"] = true
+		bounded["note"] = "Output is bounded. Use a result's session_id and match_message_id as around_message_id with a smaller window to read more."
+		out, err = json.Marshal(bounded)
+		if err != nil {
+			return "", err
+		}
+		if len(out) <= maxToolResponseBytes || attempt >= 3 {
+			break
+		}
+		remaining = maxToolTextBytes / (2 << attempt)
+		if err := json.Unmarshal(out, &bounded); err != nil {
+			return "", err
+		}
 	}
 	if len(out) > maxToolResponseBytes {
 		return "", fmt.Errorf("recall output metadata exceeds the limit; reduce limit/window or use detail=brief")

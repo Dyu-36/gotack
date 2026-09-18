@@ -54,6 +54,27 @@ func isSendableFile(path string) bool {
 	return err == nil && !info.IsDir() && info.Size() > 0 && info.Size() <= maxUploadBytes
 }
 
+func isConfinedToWorkspace(path, workspace string) bool {
+	if workspace == "" {
+		return false
+	}
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != "."
+}
+
 func listOutputFiles(workspace string) []string {
 	if workspace == "" {
 		return nil
@@ -89,9 +110,11 @@ func resolveOutboundFile(workspace, argument string) string {
 		)
 	}
 	for _, candidate := range candidates {
-		if absolute, err := filepath.Abs(candidate); err == nil && isSendableFile(absolute) {
-			return absolute
+		absolute, err := filepath.Abs(candidate)
+		if err != nil || !isConfinedToWorkspace(absolute, workspace) || !isSendableFile(absolute) {
+			continue
 		}
+		return absolute
 	}
 	needle := strings.ToLower(raw)
 	for _, path := range listOutputFiles(workspace) {
@@ -119,7 +142,7 @@ func extractMediaPaths(text, workspace string, since time.Time) []string {
 			candidate = filepath.Join(workspace, candidate)
 		}
 		absolute, err := filepath.Abs(candidate)
-		if err != nil || !isSendableFile(absolute) {
+		if err != nil || !isConfinedToWorkspace(absolute, workspace) || !isSendableFile(absolute) {
 			continue
 		}
 		info, err := os.Stat(absolute)

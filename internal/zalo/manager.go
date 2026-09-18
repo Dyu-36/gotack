@@ -47,13 +47,15 @@ type Manager struct {
 	runtime       Runtime
 	log           *slog.Logger
 
-	state     StoredChannel
-	mu        sync.Mutex
-	running   bool
-	lastError string
-	cancel    context.CancelFunc
-	active    map[string]string
-	seen      []string
+	state      StoredChannel
+	mu         sync.Mutex
+	running    bool
+	lastError  string
+	cancel     context.CancelFunc
+	generation uint64
+	done       chan struct{}
+	active     map[string]string
+	seen       []string
 }
 
 func NewManager(path string, runtime Runtime, log *slog.Logger) *Manager {
@@ -312,18 +314,27 @@ func (m *Manager) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.running = true
+	m.generation++
+	generation := m.generation
+	done := make(chan struct{})
+	m.done = done
 	m.mu.Unlock()
-	go m.run(ctx)
+	go m.run(ctx, generation, done)
 }
 
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	cancel := m.cancel
+	done := m.done
 	m.cancel = nil
+	m.done = nil
 	m.running = false
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if done != nil {
+		<-done
 	}
 }
 

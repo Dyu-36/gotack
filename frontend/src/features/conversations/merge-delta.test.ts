@@ -45,11 +45,30 @@ describe('applyDelta', () => {
     expect(result).toEqual({ kind: 'resync', text: 'Hi', seq: 1 })
   })
 
-  it('resyncs on an out-of-order (lower) seq', () => {
+  it('ignores a stale reordered frame whose fullText is an older prefix', () => {
     const prev = { text: 'Hello', seq: 3 }
     const result = applyDelta(prev, 'lo', 2, 'Hello')
+    expect(result).toEqual({ kind: 'ok', text: 'Hello', seq: 3 })
+  })
+
+  it('resyncs when a lower-seq frame carries a divergent fullText', () => {
+    const prev = { text: 'Hello', seq: 3 }
+    const result = applyDelta(prev, 'lo', 2, 'Hi')
     expect(result.kind).toBe('resync')
-    expect(result.text).toBe('Hello')
+    expect(result).toEqual({ kind: 'resync', text: 'Hi', seq: 2 })
+  })
+
+  it('ignores an exact duplicate frame re-delivery', () => {
+    const prev = { text: 'Hello world', seq: 2 }
+    const result = applyDelta(prev, ' world', 2, 'Hello world')
+    expect(result).toEqual({ kind: 'ok', text: 'Hello world', seq: 2 })
+  })
+
+  it('resyncs when an in-order append does not match the wire fullText', () => {
+    const prev = { text: 'Hello', seq: 1 }
+    const result = applyDelta(prev, 'Hello world', 2, 'Hello world')
+    expect(result.kind).toBe('resync')
+    expect(result).toEqual({ kind: 'resync', text: 'Hello world', seq: 2 })
   })
 
   it('treats seq=0 as a resync even with prior state', () => {

@@ -18,6 +18,8 @@ import { catalog } from './catalog.svelte'
 import { conversationTitle, isDefaultTitle } from './title'
 
 const RECONNECT_MAX_MS = 30_000
+const BACKEND_READY_ATTEMPTS = 10
+const BACKEND_READY_DELAY_MS = 500
 type SettingsPayload = { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }
 
 export type EngineDeps = {
@@ -53,6 +55,7 @@ export function createEngineState(deps: EngineDeps) {
   let destroyed = false
   let attachedTo = ''
   let hostReady = false
+  let initGeneration = 0
   let selectionApply: Promise<boolean> = Promise.resolve(true)
   let readyWaiters: Array<(ready: boolean) => void> = []
 
@@ -79,16 +82,22 @@ export function createEngineState(deps: EngineDeps) {
     reconnectAttempt += 1
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = undefined
-      void desktop.reconnectEngine().catch((cause) => {
-        deps.reportError(cause, 'Reconnect failed')
-        scheduleReconnect()
-      })
+      void desktop.reconnectEngine()
+        .then(() => {
+          if (destroyed) return undefined
+          return init()
+        })
+        .catch((cause) => {
+          deps.reportError(cause, 'Reconnect failed')
+          scheduleReconnect()
+        })
     }, delay)
   }
 
   const engineFingerprint = (info: EngineInfo) => `${info.endpoint}|${info.version}`
 
   const handleEngine = async (info: EngineInfo) => {
+    if (destroyed) return
     deps.engine.value = info
     if (info.running === true) {
       const fp = engineFingerprint(info)
@@ -97,20 +106,26 @@ export function createEngineState(deps: EngineDeps) {
       deps.backendReady.value = false
       try {
         await deps.ensureWorkspace()
+        if (destroyed || attachedTo !== fp) return
         if (catalog.status !== 'ready') {
           await catalog.refresh()
+          if (destroyed || attachedTo !== fp) return
           await applyLoadedSelection()
+          if (destroyed || attachedTo !== fp) return
         }
-        if (attachedTo !== fp) return
         deps.backendReady.value = true
+        reconnectAttempt = 0
         settleReadyWaiters(true)
       } catch (cause) {
-        attachedTo = ''
-        settleReadyWaiters(false)
-        deps.reportError(cause, 'Restore workspace')
+        if (!destroyed && attachedTo === fp) {
+          attachedTo = ''
+          settleReadyWaiters(false)
+          deps.reportError(cause, 'Restore workspace')
+        }
       }
       return
     }
+    if (destroyed) return
     attachedTo = ''
     deps.backendReady.value = false
     catalog.reset()
@@ -263,29 +278,41 @@ export function createEngineState(deps: EngineDeps) {
   }
 
   const init = async () => {
+    const generation = ++initGeneration
     destroyed = false
     deps.backendReady.value = false
     hostReady = await desktop.backendReady().catch(() => false)
+    for (let attempt = 1; !hostReady && attempt < BACKEND_READY_ATTEMPTS && !destroyed && generation === initGeneration; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, BACKEND_READY_DELAY_MS))
+      hostReady = await desktop.backendReady().catch(() => false)
+    }
+    if (destroyed || generation !== initGeneration) return
     if (!hostReady) {
       settleReadyWaiters(false)
       deps.reportError('Wails backend unavailable')
+      hostReady = true
+      scheduleReconnect()
       return
     }
     subscribe()
 
     const limits = await desktop.attachmentLimits().catch(() => null)
+    if (destroyed || generation !== initGeneration) return
     if (limits?.max_bytes) setAttachmentLimit(limits.max_bytes)
     await loadSettings()
+    if (destroyed || generation !== initGeneration) return
     try {
       let status = await desktop.startEngine()
+      if (destroyed || generation !== initGeneration) return
       await handleEngine(status)
 
-      for (let attempt = 0; !status.running && status.status !== 'error' && attempt < 24 && !destroyed; attempt += 1) {
+      for (let attempt = 0; !status.running && status.status !== 'error' && attempt < 24 && !destroyed && generation === initGeneration; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 250))
         status = await desktop.engineStatus()
         await handleEngine(status)
       }
     } catch (cause) {
+      if (destroyed || generation !== initGeneration) return
       settleReadyWaiters(false)
       deps.reportError(cause, 'Start Tack')
       scheduleReconnect()
@@ -294,7 +321,10 @@ export function createEngineState(deps: EngineDeps) {
 
   const destroy = () => {
     destroyed = true
+    initGeneration += 1
     hostReady = false
+    attachedTo = ''
+    reconnectAttempt = 0
     deps.backendReady.value = false
     settleReadyWaiters(false)
     clearReconnect()

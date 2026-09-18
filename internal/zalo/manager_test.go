@@ -188,6 +188,7 @@ func TestDispatchAttachmentOnlyUsesDefaultPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
+	client.allowPrivateHosts = true
 	client.base = server.server.URL
 	fileName := strings.ReplaceAll(t.Name(), "/", "-") + ".png"
 	downloadedPath := filepath.Join(os.TempDir(), "gotack-zalo-inbox", fileName)

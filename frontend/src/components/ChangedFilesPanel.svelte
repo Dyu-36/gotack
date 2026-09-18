@@ -9,6 +9,7 @@
   let diff = $state('')
   let loading = $state(false)
   let error = $state('')
+  let diffToken = 0
 
   function formatBytes(size: number): string {
     if (size < 1024) return `${size} B`
@@ -17,38 +18,56 @@
   }
 
   async function refresh() {
-    if (!sessionId) {
+    const target = sessionId
+    if (!target) {
       files = []
+      selectedPath = ''
+      diff = ''
+      error = ''
+      loading = false
       return
     }
     try {
-      files = await desktop.changedFiles(sessionId)
+      const next = await desktop.changedFiles(target)
+      if (target !== sessionId) return
+      files = next
       error = ''
       if (selectedPath && !files.some((file) => file.path === selectedPath)) {
         selectedPath = ''
         diff = ''
       }
     } catch (cause) {
+      if (target !== sessionId) return
       error = cause instanceof Error ? cause.message : String(cause)
     }
   }
 
   async function showDiff(path: string) {
+    const target = sessionId
+    const request = ++diffToken
     selectedPath = path
     loading = true
     try {
-      diff = await desktop.fileDiff(sessionId, path)
+      const next = await desktop.fileDiff(target, path)
+      if (request !== diffToken || target !== sessionId) return
+      diff = next
       error = ''
     } catch (cause) {
+      if (request !== diffToken || target !== sessionId) return
       diff = ''
       error = cause instanceof Error ? cause.message : String(cause)
     } finally {
-      loading = false
+      if (request === diffToken) loading = false
     }
   }
 
   $effect(() => {
     const active = sessionId
+    diffToken += 1
+    selectedPath = ''
+    diff = ''
+    loading = false
+    error = ''
     void refresh()
     const off = on<{ session_id: string; path: string }>(events.changesUpdated, (event) => {
       if (event.session_id === active) void refresh()

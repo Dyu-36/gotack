@@ -187,11 +187,11 @@ func RedirectStrandedChatGPTSelection(ctx context.Context, api *engineapi.Client
 }
 
 func ApplyChatGPTLoginSelection(ctx context.Context, api *engineapi.Client, workspaceID, currentModel, thinking string) (string, error) {
-	providers, err := api.ListProviders(ctx, workspaceID)
+	entry, err := codexCatalogEntry(ctx, api, workspaceID)
 	if err != nil {
 		return "", fmt.Errorf("load ChatGPT subscription models: %w", err)
 	}
-	modelID, err := SelectChatGPTModel(providers, currentModel)
+	modelID, err := SelectChatGPTModel([]engineapi.Provider{entry}, currentModel)
 	if err != nil {
 		return "", err
 	}

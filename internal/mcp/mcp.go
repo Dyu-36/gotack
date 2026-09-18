@@ -4,12 +4,18 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 )
 
-const protocolVersion = "2024-11-05"
+const (
+	protocolVersion = "2024-11-05"
+	maxLineBytes    = 1 << 20
+)
+
+var errLineTooLong = errors.New("mcp: request line exceeds limit")
 
 type Tool struct {
 	Name        string
@@ -30,10 +36,41 @@ type request struct {
 	Params json.RawMessage `json:"params"`
 }
 
+type readResult struct {
+	line []byte
+	err  error
+}
+
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	reader, encoder := bufio.NewReader(in), json.NewEncoder(out)
+	reads := make(chan readResult)
+	serving := make(chan struct{})
+	defer close(serving)
+	go func() {
+		defer close(reads)
+		for {
+			line, err := readRequestLine(reader)
+			select {
+			case reads <- readResult{line: line, err: err}:
+			case <-serving:
+				return
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	for {
-		line, err := reader.ReadBytes('\n')
+		var line []byte
+		var readErr error
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case result := <-reads:
+			line, readErr = result.line, result.err
+		}
 		if len(line) > 0 {
 			if response := s.handle(ctx, line); response != nil {
 				if err := encoder.Encode(response); err != nil {
@@ -41,15 +78,30 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 				}
 			}
 		}
-		if err != nil {
+		if readErr != nil {
+			if errors.Is(readErr, errLineTooLong) {
+				return readErr
+			}
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return nil
 		}
-		if err := ctx.Err(); err != nil {
-			return err
+	}
+}
+
+func readRequestLine(reader *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if len(line)+len(chunk) > maxLineBytes {
+			return nil, errLineTooLong
 		}
+		line = append(line, chunk...)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return line, err
 	}
 }
 

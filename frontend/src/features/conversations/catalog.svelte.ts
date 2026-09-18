@@ -16,30 +16,41 @@ type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error'
 let providers = $state<ProviderCatalogEntry[]>([])
 let status = $state<CatalogStatus>('idle')
 let loadError = $state('')
+let refreshEpoch = 0
+let refreshPromise: Promise<void> | null = null
 
 async function refresh() {
-  if (status === 'loading') return
+  if (refreshPromise) return refreshPromise
+  const epoch = refreshEpoch
   status = 'loading'
   loadError = ''
-  try {
-    const rawProviders = await desktop.listProviders()
-    providers = rawProviders
-      .map((p) => ({
-        ...p,
-        models: p.models || [],
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-    if (!providers.length) throw new Error('Backend returned an empty provider catalog')
-    status = 'ready'
-  } catch (cause) {
-
-    providers = []
-    status = 'error'
-    loadError = cause instanceof Error ? cause.message : String(cause)
-  }
+  refreshPromise = (async () => {
+    try {
+      const rawProviders = await desktop.listProviders()
+      if (epoch !== refreshEpoch) return
+      providers = rawProviders
+        .map((p) => ({
+          ...p,
+          models: p.models || [],
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+      if (!providers.length) throw new Error('Backend returned an empty provider catalog')
+      status = 'ready'
+    } catch (cause) {
+      if (epoch !== refreshEpoch) return
+      providers = []
+      status = 'error'
+      loadError = cause instanceof Error ? cause.message : String(cause)
+    } finally {
+      if (epoch === refreshEpoch) refreshPromise = null
+    }
+  })()
+  return refreshPromise
 }
 
 function reset() {
+  refreshEpoch += 1
+  refreshPromise = null
   providers = []
   status = 'idle'
   loadError = ''

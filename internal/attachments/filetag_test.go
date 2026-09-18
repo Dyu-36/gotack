@@ -34,6 +34,12 @@ func TestFileTags(t *testing.T) {
 			wantPaths:   nil,
 		},
 		{
+			name:        "unterminated prefix does not hide later tags",
+			input:       `see @[broken @"C:\data.xlsx" please`,
+			wantVisible: `see @[broken please`,
+			wantPaths:   []string{`C:\data.xlsx`},
+		},
+		{
 			name:        "plain text is untouched",
 			input:       "khong co tag nao trong cau nay",
 			wantVisible: "khong co tag nao trong cau nay",

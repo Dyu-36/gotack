@@ -470,6 +470,36 @@ func TestContextCancellationStopsBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestRollbackFailurePreservesSnapshotBackup(t *testing.T) {
+	manager := newTestManager(t)
+	original := skillText("keeper", "Use when testing snapshot preservation.", "Original.")
+	mustApply(t, manager, Operation{Action: actionCreate, Name: "keeper", Content: original})
+	snapshot, err := manager.snapshot([]Operation{{Action: actionPatch, Name: "keeper"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := snapshot.skills[0]
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(item.BackupPath, "poison")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	preserved := snapshot.root
+	rollbackErr := manager.rollback(snapshot)
+	if rollbackErr == nil || !strings.Contains(rollbackErr.Error(), preserved) {
+		t.Fatalf("rollback error = %v, want preserved snapshot path %s", rollbackErr, preserved)
+	}
+	snapshot.cleanup()
+	if _, err := os.Stat(filepath.Join(item.BackupPath, "SKILL.md")); err != nil {
+		t.Fatalf("snapshot backup lost: %v", err)
+	}
+	if got := readFile(t, filepath.Join(manager.Root(), "keeper", "SKILL.md")); got != original {
+		t.Fatalf("failed restore destroyed the live skill:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(manager.Root(), ".rollback-keeper")); !os.IsNotExist(err) {
+		t.Fatalf("staging directory left behind: %v", err)
+	}
+}
+
 func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	manager, err := New(filepath.Join(t.TempDir(), "skills"))

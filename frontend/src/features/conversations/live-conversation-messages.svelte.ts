@@ -237,8 +237,10 @@ export function createMessageState(deps: MessageDeps) {
       })))
     } catch (cause) {
       deps.reportError(cause, 'Send prompt')
-      if (!deps.input.value) deps.input.value = text
-      if (!deps.attachments.value.length) deps.attachments.value = attachments
+      deps.input.value = deps.input.value ? `${text}\n${deps.input.value}` : text
+      deps.attachments.value = [...attachments, ...deps.attachments.value].filter(
+        (attachment, index, list) => list.findIndex((item) => item.id === attachment.id) === index,
+      )
       deps.updateConversation(current.id, (c) => ({
         ...c,
         title: c.title === pendingTitle ? previousTitle : c.title,

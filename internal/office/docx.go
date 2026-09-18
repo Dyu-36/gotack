@@ -11,10 +11,13 @@ func docxParagraphs(documentXML string) ([]string, error) {
 	var bodyLines []string
 
 	var (
-		inCell   bool
-		cellText []string
-		rowCells []string
-		lineText strings.Builder
+		inCell      bool
+		cellText    []string
+		rowCells    []string
+		inCellStack []bool
+		cellStack   [][]string
+		rowStack    [][]string
+		lineText    strings.Builder
 	)
 	flushLine := func() {
 		if lineText.Len() == 0 {
@@ -33,8 +36,12 @@ func docxParagraphs(documentXML string) ([]string, error) {
 		func(name string) {
 			switch name {
 			case "tc":
+				inCellStack = append(inCellStack, inCell)
+				cellStack = append(cellStack, cellText)
+				rowStack = append(rowStack, rowCells)
 				inCell = true
 				cellText = nil
+				rowCells = nil
 			case "br":
 				lineText.WriteString(" ")
 			}
@@ -46,13 +53,24 @@ func docxParagraphs(documentXML string) ([]string, error) {
 				flushLine()
 			case "tc":
 				flushLine()
-				rowCells = append(rowCells, strings.Join(cellText, " "))
-				inCell = false
-				cellText = nil
+				cell := strings.Join(cellText, " ")
+				top := len(cellStack) - 1
+				inCell = inCellStack[top]
+				cellText = cellStack[top]
+				rowCells = rowStack[top]
+				inCellStack = inCellStack[:top]
+				cellStack = cellStack[:top]
+				rowStack = rowStack[:top]
+				rowCells = append(rowCells, cell)
 			case "tr":
 				if len(rowCells) > 0 {
-					bodyLines = append(bodyLines, strings.Join(rowCells, " | "))
+					row := strings.Join(rowCells, " | ")
 					rowCells = nil
+					if inCell {
+						cellText = append(cellText, row)
+					} else {
+						bodyLines = append(bodyLines, row)
+					}
 				}
 			}
 		},

@@ -3,6 +3,7 @@ package uievents
 import (
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -336,6 +337,36 @@ func TestForwarderAppendIsSuffix(t *testing.T) {
 	}
 	if last.Seq != int64(len(deltas)) {
 		t.Fatalf("last delta seq = %d, want %d", last.Seq, len(deltas))
+	}
+}
+
+func TestForwarderDeltaSeqMonotonicUnderConcurrency(t *testing.T) {
+	var c collector
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
+	f.setDelay(time.Millisecond)
+
+	var wg sync.WaitGroup
+	for worker := 1; worker <= 8; worker++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				f.handle(messageUpdate("mC", "sC", "", textParts(strings.Repeat("x", n*5+j))))
+			}
+		}(worker)
+	}
+	wg.Wait()
+	f.Stop()
+
+	deltas := c.of(SessionDelta)
+	if len(deltas) == 0 {
+		t.Fatal("expected flushed deltas")
+	}
+	for i, ev := range deltas {
+		p := ev.data.(SessionDeltaPayload)
+		if p.Seq != int64(i+1) {
+			t.Fatalf("deltas[%d].Seq = %d, want %d (arrival order must match seq order)", i, p.Seq, i+1)
+		}
 	}
 }
 

@@ -126,6 +126,19 @@ func formatUnified(ops []lineOp, path string) string {
 		regions = append(regions, region{start: changeStart, end: len(ops) - 1})
 	}
 
+	if len(regions) > 1 {
+		merged := []region{regions[0]}
+		for _, r := range regions[1:] {
+			last := &merged[len(merged)-1]
+			if r.start-last.end <= 2*contextLines {
+				last.end = r.end
+				continue
+			}
+			merged = append(merged, r)
+		}
+		regions = merged
+	}
+
 	for _, r := range regions {
 		cs := r.start - contextLines
 		if cs < 0 {

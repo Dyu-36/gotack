@@ -19,11 +19,15 @@ const (
 
 const helpText = "✅ Đã kết nối với Gotack trên máy của bạn.\n\nNhắn bình thường để nhờ Gotack làm việc. Các lệnh nhanh:\n/screenshot — chụp ảnh màn hình máy tính gửi qua Zalo\n/files — xem danh sách tệp của workspace\n/send <tên file> — gửi ảnh / xlsx / pdf / docx... qua Zalo\n/new — mở hội thoại mới\n/stop — dừng việc đang chạy\n/status — xem trạng thái\n/model — xem mô hình đang dùng\n/help — xem lại danh sách này"
 
-func (m *Manager) run(ctx context.Context) {
+func (m *Manager) run(ctx context.Context, generation uint64, done chan struct{}) {
 	defer func() {
+		close(done)
 		m.mu.Lock()
-		m.running = false
-		m.cancel = nil
+		if m.generation == generation {
+			m.running = false
+			m.cancel = nil
+			m.done = nil
+		}
 		m.mu.Unlock()
 	}()
 	backoff := minBackoff
@@ -373,7 +377,7 @@ func (m *Manager) handleSendFile(ctx context.Context, client *Client, chatID, ar
 	if strings.TrimSpace(argument) == "" {
 		files := listOutputFiles(workspace)
 		if len(files) == 0 {
-			m.reply(ctx, client, chatID, "📂 Workspace này chưa có tệp nào trong thư mục output.\nCách dùng: /send <tên file> hoặc /send <đường dẫn đầy đủ>.")
+			m.reply(ctx, client, chatID, "📂 Workspace này chưa có tệp nào trong thư mục output.\nCách dùng: /send <tên file>.")
 			return
 		}
 		lines := make([]string, 0, len(files))

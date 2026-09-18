@@ -3,12 +3,14 @@ package guard
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 type blockRule struct {
 	Name     string
 	Halt     bool
 	patterns []*regexp.Regexp
+	match    func(string) bool
 }
 
 func (r blockRule) reason(command string) string {
@@ -54,15 +56,12 @@ func mustRules() []blockRule {
 		}
 		return blockRule{Name: name, Halt: halt, patterns: compiled}
 	}
-	return []blockRule{
+	rules := []blockRule{
 		mk(ruleRecursiveForceDelete, true,
 
 			`(?i)\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s+(/|/\*|~|\$HOME)(\s|$)`,
-
 			`(?i)\brm\s+(-[a-z]+\s+)*--no-preserve-root`,
-
 			`(?i)\b(rd|rmdir|del|erase)\b\s+/s\s+/q\s+[a-z]:\\?(\s|$)`,
-
 			`(?i)Remove-Item\s+("')?[a-z]:\\?("')?\s+-Recurse\s+-Force`,
 		),
 		mk(ruleDiskFormatWipe, true,
@@ -109,6 +108,12 @@ func mustRules() []blockRule {
 			`(?i)(Invoke-WebRequest|Invoke-RestMethod)\b[^\n]*-File\b[^\n]*(id_rsa|\.env\b|\.netrc|credentials)`,
 		),
 	}
+	for i := range rules {
+		if rules[i].Name == ruleRecursiveForceDelete {
+			rules[i].match = recursiveForceDeleteMatch
+		}
+	}
+	return rules
 }
 
 var blocklist = mustRules()
@@ -123,6 +128,104 @@ func MatchBlocklist(command string) (blockRule, bool) {
 				return r, true
 			}
 		}
+		if r.match != nil && r.match(command) {
+			return r, true
+		}
 	}
 	return blockRule{}, false
+}
+
+func recursiveForceDeleteMatch(command string) bool {
+	for _, segment := range splitCommandSegments(command) {
+		if recursiveForceTargetsRoot(segment) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitCommandSegments(command string) []string {
+	return strings.FieldsFunc(command, func(r rune) bool {
+		switch r {
+		case ';', '|', '&', '(', ')', '\n':
+			return true
+		}
+		return false
+	})
+}
+
+func isRmToken(token string) bool {
+	base := token
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return strings.EqualFold(base, "rm")
+}
+
+func recursiveForceTargetsRoot(segment string) bool {
+	tokens := make([]string, 0, 8)
+	for _, tok := range strings.Fields(segment) {
+		tokens = append(tokens, stripQuotes(tok))
+	}
+	for i, tok := range tokens {
+		if !isRmToken(tok) {
+			continue
+		}
+		recursive, force := false, false
+		var operands []string
+		endOfFlags := false
+		for _, arg := range tokens[i+1:] {
+			switch {
+			case !endOfFlags && arg == "--":
+				endOfFlags = true
+			case !endOfFlags && strings.HasPrefix(arg, "--"):
+				switch strings.ToLower(strings.TrimPrefix(arg, "--")) {
+				case "recursive":
+					recursive = true
+				case "force":
+					force = true
+				}
+			case !endOfFlags && len(arg) > 1 && arg[0] == '-':
+				for _, ch := range strings.ToLower(arg[1:]) {
+					switch ch {
+					case 'r':
+						recursive = true
+					case 'f':
+						force = true
+					}
+				}
+			default:
+				operands = append(operands, arg)
+			}
+		}
+		if recursive && force {
+			for _, op := range operands {
+				if isRootOrHomeTarget(op) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func stripQuotes(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '"' || r == '\'' {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func isRootOrHomeTarget(arg string) bool {
+	t := strings.TrimSuffix(arg, "/*")
+	t = strings.TrimRight(t, `/\`)
+	switch {
+	case t == "" || t == "~":
+		return true
+	case strings.EqualFold(t, "$HOME") || strings.EqualFold(t, "${HOME}"):
+		return true
+	}
+	return false
 }

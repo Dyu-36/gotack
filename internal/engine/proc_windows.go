@@ -3,6 +3,8 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"syscall"
@@ -35,8 +37,7 @@ func killTree(cmd *exec.Cmd) error {
 		CreationFlags: createNoWindow,
 	}
 	if err := tk.Run(); err != nil {
-
-		return cmd.Process.Kill()
+		return errors.Join(fmt.Errorf("engine: taskkill tree pid=%d: %w", pid, err), cmd.Process.Kill())
 	}
 	return nil
 }

@@ -30,10 +30,23 @@ func Dir() string {
 
 func socketDir() string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		dir = "/tmp"
+	if runtimeDirUsable(dir) {
+		return dir
 	}
-	return dir
+	fallback := Dir()
+	_ = os.MkdirAll(fallback, 0o700)
+	return fallback
+}
+
+func runtimeDirUsable(dir string) bool {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return false
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	return info.Mode().Perm()&0o077 == 0
 }
 
 func currentUID() string {

@@ -78,6 +78,13 @@
   let composer = $state<Composer | null>(null)
   let scrollFrame: number | null = null
 
+  $effect(() => {
+    void sessionTitle
+    isRenaming = false
+    renameValue = ''
+    renameCancelled = false
+  })
+
   const STICK_THRESHOLD = 96
 
   const streamingBubbleId = $derived(

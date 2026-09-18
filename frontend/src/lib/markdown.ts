@@ -3,12 +3,47 @@ import DOMPurify from 'dompurify'
 
 marked.setOptions({ breaks: true, gfm: true })
 
-const ALLOWED_URI_REGEXP =
-  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|file):|[a-z]:[\\/]|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function externalHref(href: string): string | undefined {
+  const value = href.trim()
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && parsed.protocol !== 'mailto:' && parsed.protocol !== 'tel:') {
+      return undefined
+    }
+  } catch {
+    return undefined
+  }
+  return value
+}
 
 function sanitize(html: string): string {
-  return DOMPurify.sanitize(html, { ALLOWED_URI_REGEXP })
+  return DOMPurify.sanitize(html)
 }
+
+marked.use({
+  renderer: {
+    link(token) {
+      const label = this.parser.parseInline(token.tokens)
+      const localPath = localFilePath(token.href)
+      if (localPath) {
+        return `<a data-local-path="${escapeHtmlAttribute(localPath)}">${label}</a>`
+      }
+      const href = externalHref(token.href)
+      if (!href) return label
+      const title = token.title ? ` title="${escapeHtmlAttribute(token.title)}"` : ''
+      return `<a href="${escapeHtmlAttribute(href)}"${title}>${label}</a>`
+    },
+  },
+})
 
 function escapeFallback(content: string): string {
   return content
@@ -107,14 +142,16 @@ const localFileExtension = /\.(?:csv|docx?|jpe?g|json|md|pdf|png|pptx?|txt|webp|
 
 export function localFilePath(href: string): string | undefined {
   const value = href.trim()
-  if (/^[a-z]:[\\/]/i.test(value) && localFileExtension.test(value)) return value
+  if (value.includes('\0')) return undefined
+  if (/^[a-z]:[\\/]/i.test(value)) return localFileExtension.test(value) ? value : undefined
   if (!/^file:/i.test(value)) return undefined
   try {
     const parsed = new URL(value)
     if (parsed.protocol !== 'file:' || (parsed.hostname && parsed.hostname !== 'localhost')) return undefined
     let path = decodeURIComponent(parsed.pathname)
-    if (/^\/[a-z]:\//i.test(path)) path = path.slice(1)
-    path = path.replace(/\//g, '\\')
+    if (/^\/[a-z]:\//i.test(path)) {
+      path = path.slice(1).replace(/\//g, '\\')
+    }
     return localFileExtension.test(path) ? path : undefined
   } catch {
     return undefined
@@ -131,19 +168,28 @@ function openLocalFile(path: string): boolean {
 export function openChatLink(href: string): void {
   if (!href || href.startsWith('#')) return
   const path = localFilePath(href)
-  if (path && openLocalFile(path)) return
+  if (path) {
+    openLocalFile(path)
+    return
+  }
+
+  const url = externalHref(href)
+  if (!url) {
+    console.warn('Blocked unsupported chat link:', href)
+    return
+  }
 
   try {
     const rt = (window as unknown as { runtime?: { BrowserOpenURL?: (url: string) => void } }).runtime
     if (typeof rt?.BrowserOpenURL === 'function') {
-      rt.BrowserOpenURL(href)
+      rt.BrowserOpenURL(url)
       return
     }
   } catch (err) {
     console.warn('BrowserOpenURL failed:', err)
   }
 
-  window.open(href, '_blank', 'noopener,noreferrer')
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 export function chatLinks(node: HTMLElement) {
@@ -151,6 +197,12 @@ export function chatLinks(node: HTMLElement) {
     const target = event.target as HTMLElement | null
     const anchor = target?.closest?.('a') as HTMLAnchorElement | null
     if (anchor) {
+      const localPath = localFilePath(anchor.getAttribute('data-local-path') ?? '')
+      if (localPath) {
+        event.preventDefault()
+        openLocalFile(localPath)
+        return
+      }
       const href = anchor.getAttribute('href')
       if (!href || href.startsWith('#')) return
       event.preventDefault()

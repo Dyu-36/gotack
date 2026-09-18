@@ -121,8 +121,12 @@ func (s *Store) Apply(ctx context.Context, target Target, operations []Operation
 		if !utf8.ValidString(content) {
 			return Result{}, ErrInvalidUTF8
 		}
-		if strings.TrimSpace(content) != "" {
-			if err := Scan(strings.TrimSpace(content)); err != nil {
+		trimmedContent := strings.TrimSpace(content)
+		if strings.HasPrefix(trimmedContent, EntryMarker) || strings.Contains(trimmedContent, "\n"+EntryMarker) || strings.Contains(trimmedContent, blockSeparator) {
+			return Result{}, fmt.Errorf("operation %d: %w", index+1, ErrReservedMarker)
+		}
+		if trimmedContent != "" {
+			if err := Scan(trimmedContent); err != nil {
 				return Result{}, fmt.Errorf("operation %d: %w", index+1, err)
 			}
 		}

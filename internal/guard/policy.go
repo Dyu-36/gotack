@@ -21,6 +21,9 @@ type Options struct {
 }
 
 func Evaluate(in Input, o Options) Output {
+	if err := in.ToolInputErr(); err != nil && (isCommandTool(in.ToolName) || isWriteTool(in.ToolName)) {
+		return Deny(fmt.Sprintf("gotack-guard: cannot decode tool_input for tool %q - failing closed (%v)", in.ToolName, err), false)
+	}
 	if command := in.Command(); command != "" {
 		if rule, ok := MatchBlocklist(command); ok {
 			return Deny(rule.reason(command), rule.Halt)
@@ -69,11 +72,14 @@ func decideWrite(in Input, o Options) (Output, bool) {
 		return Output{}, false
 	}
 	abs := resolvePath(in.CWD, target)
-	if o.ContextDir != "" && withinPath(o.ContextDir, abs) {
+	if o.ContextDir != "" && withinPath(evalPath(o.ContextDir), evalPath(abs)) {
 		reason := fmt.Sprintf("gotack-guard: denied by rule %q - writes into the personal context directory are forbidden; use memory instead (path: %s)", ruleContextWrite, target)
 		return Deny(reason, false), true
 	}
-	if o.WriteSafeRoot != "" && !withinPath(o.WriteSafeRoot, abs) {
+	if o.WriteSafeRoot == "" {
+		return Output{}, false
+	}
+	if !withinPath(evalPath(o.WriteSafeRoot), evalPath(abs)) {
 		reason := fmt.Sprintf("gotack-guard: denied by rule %q - file writes are only allowed inside the workspace %s (path: %s)", ruleWriteOutsideRoot, o.WriteSafeRoot, target)
 		return Deny(reason, false), true
 	}

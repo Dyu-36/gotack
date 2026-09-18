@@ -14,8 +14,15 @@ var writeTools = map[string]bool{
 	"write": true, "edit": true, "multiedit": true,
 }
 
+var commandTools = map[string]bool{
+	"bash": true,
+}
+
 func isReadTool(name string) bool  { return readTools[name] }
 func isWriteTool(name string) bool { return writeTools[name] }
+func isCommandTool(name string) bool {
+	return commandTools[name]
+}
 
 func isSkillTool(name string) bool {
 	switch name {
@@ -47,7 +54,28 @@ func withinPath(root, target string) bool {
 	if equalPath(root, target) {
 		return true
 	}
-	return hasPathPrefix(target, root+string(filepath.Separator))
+	sep := string(filepath.Separator)
+	prefix := root
+	if !strings.HasSuffix(prefix, sep) && !strings.HasSuffix(prefix, ":") {
+		prefix += sep
+	}
+	return hasPathPrefix(target, prefix)
+}
+
+func evalPath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	rest := filepath.Base(p)
+	dir := filepath.Dir(p)
+	for dir != p {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = filepath.Dir(dir)
+	}
+	return p
 }
 
 func equalPath(a, b string) bool {

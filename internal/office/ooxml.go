@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const maxPartSize = 32 << 20
+
 func walkXMLText(raw string, onStart, onText, onEnd func(string)) error {
 	decoder := xml.NewDecoder(strings.NewReader(raw))
 	for {
@@ -46,14 +48,20 @@ func readPackagePart(path, name string) (string, error) {
 		if file.Name != name {
 			continue
 		}
+		if file.UncompressedSize64 > maxPartSize {
+			return "", fmt.Errorf("office: %s in %s exceeds %d byte limit", name, path, maxPartSize)
+		}
 		source, err := file.Open()
 		if err != nil {
 			return "", fmt.Errorf("office: read %s in %s: %w", name, path, err)
 		}
 		defer source.Close()
-		data, err := io.ReadAll(source)
+		data, err := io.ReadAll(io.LimitReader(source, maxPartSize+1))
 		if err != nil {
 			return "", fmt.Errorf("office: read %s in %s: %w", name, path, err)
+		}
+		if int64(len(data)) > maxPartSize {
+			return "", fmt.Errorf("office: %s in %s exceeds %d byte limit", name, path, maxPartSize)
 		}
 		return string(data), nil
 	}

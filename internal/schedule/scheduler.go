@@ -40,6 +40,7 @@ type Scheduler struct {
 	fireTimeout   time.Duration
 
 	mu          sync.Mutex
+	persistMu   sync.Mutex
 	file        File
 	engineReady bool
 	started     bool
@@ -132,15 +133,17 @@ func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) bool
 		return false
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	matched := false
+	persistID := ""
 	for id, currentSessionID := range s.inflight {
 		if currentSessionID != sessionID {
 			continue
 		}
 		delete(s.inflight, id)
+		matched = true
 		job := s.jobLocked(id)
 		if job == nil {
-			return true
+			break
 		}
 		switch {
 		case cancelled:
@@ -153,10 +156,14 @@ func (s *Scheduler) RecordOutcome(sessionID, runErr string, cancelled bool) bool
 			job.ConsecutiveFailures = 0
 			job.LastOutcome = "complete"
 		}
-		_ = s.persistLocked(job.ID)
-		return true
+		persistID = job.ID
+		break
 	}
-	return false
+	s.mu.Unlock()
+	if persistID != "" {
+		_ = s.persist(persistID)
+	}
+	return matched
 }
 
 func (s *Scheduler) loop(ctx context.Context, done chan struct{}) {
@@ -249,13 +256,6 @@ func (s *Scheduler) fire(ctx context.Context, jobID string) {
 	job.LastRun = &now
 	job.LastOutcome = "fired"
 	s.inflight[jobID] = ""
-	if err := s.persistLocked(jobID); err != nil {
-		job.LastRun = previousRun
-		job.LastOutcome = previousOutcome
-		delete(s.inflight, jobID)
-		s.mu.Unlock()
-		return
-	}
 
 	name := strings.TrimSpace(job.Name)
 	title := "Schedule: " + name
@@ -264,6 +264,18 @@ func (s *Scheduler) fire(ctx context.Context, jobID string) {
 	}
 	prompt := job.Prompt
 	s.mu.Unlock()
+
+	if err := s.persist(jobID); err != nil {
+		s.mu.Lock()
+		job = s.jobLocked(jobID)
+		if job != nil {
+			job.LastRun = previousRun
+			job.LastOutcome = previousOutcome
+		}
+		delete(s.inflight, jobID)
+		s.mu.Unlock()
+		return
+	}
 
 	sessionID, err := s.rt.CreateSession(fctx, title)
 	if err == nil {
@@ -279,22 +291,30 @@ func (s *Scheduler) fire(ctx context.Context, jobID string) {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	job = s.jobLocked(jobID)
 	if err != nil {
 		delete(s.inflight, jobID)
+		persistID := ""
 		if job != nil {
 			s.recordLaunchFailureLocked(job, previousRun, err)
+			persistID = job.ID
+		}
+		s.mu.Unlock()
+		if persistID != "" {
+			_ = s.persist(persistID)
 		}
 		return
 	}
 	delete(s.retryAfter, jobID)
 	if job == nil {
 		delete(s.inflight, jobID)
+		s.mu.Unlock()
 		return
 	}
 	job.RecentFires = append(pruneFires(job.RecentFires, now), now)
-	_ = s.persistLocked(job.ID)
+	persistID := job.ID
+	s.mu.Unlock()
+	_ = s.persist(persistID)
 }
 
 func (s *Scheduler) recordLaunchFailureLocked(job *Job, prevRun *time.Time, err error) {
@@ -303,7 +323,6 @@ func (s *Scheduler) recordLaunchFailureLocked(job *Job, prevRun *time.Time, err 
 	job.LastOutcome = "launch failed: " + err.Error()
 	s.retryAfter[job.ID] = s.now().Add(s.retryDelay)
 	s.disableIfThresholdLocked(job)
-	_ = s.persistLocked(job.ID)
 }
 
 func (s *Scheduler) disableIfThresholdLocked(job *Job) {
@@ -318,13 +337,14 @@ func (s *Scheduler) disableIfThresholdLocked(job *Job) {
 func (s *Scheduler) noteSkip(jobID string, err error) {
 	reason := "skipped: " + err.Error()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	job := s.jobLocked(jobID)
 	if job == nil || job.LastOutcome == reason {
+		s.mu.Unlock()
 		return
 	}
 	job.LastOutcome = reason
-	_ = s.persistLocked(job.ID)
+	s.mu.Unlock()
+	_ = s.persist(jobID)
 }
 
 func (s *Scheduler) jobLocked(id string) *Job {
@@ -336,8 +356,33 @@ func (s *Scheduler) jobLocked(id string) *Job {
 	return nil
 }
 
-func (s *Scheduler) persistLocked(jobID string) error {
-	if err := SaveFile(s.path, &s.file, s.now()); err != nil {
+func cloneFile(file *File) *File {
+	out := &File{Jobs: make([]*Job, 0, len(file.Jobs))}
+	for _, job := range file.Jobs {
+		if job == nil {
+			out.Jobs = append(out.Jobs, nil)
+			continue
+		}
+		copied := *job
+		if job.LastRun != nil {
+			lastRun := *job.LastRun
+			copied.LastRun = &lastRun
+		}
+		if job.RecentFires != nil {
+			copied.RecentFires = append([]time.Time(nil), job.RecentFires...)
+		}
+		out.Jobs = append(out.Jobs, &copied)
+	}
+	return out
+}
+
+func (s *Scheduler) persist(jobID string) error {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	s.mu.Lock()
+	file := cloneFile(&s.file)
+	s.mu.Unlock()
+	if err := SaveFile(s.path, file, s.now()); err != nil {
 		s.log.Warn("schedule: persist failed", "job", jobID, "err", err)
 		return err
 	}

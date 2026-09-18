@@ -32,6 +32,14 @@ func pruneCache(dir string, ttl time.Duration, budget int64) {
 			continue
 		}
 		entry := statCacheDir(filepath.Join(dir, item.Name()))
+		if entry.modified.IsZero() {
+			if info, err := item.Info(); err == nil {
+				entry.modified = info.ModTime()
+			}
+		}
+		if entry.modified.IsZero() {
+			continue
+		}
 		if entry.modified.Before(cutoff) {
 			_ = os.RemoveAll(entry.path)
 			continue

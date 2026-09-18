@@ -73,6 +73,33 @@ func TestMarkRequiresSessionID(t *testing.T) {
 	}
 }
 
+func TestWritePathsFailClosedOnUnreadableRoster(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]string{
+		"malformed": "{not-json",
+		"wrongtype": `{"sessions": 42}`,
+	}
+	for name, content := range cases {
+		path := filepath.Join(dir, name+".json")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := MarkUnattendedSession(path, "sess-new"); err == nil {
+			t.Fatalf("%s roster must abort the mark", name)
+		}
+		if err := UnmarkReviewSession(path, "sess-new"); err == nil {
+			t.Fatalf("%s roster must abort the unmark", name)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != content {
+			t.Fatalf("%s roster was rewritten: %q", name, data)
+		}
+	}
+}
+
 func TestMarkCapsRosterSize(t *testing.T) {
 	path := filepath.Join(t.TempDir(), UnattendedRosterFileName)
 	for i := 0; i < rosterCap+10; i++ {

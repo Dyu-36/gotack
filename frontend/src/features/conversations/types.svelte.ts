@@ -18,11 +18,11 @@ export class ChatMessage {
   kind: 'message' | 'tool' | 'task' = 'message'
   toolName?: string
   toolFinished?: boolean
-  taskState?: 'searching' | 'optimizing' | 'optimal' | 'feasible' | 'infeasible' | 'timed_out' | 'failed'
-  taskElapsedSeconds?: number
-  taskLimitSeconds?: number
-  taskSoftViolationCount?: number
-  taskPenalty?: number
+  taskState = $state<'searching' | 'optimizing' | 'optimal' | 'feasible' | 'infeasible' | 'timed_out' | 'failed' | undefined>(undefined)
+  taskElapsedSeconds = $state<number | undefined>(undefined)
+  taskLimitSeconds = $state<number | undefined>(undefined)
+  taskSoftViolationCount = $state<number | undefined>(undefined)
+  taskPenalty = $state<number | undefined>(undefined)
   createdAt = Date.now()
 
   constructor(id: string, role: MessageRole, createdAt?: number) {

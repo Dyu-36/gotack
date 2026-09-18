@@ -17,6 +17,7 @@ var (
 	ErrArguments      = errors.New("memory: invalid arguments")
 	ErrInvalidUTF8    = errors.New("memory: file is not valid UTF-8")
 	ErrEmptyBatch     = errors.New("memory: operations list is empty")
+	ErrReservedMarker = errors.New("memory: content must not begin a line with the entry marker or contain the section separator")
 )
 
 type OverCapError struct {

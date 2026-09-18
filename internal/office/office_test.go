@@ -68,6 +68,29 @@ func TestDocxReadAndInfo(t *testing.T) {
 	}
 }
 
+func TestDocxNestedTables(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested.docx")
+	doc := `<document><body>` +
+		`<p><r><t>Before</t></r></p>` +
+		`<tbl><tr><tc><p><r><t>Outer</t></r></p>` +
+		`<tbl><tr><tc><p><r><t>Inner</t></r></p></tc></tr></tbl>` +
+		`<p><r><t>After</t></r></p></tc><tc><p><r><t>Side</t></r></p></tc></tr></tbl>` +
+		`</body></document>`
+	if err := writeTestPackage(path, map[string]string{documentXML: doc}); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	content, err := Read(path, "")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	for _, want := range []string{"Before", "Outer", "Inner", "After", "Side", " | "} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("Read() missing %q in:\n%s", want, content)
+		}
+	}
+}
+
 func TestPptxReadAndInfo(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deck.pptx")
 	parts := map[string]string{

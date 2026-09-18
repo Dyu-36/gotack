@@ -30,71 +30,58 @@ function safeParseJson(raw?: string): Record<string, unknown> | null {
   return null
 }
 
+function tokenizeToolName(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+function classifyToolName(name: string): ToolCategory {
+  const tokens = tokenizeToolName(name)
+  if (tokens.length === 0) return 'generic'
+  if (tokens[0] === 'mcp' || tokens.includes('schedule') || tokens.includes('subagent')) return 'mcp'
+  const has = (...candidates: string[]) => candidates.some((candidate) => tokens.includes(candidate))
+  if (has('command', 'cmd', 'run', 'bash', 'terminal', 'exec', 'shell')) return 'terminal'
+  if (has('read', 'view', 'cat')) return 'read'
+  if (has('write', 'replace', 'edit', 'patch') || (tokens.includes('create') && tokens.includes('file'))) return 'edit'
+  if (has('grep', 'find', 'search', 'query')) return 'search'
+  if (has('list', 'ls', 'dir', 'glob', 'tree')) return 'list'
+  return 'generic'
+}
+
 export function parseToolDisplay(name?: string, rawInput?: string, finished = false): ToolDisplayInfo {
-  const tool = (name ?? '').toLowerCase()
+  const category = classifyToolName(name ?? '')
   const parsed = safeParseJson(rawInput)
 
-  let category: ToolCategory = 'generic'
   let detail = ''
-  let isCode = false
+  const isCode = category === 'terminal'
 
-  if (
-    tool.includes('command') ||
-    tool.includes('run') ||
-    tool.includes('bash') ||
-    tool.includes('terminal') ||
-    tool.includes('exec') ||
-    tool.includes('shell')
-  ) {
-    category = 'terminal'
-    isCode = true
+  if (category === 'terminal') {
     if (parsed) {
       detail = String(parsed.CommandLine ?? parsed.command ?? parsed.cmd ?? parsed.CommandLineString ?? '')
     }
-  } else if (
-    tool.includes('view') ||
-    tool.includes('read') ||
-    tool.includes('cat')
-  ) {
-    category = 'read'
+  } else if (category === 'read') {
     if (parsed) {
       const fullPath = String(parsed.AbsolutePath ?? parsed.TargetFile ?? parsed.path ?? parsed.file_path ?? parsed.Url ?? '')
       detail = extractBasename(fullPath)
     }
-  } else if (
-    tool.includes('write') ||
-    tool.includes('replace') ||
-    tool.includes('edit') ||
-    tool.includes('patch') ||
-    tool.includes('create_file')
-  ) {
-    category = 'edit'
+  } else if (category === 'edit') {
     if (parsed) {
       const fullPath = String(parsed.TargetFile ?? parsed.AbsolutePath ?? parsed.path ?? parsed.file_path ?? '')
       detail = extractBasename(fullPath)
     }
-  } else if (
-    tool.includes('grep') ||
-    tool.includes('find') ||
-    tool.includes('search')
-  ) {
-    category = 'search'
+  } else if (category === 'search') {
     if (parsed) {
       const q = String(parsed.Query ?? parsed.query ?? parsed.Pattern ?? parsed.pattern ?? '')
       detail = q ? `"${q}"` : ''
     }
-  } else if (
-    tool.includes('list') ||
-    tool.includes('ls') ||
-    tool.includes('dir')
-  ) {
-    category = 'list'
+  } else if (category === 'list') {
     if (parsed) {
       const p = String(parsed.DirectoryPath ?? parsed.SearchDirectory ?? parsed.path ?? '')
       detail = extractBasename(p)
     }
-  } else if (tool.includes('mcp') || tool.startsWith('mcp_') || tool.includes('schedule') || tool.includes('subagent')) {
-    category = 'mcp'
   }
 
   if (!detail && rawInput) {

@@ -36,12 +36,10 @@ func TestPipeEndpointShape(t *testing.T) {
 	}
 
 	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		dir = "/tmp"
-	}
-	if !strings.HasPrefix(ep.Address, dir+string(filepath.Separator)) &&
+	if dir != "" && !strings.HasPrefix(ep.Address, dir+string(filepath.Separator)) &&
+		!strings.HasPrefix(ep.Address, Dir()+string(filepath.Separator)) &&
 		!strings.HasPrefix(ep.Address, "/tmp/"+wantSuffix) {
-		t.Errorf("unix address=%q not under %q or /tmp", ep.Address, dir)
+		t.Errorf("unix address=%q not under %q, %q or /tmp", ep.Address, dir, Dir())
 	}
 }
 
@@ -51,8 +49,8 @@ func TestSocketDirLongPathFallback(t *testing.T) {
 	}
 	t.Setenv("XDG_RUNTIME_DIR", "/"+strings.Repeat("a", 200))
 	ep := PipeEndpoint()
-	if !strings.HasPrefix(ep.Address, "/tmp/") {
-		t.Fatalf("expected /tmp/ fallback for long XDG path, got %q", ep.Address)
+	if !strings.HasPrefix(ep.Address, Dir()+string(filepath.Separator)) {
+		t.Fatalf("expected private fallback under %q for unusable XDG path, got %q", Dir(), ep.Address)
 	}
 	if len(ep.Address) >= 108 {
 		t.Fatalf("address still over sun_path cap: %d", len(ep.Address))

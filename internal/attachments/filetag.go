@@ -21,8 +21,9 @@ func FileTags(text string) (string, []string) {
 		}
 		inner := strings.Index(rest[start+2:], closer)
 		if inner < 0 {
-			visible.WriteString(rest)
-			break
+			visible.WriteString(rest[:start+2])
+			rest = rest[start+2:]
+			continue
 		}
 		path := strings.TrimSpace(rest[start+2 : start+2+inner])
 		consumed := start + 2 + inner + len(closer)

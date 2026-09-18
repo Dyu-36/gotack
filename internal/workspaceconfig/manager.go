@@ -2,6 +2,7 @@ package workspaceconfig
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/Dyu-36/gotack/internal/contextseed"
@@ -45,9 +46,9 @@ func NewManager(options Options) *Manager {
 	}
 }
 
-func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspace.Descriptor) {
+func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspace.Descriptor) error {
 	if m == nil || api == nil || desc.WorkspaceID == "" {
-		return
+		return nil
 	}
 	if err := RegisterOffice(ctx, api, desc.WorkspaceID, desc, m.office, m.userSkillsDir); err != nil {
 		m.warn("workspace runtime: office registration failed", "err", err)
@@ -64,7 +65,9 @@ func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspa
 	}
 	if err := RegisterGuard(ctx, api, desc.WorkspaceID, resolve(m.resolvers.Guard)); err != nil {
 		m.warn("workspace runtime: guard registration failed", "err", err)
+		return fmt.Errorf("workspace runtime: guard registration: %w", err)
 	}
+	return nil
 }
 
 func resolve(resolver func() string) string {
