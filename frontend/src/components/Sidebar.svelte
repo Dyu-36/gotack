@@ -39,6 +39,7 @@
   let searchQuery = $state('')
   let editingId = $state<string | null>(null)
   let editingTitle = $state('')
+  let renameInput = $state<HTMLInputElement | null>(null)
 
   let filteredSessions = $derived(
     sessions.filter((session) => session.title.toLowerCase().includes(searchQuery.trim().toLowerCase())),
@@ -55,7 +56,15 @@
   function startRename(session: Session) {
     editingId = session.id
     editingTitle = session.title
-    queueMicrotask(() => document.getElementById(`rename-${session.id}`)?.focus())
+  }
+
+  $effect(() => {
+    if (editingId !== null) renameInput?.select()
+  })
+
+  function requestDelete(session: Session) {
+    if (!window.confirm(`Xóa hội thoại "${session.title}"? Thao tác này không thể hoàn tác.`)) return
+    onDelete(session.id)
   }
 
   function commitRename() {
@@ -122,7 +131,7 @@
       <div class="relative group session-row">
         {#if editingId === session.id}
           <div class="flex items-center gap-1 px-2 h-item mx-1">
-            <input id={`rename-${session.id}`} class="input-inline flex-1" bind:value={editingTitle} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
+            <input class="input-inline flex-1" bind:this={renameInput} bind:value={editingTitle} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
           </div>
         {:else}
           <button type="button" class:mm-nav-active={activeSessionId === session.id} class="mm-nav-item w-full text-left h-item" onclick={() => onSelectSession(session.id)}>
@@ -134,7 +143,7 @@
             <button type="button" class="p-1 hover:bg-mm-hover rounded" title="Đổi tên" onclick={(event) => { event.stopPropagation(); startRename(session) }}>
               <svg class="w-3 h-3 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
             </button>
-            <button type="button" class="session-icon-btn delete-session-btn" aria-label={`Xóa hội thoại ${session.title}`} onclick={(event) => { event.stopPropagation(); onDelete(session.id) }}>
+            <button type="button" class="session-icon-btn delete-session-btn" aria-label={`Xóa hội thoại ${session.title}`} onclick={(event) => { event.stopPropagation(); requestDelete(session) }}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" /></svg>
             </button>
           </div>

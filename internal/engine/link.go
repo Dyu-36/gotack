@@ -129,11 +129,11 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 }
 
 func (l *Link) CommitAttach(scope context.Context, ep engineapi.Endpoint, version string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if scope.Err() != nil {
 		return false
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.ep = ep
 	l.version = version
 	l.lastError = ""
@@ -155,11 +155,11 @@ func (l *Link) Fail(reason string) {
 }
 
 func (l *Link) TransportLost(scope context.Context, reason string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if scope.Err() != nil {
 		return false
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.status != StatusRunning {
 		return false
 	}

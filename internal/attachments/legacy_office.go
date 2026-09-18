@@ -36,8 +36,12 @@ func ConvertLegacyOffice(path string) (string, error) {
 		return "", fmt.Errorf(userstrings.FmtUnsupportedConversion, ext)
 	}
 	converted := strings.TrimSuffix(path, filepath.Ext(path)) + target
-	if info, err := os.Stat(converted); err == nil && info.Size() > 0 {
-		return converted, nil
+	var srcMod time.Time
+	if info, err := os.Stat(path); err == nil {
+		srcMod = info.ModTime()
+		if freshConversion(converted, srcMod) {
+			return converted, nil
+		}
 	}
 
 	var problems []string
@@ -45,7 +49,7 @@ func ConvertLegacyOffice(path string) (string, error) {
 		err := runConversion(binary, "--headless", "--norestore", "--convert-to",
 			strings.TrimPrefix(target, "."), "--outdir", filepath.Dir(converted), path)
 		if err == nil {
-			if info, statErr := os.Stat(converted); statErr == nil && info.Size() > 0 {
+			if freshConversion(converted, srcMod) {
 				return converted, nil
 			}
 			err = errors.New(userstrings.ErrConversionResultMissing)
@@ -58,7 +62,7 @@ func ConvertLegacyOffice(path string) (string, error) {
 	if runtime.GOOS == "windows" {
 		err := convertWithOfficeCOM(path, converted, target)
 		if err == nil {
-			if info, statErr := os.Stat(converted); statErr == nil && info.Size() > 0 {
+			if freshConversion(converted, srcMod) {
 				return converted, nil
 			}
 			err = errors.New(userstrings.ErrConversionResultMissing)
@@ -66,6 +70,11 @@ func ConvertLegacyOffice(path string) (string, error) {
 		problems = append(problems, "Microsoft Office COM: "+err.Error())
 	}
 	return "", errors.New(strings.Join(problems, "; "))
+}
+
+func freshConversion(path string, srcMod time.Time) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0 && !info.ModTime().Before(srcMod)
 }
 
 func findSoffice() string {

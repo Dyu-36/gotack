@@ -51,6 +51,12 @@ func CopyIfChanged(source, destination string, options Options) error {
 		if walkErr != nil {
 			return walkErr
 		}
+		if isSeedInternalName(entry.Name()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		rel, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
@@ -170,6 +176,18 @@ func CopyIfChanged(source, destination string, options Options) error {
 	return nil
 }
 
+func isSeedInternalName(name string) bool {
+	return name == reportFileName || (strings.HasPrefix(name, ".seed-report-") && strings.HasSuffix(name, ".tmp"))
+}
+
+func isContainedRel(rel string) bool {
+	if rel == "" || filepath.IsAbs(rel) {
+		return false
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	return clean != "." && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
 func removeEmptyParents(dir, root string) error {
 	root = filepath.Clean(root)
 	for dir = filepath.Clean(dir); dir != root; dir = filepath.Dir(dir) {
@@ -238,6 +256,17 @@ func loadReport(destination string) (report, error) {
 	}
 	if state.Hashes == nil {
 		state.Hashes = map[string]string{}
+	}
+	for rel := range state.Files {
+		if !isContainedRel(rel) {
+			delete(state.Files, rel)
+			delete(state.Hashes, rel)
+		}
+	}
+	for rel := range state.Hashes {
+		if !isContainedRel(rel) {
+			delete(state.Hashes, rel)
+		}
 	}
 	return state, nil
 }

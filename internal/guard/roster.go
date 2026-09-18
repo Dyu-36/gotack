@@ -55,7 +55,10 @@ func UnmarkReviewSession(path, sessionID string) error {
 	}
 	rosterMu.Lock()
 	defer rosterMu.Unlock()
-	sessions := loadRoster(path)
+	sessions, err := readRoster(path)
+	if err != nil {
+		return err
+	}
 	for i, id := range sessions {
 		if id != sessionID {
 			continue
@@ -70,7 +73,10 @@ func markSession(path, sessionID string) error {
 	if sessionID == "" {
 		return errors.New("session id is required")
 	}
-	sessions := loadRoster(path)
+	sessions, err := readRoster(path)
+	if err != nil {
+		return err
+	}
 	for _, id := range sessions {
 		if id == sessionID {
 			return nil
@@ -116,13 +122,24 @@ func writeRoster(path string, sessions []string) error {
 }
 
 func loadRoster(path string) []string {
+	sessions, _ := readRoster(path)
+	return sessions
+}
+
+func readRoster(path string) ([]string, error) {
 	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		return nil
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read roster: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil
 	}
 	var rf rosterFile
 	if err := json.Unmarshal(data, &rf); err != nil {
-		return nil
+		return nil, fmt.Errorf("decode roster: %w", err)
 	}
-	return rf.Sessions
+	return rf.Sessions, nil
 }

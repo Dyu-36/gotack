@@ -40,7 +40,16 @@ export function createPermissionState(deps: PermissionDeps) {
     if (!current) return
     const id = current.request.id
     deps.permission.value = null
-    try { await desktop.answerPermission(id, decision) } catch (cause) { deps.reportError(cause, 'Permission response') }
+    try {
+      const applied = await desktop.answerPermission(id, decision)
+      if (!applied && !deps.permission.value) {
+        deps.reportError('Permission decision was not applied', 'Permission response')
+        deps.permission.value = current
+      }
+    } catch (cause) {
+      deps.reportError(cause, 'Permission response')
+      if (!deps.permission.value) deps.permission.value = current
+    }
   }
 
   return {

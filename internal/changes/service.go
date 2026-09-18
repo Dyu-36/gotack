@@ -91,10 +91,16 @@ func (s *Service) Diff(ctx context.Context, sessionID, path string, maxBytes int
 	}
 	prev := ""
 	if len(versions) > 1 {
-		prev = versions[len(versions)-2].Content
+		last := versions[len(versions)-1]
+		for i := len(versions) - 2; i >= 0; i-- {
+			if versions[i].Version < last.Version {
+				prev = versions[i].Content
+				break
+			}
+		}
 	}
-	last := versions[len(versions)-1].Content
-	return RenderDiff(prev, last, path, maxBytes)
+	last := versions[len(versions)-1]
+	return RenderDiff(prev, last.Content, path, maxBytes)
 }
 
 func (s *Service) currentWorkspaceID() (string, error) {
@@ -119,6 +125,17 @@ func versionsForPath(history []engineapi.File, path string) []engineapi.File {
 	if len(out) == 0 {
 		return nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Version != out[j].Version {
+			return out[i].Version < out[j].Version
+		}
+		if out[i].UpdatedAt != out[j].UpdatedAt {
+			return out[i].UpdatedAt < out[j].UpdatedAt
+		}
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
 }

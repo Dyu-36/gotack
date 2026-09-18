@@ -31,7 +31,7 @@ Add-Type -AssemblyName System.Drawing
 [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
 [Windows.Storage.StorageFile, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
 
-$path = [System.IO.Path]::GetFullPath($args[0])
+$path = [System.IO.Path]::GetFullPath($ocrPath)
 $file = [Windows.Storage.StorageFile]::GetFileFromPathAsync($path).GetAwaiter().GetResult()
 if (-not $file) { exit 0 }
 $stream = $file.OpenAsync([Windows.Storage.FileAccessMode]::Read).GetAwaiter().GetResult()
@@ -47,7 +47,7 @@ if ($result -and $result.Text) {
     Write-Output $result.Text
 }
 `
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", psScript, filePath)
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", strings.Replace(psScript, "$ocrPath", psQuote(filePath), 1))
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

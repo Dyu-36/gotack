@@ -88,8 +88,39 @@ func Save(cfg *Config) error {
 		return fmt.Errorf("encode config: %w", err)
 	}
 	path := filepath.Join(dir, configFileName)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeConfigFile(path, data); err != nil {
 		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
+}
+
+func writeConfigFile(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), configFileName+".tmp-*")
+	if err != nil {
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
 	}
 	return nil
 }

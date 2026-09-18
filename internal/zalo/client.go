@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,8 @@ type Client struct {
 	token string
 	base  string
 	http  *http.Client
+
+	allowPrivateHosts bool
 }
 
 func NewClient(token string) (*Client, error) {
@@ -146,6 +149,11 @@ func (c *Client) DeleteWebhook(ctx context.Context) error {
 }
 
 func (c *Client) DownloadAttachment(ctx context.Context, rawURL, dir string) (string, error) {
+	if !c.allowPrivateHosts {
+		if err := validateAttachmentURL(ctx, rawURL); err != nil {
+			return "", err
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 
 		return "", fmt.Errorf("Không tạo được thư mục nhận tệp: %w", err)
@@ -155,7 +163,16 @@ func (c *Client) DownloadAttachment(ctx context.Context, rawURL, dir string) (st
 
 		return "", fmt.Errorf("Không tạo được yêu cầu tải tệp: %w", err)
 	}
-	resp, err := c.http.Do(req)
+	downloadClient := *c.http
+	if !c.allowPrivateHosts {
+		downloadClient.CheckRedirect = func(redirect *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("quá nhiều lần chuyển hướng khi tải tệp")
+			}
+			return validateAttachmentURL(redirect.Context(), redirect.URL.String())
+		}
+	}
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 
 		return "", fmt.Errorf("Không tải được tệp: %s", c.redact(err.Error()))
@@ -195,6 +212,40 @@ func (c *Client) DownloadAttachment(ctx context.Context, rawURL, dir string) (st
 		return "", errors.New("Tệp gửi vào quá lớn (giới hạn 45 MB)")
 	}
 	return path, nil
+}
+
+func validateAttachmentURL(ctx context.Context, rawURL string) error {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return fmt.Errorf("URL tệp đính kèm không hợp lệ: %w", err)
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return errors.New("URL tệp đính kèm chỉ được dùng giao thức http hoặc https")
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return errors.New("URL tệp đính kèm thiếu tên máy chủ")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isInternalIP(ip) {
+			return errors.New("URL tệp đính kèm trỏ tới địa chỉ nội bộ")
+		}
+		return nil
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("Không phân giải được máy chủ của tệp đính kèm: %w", err)
+	}
+	for _, ip := range ips {
+		if isInternalIP(ip.IP) {
+			return errors.New("URL tệp đính kèm trỏ tới địa chỉ nội bộ")
+		}
+	}
+	return nil
+}
+
+func isInternalIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
 }
 
 func (c *Client) call(ctx context.Context, method string, body any, timeout time.Duration) (json.RawMessage, error) {
@@ -292,9 +343,19 @@ func parseUpdates(raw json.RawMessage) []Update {
 	return updates
 }
 
-func parseUpdate(raw json.RawMessage) (Update, bool) {
+func decodeJSONObject(raw json.RawMessage) (map[string]any, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
+	if err := decoder.Decode(&value); err != nil {
+		return nil, false
+	}
+	return value, true
+}
+
+func parseUpdate(raw json.RawMessage) (Update, bool) {
+	value, ok := decodeJSONObject(raw)
+	if !ok {
 		return Update{}, false
 	}
 	message := value
@@ -406,8 +467,8 @@ func attachmentFileName(rawURL, contentType string) string {
 }
 
 func firstString(raw json.RawMessage, keys ...string) string {
-	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
+	value, ok := decodeJSONObject(raw)
+	if !ok {
 		return ""
 	}
 	return firstMapString(value, keys...)

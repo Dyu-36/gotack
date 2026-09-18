@@ -66,8 +66,8 @@ func PrepareFile(path string, supportsVision bool) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, fmt.Errorf("không đọc được tệp: %w", err)
 	}
-	if info.IsDir() {
-		return Prepared{}, fmt.Errorf("đường dẫn là thư mục, không phải tệp")
+	if !info.Mode().IsRegular() {
+		return Prepared{}, fmt.Errorf("đường dẫn không phải tệp thường")
 	}
 	if info.Size() > int64(MaxAttachmentSize) {
 		return Prepared{}, fmt.Errorf("vượt quá hạn mức %s", formatSize(MaxAttachmentSize))

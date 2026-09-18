@@ -27,6 +27,7 @@
   let error = $state('')
   let open = $state(false)
   let generation = 0
+  let loadedProviderId = ''
 
   const windows = $derived(orderedUsageWindows(usage?.windows ?? []))
   const providerName = $derived(
@@ -79,7 +80,15 @@
       loading = false
       error = ''
       open = false
+      loadedProviderId = ''
       return
+    }
+    if (loadedProviderId !== id) {
+      loadedProviderId = id
+      generation += 1
+      usage = null
+      loading = false
+      error = ''
     }
     void refresh(id)
   })

@@ -20,8 +20,18 @@ export function isPreviewableImage(mimeType: string): boolean {
   return previewableImageTypes.has(mimeType.toLowerCase())
 }
 
+const mimeTypePattern = /^[a-z0-9][a-z0-9!#$&^.+-]*\/[a-z0-9][a-z0-9!#$&^.+-]*$/
+
+export function sanitizeMimeType(mimeType: string, fileName: string): string {
+  const candidate = mimeType.trim().toLowerCase()
+  if (mimeTypePattern.test(candidate)) return candidate
+  return mimeFromName(fileName)
+}
+
 export function attachmentDataURL(attachment: ChatAttachment): string {
-  return `data:${attachment.mimeType};base64,${attachment.content}`
+  const mimeType = attachment.mimeType.toLowerCase()
+  if (!previewableImageTypes.has(mimeType)) return ''
+  return `data:${mimeType};base64,${attachment.content}`
 }
 
 export function formatAttachmentSize(size: number): string {
@@ -66,7 +76,7 @@ export async function fileToAttachment(file: File): Promise<ChatAttachment> {
   return {
     id: `attachment:${Date.now().toString(36)}:${++attachmentSeq}`,
     fileName,
-    mimeType: file.type || mimeFromName(fileName),
+    mimeType: sanitizeMimeType(file.type, fileName),
     size: file.size,
     content,
   }
@@ -77,7 +87,7 @@ export function pathToAttachment(pick: PromptFilePick): ChatAttachment {
   return {
     id: `attachment:${Date.now().toString(36)}:${++attachmentSeq}`,
     fileName,
-    mimeType: pick.mime_type || mimeFromName(fileName),
+    mimeType: sanitizeMimeType(pick.mime_type, fileName),
     size: pick.size,
     content: '',
     path: pick.path,

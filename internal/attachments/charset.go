@@ -18,8 +18,14 @@ func DecodeText(content []byte) (string, string) {
 	case bytes.HasPrefix(content, []byte{0xFE, 0xFF}):
 		return decodeUTF16(content[2:], true), "UTF-16BE"
 	}
-	if utf8.Valid(content) && bytes.IndexByte(content, 0x00) < 0 {
-		return string(content), "UTF-8"
+	if utf8.Valid(content) {
+		if bytes.IndexByte(content, 0x00) < 0 {
+			return string(content), "UTF-8"
+		}
+		if little, ok := looksLikeUTF16(content); ok && bytes.Count(content, []byte{0x00}) > len(content)/4 {
+			return decodeUTF16(content, !little), userstrings.EncodingUTF16NoBOM
+		}
+		return strings.ReplaceAll(string(content), "\x00", ""), "UTF-8"
 	}
 	if little, ok := looksLikeUTF16(content); ok {
 		return decodeUTF16(content, !little), userstrings.EncodingUTF16NoBOM

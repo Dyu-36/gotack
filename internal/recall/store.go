@@ -47,10 +47,11 @@ func (s *Store) Rebuild(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.index != nil {
-		if err := s.index.Close(); err != nil {
+		err := s.index.Close()
+		s.index = nil
+		if err != nil {
 			return fmt.Errorf("close recall index before rebuild: %w", err)
 		}
-		s.index = nil
 	}
 	if err := removeIndexFiles(s.indexDir); err != nil {
 		return err

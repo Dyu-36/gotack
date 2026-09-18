@@ -89,6 +89,60 @@ func TestCopyIfChangedRejectsMalformedReportBeforeCopy(t *testing.T) {
 	}
 }
 
+func TestCopyIfChangedSkipsSeedInternalSourceFiles(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source")
+	destination := filepath.Join(t.TempDir(), "destination")
+	writeTestFile(t, filepath.Join(source, "asset.txt"), "bundled")
+	writeTestFile(t, filepath.Join(source, reportFileName), `{"files":{"../../escape.txt":0}}`)
+	writeTestFile(t, filepath.Join(source, ".seed-report-987654321.tmp"), "junk")
+
+	if err := CopyIfChanged(source, destination, Options{ExistingFiles: ManagedFiles}); err != nil {
+		t.Fatalf("CopyIfChanged: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(destination, "asset.txt"))
+	if err != nil || string(data) != "bundled" {
+		t.Fatalf("asset not seeded: %q, %v", data, err)
+	}
+	reportData, err := os.ReadFile(filepath.Join(destination, reportFileName))
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	var state report
+	if err := json.Unmarshal(reportData, &state); err != nil {
+		t.Fatalf("report is not valid JSON: %v", err)
+	}
+	if strings.Contains(string(reportData), "escape") {
+		t.Fatalf("source report was seeded into destination: %s", reportData)
+	}
+	if _, tracked := state.Files[reportFileName]; tracked {
+		t.Fatalf("seed-internal file tracked in report: %s", reportData)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(destination, ".seed-report-*.tmp"))
+	if err != nil {
+		t.Fatalf("glob report temps: %v", err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("seed-internal temp files were seeded: %v", leftovers)
+	}
+}
+
+func TestCopyIfChangedDropsReportKeysOutsideDestination(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source")
+	destination := filepath.Join(t.TempDir(), "destination")
+	writeTestFile(t, filepath.Join(source, "asset.txt"), "v2")
+	writeTestFile(t, filepath.Join(destination, "asset.txt"), "v1")
+	outside := filepath.Join(destination, "..", "outside.txt")
+	writeTestFile(t, outside, "sentinel")
+	writeTestFile(t, filepath.Join(destination, reportFileName), `{"files":{"asset.txt":2,"../outside.txt":0}}`)
+
+	if err := CopyIfChanged(source, destination, Options{ExistingFiles: ManagedFiles}); err != nil {
+		t.Fatalf("CopyIfChanged: %v", err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("file outside destination was removed: %v", err)
+	}
+}
+
 func TestCopyIfChangedAtomicallyReplacesReport(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source")
 	destination := filepath.Join(t.TempDir(), "destination")

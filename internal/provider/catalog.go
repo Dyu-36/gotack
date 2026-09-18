@@ -176,7 +176,13 @@ func PrepareLocal(ctx context.Context, api *engineapi.Client, workspaceID string
 		return false, fmt.Errorf("read provider config before local bootstrap: %w", err)
 	}
 	if configured, exists := cfg.Providers[providerID]; exists {
-		return IdentityMatches(configured, spec), nil
+		managed := IdentityMatches(configured, spec)
+		if managed && configured.Disable {
+			if err := api.SetConfigField(ctx, workspaceID, scope, "providers."+providerID+".disable", false); err != nil {
+				return false, fmt.Errorf("re-enable local provider %s: %w", providerID, err)
+			}
+		}
+		return managed, nil
 	}
 
 	upstream, err := api.ListProviders(ctx, workspaceID)

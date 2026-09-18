@@ -55,24 +55,10 @@ var scanRules = []scanRule{
 	{name: "hardcoded_secret", re: regexp.MustCompile(`(?i)(?:api[_-]?key|token|secret|password)\s*[=:]\s*["'][A-Za-z0-9+/=_-]{20,}`)},
 }
 
-var invisibleRunes = map[rune]struct{}{
-	'\u200b': {},
-	'\u200c': {},
-	'\u200d': {},
-	'\u2060': {},
-	'\u2062': {},
-	'\u2063': {},
-	'\u2064': {},
-	'\ufeff': {},
-	'\u202a': {},
-	'\u202b': {},
-	'\u202c': {},
-	'\u202d': {},
-	'\u202e': {},
-	'\u2066': {},
-	'\u2067': {},
-	'\u2068': {},
-	'\u2069': {},
+var invisibleRunes = []rune{
+	'\u200b', '\u200c', '\u200d', '\u2060', '\u2062', '\u2063', '\u2064',
+	'\ufeff', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066',
+	'\u2067', '\u2068', '\u2069',
 }
 
 const MaxScanChars = 65_536
@@ -83,19 +69,8 @@ func scanFindings(content string) []string {
 	}
 	truncated := truncateRunes(content, MaxScanChars)
 	findings := make([]string, 0, 2)
-	seenInvisible := make(map[rune]struct{}, 2)
-	for _, ch := range truncated {
-		if _, ok := invisibleRunes[ch]; ok {
-			seenInvisible[ch] = struct{}{}
-		}
-	}
-
-	for _, ch := range []rune{
-		'\u200b', '\u200c', '\u200d', '\u2060', '\u2062', '\u2063', '\u2064',
-		'\ufeff', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066',
-		'\u2067', '\u2068', '\u2069',
-	} {
-		if _, ok := seenInvisible[ch]; ok {
+	for _, ch := range invisibleRunes {
+		if strings.ContainsRune(truncated, ch) {
 			findings = append(findings, fmt.Sprintf("invisible_unicode_U+%04X", ch))
 		}
 	}
@@ -152,7 +127,7 @@ func SanitizeEntriesForPrompt(entries []string, filename string) []string {
 			continue
 		}
 		seen[entry] = struct{}{}
-		if entry == "" || strings.HasPrefix(entry, "[BLOCKED:") {
+		if entry == "" {
 			sanitized = append(sanitized, entry)
 			continue
 		}

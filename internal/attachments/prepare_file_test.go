@@ -76,6 +76,20 @@ func TestPruneCacheDropsExpiredEntries(t *testing.T) {
 	}
 }
 
+func TestPruneCacheKeepsEntryWithoutFiles(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "empty")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pruneCache(dir, time.Hour, 1<<40)
+
+	if _, err := os.Stat(sub); err != nil {
+		t.Fatalf("empty entry was removed: %v", err)
+	}
+}
+
 func TestPruneCacheEnforcesBudget(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"one", "two"} {

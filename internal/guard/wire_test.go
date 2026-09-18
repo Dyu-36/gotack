@@ -13,7 +13,10 @@ func TestParseInputExtractsToolFields(t *testing.T) {
 		"tool_name": "bash",
 		"tool_input": {"command": "rm -rf /", "timeout": 30}
 	}`)
-	in := ParseInput(payload)
+	in, err := ParseInput(payload)
+	if err != nil {
+		t.Fatalf("ParseInput: %v", err)
+	}
 	if in.Event != "PreToolUse" || in.SessionID != "sess-1" || in.ToolName != "bash" {
 		t.Fatalf("parsed envelope mismatch: %+v", in)
 	}
@@ -25,18 +28,44 @@ func TestParseInputExtractsToolFields(t *testing.T) {
 	}
 }
 
-func TestParseInputMalformedFailsOpen(t *testing.T) {
-	for _, payload := range [][]byte{nil, {}, []byte("not-json"), []byte(`{"tool_input": "oops"}`)} {
-		in := ParseInput(payload)
-		if in.Command() != "" || in.FilePath() != "" {
-			t.Fatalf("ParseInput(%s) should yield empty fields, got %+v", payload, in)
+func TestParseInputMalformedFailsClosed(t *testing.T) {
+	for _, payload := range [][]byte{nil, {}, []byte("not-json")} {
+		if _, err := ParseInput(payload); err == nil {
+			t.Fatalf("ParseInput(%s) must report a parse error", payload)
 		}
+	}
+	in, err := ParseInput([]byte(`{"event":"PreToolUse","session_id":"s","tool_name":"bash","tool_input": "oops"}`))
+	if err != nil {
+		t.Fatalf("envelope decode: %v", err)
+	}
+	if in.Command() != "" || in.FilePath() != "" {
+		t.Fatalf("best-effort fields must be empty, got %+v", in)
+	}
+	if in.ToolInputErr() == nil {
+		t.Fatal("undecodable tool_input must be surfaced")
+	}
+	if got := Evaluate(in, Options{}); got.Decision != DecisionDeny {
+		t.Fatalf("bash with undecodable tool_input must fail closed, got %+v", got)
+	}
+	typed, err := ParseInput([]byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":["rm","-rf","/"]}}`))
+	if err != nil {
+		t.Fatalf("envelope decode: %v", err)
+	}
+	if typed.ToolInputErr() == nil {
+		t.Fatal("wrong-shape tool_input must be surfaced")
+	}
+	if got := Evaluate(typed, Options{}); got.Decision != DecisionDeny {
+		t.Fatalf("bash with wrong-shape tool_input must fail closed, got %+v", got)
 	}
 }
 
 func TestDenyRoundTrip(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":"format C:"}}`)
-	out := Evaluate(ParseInput(payload), Options{})
+	in, err := ParseInput(payload)
+	if err != nil {
+		t.Fatalf("ParseInput: %v", err)
+	}
+	out := Evaluate(in, Options{})
 	if out.Decision != DecisionDeny {
 		t.Fatalf("decision = %q, want deny", out.Decision)
 	}
@@ -67,7 +96,11 @@ func TestDenyRoundTrip(t *testing.T) {
 
 func TestAllowRoundTrip(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"view","tool_input":{"file_path":"README.md"}}`)
-	out := Evaluate(ParseInput(payload), Options{})
+	in, err := ParseInput(payload)
+	if err != nil {
+		t.Fatalf("ParseInput: %v", err)
+	}
+	out := Evaluate(in, Options{})
 	if out.Decision != DecisionAllow {
 		t.Fatalf("decision = %q, want allow for a read-only tool", out.Decision)
 	}
@@ -90,7 +123,11 @@ func TestAllowRoundTrip(t *testing.T) {
 
 func TestPassThroughEmitsNothing(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"bash","tool_input":{"command":"go build ./..."}}`)
-	out := Evaluate(ParseInput(payload), Options{})
+	in, err := ParseInput(payload)
+	if err != nil {
+		t.Fatalf("ParseInput: %v", err)
+	}
+	out := Evaluate(in, Options{})
 	if !out.IsNone() {
 		t.Fatalf("benign command should pass through, got %+v", out)
 	}
@@ -105,7 +142,11 @@ func TestPassThroughEmitsNothing(t *testing.T) {
 
 func TestUnknownToolPassThrough(t *testing.T) {
 	payload := []byte(`{"event":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"future_tool","tool_input":{}}`)
-	out := Evaluate(ParseInput(payload), Options{})
+	in, err := ParseInput(payload)
+	if err != nil {
+		t.Fatalf("ParseInput: %v", err)
+	}
+	out := Evaluate(in, Options{})
 	if !out.IsNone() {
 		t.Fatalf("unknown tools must pass through interactively, got %+v", out)
 	}

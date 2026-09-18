@@ -39,11 +39,14 @@ func main() {
 				if !ok {
 					continue
 				}
-				for _, ident := range vs.Names {
-					if len(vs.Values) == 0 {
-						continue
+				if len(vs.Values) == 0 {
+					continue
+				}
+				for i, ident := range vs.Names {
+					if i >= len(vs.Values) {
+						break
 					}
-					bl, ok := vs.Values[0].(*ast.BasicLit)
+					bl, ok := vs.Values[i].(*ast.BasicLit)
 					if !ok || bl.Kind != token.STRING {
 						continue
 					}

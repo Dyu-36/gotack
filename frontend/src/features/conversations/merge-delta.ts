@@ -19,8 +19,22 @@ export function applyDelta(
     return { kind: 'resync', text: fullText, seq }
   }
 
+  if (seq === prev.seq) {
+    if (fullText === prev.text) return { kind: 'ok', text: prev.text, seq: prev.seq }
+    return { kind: 'resync', text: fullText, seq }
+  }
+
+  if (seq < prev.seq) {
+    if (prev.text.startsWith(fullText)) return { kind: 'ok', text: prev.text, seq: prev.seq }
+    return { kind: 'resync', text: fullText, seq }
+  }
+
   if (seq === prev.seq + 1) {
-    return { kind: 'ok', text: prev.text + append, seq }
+    const text = prev.text + append
+    if (text === fullText) {
+      return { kind: 'ok', text, seq }
+    }
+    return { kind: 'resync', text: fullText, seq }
   }
 
   return { kind: 'resync', text: fullText, seq }

@@ -204,6 +204,9 @@ func ingestMessages(ctx context.Context, db *sql.DB, messages []SourceMessage) e
 }
 
 func reconcileIndex(ctx context.Context, db *sql.DB, sessionIDs, messageIDs []string) error {
+	if len(sessionIDs) == 0 || len(messageIDs) == 0 {
+		return nil
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin recall reconciliation: %w", err)
@@ -227,6 +230,17 @@ func reconcileIndex(ctx context.Context, db *sql.DB, sessionIDs, messageIDs []st
 	}
 	if err := insertSeenIDs(ctx, tx, "seen_message_ids", messageIDs); err != nil {
 		return rollback(err)
+	}
+	var messageCount, sessionCount int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM messages").Scan(&messageCount); err != nil {
+		return rollback(fmt.Errorf("count recall messages: %w", err))
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions").Scan(&sessionCount); err != nil {
+		return rollback(fmt.Errorf("count recall sessions: %w", err))
+	}
+	if len(messageIDs)*4 < messageCount || len(sessionIDs)*4 < sessionCount {
+		_ = tx.Rollback()
+		return nil
 	}
 	for _, statement := range []string{
 		"DELETE FROM messages_fts WHERE message_id NOT IN (SELECT id FROM seen_message_ids)",

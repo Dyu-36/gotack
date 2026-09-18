@@ -57,9 +57,14 @@ func wrapBlock(item Prepared) string {
 		sb.WriteString(` path="` + escapeAttr(item.Path) + `"`)
 	}
 	sb.WriteString(">\n")
-	sb.WriteString(strings.TrimRight(item.PromptBlock, "\n"))
+	sb.WriteString(escapeBlockBody(strings.TrimRight(item.PromptBlock, "\n")))
 	sb.WriteString("\n</" + attachmentTag + ">")
 	return sb.String()
+}
+
+func escapeBlockBody(body string) string {
+	body = strings.ReplaceAll(body, "</"+attachmentTag, "&lt;/"+attachmentTag)
+	return strings.ReplaceAll(body, "<"+attachmentTag, "&lt;"+attachmentTag)
 }
 
 type Ref struct {
@@ -76,22 +81,49 @@ func ParseAttachmentBlocks(prompt string) (string, []Ref) {
 	var visible strings.Builder
 	rest := prompt
 	for {
-		start := strings.Index(rest, openTag)
+		start := findOpenTag(rest, openTag)
 		if start < 0 {
 			visible.WriteString(rest)
 			break
 		}
-		head := strings.Index(rest[start:], ">")
-		end := strings.Index(rest[start:], closeTag)
-		if head < 0 || end < head {
+		attrStart := start + len(openTag)
+		headRel := strings.Index(rest[attrStart:], ">")
+		if headRel < 0 || strings.Contains(rest[attrStart:attrStart+headRel], "<") {
+			visible.WriteString(rest[:start+1])
+			rest = rest[start+1:]
+			continue
+		}
+		head := attrStart + headRel
+		endRel := strings.Index(rest[head:], closeTag)
+		if endRel < 0 {
 			visible.WriteString(rest)
 			break
 		}
 		visible.WriteString(rest[:start])
-		refs = append(refs, parseAttrs(rest[start+len(openTag):start+head]))
-		rest = rest[start+end+len(closeTag):]
+		refs = append(refs, parseAttrs(rest[attrStart:head]))
+		rest = rest[head+endRel+len(closeTag):]
 	}
 	return strings.TrimSpace(visible.String()), refs
+}
+
+func findOpenTag(text, tag string) int {
+	for i := 0; i < len(text); {
+		j := strings.Index(text[i:], tag)
+		if j < 0 {
+			return -1
+		}
+		i += j
+		k := i + len(tag)
+		if k == len(text) {
+			return -1
+		}
+		switch text[k] {
+		case '>', ' ', '\t', '\n', '\r':
+			return i
+		}
+		i++
+	}
+	return -1
 }
 
 func parseAttrs(head string) Ref {

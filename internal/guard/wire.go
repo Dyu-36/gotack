@@ -2,6 +2,7 @@ package guard
 
 import (
 	"encoding/json"
+	"errors"
 )
 
 const (
@@ -26,30 +27,41 @@ type toolInputFields struct {
 }
 
 func (in Input) Command() string {
-	return in.fields().Command
+	f, _ := in.fields()
+	return f.Command
 }
 
 func (in Input) FilePath() string {
-	return in.fields().FilePath
+	f, _ := in.fields()
+	return f.FilePath
 }
 
-func (in Input) fields() toolInputFields {
+func (in Input) ToolInputErr() error {
+	_, err := in.fields()
+	return err
+}
+
+func (in Input) fields() (toolInputFields, error) {
 	var f toolInputFields
 	if len(in.ToolInput) == 0 {
-		return f
+		return f, nil
 	}
 
-	_ = json.Unmarshal(in.ToolInput, &f)
-	return f
+	if err := json.Unmarshal(in.ToolInput, &f); err != nil {
+		return f, err
+	}
+	return f, nil
 }
 
-func ParseInput(data []byte) Input {
+func ParseInput(data []byte) (Input, error) {
 	var in Input
 	if len(data) == 0 {
-		return in
+		return in, errors.New("empty hook payload")
 	}
-	_ = json.Unmarshal(data, &in)
-	return in
+	if err := json.Unmarshal(data, &in); err != nil {
+		return in, err
+	}
+	return in, nil
 }
 
 type Output struct {

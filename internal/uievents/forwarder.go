@@ -109,6 +109,7 @@ type Forwarder struct {
 	delayOverride time.Duration
 
 	mu       sync.Mutex
+	emitMu   sync.Mutex
 	pending  map[string]*pendingMessage
 	stopOnce sync.Once
 	stopped  bool
@@ -151,7 +152,7 @@ func (f *Forwarder) Consume(events <-chan engineapi.StreamEvent) {
 		}
 		f.handle(ev)
 	}
-	f.emitDeltas(f.drain(""))
+	f.drain("")
 }
 
 func (f *Forwarder) Stop() {
@@ -160,7 +161,7 @@ func (f *Forwarder) Stop() {
 		f.stopped = true
 		f.mu.Unlock()
 	})
-	f.emitDeltas(f.drain(""))
+	f.drain("")
 }
 
 func (f *Forwarder) isStopped() bool {
@@ -286,6 +287,8 @@ func deltaSuffix(previous, current string) string {
 }
 
 func (f *Forwarder) flush(messageID string) {
+	f.emitMu.Lock()
+	defer f.emitMu.Unlock()
 	f.mu.Lock()
 	pm, ok := f.pending[messageID]
 	if !ok || pm.text == pm.sent {
@@ -311,7 +314,7 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 		return
 	}
 	if rc.SessionID != "" {
-		f.emitDeltas(f.drain(rc.SessionID))
+		f.drain(rc.SessionID)
 	}
 	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
 	if rc.Telemetry != nil && f.callbacks.RunTelemetry != nil {
@@ -320,7 +323,9 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 	if f.callbacks.RunDone != nil {
 		f.callbacks.RunDone(done)
 	}
+	f.emitMu.Lock()
 	f.send(SessionDone, done)
+	f.emitMu.Unlock()
 }
 
 func (f *Forwarder) handleTaskProgress(payload json.RawMessage) {
@@ -383,9 +388,11 @@ func (f *Forwarder) send(name string, data any) {
 	}
 }
 
-func (f *Forwarder) drain(sessionID string) []SessionDeltaPayload {
-	f.mu.Lock()
+func (f *Forwarder) drain(sessionID string) {
+	f.emitMu.Lock()
+	defer f.emitMu.Unlock()
 	var out []SessionDeltaPayload
+	f.mu.Lock()
 	for id, pm := range f.pending {
 		if sessionID != "" && pm.sessionID != sessionID {
 			continue
@@ -401,11 +408,7 @@ func (f *Forwarder) drain(sessionID string) []SessionDeltaPayload {
 		delete(f.pending, id)
 	}
 	f.mu.Unlock()
-	return out
-}
-
-func (f *Forwarder) emitDeltas(deltas []SessionDeltaPayload) {
-	for _, d := range deltas {
+	for _, d := range out {
 		f.send(SessionDelta, d)
 	}
 }

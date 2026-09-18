@@ -53,7 +53,7 @@
   let thinkingMenuOpen = $state(false)
   let modelSearch = $state('')
 
-  let canSend = $derived((value.trim().length > 0 || attachments.length > 0) && !isStreaming)
+  let canSend = $derived((value.trim().length > 0 || attachments.length > 0) && !isStreaming && ready)
 
   let selectedModel = $derived(
     catalog.configuredModels.find((m) => m.id === selectedModelId && (!selectedProviderId || m.providerId === selectedProviderId)),
@@ -126,10 +126,11 @@
   })
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      if (canSend) onSend()
-    }
+    if (event.key !== 'Enter' || event.shiftKey) return
+    if (event.isComposing || event.keyCode === 229) return
+    if (!canSend) return
+    event.preventDefault()
+    onSend()
   }
 
   function handleFileSelection(event: Event) {

@@ -356,6 +356,20 @@ func (m *Manager) rollback(snapshot *batchSnapshot) error {
 			failures = append(failures, fmt.Sprintf("%s: %v", item.Name, err))
 			continue
 		}
+		var staging string
+		if item.Existed {
+			if err := m.secureMkdirAll(filepath.Dir(item.OriginalPath)); err != nil {
+				failures = append(failures, fmt.Sprintf("%s: %v", item.Name, err))
+				continue
+			}
+			staging = filepath.Join(filepath.Dir(item.OriginalPath), ".rollback-"+filepath.Base(item.OriginalPath))
+			_ = os.RemoveAll(staging)
+			if err := copyDirectory(item.BackupPath, staging); err != nil {
+				_ = m.removeSkillTree(staging)
+				failures = append(failures, fmt.Sprintf("%s: %v", item.Name, err))
+				continue
+			}
+		}
 		if current != "" {
 			if err := m.removeSkillTree(current); err != nil {
 				failures = append(failures, fmt.Sprintf("%s: %v", item.Name, err))
@@ -363,18 +377,17 @@ func (m *Manager) rollback(snapshot *batchSnapshot) error {
 			}
 			m.removeEmptyCategory(filepath.Dir(current))
 		}
-		if item.Existed {
-			if err := m.secureMkdirAll(filepath.Dir(item.OriginalPath)); err != nil {
-				failures = append(failures, fmt.Sprintf("%s: %v", item.Name, err))
-				continue
-			}
-			if err := copyDirectory(item.BackupPath, item.OriginalPath); err != nil {
+		if staging != "" {
+			if err := os.Rename(staging, item.OriginalPath); err != nil {
+				_ = m.removeSkillTree(staging)
 				failures = append(failures, fmt.Sprintf("%s: %v", item.Name, err))
 			}
 		}
 	}
 	if len(failures) != 0 {
-		return errors.New(strings.Join(failures, "; "))
+		preserved := snapshot.root
+		snapshot.root = ""
+		return fmt.Errorf("%s (batch snapshot preserved at %s)", strings.Join(failures, "; "), preserved)
 	}
 	return nil
 }

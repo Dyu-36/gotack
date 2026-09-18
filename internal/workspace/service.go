@@ -22,6 +22,7 @@ type Descriptor struct {
 type Service struct {
 	api *engineapi.Client
 
+	openMu  sync.Mutex
 	mu      sync.RWMutex
 	current Descriptor
 }
@@ -45,6 +46,9 @@ func (s *Service) OpenWithDataDir(ctx context.Context, path, dataDir string) (De
 }
 
 func (s *Service) open(ctx context.Context, path, dataDir string) (Descriptor, error) {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+
 	clean, err := s.preparePath(path)
 	if err != nil {
 		return Descriptor{}, err
@@ -90,11 +94,12 @@ func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (engi
 	}
 
 	existing, err := s.api.ListWorkspaces(ctx)
-	if err == nil {
-		for _, w := range existing {
-			if samePath(w.Path, clean) {
-				return w, nil
-			}
+	if err != nil {
+		return engineapi.Workspace{}, fmt.Errorf("list workspaces: %w", err)
+	}
+	for _, w := range existing {
+		if samePath(w.Path, clean) {
+			return w, nil
 		}
 	}
 

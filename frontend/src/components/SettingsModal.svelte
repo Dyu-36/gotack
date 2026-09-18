@@ -1,5 +1,6 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner'
+  import { untrack } from 'svelte'
   import { catalog } from '../features/conversations/catalog.svelte'
   import { desktop, type ChatGPTOAuthStatus, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
   import ContextMigrationPanel from './ContextMigrationPanel.svelte'
@@ -66,15 +67,21 @@
   let autoStart = $state(false)
   let autoStartBusy = $state(false)
 
+  let hydrated = false
+
   $effect(() => {
     selectedTheme = theme
     selectedProvider = provider
     currentApiKey = ''
     currentCustomUrl = customUrl
-    if (catalog.status === 'idle') void catalog.refresh()
-    void loadZalo()
-    void loadChatGPTOAuthStatus()
-    void loadAutoStart()
+    untrack(() => {
+      if (hydrated) return
+      hydrated = true
+      if (catalog.status === 'idle') void catalog.refresh()
+      void loadZalo()
+      void loadChatGPTOAuthStatus()
+      void loadAutoStart()
+    })
   })
 
   async function loadAutoStart() {

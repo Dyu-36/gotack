@@ -6,21 +6,24 @@ import (
 	"errors"
 	"math"
 	"os"
+	"runtime"
 
 	"golang.org/x/sys/windows"
 )
 
 func tryLockFile(file *os.File) error {
 	handle := windows.Handle(file.Fd())
+	var overlapped windows.Overlapped
 	err := windows.LockFileEx(
 		handle,
 		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 		0,
 		math.MaxUint32,
 		math.MaxUint32,
-		new(windows.Overlapped),
+		&overlapped,
 	)
-	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_IO_PENDING) {
+	runtime.KeepAlive(&overlapped)
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
 		return errLockContended
 	}
 	return err

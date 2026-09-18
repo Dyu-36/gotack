@@ -84,6 +84,7 @@ func TestInboundImageReachesAgentTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.allowPrivateHosts = true
 	var prompt string
 	manager := NewManager(t.TempDir()+"/zalo.json", Runtime{
 		Start: func(_ context.Context, _, _, content string) (string, error) {

@@ -60,6 +60,23 @@ export type ZaloStatusInfo = {
   last_error?: string
 }
 export type ZaloFileRequest = { path: string; chat_id?: string }
+
+const zaloSendableExtension = /\.(?:png|jpe?g|webp|gif|bmp|pdf|xlsx?|csv|docx?|pptx?|txt|zip|mp4)$/i
+
+function isShareableZaloPath(value: string): boolean {
+  if (!value || value.length > 1024 || value.includes('\0')) return false
+  if (/^(?:[a-z]:|[\\/])/i.test(value)) return false
+  if (!zaloSendableExtension.test(value)) return false
+  return value.split(/[\\/]+/).every((segment) => segment.length > 0 && segment !== '..')
+}
+
+async function sendZaloFile(req: ZaloFileRequest): Promise<string> {
+  const path = req.path.trim()
+  if (!isShareableZaloPath(path)) {
+    throw new Error('Zalo file sharing only accepts workspace-relative paths of sendable file types')
+  }
+  return call('SendZaloFile', { ...req, path })
+}
 export type ChatGPTOAuthStatus = { connected: boolean; email?: string; plan?: string; expires_at?: number }
 export type ProviderUsageWindow = {
   id: string
@@ -86,7 +103,7 @@ export type SettingsInfo = {
   provider_only?: boolean
   model: string
   thinking: string
-  api_key: string
+  api_key?: string
   custom_url: string
 }
 export type PermissionRequestEvent = {
@@ -208,7 +225,7 @@ export const desktop = {
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
   answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
-  getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => call('SendZaloFile', req),
+  getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => sendZaloFile(req),
   assistantContextInfo: () => call('AssistantContextInfo'),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
   listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
