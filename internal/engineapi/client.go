@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	healthPath         = "/v1/health"
 	versionPath        = "/v1/version"
 	workspacesPath     = "/v1/workspaces"
 	agentPath          = "/v1/workspaces/{id}/agent"
@@ -38,23 +37,6 @@ func NewClient(hc *http.Client) *Client {
 }
 
 func (c *Client) ID() string { return c.clientID }
-
-func Ping(hc *http.Client, ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL(healthPath), nil)
-	if err != nil {
-		return err
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return decodeError(resp)
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return nil
-}
 
 func (c *Client) Version(ctx context.Context) (VersionInfo, error) {
 	var v VersionInfo
