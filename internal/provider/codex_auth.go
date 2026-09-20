@@ -144,6 +144,7 @@ type OpenAIOAuthOptions struct {
 	Port         int
 	HTTPClient   *http.Client
 	OpenBrowser  func(authURL string) error
+	OnAuthURL    func(authURL string)
 	LoginTimeout time.Duration
 }
 
@@ -189,7 +190,18 @@ func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenA
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", opts.Port)
-	listener, err := net.Listen("tcp", addr)
+	var listener net.Listener
+	for attempt := 0; attempt < 5; attempt++ {
+		listener, err = net.Listen("tcp", addr)
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("start local OAuth callback listener on %s: %w", addr, err)
 	}
@@ -211,6 +223,9 @@ func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenA
 	vals.Set("originator", "gotack")
 
 	authURL := opts.AuthURL + "?" + vals.Encode()
+	if opts.OnAuthURL != nil {
+		opts.OnAuthURL(authURL)
+	}
 
 	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)
@@ -273,6 +288,9 @@ func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenA
 	var authCode string
 	select {
 	case <-loginCtx.Done():
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil, context.Canceled
+		}
 		return nil, fmt.Errorf("login timed out waiting for browser callback: %w", loginCtx.Err())
 	case err := <-errChan:
 		return nil, err

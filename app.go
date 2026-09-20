@@ -50,6 +50,10 @@ type App struct {
 
 	vision sync.Map
 	conn   atomic.Pointer[conn]
+
+	oauthMu     sync.Mutex
+	oauthCancel context.CancelFunc
+	oauthURL    string
 }
 
 func (a *App) swapConn(mutate func(*conn) *conn) *conn {

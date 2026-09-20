@@ -18,6 +18,7 @@ func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
 	expected := []string{
 		"AttachmentLimits",
 		"BackendReady",
+		"CancelChatGPTOAuth",
 		"CancelPrompt",
 		"ChangedFiles",
 		"CreateSession",
@@ -29,6 +30,7 @@ func TestWailsBindingSurfaceMatchesContract(t *testing.T) {
 		"FileDiff",
 		"GetAutoStart",
 		"GetChatGPTOAuthStatus",
+		"GetChatGPTOAuthURL",
 		"GetProviderUsage",
 		"GetSettings",
 		"GetZaloConfig",

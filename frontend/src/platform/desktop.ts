@@ -148,6 +148,8 @@ type BackendApp = {
   LoginChatGPTOAuth: () => Promise<ChatGPTOAuthStatus>
   GetChatGPTOAuthStatus: () => Promise<ChatGPTOAuthStatus>
   LogoutChatGPTOAuth: () => Promise<void>
+  CancelChatGPTOAuth: () => Promise<void>
+  GetChatGPTOAuthURL: () => Promise<string>
   GetZaloConfig: () => Promise<ZaloConfigInfo>
   SaveZaloConfig: (update: ZaloConfigUpdate) => Promise<ZaloStatusInfo>
   TestZaloConnection: () => Promise<ZaloStatusInfo>
@@ -164,7 +166,7 @@ declare global {
 function app(): BackendApp | null { return (window.go?.main?.App as BackendApp) ?? null }
 import { events, type EventName } from './events.generated'
 export { events, type EventName }
-export function on<T>(event: EventName, handler: (payload: T) => void): () => void {
+export function on<T>(event: EventName | string, handler: (payload: T) => void): () => void {
   const wrapped = (...data: unknown[]) => handler(data[0] as T)
   return EventsOn(event, wrapped)
 }
@@ -174,6 +176,7 @@ function call<K extends keyof BackendApp>(method: K, ...args: Parameters<Backend
   return fn(...args) as ReturnType<BackendApp[K]>
 }
 export const desktop = {
+  on,
   available: () => app() !== null,
   backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
   getAutoStart: () => call('GetAutoStart'), setAutoStart: (enabled: boolean) => call('SetAutoStart', enabled),
@@ -186,5 +189,5 @@ export const desktop = {
   getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => sendZaloFile(req),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
   listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
-  loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'),
+  loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'), cancelChatGPTOAuth: () => call('CancelChatGPTOAuth'), getChatGPTOAuthURL: () => call('GetChatGPTOAuthURL'),
 }

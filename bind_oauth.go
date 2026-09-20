@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	runtimeOS "runtime"
@@ -30,7 +31,36 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		return ChatGPTOAuthStatus{}, err
 	}
 
+	baseCtx := a.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+
+	a.oauthMu.Lock()
+	if a.oauthCancel != nil {
+		a.oauthCancel()
+	}
+	loginCtx, cancel := context.WithCancel(baseCtx)
+	a.oauthCancel = cancel
+	a.oauthURL = ""
+	a.oauthMu.Unlock()
+
+	defer func() {
+		a.oauthMu.Lock()
+		if a.oauthCancel != nil {
+			a.oauthCancel = nil
+		}
+		a.oauthURL = ""
+		a.oauthMu.Unlock()
+	}()
+
 	opts := providerdomain.DefaultOpenAIOAuthOptions()
+	opts.OnAuthURL = func(authURL string) {
+		a.oauthMu.Lock()
+		a.oauthURL = authURL
+		a.oauthMu.Unlock()
+		a.emit("chatgpt:oauth:url", authURL)
+	}
 	opts.OpenBrowser = func(authURL string) error {
 		if a.ctx != nil {
 			runtime.BrowserOpenURL(a.ctx, authURL)
@@ -42,8 +72,11 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		return exec.Command("xdg-open", authURL).Start()
 	}
 
-	token, err := providerdomain.StartOpenAIOAuthLogin(a.ctx, opts)
+	token, err := providerdomain.StartOpenAIOAuthLogin(loginCtx, opts)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return ChatGPTOAuthStatus{}, errors.New("chatgpt oauth login canceled")
+		}
 		return ChatGPTOAuthStatus{}, fmt.Errorf("chatgpt oauth login failed: %w", err)
 	}
 	if err := providerdomain.SeedCodex(a.ctx, svc.api, workspaceID, engineapi.ConfigScopeGlobal); err != nil {
@@ -116,4 +149,24 @@ func (a *App) GetChatGPTOAuthStatus() (ChatGPTOAuthStatus, error) {
 
 func (a *App) LogoutChatGPTOAuth() error {
 	return a.DeleteProvider(codexProviderID)
+}
+
+func (a *App) CancelChatGPTOAuth() error {
+	a.oauthMu.Lock()
+	cancel := a.oauthCancel
+	a.oauthCancel = nil
+	a.oauthURL = ""
+	a.oauthMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	a.emit("chatgpt:oauth:canceled", nil)
+	return nil
+}
+
+func (a *App) GetChatGPTOAuthURL() string {
+	a.oauthMu.Lock()
+	defer a.oauthMu.Unlock()
+	return a.oauthURL
 }
