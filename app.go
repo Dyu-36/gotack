@@ -99,7 +99,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.sup = sup
-	a.link = engine.NewLink(sup)
+	a.link = engine.NewLink(sup, expectedEngineCommit(cfg.EngineBinary))
 
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,

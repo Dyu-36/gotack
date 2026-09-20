@@ -100,8 +100,9 @@
       thinking={conversations.thinking}
       customUrl={conversations.customUrl}
       onThemeChange={theme.set}
-      onSaveSettings={(settings) => {
-        void conversations.saveSettings(settings)
+      onSaveSettings={async (settings) => {
+        const saved = await conversations.saveSettings(settings)
+        if (!saved) throw new Error(conversations.error || "Could not save settings")
         theme.set(settings.theme)
       }}
       onClose={() => (settingsOpen = false)}
