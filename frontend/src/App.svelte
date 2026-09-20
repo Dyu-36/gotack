@@ -50,7 +50,7 @@
     <main class="min-w-0 flex overflow-hidden bg-mm-bg relative">
       <div class="min-w-0 flex-1 h-full relative">
         <ChatArea
-          sessionTitle={conversations.active?.title ?? 'Tack'}
+          sessionTitle={conversations.active?.title ?? 'Gotack'}
           workspace={conversations.workspace}
           {sidebarOpen}
           isDark={theme.isDark}
