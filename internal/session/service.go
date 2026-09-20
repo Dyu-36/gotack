@@ -85,6 +85,39 @@ func (s *Service) Create(ctx context.Context, title string) (engineapi.Session, 
 	return sess, nil
 }
 
+func (s *Service) Clone(ctx context.Context, id string) (engineapi.Session, error) {
+	wsID, err := s.currentWorkspaceID()
+	if err != nil {
+		return engineapi.Session{}, err
+	}
+	if s.api == nil || id == "" {
+		return engineapi.Session{}, errors.New("engine client and session id are required")
+	}
+	return s.api.CloneSession(ctx, wsID, id)
+}
+
+func (s *Service) Fork(ctx context.Context, id, messageID string) (engineapi.Session, error) {
+	wsID, err := s.currentWorkspaceID()
+	if err != nil {
+		return engineapi.Session{}, err
+	}
+	if s.api == nil || id == "" || messageID == "" {
+		return engineapi.Session{}, errors.New("engine client, session id and message id are required")
+	}
+	return s.api.ForkSession(ctx, wsID, id, messageID)
+}
+
+func (s *Service) Compact(ctx context.Context, id string) error {
+	wsID, err := s.currentWorkspaceID()
+	if err != nil {
+		return err
+	}
+	if s.api == nil || id == "" {
+		return errors.New("engine client and session id are required")
+	}
+	return s.api.SummarizeSession(ctx, wsID, id)
+}
+
 func (s *Service) Rename(ctx context.Context, id, title string) (engineapi.Session, error) {
 	wsID, err := s.currentWorkspaceID()
 	if err != nil {
