@@ -1,0 +1,80 @@
+name: Product integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sources:
+    name: Exact product sources
+    runs-on: ubuntu-latest
+    outputs:
+      engine_sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Resolve engine pin
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin="$(tr -d '\r\n' < .tack-pin)"
+          [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid .tack-pin'; exit 1; }
+          echo "sha=$pin" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: Dyu-36/tack-engine
+          ref: ${{ steps.pin.outputs.sha }}
+          path: .engine-source
+          persist-credentials: false
+      - name: Archive source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p product-sources
+          git archive --format=tar.gz HEAD > product-sources/gotack.tar.gz
+          git -C .engine-source archive --format=tar.gz HEAD > product-sources/tack-engine.tar.gz
+          printf 'host=%s\nengine=%s\n' "$(git rev-parse HEAD)" "$(git -C .engine-source rev-parse HEAD)" > product-sources/revisions.txt
+          (cd product-sources && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-sources
+          path: product-sources/
+          if-no-files-found: error
+          retention-days: 14
+
+  engine:
+    name: Pinned engine (${{ matrix.os }})
+    needs: sources
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Dyu-36/tack-engine
+          ref: ${{ needs.sources.outputs.engine_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
