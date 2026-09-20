@@ -1,6 +1,7 @@
 <script lang="ts">
   type Session = {
     id: string
+    parentSessionId?: string
     title: string
     updatedAt: number
     streaming?: boolean
@@ -17,6 +18,7 @@
     onCollapse: () => void
     onOpenSettings: () => void
     onRename: (id: string, title: string) => void
+    onClone: (id: string) => void
     onDelete: (id: string) => void
     onPickWorkspace: () => void
   }
@@ -32,6 +34,7 @@
     onCollapse,
     onOpenSettings,
     onRename,
+    onClone,
     onDelete,
     onPickWorkspace,
   }: Props = $props()
@@ -41,9 +44,52 @@
   let editingTitle = $state('')
   let renameInput = $state<HTMLInputElement | null>(null)
 
-  let filteredSessions = $derived(
-    sessions.filter((session) => session.title.toLowerCase().includes(searchQuery.trim().toLowerCase())),
-  )
+  function sessionDepth(session: Session): number {
+    const byID = new Map(sessions.map((item) => [item.id, item]))
+    let depth = 0
+    let parentID = session.parentSessionId
+    const seen = new Set<string>()
+    while (parentID && depth < 4 && !seen.has(parentID)) {
+      seen.add(parentID)
+      const parent = byID.get(parentID)
+      if (!parent) break
+      depth += 1
+      parentID = parent.parentSessionId
+    }
+    return depth
+  }
+
+  function sessionTree(rows: Session[]): Session[] {
+    const byParent = new Map<string, Session[]>()
+    const ids = new Set(rows.map((row) => row.id))
+    const roots: Session[] = []
+    for (const row of rows) {
+      const parentID = row.parentSessionId
+      if (!parentID || !ids.has(parentID)) {
+        roots.push(row)
+        continue
+      }
+      const children = byParent.get(parentID) ?? []
+      children.push(row)
+      byParent.set(parentID, children)
+    }
+    const sortRecent = (items: Session[]) => items.sort((a, b) => b.updatedAt - a.updatedAt)
+    const output: Session[] = []
+    const visit = (row: Session) => {
+      output.push(row)
+      for (const child of sortRecent(byParent.get(row.id) ?? [])) visit(child)
+    }
+    for (const root of sortRecent(roots)) visit(root)
+    return output
+  }
+
+  let filteredSessions = $derived.by(() => {
+    const query = searchQuery.trim().toLowerCase()
+    const rows = query
+      ? sessions.filter((session) => session.title.toLowerCase().includes(query))
+      : sessions
+    return sessionTree([...rows])
+  })
 
   function formatDate(ts: number): string {
     const date = new Date(ts)
@@ -134,12 +180,16 @@
             <input class="input-inline flex-1" bind:this={renameInput} bind:value={editingTitle} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
           </div>
         {:else}
-          <button type="button" class:mm-nav-active={activeSessionId === session.id} class="mm-nav-item w-full text-left h-item" onclick={() => onSelectSession(session.id)}>
+          <button type="button" class:mm-nav-active={activeSessionId === session.id} class="mm-nav-item w-full text-left h-item" style={`padding-left: ${8 + sessionDepth(session) * 14}px`} onclick={() => onSelectSession(session.id)}>
+            {#if session.parentSessionId}<span class="text-mm-tertiary text-xs shrink-0" aria-hidden="true">↳</span>{/if}
             <svg class="w-3.5 h-3.5 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
             <div class="flex-1 min-w-0 pr-1"><div class="truncate text-sm leading-tight">{session.title}</div><div class="text-xs text-mm-tertiary mt-0.5">{formatDate(session.updatedAt)}</div></div>
             {#if session.streaming}<span class="w-1.5 h-1.5 rounded-pill bg-mm-accent shrink-0" title="Đang trả lời"></span>{/if}
           </button>
           <div class="session-actions absolute right-2 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-mm-panel rounded-md">
+            <button type="button" class="p-1 hover:bg-mm-hover rounded" title="Nhân bản hội thoại" aria-label={`Nhân bản hội thoại ${session.title}`} onclick={(event) => { event.stopPropagation(); onClone(session.id) }}>
+              <svg class="w-3 h-3 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8h11v11H8zM5 16H4a1 1 0 01-1-1V4a1 1 0 011-1h11a1 1 0 011 1v1" /></svg>
+            </button>
             <button type="button" class="p-1 hover:bg-mm-hover rounded" title="Đổi tên" onclick={(event) => { event.stopPropagation(); startRename(session) }}>
               <svg class="w-3 h-3 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
             </button>
