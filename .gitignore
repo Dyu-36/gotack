@@ -44,6 +44,7 @@ frontend/package.json.md5
 # ==========================================
 # IDEs / Editors / Agent Configs
 # ==========================================
+.codex/
 .vscode/
 .idea/
 .vs/
@@ -85,8 +86,7 @@ Desktop.ini
 # Vendored upstream source (own git history)
 /third_party/engine-source/
 
-# Reproducible downloaded runtime payloads; scripts/prepare-resources.ps1
-# recreates these before packaging.
+# Reproducible downloaded runtime payloads; build/release tooling recreates these as needed.
 /resources/bin/*
 !/resources/bin/.gitkeep
 
