@@ -55,7 +55,7 @@ try {
     $staging = Join-Path $repoRoot ('build/bin/product-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $staging 'resources/python') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $staging 'licenses') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'build/bin/tack.exe') -Destination (Join-Path $staging 'gotack.exe')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'build/bin/gotack.exe') -Destination (Join-Path $staging 'gotack.exe')
     Copy-Item -LiteralPath $engineExecutable -Destination (Join-Path $staging 'resources/tack-engine.exe')
     Copy-Item -LiteralPath "$engineExecutable.build.json" -Destination (Join-Path $staging 'resources/tack-engine.exe.build.json')
     Get-ChildItem -LiteralPath $runtimeRoot -Force | Copy-Item -Destination (Join-Path $staging 'resources/python') -Recurse -Force
