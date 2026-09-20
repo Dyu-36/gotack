@@ -22,7 +22,6 @@ type Config struct {
 	Provider          string                             `json:"provider,omitempty"`
 	Model             string                             `json:"model,omitempty"`
 	Thinking          string                             `json:"thinking,omitempty"`
-	APIKey            string                             `json:"api_key,omitempty"`
 	CustomURL         string                             `json:"custom_url,omitempty"`
 	ModelCapabilities map[string]ModelCapabilityOverride `json:"model_capabilities,omitempty"`
 	Zalo              ZaloSettings                       `json:"zalo,omitempty"`
