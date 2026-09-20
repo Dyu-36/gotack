@@ -47,7 +47,7 @@ func MergeSkillsPaths(existing []string, additions ...string) []string {
 	return merged
 }
 
-func RegisterSkillsPaths(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, userSkillsDir string) error {
+func RegisterSkillsPaths(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, userSkillsDir string, bundledSkillsDirs ...string) error {
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 
@@ -58,7 +58,7 @@ func RegisterSkillsPaths(base context.Context, api *engineapi.Client, workspaceI
 	if desc.Path != "" {
 		additions = append(additions, ProjectSkillsDir(desc.Path))
 	}
-	if len(additions) == 0 {
+	if len(additions) == 0 && len(bundledSkillsDirs) == 0 {
 		return nil
 	}
 
@@ -66,7 +66,23 @@ func RegisterSkillsPaths(base context.Context, api *engineapi.Client, workspaceI
 	if err != nil {
 		return fmt.Errorf("skills config read: %w", err)
 	}
-	merged := MergeSkillsPaths(current.SkillsPaths(), additions...)
+	existing := current.SkillsPaths()
+	if len(bundledSkillsDirs) > 0 {
+		kept := append([]string(nil), bundledSkillsDirs...)
+		for _, path := range existing {
+			managed := slices.ContainsFunc(bundledSkillsDirs, func(bundled string) bool {
+				return bundled != "" && skillPathKey(filepath.Dir(path)) == skillPathKey(filepath.Dir(bundled))
+			})
+			standard := slices.ContainsFunc(additions, func(addition string) bool {
+				return skillPathKey(addition) == skillPathKey(path)
+			})
+			if !managed && !standard {
+				kept = append(kept, path)
+			}
+		}
+		existing = kept
+	}
+	merged := MergeSkillsPaths(existing, additions...)
 	if slices.Equal(merged, current.SkillsPaths()) {
 		return nil
 	}
