@@ -5,7 +5,6 @@
   import ChatArea from './components/ChatArea.svelte'
   import ProviderUsageBadge from './components/ProviderUsageBadge.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
-  import RequestModals from './components/RequestModals.svelte'
   import { createLiveConversationState } from './features/conversations/live-conversation-state.svelte'
 
   import { onMount } from 'svelte'
@@ -92,12 +91,6 @@
     <div class="status-error" role="status">{conversations.error}</div>
   {/if}
 
-  <RequestModals
-    permission={conversations.permission}
-    onPermission={(decision) => void conversations.answerPermission(decision)}
-    secondsLeft={conversations.permissionSecondsLeft}
-    expired={conversations.permissionExpired}
-  />
 
   {#if settingsOpen}
     <SettingsModal

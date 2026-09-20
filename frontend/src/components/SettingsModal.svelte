@@ -3,11 +3,10 @@
   import { untrack } from 'svelte'
   import { catalog } from '../features/conversations/catalog.svelte'
   import { desktop, type ChatGPTOAuthStatus, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
-  import ContextMigrationPanel from './ContextMigrationPanel.svelte'
 
   type Theme = 'system' | 'light' | 'dark'
 
-  type Tab = 'providers' | 'zalo' | 'appearance' | 'context'
+  type Tab = 'providers' | 'zalo' | 'appearance'
 
   type SettingsPayload = {
     theme: Theme
@@ -295,15 +294,7 @@
         <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
         Zalo
       </button>
-      <button
-        type="button"
-        class="tab-btn"
-        class:active={activeTab === 'context'}
-        onclick={() => (activeTab = 'context')}
-      >
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3L2 8l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
-        Ngữ cảnh
-      </button>
+
       <button
         type="button"
         class="tab-btn"
@@ -491,8 +482,7 @@
             </button>
           </div>
         </section>
-      {:else if activeTab === 'context'}
-        <ContextMigrationPanel />
+
       {:else if activeTab === 'appearance'}
         <section class="setting-section">
           <div class="section-title">Giao diện</div>

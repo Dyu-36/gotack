@@ -66,9 +66,6 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 }
 
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
-	if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
-		return WorkspaceInfo{}, err
-	}
 	if remember && a.cfg != nil {
 		appconfig.AddRecentWorkspace(a.cfg, desc.Path)
 	}
@@ -132,9 +129,6 @@ func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
-		if err := svc.api.SetPermissionsSkip(a.ctx, desc.WorkspaceID, true); err != nil {
-			return WorkspaceInfo{}, err
-		}
 		a.rebindWorkspaceRuntime(desc.WorkspaceID)
 		return WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: true}, nil
 	}

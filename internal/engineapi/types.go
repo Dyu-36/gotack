@@ -110,39 +110,6 @@ type File struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
-type PermissionAction string
-
-const (
-	PermissionAllow           PermissionAction = "allow"
-	PermissionAllowForSession PermissionAction = "allow_session"
-	PermissionDeny            PermissionAction = "deny"
-)
-
-func (p PermissionAction) MarshalText() ([]byte, error) {
-	return []byte(p), nil
-}
-
-func (p *PermissionAction) UnmarshalText(text []byte) error {
-	*p = PermissionAction(text)
-	return nil
-}
-
-type PermissionRequest struct {
-	ID          string          `json:"id"`
-	SessionID   string          `json:"session_id"`
-	ToolCallID  string          `json:"tool_call_id"`
-	ToolName    string          `json:"tool_name"`
-	Description string          `json:"description"`
-	Action      string          `json:"action"`
-	Params      json.RawMessage `json:"params"`
-	Path        string          `json:"path"`
-}
-
-type PermissionGrant struct {
-	Permission PermissionRequest `json:"permission"`
-	Action     PermissionAction  `json:"action"`
-}
-
 type RunComplete struct {
 	SessionID string        `json:"session_id"`
 	RunID     string        `json:"run_id,omitempty"`

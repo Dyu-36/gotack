@@ -14,20 +14,18 @@ import (
 )
 
 const (
-	healthPath          = "/v1/health"
-	versionPath         = "/v1/version"
-	workspacesPath      = "/v1/workspaces"
-	permissionGrantPath = "/v1/workspaces/{id}/permissions/grant"
-	permissionSkipPath  = "/v1/workspaces/{id}/permissions/skip"
-	agentPath           = "/v1/workspaces/{id}/agent"
-	agentInitPath       = "/v1/workspaces/{id}/agent/init"
-	agentRefreshPath    = "/v1/workspaces/{id}/agent/refresh-prompt"
-	cancelPath          = "/v1/workspaces/{id}/agent/sessions/{sid}/cancel"
-	currentSessionPath  = "/v1/workspaces/{id}/current-session"
-	sessionsPath        = "/v1/workspaces/{id}/sessions"
-	messagesPath        = "/v1/workspaces/{id}/sessions/{sid}/messages"
-	historyPath         = "/v1/workspaces/{id}/sessions/{sid}/history"
-	eventsPath          = "/v1/workspaces/{id}/events"
+	healthPath         = "/v1/health"
+	versionPath        = "/v1/version"
+	workspacesPath     = "/v1/workspaces"
+	agentPath          = "/v1/workspaces/{id}/agent"
+	agentInitPath      = "/v1/workspaces/{id}/agent/init"
+	agentRefreshPath   = "/v1/workspaces/{id}/agent/refresh-prompt"
+	cancelPath         = "/v1/workspaces/{id}/agent/sessions/{sid}/cancel"
+	currentSessionPath = "/v1/workspaces/{id}/current-session"
+	sessionsPath       = "/v1/workspaces/{id}/sessions"
+	messagesPath       = "/v1/workspaces/{id}/sessions/{sid}/messages"
+	historyPath        = "/v1/workspaces/{id}/sessions/{sid}/history"
+	eventsPath         = "/v1/workspaces/{id}/events"
 )
 
 type Client struct {
@@ -199,26 +197,6 @@ func (c *Client) EnsureAgent(ctx context.Context, wsID string, interactive bool)
 func (c *Client) CancelPrompt(ctx context.Context, wsID, sessionID string) error {
 	path := expandPath(cancelPath, "id", wsID, "sid", sessionID)
 	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
-}
-
-func (c *Client) GrantPermission(ctx context.Context, wsID string, req PermissionRequest, action PermissionAction) (bool, error) {
-	body, _ := json.Marshal(PermissionGrant{Permission: req, Action: action})
-	var resp struct {
-		Resolved bool `json:"resolved"`
-	}
-	path := expandPath(permissionGrantPath, "id", wsID)
-	if err := c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &resp); err != nil {
-		return false, err
-	}
-	return resp.Resolved, nil
-}
-
-func (c *Client) SetPermissionsSkip(ctx context.Context, wsID string, skip bool) error {
-	body, _ := json.Marshal(struct {
-		Skip bool `json:"skip"`
-	}{Skip: skip})
-	path := expandPath(permissionSkipPath, "id", wsID)
-	return c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body io.Reader, out any) error {

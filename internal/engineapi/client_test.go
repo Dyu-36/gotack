@@ -75,29 +75,6 @@ func TestClientDecodesGzipWorkspaceAndProviders(t *testing.T) {
 	}
 }
 
-func TestSetPermissionsSkipPostsWorkspaceFlag(t *testing.T) {
-	var gotMethod, gotPath string
-	var gotSkip bool
-	client := newHTTPTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		var payload struct {
-			Skip bool `json:"skip"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("decode permission skip request: %v", err)
-		}
-		gotSkip = payload.Skip
-		w.WriteHeader(http.StatusOK)
-	}))
-	if err := client.SetPermissionsSkip(context.Background(), "ws-1", true); err != nil {
-		t.Fatalf("SetPermissionsSkip() error = %v", err)
-	}
-	if gotMethod != http.MethodPost || gotPath != "/v1/workspaces/ws-1/permissions/skip" || !gotSkip {
-		t.Fatalf("permission skip request = %s %s skip=%v", gotMethod, gotPath, gotSkip)
-	}
-}
-
 func TestInitAgentPostsInteractiveFlag(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotInteractive bool

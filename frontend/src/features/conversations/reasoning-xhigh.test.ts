@@ -10,7 +10,6 @@ function engineDeps(): EngineDeps {
     backendReady: { value: true },
     engine: { value: null },
     error: { value: '' },
-    permission: { value: null },
     streamingText: { value: '' },
     provider: { value: 'openai' },
     model: { value: 'gpt-old' },

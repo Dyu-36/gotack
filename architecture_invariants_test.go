@@ -42,6 +42,9 @@ func scopedGoFiles(t *testing.T) []string {
 		}
 	}
 	for _, root := range []string{"internal", "cmd"} {
+		if _, err := os.Stat(root); os.IsNotExist(err) {
+			continue
+		}
 		if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr

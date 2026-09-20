@@ -29,7 +29,6 @@ describe('createEngineState model selection', () => {
       backendReady: { value: true },
       engine: { value: null },
       error: { value: '' },
-      permission: { value: null },
       streamingText: { value: '' },
       provider: { value: 'openai' },
       model: { value: 'gpt-4o' },

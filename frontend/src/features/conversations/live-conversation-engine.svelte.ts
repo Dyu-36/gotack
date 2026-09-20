@@ -3,7 +3,6 @@ import {
   events,
   on,
   type EngineInfo,
-  type PermissionRequestPayload as Envelope,
   type PromptFilePick,
   type SessionDeltaEvent,
   type SessionDoneEvent,
@@ -27,7 +26,6 @@ export type EngineDeps = {
   backendReady: { value: boolean }
   engine: { value: EngineInfo | null }
   error: { value: string }
-  permission: { value: Envelope | null }
   streamingText: { value: string }
   provider: { value: string }
   model: { value: string }
@@ -232,7 +230,6 @@ export function createEngineState(deps: EngineDeps) {
         }
         if (event.error) deps.reportError(event.error, 'Agent run')
       }),
-      on<Envelope>(events.permissionRequest, (event) => (deps.permission.value = event)),
       on<PromptFilePick[]>(events.promptFiles, (picks) => deps.attachPaths(picks ?? [])),
     )
   }

@@ -91,14 +91,6 @@ func TestBridgeSmoke(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Log("stream open, idle as expected")
 	}
-
-	resolved, err := api.GrantPermission(ctx, ws.ID, engineapi.PermissionRequest{ID: "no-such"}, engineapi.PermissionDeny)
-	if err != nil {
-		t.Fatalf("grant permission: %v", err)
-	}
-	if resolved {
-		t.Fatal("unknown permission request must not resolve")
-	}
 }
 
 func TestBridgeServicesSmoke(t *testing.T) {
