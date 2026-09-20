@@ -75,6 +75,18 @@ jobs:
           cache-dependency-path: |
             go.sum
             .engine-source/go.sum
+      - name: Analyze pinned engine source
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          go install golang.org/x/tools/cmd/deadcode@v0.49.0
+          unformatted="$(gofmt -l $(git -C .engine-source ls-files '*.go'))"
+          test -z "$unformatted" || { printf 'Engine files need gofmt:\n%s\n' "$unformatted"; exit 1; }
+          (cd .engine-source && staticcheck ./...)
+          (cd .engine-source && deadcode -test ./... > ../engine-deadcode.txt)
+          test ! -s engine-deadcode.txt || { cat engine-deadcode.txt; exit 1; }
+          (cd .engine-source && go test -race -mod=readonly -count=1 ./internal/agent ./internal/projects ./internal/fsext)
       - name: Verify and build pinned engine
         shell: pwsh
         run: ./scripts/build-engine.ps1 -EngineSource .engine-source -Output "$env:GITHUB_WORKSPACE/build/bin/resources/tack-engine"
