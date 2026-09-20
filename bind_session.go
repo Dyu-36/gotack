@@ -16,8 +16,9 @@ import (
 )
 
 type SessionInfo struct {
-	ID           string  `json:"id"`
-	Title        string  `json:"title"`
+	ID              string  `json:"id"`
+	ParentSessionID string  `json:"parent_session_id,omitempty"`
+	Title           string  `json:"title"`
 	MessageCount int64   `json:"message_count"`
 	Cost         float64 `json:"cost"`
 	UpdatedAt    int64   `json:"updated_at"`
@@ -124,6 +125,40 @@ func (a *App) CreateSession(title string) (SessionInfo, error) {
 	}
 	a.setCurrentSessionBestEffort(session.ID)
 	return toSessionInfo(session), nil
+}
+
+func (a *App) CloneSession(id string) (SessionInfo, error) {
+	svc, err := a.services()
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	session, err := svc.sess.Clone(a.ctx, id)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	a.setCurrentSessionBestEffort(session.ID)
+	return toSessionInfo(session), nil
+}
+
+func (a *App) ForkSession(id, messageID string) (SessionInfo, error) {
+	svc, err := a.services()
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	session, err := svc.sess.Fork(a.ctx, id, messageID)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	a.setCurrentSessionBestEffort(session.ID)
+	return toSessionInfo(session), nil
+}
+
+func (a *App) CompactSession(id string) error {
+	svc, err := a.services()
+	if err != nil {
+		return err
+	}
+	return svc.sess.Compact(a.ctx, id)
 }
 
 func (a *App) RenameSession(id, title string) (SessionInfo, error) {
@@ -327,8 +362,9 @@ func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []at
 
 func toSessionInfo(session engineapi.Session) SessionInfo {
 	return SessionInfo{
-		ID:           session.ID,
-		Title:        session.Title,
+		ID:              session.ID,
+		ParentSessionID: session.ParentSessionID,
+		Title:           session.Title,
 		MessageCount: session.MessageCount,
 		Cost:         session.Cost,
 		UpdatedAt:    engineapi.TimestampMillis(session.UpdatedAt),
