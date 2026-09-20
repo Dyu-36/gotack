@@ -111,70 +111,12 @@ type File struct {
 }
 
 type RunComplete struct {
-	SessionID string        `json:"session_id"`
-	RunID     string        `json:"run_id,omitempty"`
-	MessageID string        `json:"message_id"`
-	Text      string        `json:"text,omitempty"`
-	Error     string        `json:"error,omitempty"`
-	Cancelled bool          `json:"cancelled,omitempty"`
-	Telemetry *RunTelemetry `json:"telemetry,omitempty"`
-}
-
-type ProviderAttemptTelemetry struct {
-	ModelCallID               int    `json:"model_call_id"`
-	HTTPAttempt               int    `json:"http_attempt"`
-	Purpose                   string `json:"purpose,omitempty"`
-	RequestEncodedMicros      *int64 `json:"request_encoded_us,omitempty"`
-	RequestWrittenMicros      *int64 `json:"request_written_us,omitempty"`
-	FirstResponseByteMicros   *int64 `json:"first_response_byte_us,omitempty"`
-	ResponseHeadersMicros     *int64 `json:"response_headers_us,omitempty"`
-	FirstSSEFrameMicros       *int64 `json:"first_sse_frame_us,omitempty"`
-	FirstByteToFirstSSEMicros *int64 `json:"first_byte_to_first_sse_us,omitempty"`
-}
-
-type RunTelemetry struct {
-	SessionID                string                     `json:"session_id,omitempty"`
-	StartedAt                string                     `json:"started_at,omitempty"`
-	EngineBuild              *BuildTelemetry            `json:"engine_build,omitempty"`
-	AppBuild                 *BuildTelemetry            `json:"app_build,omitempty"`
-	RequestedReasoningEffort string                     `json:"requested_reasoning_effort,omitempty"`
-	ResolvedReasoningEffort  string                     `json:"resolved_reasoning_effort,omitempty"`
-	ModelCalls               []ModelCallTelemetry       `json:"model_calls,omitempty"`
-	ToolCalls                []ToolCallTelemetry        `json:"tool_calls,omitempty"`
-	ExecutionRecordsDropped  int                        `json:"execution_records_dropped,omitempty"`
-	RunID                    string                     `json:"run_id,omitempty"`
-	Provider                 string                     `json:"provider,omitempty"`
-	Model                    string                     `json:"model,omitempty"`
-	ReasoningEffort          string                     `json:"reasoning_effort,omitempty"`
-	Attempt                  int                        `json:"attempt"`
-	RetryCount               int                        `json:"retry_count"`
-	RetryDelayMicros         int64                      `json:"retry_delay_us,omitempty"`
-	SpansMicros              map[string]int64           `json:"spans_us,omitempty"`
-	TotalMicros              int64                      `json:"total_us"`
-	FirstSemantic            string                     `json:"first_semantic,omitempty"`
-	ProviderAttempts         []ProviderAttemptTelemetry `json:"provider_attempts,omitempty"`
-	Purpose                  string                     `json:"purpose,omitempty"`
-	// Per-kind one-shot semantic offsets. Pointer semantics: nil means
-	// the kind never appeared this run (absent, never zero); a non-nil
-	// zero is a real sub-microsecond offset.
-	FirstReasoningMicros *int64   `json:"first_reasoning_us,omitempty"`
-	FirstToolMicros      *int64   `json:"first_tool_us,omitempty"`
-	FirstTextMicros      *int64   `json:"first_text_us,omitempty"`
-	CacheStatus          string   `json:"cache_status"`
-	CachedInputTokens    *int64   `json:"cached_input_tokens,omitempty"`
-	UncachedInputTokens  *int64   `json:"uncached_input_tokens,omitempty"`
-	ServiceTier          string   `json:"service_tier,omitempty"`
-	ProviderRequestID    string   `json:"provider_request_id,omitempty"`
-	EstimatedUsage       bool     `json:"estimated_usage,omitempty"`
-	Compacted            bool     `json:"compacted,omitempty"`
-	PrefixChangedReason  string   `json:"prefix_changed_reason,omitempty"`
-	ChangeReasons        []string `json:"change_reasons,omitempty"`
-	StablePrefixHMAC     string   `json:"stable_prefix_hmac,omitempty"`
-	StablePrefixBytes    int      `json:"stable_prefix_bytes,omitempty"`
-	DynamicSuffixHMAC    string   `json:"dynamic_suffix_hmac,omitempty"`
-	DynamicSuffixBytes   int      `json:"dynamic_suffix_bytes,omitempty"`
-	RequestShapeHMAC     string   `json:"request_shape_hmac,omitempty"`
-	RequestShapeBytes    int      `json:"request_shape_bytes,omitempty"`
+	SessionID string `json:"session_id"`
+	RunID     string `json:"run_id,omitempty"`
+	MessageID string `json:"message_id"`
+	Text      string `json:"text,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
 type partWrapper struct {
