@@ -22,6 +22,7 @@ type SessionDeltaPayload struct {
 }
 
 type SessionDonePayload struct {
+	RunID     string `json:"run_id,omitempty"`
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
 	Error     string `json:"error,omitempty"`
@@ -254,7 +255,7 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 	if rc.SessionID != "" {
 		f.drain(rc.SessionID)
 	}
-	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
+	done := SessionDonePayload{RunID: rc.RunID, SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
 
 	if f.callbacks.RunDone != nil {
 		f.callbacks.RunDone(done)

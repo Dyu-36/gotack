@@ -17,10 +17,3 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	wailsruntime.WindowHide(ctx)
 	return true
 }
-
-func (a *App) quit() {
-	a.quitting.Store(true)
-	if a.ctx != nil {
-		wailsruntime.Quit(a.ctx)
-	}
-}

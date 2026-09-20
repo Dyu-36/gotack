@@ -10,20 +10,20 @@ import (
 
 func TestUnpairCancelsOnlyRevokedChat(t *testing.T) {
 	var cancelled []string
-	m := NewManager(filepath.Join(t.TempDir(), "zalo.json"), Runtime{Stop: func(_ context.Context, id string) error {
-		cancelled = append(cancelled, id)
+	m := NewManager(filepath.Join(t.TempDir(), "zalo.json"), Runtime{Stop: func(_ context.Context, run Turn) error {
+		cancelled = append(cancelled, run.SessionID)
 		return nil
 	}}, nil)
 	m.state.PairedChatIDs = []string{"a", "b"}
 	m.state.ChatSessions = map[string]string{"a": "one", "b": "two"}
-	m.active = map[string]string{"a": "one", "b": "two"}
+	m.active = map[string]*activeTurn{"a": testActiveTurn("one"), "b": testActiveTurn("two")}
 	if _, err := m.Unpair("a"); err != nil {
 		t.Fatal(err)
 	}
 	if len(cancelled) != 1 || cancelled[0] != "one" {
 		t.Fatalf("cancelled=%v", cancelled)
 	}
-	if m.paired("a") || !m.paired("b") || m.active["b"] != "two" {
+	if m.paired("a") || !m.paired("b") || m.active["b"].SessionID != "two" {
 		t.Fatal("incorrect revocation scope")
 	}
 	reloaded := NewManager(m.path, Runtime{}, nil)
@@ -34,11 +34,11 @@ func TestUnpairCancelsOnlyRevokedChat(t *testing.T) {
 
 func TestStopCancelsRemoteRunsWithoutDuplicateCancellation(t *testing.T) {
 	var cancelled []string
-	m := NewManager(filepath.Join(t.TempDir(), "zalo.json"), Runtime{Stop: func(_ context.Context, id string) error {
-		cancelled = append(cancelled, id)
+	m := NewManager(filepath.Join(t.TempDir(), "zalo.json"), Runtime{Stop: func(_ context.Context, run Turn) error {
+		cancelled = append(cancelled, run.SessionID)
 		return nil
 	}}, nil)
-	m.active = map[string]string{"a": "one", "b": "one", "c": "starting"}
+	m.active = map[string]*activeTurn{"a": testActiveTurn("one"), "b": testActiveTurn("one"), "c": testActiveTurn("")}
 	m.Stop()
 	m.Stop()
 	if len(cancelled) != 1 || cancelled[0] != "one" {
@@ -74,4 +74,9 @@ func TestRuntimeSnapshotIsSafeDuringReplacement(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func testActiveTurn(sessionID string) *activeTurn {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &activeTurn{Turn: Turn{ID: "run-" + sessionID, WorkspaceID: "workspace", SessionID: sessionID}, ctx: ctx, cancel: cancel}
 }

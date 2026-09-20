@@ -46,3 +46,10 @@ func onTrayReady(a *App) {
 		}
 	}()
 }
+
+func (a *App) quit() {
+	a.quitting.Store(true)
+	if a.ctx != nil {
+		wailsruntime.Quit(a.ctx)
+	}
+}
