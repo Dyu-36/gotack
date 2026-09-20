@@ -2,19 +2,52 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/projecttrust"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
 type WorkspaceInfo struct {
-	Path        string `json:"path"`
-	WorkspaceID string `json:"workspace_id"`
-	IsDefault   bool   `json:"is_default"`
+	Path               string   `json:"path"`
+	WorkspaceID        string   `json:"workspace_id"`
+	IsDefault          bool     `json:"is_default"`
+	Trusted            bool     `json:"trusted"`
+	TrustRequired      bool     `json:"trust_required"`
+	TrustInheritedFrom string   `json:"trust_inherited_from,omitempty"`
+	ProtectedResources []string `json:"protected_resources,omitempty"`
+}
+
+func (a *App) inspectWorkspaceTrust(path string) projecttrust.Status {
+	if a.projectTrust == nil {
+		return projecttrust.Status{Path: path, Trusted: true}
+	}
+	status, err := a.projectTrust.Inspect(path)
+	if err != nil {
+		if a.log != nil {
+			a.log.Warn("project trust inspection failed; project resources remain disabled", "path", path, "err", err)
+		}
+		return projecttrust.Status{Path: path, Trusted: false, Required: true}
+	}
+	return status
+}
+
+func (a *App) workspaceInfo(desc workspace.Descriptor) WorkspaceInfo {
+	trust := a.inspectWorkspaceTrust(desc.Path)
+	return WorkspaceInfo{
+		Path:               desc.Path,
+		WorkspaceID:        desc.WorkspaceID,
+		IsDefault:          isDefaultWorkspace(desc.Path),
+		Trusted:            trust.Trusted,
+		TrustRequired:      trust.Required,
+		TrustInheritedFrom: trust.InheritedFrom,
+		ProtectedResources: append([]string(nil), trust.Resources...),
+	}
 }
 
 func defaultWorkspacePath() string {
@@ -62,7 +95,10 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 	if !ok || desc.WorkspaceID != workspaceID {
 		return
 	}
-	a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc)
+	trust := a.inspectWorkspaceTrust(desc.Path)
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trust.Trusted); err != nil && a.log != nil {
+		a.log.Warn("workspace runtime apply failed", "workspace", desc.Path, "err", err)
+	}
 }
 
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
@@ -71,11 +107,7 @@ func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, re
 	}
 	a.rebindWorkspaceRuntime(desc.WorkspaceID)
 
-	return WorkspaceInfo{
-		Path:        desc.Path,
-		WorkspaceID: desc.WorkspaceID,
-		IsDefault:   isDefaultWorkspace(desc.Path),
-	}, nil
+	return a.workspaceInfo(desc), nil
 }
 
 func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool) (WorkspaceInfo, error) {
@@ -130,7 +162,7 @@ func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
 		a.rebindWorkspaceRuntime(desc.WorkspaceID)
-		return WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: true}, nil
+		return a.workspaceInfo(desc), nil
 	}
 	desc, err := svc.ws.OpenWithDataDir(a.ctx, defaultWorkspacePath(), defaultWorkspaceDataDir())
 	if err != nil {
@@ -174,5 +206,58 @@ func (a *App) CurrentWorkspace() *WorkspaceInfo {
 	if !ok {
 		return nil
 	}
-	return &WorkspaceInfo{Path: desc.Path, WorkspaceID: desc.WorkspaceID, IsDefault: isDefaultWorkspace(desc.Path)}
+	info := a.workspaceInfo(desc)
+	return &info
+}
+
+
+// SetWorkspaceTrust stores an explicit trust decision for the active project.
+// It controls only project-provided dynamic resources and never changes tool
+// permissions or OS privileges.
+func (a *App) SetWorkspaceTrust(trusted bool) (WorkspaceInfo, error) {
+	svc, err := a.services()
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	desc, ok := svc.ws.Current()
+	if !ok {
+		return WorkspaceInfo{}, fmt.Errorf("no workspace is open")
+	}
+	if a.projectTrust == nil {
+		a.projectTrust = projecttrust.New(filepath.Join(appconfig.Dir(), "project-trust.json"))
+	}
+	if err := a.projectTrust.Set(desc.Path, trusted); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trusted); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	if err := svc.api.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
+		a.log.Debug("prompt refresh deferred until agent initialization", "err", err)
+	}
+	return a.workspaceInfo(desc), nil
+}
+
+func (a *App) ResetWorkspaceTrust() (WorkspaceInfo, error) {
+	svc, err := a.services()
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	desc, ok := svc.ws.Current()
+	if !ok {
+		return WorkspaceInfo{}, fmt.Errorf("no workspace is open")
+	}
+	if a.projectTrust != nil {
+		if err := a.projectTrust.Clear(desc.Path); err != nil {
+			return WorkspaceInfo{}, err
+		}
+	}
+	status := a.inspectWorkspaceTrust(desc.Path)
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, status.Trusted); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	if err := svc.api.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
+		a.log.Debug("prompt refresh deferred until agent initialization", "err", err)
+	}
+	return a.workspaceInfo(desc), nil
 }
