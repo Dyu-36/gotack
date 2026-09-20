@@ -290,8 +290,8 @@
     <div class="flex-1 flex flex-col items-center justify-center px-6 py-6 overflow-y-auto min-h-0">
       <div class="w-full max-w-3xl mx-auto flex flex-col items-center py-4">
         <div class="flex flex-col items-center text-center mb-8">
-          <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4 p-2.5"><img src="/tack.png" alt="Tack Logo" class="w-full h-full object-contain" /></div>
-          <h2 class="hero-title font-bold tracking-tight text-mm-text">Tack AI Assistant</h2>
+          <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4 p-2.5"><img src="/tack.png" alt="Gotack Logo" class="w-full h-full object-contain" /></div>
+          <h2 class="hero-title font-bold tracking-tight text-mm-text">Gotack</h2>
           <p class="text-sm text-mm-secondary mt-2 max-w-lg">Làm việc với tệp, tài liệu và công cụ trên toàn bộ máy. Chọn thư mục chỉ để đặt ngữ cảnh mặc định.</p>
         </div>
         <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -366,7 +366,7 @@
         {#if isStreaming && messages.length > 0 && messages.at(-1)?.role === 'user'}
           <div class="flex items-start gap-3 mb-5 animate-fade-in pr-8 sm:pr-20">
             <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
-              <img src="/tack.png" alt="Tack" class="w-full h-full object-contain" />
+              <img src="/tack.png" alt="Gotack" class="w-full h-full object-contain" />
             </div>
             <AgentWorking label="Đang làm việc…" />
           </div>
