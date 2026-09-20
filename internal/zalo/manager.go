@@ -147,19 +147,6 @@ func (m *Manager) saveLocked() error {
 	return nil
 }
 
-func (m *Manager) ImportLegacy(token string, allowed []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.state.Token != "" || strings.TrimSpace(token) == "" {
-		return nil
-	}
-	m.state.Token = strings.TrimSpace(token)
-	m.rotatePairingLocked(time.Now())
-	m.state.PairedChatIDs = uniqueStrings(allowed)
-	m.normalizeLocked()
-	return m.saveLocked()
-}
-
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
