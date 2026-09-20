@@ -11,6 +11,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -127,7 +128,7 @@ func TestChatGPTRedirectCandidate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := chatGPTRedirectCandidate(tc.settings, tc.apiKey); got != tc.want {
+			if got := providerdomain.ChatGPTRedirectCandidate(providerSettingsFromInfo(tc.settings), tc.apiKey); got != tc.want {
 				t.Fatalf("chatGPTRedirectCandidate() = %v, want %v", got, tc.want)
 			}
 		})
@@ -217,7 +218,7 @@ func TestApplyProviderSettingsMakesProviderReadyBeforeModelSelection(t *testing.
 		},
 		{
 			name:          "discovery finalization failure",
-			settings:      SettingsInfo{Provider: mistralProviderID, Model: "mistral-medium-3-5"},
+			settings:      SettingsInfo{Provider: providerdomain.MistralID, Model: "mistral-medium-3-5"},
 			apiKey:        "mistral-key",
 			fail:          "finalize",
 			wantMutations: []string{"seed", "credential", "finalize"},
