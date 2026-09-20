@@ -202,4 +202,3 @@ func TestExtractToolResults(t *testing.T) {
 func equalToolCalls(a, b []ToolCall) bool {
 	return reflect.DeepEqual(a, b)
 }
-
