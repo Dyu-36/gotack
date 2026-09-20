@@ -45,7 +45,6 @@ func (c *Client) DeleteSession(ctx context.Context, wsID, sessionID string) erro
 	return c.doJSON(ctx, "DELETE", expandPath(sessionPath, "id", wsID, "sid", sessionID), nil, nil)
 }
 
-
 func (c *Client) CloneSession(ctx context.Context, wsID, sessionID string) (Session, error) {
 	if wsID == "" || sessionID == "" {
 		return Session{}, errors.New("engineapi: workspace id and session id are required")
