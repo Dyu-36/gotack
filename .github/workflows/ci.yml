@@ -53,6 +53,7 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "These files need gofmt:"
             echo "$unformatted"
+            gofmt -d $unformatted || true
             exit 1
           fi
       - name: Check generated event names are in sync
