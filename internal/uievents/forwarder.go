@@ -42,19 +42,6 @@ type ToolActivityPayload struct {
 	ToolCallID string          `json:"tool_call_id"`
 }
 
-type TaskProgressPayload struct {
-	SessionID                string `json:"session_id"`
-	RunID                    string `json:"run_id,omitempty"`
-	State                    string `json:"state"`
-	ElapsedSeconds           int    `json:"elapsed_seconds"`
-	LimitSeconds             int    `json:"limit_seconds"`
-	Solutions                int    `json:"solutions,omitempty"`
-	Penalty                  *int   `json:"penalty,omitempty"`
-	ResultStatus             string `json:"result_status,omitempty"`
-	HardConstraintsSatisfied *bool  `json:"hard_constraints_satisfied,omitempty"`
-	SoftViolationCount       int    `json:"soft_violation_count,omitempty"`
-}
-
 type ChangesUpdatedPayload struct {
 	SessionID string `json:"session_id"`
 	Path      string `json:"path"`
@@ -176,9 +163,6 @@ func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 				f.send(SessionUpdated, SessionUpdatedPayload{SessionID: session.ID, Title: session.Title, UpdatedAt: engineapi.TimestampMillis(session.UpdatedAt)})
 			}
 		}
-	case "task_progress":
-		f.handleTaskProgress(ev.Payload)
-
 	case "file":
 		f.handleFile(ev.Payload)
 	default:
@@ -278,31 +262,6 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 	f.emitMu.Lock()
 	f.send(SessionDone, done)
 	f.emitMu.Unlock()
-}
-
-func (f *Forwarder) handleTaskProgress(payload json.RawMessage) {
-	var progress engineapi.TaskProgress
-	if err := json.Unmarshal(payload, &progress); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode task_progress", "err", err)
-		}
-		return
-	}
-	if progress.SessionID == "" {
-		return
-	}
-	f.send(TaskProgress, TaskProgressPayload{
-		SessionID:                progress.SessionID,
-		RunID:                    progress.RunID,
-		State:                    progress.State,
-		ElapsedSeconds:           progress.ElapsedSeconds,
-		LimitSeconds:             progress.LimitSeconds,
-		Solutions:                progress.Solutions,
-		Penalty:                  progress.Penalty,
-		ResultStatus:             progress.ResultStatus,
-		HardConstraintsSatisfied: progress.HardConstraintsSatisfied,
-		SoftViolationCount:       progress.SoftViolationCount,
-	})
 }
 
 func (f *Forwarder) handleFile(payload json.RawMessage) {
