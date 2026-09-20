@@ -1,261 +1,200 @@
-<div align="center">
+# Gotack
 
-# Tack
+Gotack is a production Windows desktop coding agent written in Go with a Svelte/Wails UI. Its interaction model follows Pi: a small explicit tool set, configurable system resources and skills, persistent sessions with branching/compaction, project trust for project-provided resources, and direct model/provider access. Gotack adds a native Zalo remote channel and ships one built-in timetable skill.
 
-### A lightweight desktop AI assistant built for speed, low overhead, and real work.
+## Product guarantees
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Dyu-36/gotack/ci.yml?branch=main&style=for-the-badge&label=Build)](https://github.com/Dyu-36/gotack/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Dyu-36/gotack?style=for-the-badge&sort=semver&label=Release)](https://github.com/Dyu-36/gotack/releases)
-[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
-[![Wails](https://img.shields.io/badge/Wails-v2.15-DF0000?style=for-the-badge)](https://wails.io/)
-[![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://svelte.dev/)
-[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/Dyu-36/gotack/releases)
-[![License](https://img.shields.io/badge/License-TBD-lightgrey?style=for-the-badge)](#-license)
+- **Full local agent capability by default.** The six core tools are enabled unless the user explicitly disables one: `read`, `powershell`, `edit`, `write`, `grep`, and `glob`. Gotack does not insert per-command permission prompts.
+- **Project Trust is not a permission system.** It only decides whether project-local dynamic resources such as `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md`, and `.agents/skills` may be loaded. Tool and OS privileges are unchanged.
+- **Prompt/tool parity.** The engine constructs the system prompt from the same enabled tool registry that is exposed to the model.
+- **Reproducible engine.** `.tack-pin` pins an exact `Dyu-36/tack-engine` commit. The desktop rejects an unexpected bundled engine revision.
+- **No stored-secret reveal API.** Provider credentials can be replaced or removed but are not returned to the WebView as plaintext.
+- **Single built-in skill.** Only `resources/skills/timetable` is bundled. User skills remain supported from the Gotack skills directory; trusted projects may additionally provide `.agents/skills`.
 
-**Fast · Lightweight · Local-first · Built to assist**
-
-[Download](https://github.com/Dyu-36/gotack/releases) · [Report an issue](https://github.com/Dyu-36/gotack/issues) · [Build from source](#-building-from-source)
-
-</div>
-
----
-
-<!--
-📸 SCREENSHOT / GIF SLOT
-
-Replace the path below once an image is added to the repository, for example:
-
-<p align="center">
-  <img src="docs/images/tack-preview.png" alt="Tack desktop assistant" width="960" />
-</p>
-
-For an animated demo:
-
-<p align="center">
-  <img src="docs/images/tack-demo.gif" alt="Tack demo" width="960" />
-</p>
--->
-
-> 📸 **Preview slot:** add a product screenshot or short GIF here when ready. Recommended path: `docs/images/tack-preview.png`.
-
-## ✨ Why Tack?
-
-Tack is a desktop AI assistant designed for files, documents, development, system tasks, research, and everyday automation — without the footprint of a heavyweight desktop runtime.
-
-Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's native WebView and keeps the desktop layer deliberately lean. It is designed to start quickly, stay responsive, and remain practical even on lower-resource machines.
-
-| Principle | What it means |
-| --- | --- |
-| ⚡ **Fast startup** | Minimal desktop overhead and lazy-loaded heavyweight features. |
-| 🪶 **Lightweight** | No bundled Chromium or Electron runtime. |
-| 🧠 **Assistant-first** | Works with your environment instead of acting as a chat-only UI. |
-| 💻 **Built in Go** | Efficient process management, native system integration, and concurrency. |
-| 🏠 **Local-first** | Files, tools, sessions, workspace configuration, and engine state stay close to your machine. |
-| 🧩 **Modular** | Optional capabilities are kept separate so Tack stays focused and maintainable. |
-
-## 🚀 Features
-
-| Capability | Highlights |
-| --- | --- |
-| 🤖 **General assistant** | Files, folders, research, system tasks, data transformation, and multi-step automation. |
-| 📝 **Office attachments** | Reads modern Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`) attachments and converts common legacy Office formats when local conversion support is available. |
-| 👨‍💻 **Developer workflows** | Source code, repositories, PowerShell commands, diffs, project files, and workspace-aware sessions. |
-| 🧰 **Skills** | Discovers `SKILL.md` workflows through configured `options.skills_paths`. |
-| 📎 **Attachments** | Handles text, images, PDFs, and Office files while preserving file paths for agent access. |
-| 📱 **Zalo access** | Explicitly paired chats can interact with the desktop assistant remotely. |
-| 🔄 **Streaming UX** | Streams assistant text and tool activity into the desktop conversation view. |
-
-## 🪶 Lightweight by Design
-
-Resource usage is a product constraint in Tack, not an afterthought.
-
-| Tack does | Tack avoids |
-| --- | --- |
-| Uses the **system WebView / WebView2** | Bundling a full Chromium runtime |
-| Keeps the desktop host in **Go** | Heavy desktop-process overhead |
-| Keeps the host focused on desktop integration | Re-implementing agent services in the host |
-| Uses event streams where appropriate | Unnecessary background polling |
-| Keeps long-running responsibilities modular | Duplicating state across layers |
-| Focuses on assistant workflows | Becoming another heavyweight IDE |
-
-The goal is simple: **small enough to leave running, fast enough to open without thinking, and capable enough to get real work done.**
-
-## 🏗️ Architecture
+## Architecture
 
 ```text
-┌────────────────────────────────────────────┐
-│                    Tack                    │
-│                                            │
-│  Svelte + TypeScript                       │
-│  ├── Chat                                  │
-│  ├── Sessions                              │
-│  ├── Workspaces                            │
-│  ├── Files & diffs                         │
-│  ├── Tool activity                         │
-│  ├── Attachments                           │
-│  └── Provider / model settings             │
-│                    │                       │
-│              Wails bridge                  │
-│                    │                       │
-│                 Go host                    │
-└────────────────────┬───────────────────────┘
-                     │
-              Local IPC / REST / SSE
-                     │
-                     ▼
-┌────────────────────────────────────────────┐
-│             Local Agent Runtime            │
-│                                            │
-│  ├── Assistant sessions                    │
-│  ├── Pi-like core tool registry            │
-│  ├── Provider / model execution             │
-│  ├── Compaction, resume & cancellation      │
-│  ├── Attachments                            │
-│  └── SKILL.md discovery                     │
-└────────────────────────────────────────────┘
+Svelte UI
+   |
+Wails bindings
+   |
+Go desktop host
+   |  local named pipe / Unix socket
+   v
+tack-engine (exact commit in .tack-pin)
+   |
+model providers + 6 core tools + skills
 ```
 
-The desktop host owns desktop UX and integration. The pinned engine owns agent execution, model orchestration, session behavior, and the core tool runtime.
+The host owns desktop lifecycle, workspace selection, attachments, generated files, settings, provider UX, Zalo, bundled resources and release packaging. The engine owns the agent loop, prompt construction, tool execution, provider calls, messages, sessions, summarization and persistence.
 
-## 🧱 Technology Stack
+## Agent behavior
 
-| Layer | Technology |
-| --- | --- |
-| Desktop host | **Go 1.27** |
-| Desktop framework | **Wails v2.15** |
-| UI | **Svelte 5** |
-| Language | **TypeScript** |
-| Styling | **Tailwind CSS** |
-| Build tooling | **Vite** |
-| Desktop runtime | **System WebView / WebView2** |
-| Local storage | **SQLite** |
-| Communication | **Local IPC, REST & SSE** |
-| Engine source pin | **`.tack-pin`** |
-| Current packaged target | **Windows x64** |
+### Core tools
 
-## 📦 Installation
+The default enabled tools are:
 
-### Windows portable release
+- `read`
+- `powershell`
+- `edit`
+- `write`
+- `grep`
+- `glob`
 
-1. Download the latest ZIP from [GitHub Releases](https://github.com/Dyu-36/gotack/releases).
-2. Extract it to a folder of your choice.
-3. Launch Tack:
+Settings > Agent can disable tools globally. An empty disabled list means full capability.
+
+### System resources
+
+The engine supports Pi-style prompt resources:
+
+- global `SYSTEM.md`
+- global `APPEND_SYSTEM.md`
+- project `.pi/SYSTEM.md`
+- project `.pi/APPEND_SYSTEM.md`
+- project `.tack/SYSTEM.md`
+- project `.tack/APPEND_SYSTEM.md`
+
+Project-local system resources are loaded only after Project Trust approves the workspace. Global resources remain available regardless of project trust.
+
+### Skills
+
+Gotack uses progressive skill discovery. The desktop registers:
+
+1. the bundled timetable skill,
+2. the user skills directory,
+3. trusted project `.agents/skills`.
+
+The bundled timetable skill includes the canonical workbook templates:
+
+- `mau-thoi-khoa-bieu.xlsx`
+- `phan-cong-chuan-hoa.xlsx`
+
+Windows production packages also include an offline Python/OR-Tools runtime used by the timetable workflow. Packaging fails unless CP-SAT and both Excel templates pass runtime validation.
+
+### Sessions
+
+Sessions are persisted by the engine and support:
+
+- create / rename / delete / switch,
+- clone complete transcript,
+- fork from a persisted user message,
+- parent-child relationships rendered as a tree,
+- manual context compaction,
+- automatic engine summarization,
+- cancel and live streaming.
+
+## Project Trust
+
+When a workspace contains protected dynamic resources and has no trust decision, Gotack asks before loading them. Protected project resources include Pi/Tack system prompt files, Pi resource directories and project skills.
+
+Choosing **Open untrusted** keeps normal full tool execution but excludes project-provided dynamic resources. Choosing **Trust project** loads them. Trust decisions are persisted locally in `project-trust.json` and may inherit from a trusted or denied parent directory.
+
+## Providers
+
+Provider and model discovery comes from the pinned engine. Gotack additionally manages the desktop integration for:
+
+- ChatGPT/Codex OAuth,
+- OpenAI-compatible API keys/endpoints,
+- Mistral bootstrap,
+- model reasoning level,
+- vision capability,
+- provider usage where supported.
+
+Credentials are stored in the engine configuration. The desktop does not expose a method to read a previously stored API key back into JavaScript.
+
+## Zalo
+
+Zalo is an optional remote channel into the same agent runtime. A paired Zalo chat therefore has the same enabled tools and model as the desktop session.
+
+Production safeguards include:
+
+- explicit enable/disable state,
+- secure random pairing codes with expiration,
+- pairing attempt throttling,
+- paired-chat allow-list,
+- token redaction from errors,
+- token/channel state stored outside the frontend,
+- SSRF validation for downloaded attachments,
+- download size limits and redirect validation,
+- controlled outbound file sharing,
+- stop/new/status/model commands,
+- clean background lifecycle while the window is hidden.
+
+Closing the window hides Gotack to the tray. **Quit Gotack** shuts down the channel, transport and owned engine.
+
+## Data locations
+
+On Windows, Gotack uses the user's application-data directory under `gotack` for host configuration, engine state, skills, project trust and Zalo channel state. Logs are stored under the user's cache directory.
+
+The engine is launched with isolated Crush-compatible config/data/cache environment paths owned by Gotack.
+
+## Development
+
+Requirements:
+
+- Go version from `go.mod`
+- Node.js 24
+- pnpm 11.20.0
+- Wails 2.15.0
+
+Desktop verification:
 
 ```powershell
-.\tack.exe
-```
-
-The release bundle includes Tack and its pinned local agent engine. You do **not** need a system installation of Go, Node.js, pnpm, or Wails to run a packaged release.
-
-### Requirements
-
-```text
-Windows 10/11 x64
-Microsoft Edge WebView2 Runtime
-```
-
-WebView2 is already available on most maintained Windows installations.
-
-## 🛠️ Building from Source
-
-### Prerequisites
-
-```text
-Go 1.27+
-Node.js 24+
-pnpm 11+
-Wails v2.15+
-```
-
-Clone the repository:
-
-```powershell
-git clone https://github.com/Dyu-36/gotack.git
-cd gotack
-```
-
-Install the Wails CLI and frontend dependencies:
-
-```powershell
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+go test ./...
+go vet ./...
 pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend check
+pnpm --dir frontend test
+pnpm --dir frontend build
 ```
 
-Run Tack in development mode:
+The normal CI additionally runs staticcheck, dead-code analysis, gofmt verification and generated-event consistency checks.
+
+## Complete product build
+
+A production Windows x64 package must be built through:
 
 ```powershell
-wails dev
+./scripts/build-product.ps1 -EngineSource <path-to-exact-pinned-tack-engine>
 ```
 
-Build a Windows x64 binary:
+The build pipeline:
 
-```powershell
-wails build -platform windows/amd64 -clean
-```
+1. verifies desktop tests/vet/frontend,
+2. verifies and builds the exact pinned engine,
+3. builds the Wails desktop,
+4. builds and validates the offline timetable runtime,
+5. runs a real host-engine IPC contract test,
+6. packages `gotack.exe`, `tack-engine.exe`, Python runtime and licenses,
+7. writes a product manifest and SHA-256 checksums.
 
-## 🔐 Security Model
+GitHub release automation additionally produces an SBOM and build attestations.
 
-Tack is designed as a single-user local desktop application with a separate local agent runtime.
-
-| Boundary | Behavior |
-| --- | --- |
-| 🔌 Engine isolation | The desktop host communicates with the pinned local engine over local IPC/HTTP/SSE rather than importing engine internals. |
-| 🧰 Tool ownership | The host does not maintain the legacy permission, MCP, memory, recall, guard, or scheduler services. Tool behavior is owned by the engine. |
-| 🗂️ Workspace migration | Existing Gotack-specific legacy MCP/guard configuration is removed when workspace configuration is migrated. |
-| 📱 Zalo pairing | Remote chats require explicit pairing and can be revoked individually. |
-
-Interactive questions remain part of the agent flow when the engine requests user input.
-
-## 📂 Project Structure
-
-<details>
-<summary><strong>Expand repository layout</strong></summary>
+## Source layout
 
 ```text
 .
-├── internal/               # Go host, engine client, attachments, providers, workspace services
-├── frontend/               # Svelte desktop UI
-├── scripts/                # Engine build and repository tooling
-├── docs/                   # Current architecture/behavior notes
-├── build/                  # Wails packaging assets
-├── .tack-pin               # Pinned engine commit
-└── .github/workflows/      # CI and release pipelines
+├── frontend/                 Svelte desktop UI
+├── internal/
+│   ├── appconfig/            desktop configuration
+│   ├── attachments/          attachment ingestion/extraction
+│   ├── engine/               sidecar lifecycle and revision checks
+│   ├── engineapi/            local engine protocol client
+│   ├── projecttrust/         persisted Project Trust decisions
+│   ├── provider/             provider integration
+│   ├── session/              desktop session service
+│   ├── workspace/            workspace service
+│   ├── workspaceconfig/      skills/runtime workspace registration
+│   └── zalo/                 Zalo channel
+├── resources/
+│   └── skills/timetable/     the only bundled skill
+├── scripts/
+│   ├── build-engine.ps1
+│   ├── build-product.ps1
+│   └── build-timetable-runtime.py
+└── .tack-pin                 exact engine commit
 ```
 
-</details>
+## Production validation
 
-## ✅ Project Status
-
-Tack is under active development.
-
-The desktop assistant, attachment pipeline, workspace/session flow, provider settings, streaming tool activity, and Zalo connection are implemented. CI covers Go tests and analysis, frontend validation and tests, production builds, generated event consistency, and a Windows portable build.
-
-**Current packaged target:** Windows x64.
-
-## 🧭 Design Philosophy
-
-Tack is intentionally not trying to become a browser, an IDE, or an operating system inside an application.
-
-```text
-You
- ↓
-Tack
- ↓
-Files · Documents · Code · Tools · Automation
-```
-
-The assistant should be available when you need it and stay out of the way when you do not.
-
-## 🤝 Contributing
-
-Issues, bug reports, and contributions are welcome.
-
-When making architectural changes, preserve Tack's core priorities:
-
-**performance · low resource usage · modularity · security · focused assistant experience**
-
-## 📄 License
-
-A project license has **not yet been published** in this repository.
-
-Until a license is added, normal copyright restrictions apply. If you plan to distribute or accept external contributions, add an explicit license first.
+Pull requests and main pushes run both host CI and product integration. Product integration checks the exact pinned engine on Linux, exercises real IPC, and builds the complete Windows distribution. A release is considered valid only when these gates pass for the exact host and engine revisions distributed together.
