@@ -29,7 +29,7 @@ func TestDefaultWorkspacePath(t *testing.T) {
 	}
 }
 
-func TestWorkspaceActivationAlwaysSkipsPermissions(t *testing.T) {
+func TestWorkspaceActivationDoesNotTouchPermissions(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		data string
@@ -58,7 +58,6 @@ func TestWorkspaceActivationAlwaysSkipsPermissions(t *testing.T) {
 						dir = defaultWorkspacePath()
 					}
 					var created bool
-					var skipRequests []bool
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						w.Header().Set("Content-Type", "application/json")
 						switch {
@@ -81,15 +80,6 @@ func TestWorkspaceActivationAlwaysSkipsPermissions(t *testing.T) {
 							}
 							created = true
 							_ = json.NewEncoder(w).Encode(engineapi.Workspace{ID: "ws-1", Path: payload.Path})
-						case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces/ws-1/permissions/skip":
-							var payload struct {
-								Skip bool `json:"skip"`
-							}
-							if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-								t.Errorf("decode permission request: %v", err)
-							}
-							skipRequests = append(skipRequests, payload.Skip)
-							w.WriteHeader(http.StatusNoContent)
 						default:
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 							http.NotFound(w, r)
@@ -117,9 +107,6 @@ func TestWorkspaceActivationAlwaysSkipsPermissions(t *testing.T) {
 						}
 						if info.WorkspaceID != "ws-1" || info.IsDefault != assistant {
 							t.Fatalf("unexpected workspace: %+v", info)
-						}
-						if len(skipRequests) != attempt+1 || !skipRequests[attempt] {
-							t.Fatalf("activation %d did not enable permission skipping: %v", attempt, skipRequests)
 						}
 					}
 				})

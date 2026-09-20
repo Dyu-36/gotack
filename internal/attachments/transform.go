@@ -128,7 +128,7 @@ func officeBlock(path, note string) string {
 
 	raw, err := office.Read(path, "")
 	if err != nil || strings.TrimSpace(raw) == "" {
-		sb.WriteString("> Chưa trích xuất được nội dung văn bản. Hãy dùng công cụ `officecli` với đường dẫn ở thuộc tính `path`.\n")
+		sb.WriteString("> Chưa trích xuất được nội dung văn bản. Tệp đã lưu tại đường dẫn ở thuộc tính `path`.\n")
 		return sb.String()
 	}
 	sb.WriteString(derivedContent(raw))
@@ -164,7 +164,7 @@ func fallbackBlock(size int, reason string) string {
 		sb.WriteString("> " + reason + "\n")
 	}
 	sb.WriteString(fmt.Sprintf("> Kích thước: %s\n", formatSize(size)))
-	sb.WriteString("> Tệp đã được lưu tại đường dẫn ở thuộc tính `path`. Hãy đọc bằng công cụ `officecli` hoặc `officecli` đã đóng gói sẵn; không cần cài thêm gói nào.\n")
+	sb.WriteString("> Tệp đã được lưu tại đường dẫn ở thuộc tính `path`; chưa trích xuất được định dạng này.\n")
 	return sb.String()
 }
 

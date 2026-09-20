@@ -10,14 +10,9 @@ import (
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/changes"
-	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/logging"
-	"github.com/Dyu-36/gotack/internal/permission"
-	"github.com/Dyu-36/gotack/internal/reflection"
-	"github.com/Dyu-36/gotack/internal/runmetrics"
-	"github.com/Dyu-36/gotack/internal/schedule"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -31,7 +26,6 @@ type conn struct {
 	fwd   *uievents.Forwarder
 	ws    *workspace.Service
 	sess  *session.Service
-	perms *permission.Relay
 	diffs *changes.Service
 }
 
@@ -49,17 +43,10 @@ type App struct {
 	sup  engineController
 	link *engine.Link
 
-	zalo          *zalo.Manager
-	officeSeeder  *officeSeeder
-	contextSeeder *contextseed.Seeder
+	zalo *zalo.Manager
 
-	contextRegistrar     *contextseed.Registrar
 	workspaceRuntime     *workspaceconfig.Manager
 	workspaceRuntimeOnce sync.Once
-
-	scheduler  *schedule.Scheduler
-	reflection *reflection.Tracker
-	runMetrics *runmetrics.Writer
 
 	vision sync.Map
 	conn   atomic.Pointer[conn]
@@ -86,7 +73,7 @@ func (a *App) getConn() *conn { return a.conn.Load() }
 
 func NewApp() *App {
 	a := &App{link: engine.NewLink(nil)}
-	a.conn.Store(&conn{perms: permission.NewRelay(permission.DefaultTTL)})
+	a.conn.Store(&conn{})
 	return a
 }
 
@@ -108,14 +95,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.sup = sup
-	a.runMetrics = runmetrics.New(appconfig.LogDir(), a.log)
 	a.link = engine.NewLink(sup)
-
-	a.officeSeeder = newOfficeSeeder(a.log)
-	a.ensureOfficeSeed()
-
-	a.contextSeeder = contextseed.New(appconfig.Dir(), a.log)
-	a.ensureContextSeed()
 
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
@@ -126,9 +106,6 @@ func (a *App) startup(ctx context.Context) {
 		a.log.Warn("zalo legacy import failed", "err", err)
 	}
 	a.wireZaloRuntime()
-
-	a.startScheduler()
-	a.startReflection()
 
 	a.registerFileDrop()
 	go attachments.PruneCache()
@@ -155,10 +132,7 @@ func (a *App) shutdown(ctx context.Context) {
 		return
 	}
 
-	a.stopReflection(ctx)
 	a.link.CancelScope()
-	a.releaseAllContextLeases()
-	a.stopScheduler()
 	if a.zalo != nil {
 		a.zalo.Stop()
 	}

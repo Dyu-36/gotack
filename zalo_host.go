@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
-	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/guard"
 	"github.com/Dyu-36/gotack/internal/userstrings"
 	"github.com/Dyu-36/gotack/internal/zalo"
 )
@@ -39,14 +36,9 @@ func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text s
 		sessionID = sess.ID
 	}
 
-	if err := guard.MarkUnattendedSession(filepath.Join(appconfig.Dir(), guard.UnattendedRosterFileName), sessionID); err != nil {
-		return "", err
-	}
-	cadenceReady := a.prepareReflectionTurn(sessionID)
 	if _, err := svc.sess.Send(ctx, sessionID, text); err != nil {
 		return "", err
 	}
-	a.reflectionTurnAccepted(sessionID, cadenceReady)
 	return sessionID, nil
 }
 

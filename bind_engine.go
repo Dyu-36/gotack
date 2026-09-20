@@ -8,7 +8,6 @@ import (
 	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/permission"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -77,13 +76,7 @@ func (a *App) tryConnect() bool {
 func (a *App) connect(scope context.Context) {
 	err := a.link.Connect(scope, func(ctx context.Context, api *engineapi.Client, ep engineapi.Endpoint, version string) error {
 		callbacks := uievents.Callbacks{
-			RunDone:              a.runDone,
-			AssistantIteration:   a.assistantIteration,
-			LearningToolExecuted: a.learningToolExecuted,
-			RunTelemetry:         a.telemetryCallback(),
-		}
-		if relay := a.permsFromConn(); relay != nil {
-			callbacks.PermissionPending = relay.Pending
+			RunDone: a.runDone,
 		}
 		fwd := uievents.NewForwarder(a.log, a.emit, callbacks)
 		ws := workspace.NewService(api)
@@ -113,7 +106,6 @@ func (a *App) connect(scope context.Context) {
 		}
 		a.emit(uievents.EngineStatus, status)
 
-		a.setSchedulerReady(true)
 		a.reapplySavedWorkspaceSettings()
 		if a.zalo != nil && a.zalo.Status().Configured {
 			a.zalo.Start()
@@ -125,14 +117,6 @@ func (a *App) connect(scope context.Context) {
 	case errors.Is(err, engine.ErrAttachSuperseded):
 	default:
 		a.failConnect(err.Error())
-	}
-}
-
-func (a *App) telemetryCallback() func(*engineapi.RunTelemetry) {
-	return func(telemetry *engineapi.RunTelemetry) {
-		if telemetry != nil && a.runMetrics != nil {
-			a.runMetrics.Append(telemetry)
-		}
 	}
 }
 
@@ -165,13 +149,6 @@ func (a *App) commitAttach(
 	return stillCurrent && a.link.CommitAttach(ctx, ep, version)
 }
 
-func (a *App) permsFromConn() *permission.Relay {
-	if c := a.getConn(); c != nil {
-		return c.perms
-	}
-	return nil
-}
-
 func (a *App) failConnect(reason string) {
 	if a.log != nil {
 		a.log.Error("engine connect failed", "reason", reason)
@@ -184,7 +161,6 @@ func (a *App) transportLost(scope context.Context, reason string) {
 	if !a.link.TransportLost(scope, reason) {
 		return
 	}
-	a.setSchedulerReady(false)
 	if a.log != nil {
 		a.log.Warn("engine transport lost", "reason", reason)
 	}
@@ -237,7 +213,6 @@ func (a *App) stopTransport() {
 	})
 	a.vision.Clear()
 	a.link.Disconnect()
-	a.setSchedulerReady(false)
 	if fwd != nil {
 		fwd.Stop()
 	}

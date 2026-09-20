@@ -5,44 +5,27 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Dyu-36/gotack/internal/contextseed"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-type Resolvers struct {
-	Memory func() string
-	Skills func() string
-	Recall func() string
-	Guard  func() string
-}
-
 type Options struct {
-	Log             *slog.Logger
-	Office          OfficeRuntime
-	Context         *contextseed.Registrar
-	UserSkillsDir   string
-	RecallIndexRoot string
-	Resolvers       Resolvers
+	Log           *slog.Logger
+	UserSkillsDir string
+	ManagedRoot   string
 }
 
 type Manager struct {
-	log             *slog.Logger
-	office          OfficeRuntime
-	context         *contextseed.Registrar
-	userSkillsDir   string
-	recallIndexRoot string
-	resolvers       Resolvers
+	log           *slog.Logger
+	userSkillsDir string
+	managedRoot   string
 }
 
 func NewManager(options Options) *Manager {
 	return &Manager{
-		log:             options.Log,
-		office:          options.Office,
-		context:         options.Context,
-		userSkillsDir:   options.UserSkillsDir,
-		recallIndexRoot: options.RecallIndexRoot,
-		resolvers:       options.Resolvers,
+		log:           options.Log,
+		userSkillsDir: options.UserSkillsDir,
+		managedRoot:   options.ManagedRoot,
 	}
 }
 
@@ -50,31 +33,15 @@ func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspa
 	if m == nil || api == nil || desc.WorkspaceID == "" {
 		return nil
 	}
-	if err := RegisterOffice(ctx, api, desc.WorkspaceID, desc, m.office, m.userSkillsDir); err != nil {
-		m.warn("workspace runtime: office registration failed", "err", err)
+	if err := removeLegacyTools(ctx, api, desc.WorkspaceID, m.managedRoot); err != nil {
+		m.warn("workspace runtime: legacy tool cleanup failed", "err", err)
+		return fmt.Errorf("workspace runtime: legacy tool cleanup: %w", err)
 	}
-	if err := registerTools(
-		ctx, api, desc.WorkspaceID, desc,
-		resolve(m.resolvers.Memory), resolve(m.resolvers.Skills), resolve(m.resolvers.Recall),
-		m.userSkillsDir, m.recallIndexRoot,
-	); err != nil {
-		m.warn("workspace runtime: tool registration failed", "err", err)
-	}
-	if m.context != nil {
-		m.context.Register(ctx, api, desc.WorkspaceID)
-	}
-	if err := RegisterGuard(ctx, api, desc.WorkspaceID, resolve(m.resolvers.Guard)); err != nil {
-		m.warn("workspace runtime: guard registration failed", "err", err)
-		return fmt.Errorf("workspace runtime: guard registration: %w", err)
+	if err := RegisterSkillsPaths(ctx, api, desc.WorkspaceID, desc, m.userSkillsDir); err != nil {
+		m.warn("workspace runtime: skills registration failed", "err", err)
+		return fmt.Errorf("workspace runtime: skills registration: %w", err)
 	}
 	return nil
-}
-
-func resolve(resolver func() string) string {
-	if resolver == nil {
-		return ""
-	}
-	return resolver()
 }
 
 func (m *Manager) warn(message string, args ...any) {

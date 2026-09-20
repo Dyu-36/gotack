@@ -60,11 +60,6 @@ type ChangesUpdatedPayload struct {
 	Path      string `json:"path"`
 }
 
-type PermissionRequestPayload struct {
-	Request   engineapi.PermissionRequest `json:"request"`
-	ExpiresAt int64                       `json:"expires_at_ms"`
-}
-
 const coalesceDelay = 40 * time.Millisecond
 
 type pendingMessage struct {
@@ -95,11 +90,7 @@ func (pm *pendingMessage) markToolStates(calls []engineapi.ToolCall) []engineapi
 }
 
 type Callbacks struct {
-	PermissionPending    func(engineapi.PermissionRequest) int64
-	RunDone              func(SessionDonePayload)
-	AssistantIteration   func(sessionID, messageID string, hasToolCalls bool)
-	LearningToolExecuted func(sessionID, toolCallID, toolName string)
-	RunTelemetry         func(*engineapi.RunTelemetry)
+	RunDone func(SessionDonePayload)
 }
 
 type Forwarder struct {
@@ -187,8 +178,7 @@ func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 		}
 	case "task_progress":
 		f.handleTaskProgress(ev.Payload)
-	case "permission_request":
-		f.handlePermission(ev.Payload)
+
 	case "file":
 		f.handleFile(ev.Payload)
 	default:
@@ -217,43 +207,7 @@ func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 		return
 	}
 	parts := engineapi.ExtractParts(msg.Parts)
-	if strings.EqualFold(msg.Role, "assistant") && f.callbacks.AssistantIteration != nil {
-		f.callbacks.AssistantIteration(msg.SessionID, msg.ID, len(parts.ToolCalls) > 0)
-	}
-	if f.callbacks.LearningToolExecuted != nil {
-		for _, result := range parts.ToolResults {
-			if learningResultAdmitted(result) {
-				f.callbacks.LearningToolExecuted(msg.SessionID, result.ToolCallID, result.Name)
-			}
-		}
-	}
 	f.schedule(msg.SessionID, msg.ID, parts)
-}
-
-func learningResultAdmitted(result engineapi.ToolResult) bool {
-	if result.ToolCallID == "" {
-		return false
-	}
-	switch result.Name {
-	case "memory", "mcp_gotack-memory_memory", "skill_manage", "mcp_gotack-skills_skill_manage":
-	default:
-		return false
-	}
-	if strings.TrimSpace(result.Content) == "User denied permission" {
-		return false
-	}
-	var metadata struct {
-		Hook *struct {
-			Decision string `json:"decision"`
-			Halt     bool   `json:"halt"`
-		} `json:"hook"`
-	}
-	if json.Unmarshal([]byte(result.Metadata), &metadata) == nil && metadata.Hook != nil {
-		if metadata.Hook.Halt || strings.EqualFold(metadata.Hook.Decision, "deny") {
-			return false
-		}
-	}
-	return true
 }
 
 func (f *Forwarder) schedule(sessionID, messageID string, parts engineapi.Parts) {
@@ -317,9 +271,7 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 		f.drain(rc.SessionID)
 	}
 	done := SessionDonePayload{SessionID: rc.SessionID, Text: rc.Text, Error: rc.Error, Cancelled: rc.Cancelled}
-	if rc.Telemetry != nil && f.callbacks.RunTelemetry != nil {
-		f.callbacks.RunTelemetry(rc.Telemetry)
-	}
+
 	if f.callbacks.RunDone != nil {
 		f.callbacks.RunDone(done)
 	}
@@ -351,21 +303,6 @@ func (f *Forwarder) handleTaskProgress(payload json.RawMessage) {
 		HardConstraintsSatisfied: progress.HardConstraintsSatisfied,
 		SoftViolationCount:       progress.SoftViolationCount,
 	})
-}
-
-func (f *Forwarder) handlePermission(payload json.RawMessage) {
-	var req engineapi.PermissionRequest
-	if err := json.Unmarshal(payload, &req); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode permission_request", "err", err)
-		}
-		return
-	}
-	var expiresAt int64
-	if f.callbacks.PermissionPending != nil {
-		expiresAt = f.callbacks.PermissionPending(req)
-	}
-	f.send(PermissionRequest, PermissionRequestPayload{Request: req, ExpiresAt: expiresAt})
 }
 
 func (f *Forwarder) handleFile(payload json.RawMessage) {

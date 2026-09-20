@@ -146,7 +146,6 @@ func (a *App) DeleteSession(id string) error {
 	if err := svc.sess.Delete(a.ctx, id); err != nil {
 		return err
 	}
-	a.forgetReflection(id)
 	return nil
 }
 
@@ -229,12 +228,10 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 		}
 		prepared = append(prepared, item)
 	}
-	cadenceReady := a.prepareReflectionTurn(id)
 	runID, err := svc.sess.SendWithAttachments(a.ctx, id, prompt, prepared)
 	if err != nil {
 		return "", err
 	}
-	a.reflectionTurnAccepted(id, cadenceReady)
 	return runID, nil
 }
 

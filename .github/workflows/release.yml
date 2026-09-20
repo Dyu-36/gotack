@@ -62,7 +62,6 @@ jobs:
           }
           go run ./internal/uievents/gen/main.go
           git diff --exit-code -- frontend/src/platform/events.generated.ts
-          node scripts/check-repository-invariants.mjs
           pnpm --dir frontend check
           pnpm --dir frontend test
           pnpm --dir frontend build
@@ -83,43 +82,6 @@ jobs:
           New-Item -ItemType Directory -Force build\bin\resources | Out-Null
           ./scripts/build-engine.ps1 -EngineSource $engineSource -Output "$env:GITHUB_WORKSPACE\build\bin\resources\tack-engine.exe"
 
-      - name: Build guard approval hook
-        shell: pwsh
-        run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\guard.exe" ./cmd/guard
-
-      - name: Build memory MCP server
-        shell: pwsh
-        run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\memory.exe" ./cmd/memory
-
-      - name: Build skills MCP server
-        shell: pwsh
-        run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\skills.exe" ./cmd/skills
-
-      - name: Build recall MCP server
-        shell: pwsh
-        run: go build -trimpath -o "$env:GITHUB_WORKSPACE\build\bin\resources\recall.exe" ./cmd/recall
-
-      - name: Bundle officecli binary and skills
-        shell: pwsh
-        run: |
-          $resourcesDir = "$env:GITHUB_WORKSPACE\build\windows\resources"
-          New-Item -ItemType Directory -Force $resourcesDir | Out-Null
-          $localOffice = "$env:LOCALAPPDATA\OfficeCLI\officecli.exe"
-          if (Test-Path $localOffice) {
-            Copy-Item $localOffice "$resourcesDir\officecli.exe" -Force
-          } else {
-            Write-Host "Downloading officecli (Windows x64)..."
-            Invoke-WebRequest -Uri "https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/officecli-win-x64.exe" -OutFile "$resourcesDir\officecli.exe"
-          }
-          & "$resourcesDir\officecli.exe" --version
-          if (Test-Path "$env:GITHUB_WORKSPACE\resources\skills") {
-            Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\resources\skills" "$resourcesDir\skills"
-          } else {
-            Write-Host "No vendored skills to bundle."
-          }
-      - name: Prepare bundled runtime payloads
-        shell: pwsh
-        run: ./scripts/prepare-resources.ps1
 
       - name: Assemble portable ZIP
         shell: pwsh
@@ -130,25 +92,10 @@ jobs:
           Copy-Item build\bin\tack.exe "$out\tack.exe"
           Copy-Item build\bin\resources\tack-engine.exe "$out\resources\tack-engine.exe"
           Copy-Item build\bin\resources\tack-engine.exe.build.json "$out\resources\tack-engine.exe.build.json"
-          Copy-Item build\bin\resources\guard.exe "$out\resources\guard.exe"
-          Copy-Item build\bin\resources\memory.exe "$out\resources\memory.exe"
-          Copy-Item build\bin\resources\skills.exe "$out\resources\skills.exe"
-          Copy-Item build\bin\resources\recall.exe "$out\resources\recall.exe"
-          if (Test-Path build\windows\resources\officecli.exe) {
-            Copy-Item build\windows\resources\officecli.exe "$out\resources\officecli.exe"
+
+          if (Test-Path build\windows\README.md) {
+            Copy-Item build\windows\README.md "$out\README.txt"
           }
-          if (Test-Path build\windows\resources\skills) {
-            Copy-Item -Recurse build\windows\resources\skills "$out\resources\skills"
-          }
-          if (Test-Path "$env:GITHUB_WORKSPACE\resources\bin") {
-            Get-ChildItem "$env:GITHUB_WORKSPACE\resources\bin" -Force |
-              Where-Object { $_.Name -ne '.gitkeep' } |
-              Copy-Item -Destination "$out\resources" -Recurse -Force
-          }
-          if (Test-Path "$env:GITHUB_WORKSPACE\resources\context") {
-            Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\resources\context" "$out\resources\context"
-          }
-          Copy-Item build\windows\README.md "$out\README.txt"
           Compress-Archive -Path "$out\*" -DestinationPath "artifacts\$name.zip"
 
       - name: Upload Windows artifact

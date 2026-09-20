@@ -106,17 +106,7 @@ export type SettingsInfo = {
   api_key?: string
   custom_url: string
 }
-export type PermissionRequestEvent = {
-  id: string
-  session_id: string
-  tool_call_id: string
-  tool_name: string
-  description: string
-  action: string
-  params: unknown
-  path: string
-}
-export type PermissionRequestPayload = { request: PermissionRequestEvent; expires_at_ms: number }
+
 export type SessionDeltaEvent = { session_id: string; message_id: string; text: string; append: string; seq: number }
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 export type SessionUpdatedEvent = { session_id: string; title: string; updated_at: number }
@@ -133,23 +123,7 @@ export type TaskProgressEvent = {
   hard_constraints_satisfied?: boolean
   soft_violation_count?: number
 }
-export type AssistantContextInfo = {
-  directory: string
-  profile_cap_chars: number
-  memory_cap_chars: number
-  snapshot: {
-    layout_version: number
-    files: number
-    payload_bytes: number
-    max_bytes: number
-    profile_chars: number
-    memory_chars: number
-    omitted_entries: number
-    build_micros: number
-    reused: boolean
-  }
-  import: { version: number; imported?: string[]; needs_review?: string[]; backup_dir?: string }
-}
+
 
 type BackendApp = {
   BackendReady: () => Promise<boolean>
@@ -176,7 +150,6 @@ type BackendApp = {
   AttachmentLimits: () => Promise<AttachmentLimitsInfo>
   OpenGeneratedFile: (path: string) => Promise<void>
   RevealGeneratedFile: (path: string) => Promise<void>
-  AnswerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => Promise<boolean>
   ChangedFiles: (sessionID: string) => Promise<ChangedFileInfo[]>
   FileDiff: (sessionID: string, path: string) => Promise<string>
   GetSettings: () => Promise<SettingsInfo>
@@ -196,7 +169,6 @@ type BackendApp = {
   UnpairZaloChat: (chatID: string) => Promise<ZaloStatusInfo>
   ZaloStatus: () => Promise<ZaloStatusInfo>
   SendZaloFile: (req: ZaloFileRequest) => Promise<string>
-  AssistantContextInfo: () => Promise<AssistantContextInfo>
 }
 
 declare global {
@@ -223,10 +195,8 @@ export const desktop = {
   listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string, attachments: PromptAttachment[] = []) => call('SendPrompt', id, text, attachments), cancelPrompt: (id: string) => call('CancelPrompt', id),
   pickPromptFiles: () => call('PickPromptFiles'), attachmentLimits: () => call('AttachmentLimits'),
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
-  answerPermission: (requestID: string, decision: 'allow' | 'allow_session' | 'deny') => call('AnswerPermission', requestID, decision),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
   getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => sendZaloFile(req),
-  assistantContextInfo: () => call('AssistantContextInfo'),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
   listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
   loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'),

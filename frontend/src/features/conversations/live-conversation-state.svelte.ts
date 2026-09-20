@@ -1,9 +1,8 @@
-import { desktop, type EngineInfo, type PermissionRequestPayload as Envelope } from '../../platform/desktop'
+import { desktop, type EngineInfo } from '../../platform/desktop'
 import { type ChatAttachment, type Conversation, type ReasoningEffort, type SessionSummary } from './types.svelte'
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
 import { createMessageState } from './live-conversation-messages.svelte'
-import { createPermissionState } from './live-conversation-permissions.svelte'
 
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const DEFAULT_WORKSPACE_LABEL = 'C:\\'
@@ -19,7 +18,6 @@ export function createLiveConversationState() {
   let engine = $state<EngineInfo | null>(null)
   let error = $state('')
   let errorTimer: number | undefined
-  let permission = $state<Envelope | null>(null)
   let streamingText = $state('')
   let provider = $state('')
   let model = $state('')
@@ -69,7 +67,6 @@ export function createLiveConversationState() {
     backendReady: { get value() { return backendReady }, set value(v) { backendReady = v } },
     engine: { get value() { return engine }, set value(v) { engine = v } },
     error: { get value() { return error }, set value(v) { error = v } },
-    permission: { get value() { return permission }, set value(v) { permission = v } },
     streamingText: { get value() { return streamingText }, set value(v) { streamingText = v } },
     provider: { get value() { return provider }, set value(v) { provider = v } },
     model: { get value() { return model }, set value(v) { model = v } },
@@ -85,10 +82,6 @@ export function createLiveConversationState() {
     attachPaths: (picks) => messages.attachPaths(picks),
   })
 
-  const permissions = createPermissionState({
-    permission: { get value() { return permission }, set value(v) { permission = v } },
-    reportError,
-  })
 
   return {
     get sessions(): SessionSummary[] {
@@ -102,7 +95,6 @@ export function createLiveConversationState() {
     get backendReady() { return backendReady },
     get engine() { return engine },
     get error() { return error },
-    get permission() { return permission },
     get streamingText() { return streamingText },
     get provider() { return provider },
     get model() { return model },
@@ -116,8 +108,6 @@ export function createLiveConversationState() {
     },
     get apiKey() { return apiKey },
     get customUrl() { return customUrl },
-    get permissionSecondsLeft() { return permissions.permissionSecondsLeft.value },
-    get permissionExpired() { return permissions.permissionExpired.value },
 
     setInput: (v: string) => { input = v },
     attachFiles: (files: File[]) => messages.attachFiles(files),
@@ -152,7 +142,6 @@ export function createLiveConversationState() {
     cancel: () => messages.cancel(),
     rename: (id: string, title: string) => messages.rename(id, title),
     delete: (id: string) => messages.remove(id),
-    answerPermission: (decision: 'allow' | 'allow_session' | 'deny') => permissions.answerPermission(decision),
     loadSettings: () => engineState.loadSettings(),
     saveSettings: (s: { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }) => engineState.saveSettings(s),
   }
