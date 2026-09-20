@@ -210,7 +210,6 @@ func (a *App) CurrentWorkspace() *WorkspaceInfo {
 	return &info
 }
 
-
 // SetWorkspaceTrust stores an explicit trust decision for the active project.
 // It controls only project-provided dynamic resources and never changes tool
 // permissions or OS privileges.
