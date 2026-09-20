@@ -27,7 +27,7 @@ func TestZaloStartRespectsPersistedEnabledFlag(t *testing.T) {
 	app.cfg = appconfig.Defaults()
 	app.zalo = zalo.NewManager(filepath.Join(t.TempDir(), "zalo.json"), zalo.Runtime{}, nil)
 	defer app.zalo.Stop()
-	if err := app.zalo.ImportLegacy("test-token", nil); err != nil {
+	if _, err := app.zalo.SetToken(context.Background(), "test-token"); err != nil {
 		t.Fatal(err)
 	}
 	app.startZaloIfEnabled()
