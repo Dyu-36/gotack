@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,138 +17,156 @@ import (
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-func TestBridgeSmoke(t *testing.T) {
-	ep := appconfig.PipeEndpoint()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	sup := engine.NewSupervisor(slog.Default(), "")
-	if _, found := sup.Locate(ctx); !found {
-		t.Skipf("engine not reachable at %s %s", ep.Network, ep.Address)
+func bridgeTestRuntime(t *testing.T) (*engineapi.Client, string) {
+	t.Helper()
+	binary := os.Getenv("GOTACK_TEST_ENGINE")
+	if binary == "" {
+		if os.Getenv("GOTACK_REQUIRE_ENGINE") == "1" {
+			t.Fatal("GOTACK_TEST_ENGINE must identify the built pinned engine")
+		}
+		t.Skip("set GOTACK_TEST_ENGINE to run the real host/engine contract tests")
 	}
-
+	absolute, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(absolute); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("engine executable is unavailable: %s (%v)", absolute, err)
+	}
+	root := t.TempDir()
+	for _, variable := range []string{"APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {
+		t.Setenv(variable, root)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	sup := engine.NewSupervisor(slog.Default(), absolute)
+	if _, exists := sup.Locate(ctx); exists {
+		t.Fatal("the test IPC endpoint is already occupied; refusing to use another engine")
+	}
+	ep, err := sup.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := sup.Stop(); err != nil {
+			t.Errorf("stop test engine: %v", err)
+		}
+	})
 	hc, err := engineapi.Dial(ep)
 	if err != nil {
-		t.Fatalf("dial: %v", err)
+		t.Fatal(err)
 	}
+	t.Cleanup(hc.CloseIdleConnections)
 	api := engineapi.NewClient(hc)
-
-	if err := engineapi.Ping(hc, ctx); err != nil {
-		t.Fatalf("health: %v", err)
-	}
-	vi, err := api.Version(ctx)
+	vi, err := engine.WaitForHealthy(ctx, api, 45*time.Second)
 	if err != nil {
-		t.Fatalf("version: %v", err)
+		t.Fatalf("engine handshake: %v", err)
 	}
-	t.Logf("engine version=%s platform=%s", vi.Version, vi.Platform)
-
-	root, err := os.MkdirTemp("", "gotack-smoke-*")
-	if err != nil {
-		t.Fatalf("tempdir: %v", err)
+	if vi.Commit != strings.TrimSpace(packagedEngineCommit) {
+		t.Fatalf("wrong engine: expected %s, got %s", strings.TrimSpace(packagedEngineCommit), vi.Commit)
 	}
-	defer os.RemoveAll(root)
+	t.Logf("verified engine commit=%s version=%s platform=%s", vi.Commit, vi.Version, vi.Platform)
+	workspaceRoot := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return api, workspaceRoot
+}
 
+func TestBridgeSmoke(t *testing.T) {
+	api, root := bridgeTestRuntime(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
 	ws, err := api.CreateWorkspace(ctx, root, true)
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	t.Logf("workspace id=%s path=%s", ws.ID, ws.Path)
-
-	providers, err := api.ListProviders(ctx, ws.ID)
-	if err != nil {
-		t.Fatalf("list providers: %v", err)
+	if ws.ID == "" {
+		t.Fatal("missing workspace ID")
 	}
-	t.Logf("providers=%d", len(providers))
-
-	sessions, err := api.ListSessions(ctx, ws.ID)
-	if err != nil {
-		t.Fatalf("list sessions: %v", err)
+	if _, err := api.ListProviders(ctx, ws.ID); err != nil {
+		t.Fatalf("provider contract: %v", err)
 	}
-	t.Logf("sessions=%d", len(sessions))
-
 	sess, err := api.CreateSession(ctx, ws.ID, "smoke")
-	if err != nil {
-		t.Fatalf("create session: %v", err)
+	if err != nil || sess.ID == "" {
+		t.Fatalf("create session: %+v %v", sess, err)
 	}
-	if sess.ID == "" {
-		t.Fatal("created session has empty id")
-	}
-
 	msgs, err := api.Messages(ctx, ws.ID, sess.ID)
-	if err != nil {
-		t.Fatalf("messages: %v", err)
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("new session messages: %d, %v", len(msgs), err)
 	}
-	if len(msgs) != 0 {
-		t.Logf("fresh session carries %d messages", len(msgs))
+	sess.Title = "renamed smoke"
+	renamed, err := api.SaveSession(ctx, ws.ID, sess)
+	if err != nil || renamed.Title != sess.Title {
+		t.Fatalf("rename session: %+v %v", renamed, err)
 	}
-
+	loaded, err := api.GetSession(ctx, ws.ID, sess.ID)
+	if err != nil || loaded.Title != sess.Title {
+		t.Fatalf("session persistence: %+v %v", loaded, err)
+	}
 	events, stop, err := api.Stream(ctx, ws.ID)
 	if err != nil {
-		t.Fatalf("stream: %v", err)
+		t.Fatalf("SSE contract: %v", err)
 	}
 	defer stop()
 	select {
-	case <-events:
-		t.Log("received an event")
-	case <-time.After(500 * time.Millisecond):
-		t.Log("stream open, idle as expected")
+	case _, open := <-events:
+		if !open {
+			t.Fatal("SSE stream closed immediately")
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := api.DeleteSession(ctx, ws.ID, sess.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	sessions, err := api.ListSessions(ctx, ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range sessions {
+		if candidate.ID == sess.ID {
+			t.Fatal("deleted session still exists")
+		}
 	}
 }
 
 func TestBridgeServicesSmoke(t *testing.T) {
-	ep := appconfig.PipeEndpoint()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	api, root := bridgeTestRuntime(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-
-	sup := engine.NewSupervisor(slog.Default(), "")
-	_, found := sup.Locate(ctx)
-	if !found {
-		t.Skipf("engine not reachable at %s %s", ep.Network, ep.Address)
-	}
-
-	hc, err := engineapi.Dial(ep)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	api := engineapi.NewClient(hc)
-
-	root, err := os.MkdirTemp("", "gotack-smoke-svc-*")
-	if err != nil {
-		t.Fatalf("tempdir: %v", err)
-	}
-	defer os.RemoveAll(root)
-
 	wsSvc := workspace.NewService(api)
 	desc, err := wsSvc.Open(ctx, root)
-
 	if err != nil {
-		t.Fatalf("workspace open: %v", err)
+		t.Fatalf("workspace service: %v", err)
 	}
 	cur, ok := wsSvc.Current()
 	if !ok || cur.WorkspaceID != desc.WorkspaceID {
-		t.Fatalf("current = %+v ok=%v, want just-opened workspace", cur, ok)
+		t.Fatalf("current workspace = %+v, available=%v", cur, ok)
 	}
-
 	sessSvc := session.NewService(api, wsSvc)
-	sess, err := sessSvc.Create(ctx, "svc-smoke")
+	sess, err := sessSvc.Create(ctx, "service-smoke")
 	if err != nil {
-		t.Fatalf("session create: %v", err)
+		t.Fatalf("session service: %v", err)
 	}
 	if _, err := sessSvc.Messages(ctx, sess.ID); err != nil {
-		t.Fatalf("messages: %v", err)
+		t.Fatal(err)
 	}
-
 	diffSvc := changes.NewService(api, wsSvc)
 	files, err := diffSvc.ChangedFiles(ctx, sess.ID)
-	if err != nil {
-		t.Fatalf("changed files: %v", err)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("new session file changes: %d, %v", len(files), err)
 	}
-	if len(files) != 0 {
-		t.Logf("fresh session touched %d files", len(files))
+	if err := api.SetConfigField(ctx, desc.WorkspaceID, engineapi.ConfigScopeWorkspace, "options.skills_paths", []string{filepath.Join(root, "skills")}); err != nil {
+		t.Fatalf("config mutation contract: %v", err)
 	}
-
-	cfg := appconfig.Defaults()
-	if got := len(cfg.RecentWorkspaces); got != 0 {
-		t.Fatalf("workspace.Open must not mutate cfg.RecentWorkspaces; got %v", cfg.RecentWorkspaces)
+	cfg, err := api.GetWorkspaceConfig(ctx, desc.WorkspaceID)
+	if err != nil || len(cfg.SkillsPaths()) != 1 {
+		t.Fatalf("config read contract: %+v %v", cfg, err)
+	}
+	if len(appconfig.Defaults().RecentWorkspaces) != 0 {
+		t.Fatal("workspace service mutated desktop defaults")
 	}
 }
