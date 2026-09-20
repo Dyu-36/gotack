@@ -437,7 +437,6 @@
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" /></svg>
                       </button>
                     </div>
-                    </div>
                   </div>
                 {/each}
               </div>
