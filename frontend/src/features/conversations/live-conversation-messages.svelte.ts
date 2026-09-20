@@ -16,6 +16,7 @@ export type MessageDeps = {
   input: { value: string }
   attachments: { value: ChatAttachment[] }
   workspace: { value: string }
+  workspaceInfo: { value: WorkspaceInfo | null }
   streamingText: { value: string }
   reportError: (cause: unknown, prefix?: string) => void
   clearError: () => void
@@ -106,6 +107,7 @@ export function createMessageState(deps: MessageDeps) {
     const rows = await desktop.listSessions()
     deps.conversations.value = rows.map((s) => ({
       id: s.id,
+      parentSessionId: s.parent_session_id || undefined,
       title: conversationTitle(s.title),
       updatedAt: s.updated_at || Date.now(),
       pinned: false,
@@ -116,6 +118,7 @@ export function createMessageState(deps: MessageDeps) {
       const created = await desktop.createSession(NEW_CONVERSATION_TITLE)
       deps.conversations.value = [{
         id: created.id,
+        parentSessionId: created.parent_session_id || undefined,
         title: created.title || NEW_CONVERSATION_TITLE,
         updatedAt: created.updated_at || Date.now(),
         pinned: false,
@@ -133,6 +136,7 @@ export function createMessageState(deps: MessageDeps) {
 
   const attachWorkspace = async (workspace: WorkspaceInfo) => {
     deps.workspace.value = workspace.is_default ? DEFAULT_WORKSPACE_LABEL : workspace.path
+    deps.workspaceInfo.value = workspace
     const selection = await loadSessions()
     await catalog.refresh()
     await deps.applyLoadedSelection(selection?.providerID, selection?.modelID)
@@ -169,6 +173,7 @@ export function createMessageState(deps: MessageDeps) {
       const s = await desktop.createSession(NEW_CONVERSATION_TITLE)
       const c: Conversation = {
         id: s.id,
+        parentSessionId: s.parent_session_id || undefined,
         title: s.title || NEW_CONVERSATION_TITLE,
         updatedAt: s.updated_at || Date.now(),
         pinned: false,
@@ -181,6 +186,51 @@ export function createMessageState(deps: MessageDeps) {
       deps.rememberSession(c.id)
       await desktop.switchSession(c.id)
     } catch (cause) { deps.reportError(cause, 'Create session') }
+  }
+
+  const clone = async (id: string) => {
+    if (!await deps.waitForReady()) return
+    try {
+      const s = await desktop.cloneSession(id)
+      const c: Conversation = {
+        id: s.id,
+        parentSessionId: s.parent_session_id || id,
+        title: s.title || NEW_CONVERSATION_TITLE,
+        updatedAt: s.updated_at || Date.now(),
+        pinned: false,
+        status: 'idle',
+        messages: [],
+      }
+      deps.conversations.value = [c, ...deps.conversations.value]
+      await select(c.id)
+    } catch (cause) { deps.reportError(cause, 'Clone session') }
+  }
+
+  const fork = async (id: string, messageID: string) => {
+    if (!await deps.waitForReady()) return
+    try {
+      const s = await desktop.forkSession(id, messageID)
+      const c: Conversation = {
+        id: s.id,
+        parentSessionId: s.parent_session_id || id,
+        title: s.title || NEW_CONVERSATION_TITLE,
+        updatedAt: s.updated_at || Date.now(),
+        pinned: false,
+        status: 'idle',
+        messages: [],
+      }
+      deps.conversations.value = [c, ...deps.conversations.value]
+      await select(c.id)
+    } catch (cause) { deps.reportError(cause, 'Fork session') }
+  }
+
+  const compact = async (id: string) => {
+    if (!await deps.waitForReady()) return
+    try {
+      await desktop.compactSession(id)
+      await loadMessages(id)
+      deps.clearError()
+    } catch (cause) { deps.reportError(cause, 'Compact session') }
   }
 
   const select = async (id: string) => {
@@ -314,6 +364,9 @@ export function createMessageState(deps: MessageDeps) {
     ensureWorkspace,
     pickWorkspace,
     create,
+    clone,
+    fork,
+    compact,
     select,
     send,
     attachFiles,
