@@ -97,7 +97,7 @@
 
   {#if conversations.workspaceInfo?.trust_required}
     <div class="trust-overlay" role="presentation">
-      <section class="trust-card" role="dialog" aria-modal="true" aria-labelledby="project-trust-title">
+      <div class="trust-card" role="dialog" aria-modal="true" aria-labelledby="project-trust-title">
         <h2 id="project-trust-title">Project này có tài nguyên động</h2>
         <p>Gotack phát hiện resource có thể thay đổi hành vi agent trong workspace này. Tool và quyền hệ điều hành vẫn giữ nguyên; quyết định này chỉ kiểm soát việc nạp resource của project.</p>
         {#if conversations.workspaceInfo.protected_resources?.length}
@@ -111,7 +111,7 @@
           <button type="button" class="btn-notion" onclick={() => void conversations.setWorkspaceTrust(false)}>Mở không trust</button>
           <button type="button" class="trust-primary" onclick={() => void conversations.setWorkspaceTrust(true)}>Trust project</button>
         </div>
-      </section>
+      </div>
     </div>
   {/if}
 
