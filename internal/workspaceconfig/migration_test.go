@@ -114,7 +114,7 @@ func TestSkillsRegistrationReplacesDuplicatesWithoutLosingAdditions(t *testing.T
 	if err := RegisterSkillsPaths(context.Background(), client, "ws", desc, user); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{user, ProjectSkillsDir(root)}
+	want := append([]string{user}, ProjectSkillsDirs(root)...)
 	if !reflect.DeepEqual(cfg.SkillsPaths(), want) {
 		t.Fatalf("paths = %v, want %v", cfg.SkillsPaths(), want)
 	}
