@@ -1,28 +1,46 @@
-<!-- codebase-memory-mcp:start -->
-# Codebase Knowledge Graph (codebase-memory-mcp)
+# Gotack Agent Instructions
 
-This project uses codebase-memory-mcp to maintain a knowledge graph of the codebase.
-ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
-NOTE: The `project` argument is REQUIRED for all tool calls (for this repository, use `project="gotack"`).
+## Project layout
 
-## Priority Order
-1. `search_graph` — find functions, classes, routes, variables by pattern (requires `project`)
-2. `trace_path` — trace who calls a function or what it calls (requires `project` and `function_name`)
-3. `get_code_snippet` — read specific function/class source code (requires `project` and `qualified_name`)
-4. `query_graph` — run Cypher queries for complex patterns (requires `project` and `query`)
-5. `get_architecture` — high-level project summary (requires `project`)
+- Go/Wails desktop host: repository root and `internal/`
+- Svelte frontend: `frontend/src/`
+- Build and release tooling: `scripts/`, `.github/workflows/`, and `build/`
+- Pinned local agent engine revision: `.tack-pin`
 
-## When to fall back to grep/glob
-- Searching for string literals, error messages, config values
-- Searching non-code files (Dockerfiles, shell scripts, configs)
-- When MCP tools return insufficient results
+## Setup and validation
 
-## Examples
-- List projects: `list_projects()`
-- Find a handler: `search_graph(project="gotack", name_pattern=".*Handler.*")`
-- Who calls it: `trace_path(project="gotack", function_name="Handler", direction="inbound")`
-- Read source: `get_code_snippet(project="gotack", qualified_name="main.App")`
-<!-- codebase-memory-mcp:end -->
-Rules: Don't add any comment when editing src code
+Use the versions declared by the repository and CI.
 
+```powershell
+pnpm --dir frontend install --frozen-lockfile
+wails generate module
+go test ./...
+go vet ./...
+pnpm --dir frontend check
+pnpm --dir frontend test
+pnpm --dir frontend build
+```
 
+When UI event names change, regenerate and keep the committed generated event file in sync:
+
+```powershell
+go run ./internal/uievents/gen/main.go
+```
+
+## Generated and local files
+
+Do not commit:
+
+- `frontend/wailsjs/`
+- `frontend/dist/`
+- `build/bin/`
+- `third_party/engine-source/`
+- local runtime, cache, editor, or agent configuration
+
+`frontend/src/platform/events.generated.ts` is intentionally committed and must remain in sync with the Go event definitions.
+
+Do not change `.tack-pin` unless intentionally updating the pinned engine revision.
+
+## Editing rule
+
+Do not add comments when editing source code unless explicitly requested.
