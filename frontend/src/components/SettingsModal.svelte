@@ -58,6 +58,7 @@
   let zaloSaving = $state(false)
   let zaloBusy = $state(false)
   let zaloPairingCode = $state('')
+  let zaloPairingExpires = $state(0)
   let zaloPairedChats = $state<string[]>([])
 
   let chatgptOAuthStatus = $state<ChatGPTOAuthStatus | null>(null)
@@ -204,6 +205,7 @@
       zaloEnabled = config.enabled
       zaloHasToken = config.has_token
       zaloPairingCode = config.pairing_code
+      zaloPairingExpires = config.pairing_expires_at ?? 0
       zaloPairedChats = config.paired_chats ?? []
       zaloStatus = await desktop.zaloStatus()
     } catch (cause) {
@@ -294,6 +296,7 @@
       zaloHasToken = zaloStatus.configured
       zaloToken = ''
       zaloPairingCode = zaloStatus.pairing_code ?? ''
+      zaloPairingExpires = zaloStatus.pairing_expires_at ?? 0
       zaloPairedChats = zaloStatus.paired_chat_ids ?? []
       toast.success(zaloStatus.bot_name ? `Zalo đã nối: ${zaloStatus.bot_name}` : 'Đã lưu cấu hình Zalo')
     } catch (cause) {
@@ -310,6 +313,7 @@
       zaloHasToken = zaloStatus.configured
       zaloPairedChats = zaloStatus.paired_chat_ids ?? []
       zaloPairingCode = zaloStatus.pairing_code ?? ''
+      zaloPairingExpires = zaloStatus.pairing_expires_at ?? 0
       toast.success(ok)
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
@@ -568,7 +572,10 @@
             </div>
           {/if}
 
-          <div class="flex flex-wrap justify-end gap-2 pt-2">
+          {#if zaloPairingCode && zaloPairingExpires}
+  <p class="hint">Mã ghép cặp hết hạn lúc {new Date(zaloPairingExpires * 1000).toLocaleString('vi-VN')}. Tạo mã mới nếu mã đã hết hạn.</p>
+{/if}
+<div class="flex flex-wrap justify-end gap-2 pt-2">
             <button type="button" class="btn-notion text-xs" disabled={zaloBusy || !zaloHasToken} onclick={() => runZalo(() => desktop.testZaloConnection(), 'Kết nối Zalo thành công')}>Kiểm tra kết nối</button>
             <button type="button" class="btn-danger text-xs" disabled={zaloBusy || !zaloHasToken} onclick={removeZalo}>Ngắt kết nối</button>
             <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={zaloSaving || (zaloEnabled && !zaloHasToken && !zaloToken.trim())} onclick={saveZalo}>
@@ -604,7 +611,7 @@
             </span>
             <input type="checkbox" checked={autoStart} disabled={autoStartBusy} onchange={toggleAutoStart} />
           </label>
-          <p class="hint">Đóng cửa sổ chỉ ẩn Tack xuống khay — Zalo bot và tiến trình vẫn chạy ngầm. Muốn tắt hẳn, End Task tiến trình Tack trong Task Manager.</p>
+          <p class="hint">Trên Windows, đóng cửa sổ chỉ ẩn Gotack xuống khay; Zalo tiếp tục hoạt động khi được bật. Chọn Quit Gotack trong khay hệ thống để thoát và dừng engine.</p>
         </section>
       {/if}
     </div>

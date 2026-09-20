@@ -117,9 +117,7 @@ func (a *App) startup(ctx context.Context) {
 	go attachments.PruneCache()
 
 	a.tryConnect()
-	if a.zalo.Status().Configured {
-		a.zalo.Start()
-	}
+	a.startZaloIfEnabled()
 	startTray(a)
 }
 
