@@ -26,7 +26,7 @@
     thinking?: string
     customUrl?: string
     onThemeChange: (theme: Theme) => void
-    onSaveSettings?: (settings: SettingsPayload) => void
+    onSaveSettings?: (settings: SettingsPayload) => Promise<void>
     onClose: () => void
   }
 
@@ -37,7 +37,7 @@
     thinking = 'high',
     customUrl = '',
     onThemeChange,
-    onSaveSettings = () => {},
+    onSaveSettings = async () => {},
     onClose,
   }: Props = $props()
 
@@ -69,6 +69,7 @@
   let autoStartBusy = $state(false)
 
   let hydrated = false
+  let savingSettings = $state(false)
 
   $effect(() => {
     selectedTheme = theme
@@ -259,7 +260,9 @@
     }
   }
 
-  function save() {
+  async function save() {
+    if (savingSettings) return
+    savingSettings = true
     const payload: SettingsPayload = {
       theme: selectedTheme,
       provider,
@@ -270,10 +273,16 @@
       api_key: selectedProvider === 'codex' ? '' : currentApiKey.trim(),
       custom_url: selectedProvider && selectedProvider !== 'codex' ? currentCustomUrl.trim() : '',
     }
-    onThemeChange(selectedTheme)
-    onSaveSettings(payload)
-    currentApiKey = ''
-    onClose()
+    try {
+      await onSaveSettings(payload)
+      onThemeChange(selectedTheme)
+      currentApiKey = ''
+      onClose()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      savingSettings = false
+    }
   }
 
   async function saveZalo() {
@@ -603,7 +612,7 @@
     <footer class="px-5 py-3 border-t border-mm-border flex items-center justify-end">
       <div class="flex gap-2">
         <button type="button" class="btn-notion px-3 py-1.5 text-xs" onclick={onClose}>Hủy</button>
-        <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={save}>Lưu & áp dụng</button>
+        <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={save} disabled={savingSettings}>Lưu & áp dụng</button>
       </div>
     </footer>
   </div>

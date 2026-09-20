@@ -2,8 +2,6 @@ package zalo
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Runtime struct {
@@ -23,12 +22,13 @@ type Runtime struct {
 }
 
 type StoredChannel struct {
-	Token         string            `json:"token,omitempty"`
-	BotName       string            `json:"bot_name,omitempty"`
-	PairingCode   string            `json:"pairing_code,omitempty"`
-	PairedChatIDs []string          `json:"paired_chat_ids,omitempty"`
-	UpdateOffset  *int64            `json:"update_offset,omitempty"`
-	ChatSessions  map[string]string `json:"chat_sessions,omitempty"`
+	PairingExpiresAt int64             `json:"pairing_expires_at,omitempty"`
+	Token            string            `json:"token,omitempty"`
+	BotName          string            `json:"bot_name,omitempty"`
+	PairingCode      string            `json:"pairing_code,omitempty"`
+	PairedChatIDs    []string          `json:"paired_chat_ids,omitempty"`
+	UpdateOffset     *int64            `json:"update_offset,omitempty"`
+	ChatSessions     map[string]string `json:"chat_sessions,omitempty"`
 }
 
 type Status struct {
@@ -42,6 +42,9 @@ type Status struct {
 }
 
 type Manager struct {
+	pairAttempts  map[string]pairAttempt
+	pairWindow    time.Time
+	pairCount     int
 	clientFactory func(string) (*Client, error)
 	path          string
 	runtime       Runtime
@@ -88,8 +91,8 @@ func (m *Manager) normalizeLocked() {
 	}
 	m.state.Token = strings.TrimSpace(m.state.Token)
 	m.state.PairingCode = strings.TrimSpace(m.state.PairingCode)
-	if m.state.Token != "" && m.state.PairingCode == "" {
-		m.state.PairingCode = pairingCode()
+	if m.state.Token != "" && (m.state.PairingCode == "" || m.state.PairingExpiresAt <= time.Now().Unix()) {
+		m.rotatePairingLocked(time.Now())
 	}
 	m.state.PairedChatIDs = uniqueStrings(m.state.PairedChatIDs)
 }
@@ -111,40 +114,33 @@ func uniqueStrings(values []string) []string {
 	return out
 }
 
-func pairingCode() string {
-	var raw [8]byte
-	if _, err := rand.Read(raw[:]); err == nil {
-		return fmt.Sprintf("%06d", binary.LittleEndian.Uint64(raw[:])%1_000_000)
-	}
-	return "000000"
-}
-
 func (m *Manager) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
-		return fmt.Errorf("create Zalo settings directory: %w", err)
+	if err := os.MkdirAll(filepath.Dir(m.path), 0o700); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(m.state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode Zalo settings: %w", err)
+		return err
 	}
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write Zalo settings: %w", err)
+	file, err := os.CreateTemp(filepath.Dir(m.path), ".zalo-*")
+	if err != nil {
+		return err
 	}
-	if err := os.Rename(tmp, m.path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("replace Zalo settings: %w", err)
+	name := file.Name()
+	defer os.Remove(name)
+	if _, err = file.Write(data); err == nil {
+		err = file.Sync()
 	}
-	return nil
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(name, m.path)
 }
 
-// ImportLegacy migrates the former allow-list configuration once. Existing
-// channel state always wins.
-//
-// Deprecated: this exists only to migrate the deprecated
-// appconfig.ZaloSettings.Token and appconfig.ZaloSettings.AllowedChats keys
-// (removal target: Gotack v1.0). Its behavior stays unchanged until the
-// fields are dropped; then remove this method and its call site together.
 func (m *Manager) ImportLegacy(token string, allowed []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -152,7 +148,7 @@ func (m *Manager) ImportLegacy(token string, allowed []string) error {
 		return nil
 	}
 	m.state.Token = strings.TrimSpace(token)
-	m.state.PairingCode = pairingCode()
+	m.rotatePairingLocked(time.Now())
 	m.state.PairedChatIDs = uniqueStrings(allowed)
 	m.normalizeLocked()
 	return m.saveLocked()
@@ -225,7 +221,7 @@ func (m *Manager) SetToken(ctx context.Context, token string) (Status, error) {
 	m.state.BotName = bot.Name
 	m.state.UpdateOffset = nil
 	if m.state.PairingCode == "" {
-		m.state.PairingCode = pairingCode()
+		m.rotatePairingLocked(time.Now())
 	}
 	err = m.saveLocked()
 	m.lastError = ""
@@ -278,7 +274,7 @@ func (m *Manager) RemoveToken() (Status, error) {
 
 func (m *Manager) RegeneratePairingCode() (Status, error) {
 	m.mu.Lock()
-	m.state.PairingCode = pairingCode()
+	m.rotatePairingLocked(time.Now())
 	err := m.saveLocked()
 	m.mu.Unlock()
 	return m.Status(), err

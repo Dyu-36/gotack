@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,9 @@ func (m *Manager) run(ctx context.Context, generation uint64, done chan struct{}
 		}
 		m.mu.Unlock()
 	}()
+	var dispatches sync.WaitGroup
+	defer dispatches.Wait()
+	slots := make(chan struct{}, 8)
 	backoff := minBackoff
 	var client *Client
 	var clientToken string
@@ -89,7 +93,17 @@ func (m *Manager) run(ctx context.Context, generation uint64, done chan struct{}
 			if !m.remember(update) {
 				continue
 			}
-			go m.dispatch(context.Background(), client, update)
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			dispatches.Add(1)
+			go func(c *Client, u Update) {
+				defer dispatches.Done()
+				defer func() { <-slots }()
+				m.dispatch(ctx, c, u)
+			}(client, update)
 		}
 	}
 }
@@ -127,7 +141,7 @@ func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	paired := contains(state.PairedChatIDs, update.ChatID)
 
 	if command == "/pair" || strings.HasPrefix(strings.ToLower(text), "/pair") {
-		m.handlePair(ctx, client, update.ChatID, text, paired, state.PairingCode)
+		m.handlePair(ctx, client, update.ChatID, text)
 		return
 	}
 	if !paired {
@@ -167,33 +181,14 @@ func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	}
 }
 
-func (m *Manager) handlePair(ctx context.Context, client *Client, chatID, text string, paired bool, expected string) {
-	if paired {
-		m.reply(ctx, client, chatID, "✅ Tài khoản Zalo này đã ghép cặp với Gotack rồi.\n\n/help để xem các lệnh.")
-		return
-	}
+func (m *Manager) handlePair(ctx context.Context, client *Client, chatID, text string) {
 	fields := strings.Fields(text)
 	code := ""
-	if len(fields) > 1 {
+	if len(fields) == 2 {
 		code = fields[1]
 	}
-	if expected == "" {
-		m.reply(ctx, client, chatID, "⚠️ Chưa có mã ghép cặp. Hãy mở Gotack → Cài đặt → Zalo để lấy mã.")
-		return
-	}
-	if code != expected {
-		m.reply(ctx, client, chatID, "❌ Mã ghép cặp không đúng. Hãy xem mã 6 số trong Cài đặt → Zalo và nhắn lại /pair <mã>.")
-		return
-	}
-	m.mu.Lock()
-	if !contains(m.state.PairedChatIDs, chatID) {
-		m.state.PairedChatIDs = append(m.state.PairedChatIDs, chatID)
-	}
-	m.state.PairingCode = pairingCode()
-	err := m.saveLocked()
-	m.mu.Unlock()
-	if err != nil {
-		m.reply(ctx, client, chatID, "⚠️ "+err.Error())
+	if err := m.acceptPairing(chatID, code, time.Now()); err != nil {
+		m.reply(ctx, client, chatID, err.Error())
 		return
 	}
 	m.log.Info("zalo chat paired", "chat", chatID)
@@ -247,6 +242,16 @@ func (m *Manager) startTurn(ctx context.Context, client *Client, update Update) 
 		return
 	}
 	m.mu.Lock()
+	if ctx.Err() != nil || !contains(m.state.PairedChatIDs, update.ChatID) {
+		delete(m.active, update.ChatID)
+		m.mu.Unlock()
+		if m.runtime.Stop != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = m.runtime.Stop(stopCtx, sessionID)
+		}
+		return
+	}
 	m.active[update.ChatID] = sessionID
 	m.state.ChatSessions[update.ChatID] = sessionID
 	if err := m.saveLocked(); err != nil {
@@ -283,6 +288,9 @@ func (m *Manager) Done(sessionID, text string) {
 }
 
 func (m *Manager) deliverAnswer(ctx context.Context, client *Client, chatID, text string) {
+	if !m.paired(chatID) {
+		return
+	}
 	workspace := ""
 	if m.runtime.Workspace != nil {
 		workspace = m.runtime.Workspace()
@@ -293,6 +301,9 @@ func (m *Manager) deliverAnswer(ctx context.Context, client *Client, chatID, tex
 		clean = "✅ Đã xong."
 	}
 	for _, part := range chunkText(clean, maxMessageChars) {
+		if !m.paired(chatID) {
+			return
+		}
 		if err := client.SendMessage(ctx, chatID, part); err != nil {
 			m.setError(err)
 			return
@@ -444,6 +455,9 @@ func (m *Manager) SendFile(ctx context.Context, path, chatID string) (string, er
 }
 
 func (m *Manager) sendPath(ctx context.Context, client *Client, chatID, path string) error {
+	if !m.paired(chatID) {
+		return fmt.Errorf("Zalo chat is no longer paired")
+	}
 	client.SendChatAction(ctx, chatID, map[bool]string{true: "upload_photo", false: "typing"}[isImageFile(path)])
 	url, err := uploadFile(ctx, path)
 	if err != nil {
