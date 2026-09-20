@@ -14,8 +14,9 @@ import (
 )
 
 type Runtime struct {
-	Start     func(context.Context, string, string, string) (string, error)
-	Stop      func(context.Context, string) error
+	Prepare   func(context.Context, string, string) (Turn, error)
+	Run       func(context.Context, Turn, string) error
+	Stop      func(context.Context, Turn) error
 	Session   func(context.Context, string) (string, error)
 	Model     func(context.Context) (string, error)
 	Workspace func() string
@@ -59,7 +60,7 @@ type Manager struct {
 	cancel     context.CancelFunc
 	generation uint64
 	done       chan struct{}
-	active     map[string]string
+	active     map[string]*activeTurn
 	seen       []string
 }
 
@@ -67,7 +68,7 @@ func NewManager(path string, runtime Runtime, log *slog.Logger) *Manager {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	m := &Manager{path: path, runtime: runtime, log: log, active: make(map[string]string), clientFactory: NewClient}
+	m := &Manager{path: path, runtime: runtime, log: log, active: make(map[string]*activeTurn), clientFactory: NewClient}
 	if data, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(data, &m.state); err != nil {
 			m.state = StoredChannel{}
@@ -252,7 +253,6 @@ func (m *Manager) SetToken(ctx context.Context, token string) (Status, error) {
 	if err != nil {
 		return m.Status(), err
 	}
-	m.startLocked()
 	return m.Status(), nil
 }
 
@@ -285,7 +285,6 @@ func (m *Manager) TestConnection(ctx context.Context) (Status, error) {
 	if err != nil {
 		return m.Status(), err
 	}
-	m.startLocked()
 	return m.Status(), nil
 }
 
@@ -321,24 +320,30 @@ func (m *Manager) RegeneratePairingCode() (Status, error) {
 func (m *Manager) Unpair(chatID string) (Status, error) {
 	chatID = strings.TrimSpace(chatID)
 	if chatID == "" {
-		return Status{}, errors.New("Thiếu chat_id cần hủy ghép cặp")
+		return Status{}, errors.New("missing chat ID")
 	}
 	m.mu.Lock()
-	out := make([]string, 0, len(m.state.PairedChatIDs))
+	kept := make([]string, 0, len(m.state.PairedChatIDs))
 	for _, id := range m.state.PairedChatIDs {
 		if id != chatID {
-			out = append(out, id)
+			kept = append(kept, id)
 		}
 	}
-	m.state.PairedChatIDs = out
-	sessionID := m.active[chatID]
+	m.state.PairedChatIDs = kept
+	active := m.active[chatID]
+	var run Turn
+	if active != nil {
+		run = active.Turn
+	}
 	stop := m.runtime.Stop
 	delete(m.state.ChatSessions, chatID)
 	delete(m.active, chatID)
 	err := m.saveLocked()
 	m.mu.Unlock()
-	cancelErr := cancelRemoteRuns(stop, []string{sessionID})
-	err = errors.Join(err, cancelErr)
+	if active != nil {
+		active.cancel()
+	}
+	err = errors.Join(err, cancelRemoteRuns(stop, []Turn{run}))
 	m.setError(err)
 	return m.Status(), err
 }
@@ -374,23 +379,24 @@ func (m *Manager) Stop() {
 
 func (m *Manager) stopLocked() {
 	m.mu.Lock()
-	cancel := m.cancel
-	done := m.done
-	stop := m.runtime.Stop
-	sessions := make([]string, 0, len(m.active))
-	for _, sessionID := range m.active {
-		sessions = append(sessions, sessionID)
+	cancel, done, stop := m.cancel, m.done, m.runtime.Stop
+	runs := make([]Turn, 0, len(m.active))
+	cancellations := make([]context.CancelFunc, 0, len(m.active))
+	for _, active := range m.active {
+		runs = append(runs, active.Turn)
+		cancellations = append(cancellations, active.cancel)
 	}
-	m.active = make(map[string]string)
-	m.cancel = nil
-	m.done = nil
-	m.running = false
+	m.active = make(map[string]*activeTurn)
+	m.cancel, m.done, m.running = nil, nil, false
 	m.generation++
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if err := cancelRemoteRuns(stop, sessions); err != nil {
+	for _, stopContext := range cancellations {
+		stopContext()
+	}
+	if err := cancelRemoteRuns(stop, runs); err != nil {
 		m.setError(err)
 		m.log.Warn("Zalo remote run cancellation failed", "err", err)
 	}
@@ -399,21 +405,22 @@ func (m *Manager) stopLocked() {
 	}
 }
 
-func cancelRemoteRuns(stop func(context.Context, string) error, sessions []string) error {
+func cancelRemoteRuns(stop func(context.Context, Turn) error, runs []Turn) error {
 	if stop == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	seen := make(map[string]bool, len(sessions))
+	seen := make(map[string]bool, len(runs))
 	var failures []error
-	for _, id := range sessions {
-		if id == "" || id == "starting" || seen[id] {
+	for _, run := range runs {
+		key := run.WorkspaceID + "\x00" + run.SessionID
+		if run.SessionID == "" || run.WorkspaceID == "" || seen[key] {
 			continue
 		}
-		seen[id] = true
-		if err := stop(ctx, id); err != nil {
-			failures = append(failures, fmt.Errorf("cancel remote session %s: %w", id, err))
+		seen[key] = true
+		if err := stop(ctx, run); err != nil {
+			failures = append(failures, fmt.Errorf("cancel remote session %s: %w", run.SessionID, err))
 		}
 	}
 	return errors.Join(failures...)

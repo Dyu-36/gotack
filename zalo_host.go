@@ -14,7 +14,8 @@ func (a *App) wireZaloRuntime() {
 		return
 	}
 	a.zalo.SetRuntime(zalo.Runtime{
-		Start:     a.startZaloTurn,
+		Prepare:   a.prepareZaloTurn,
+		Run:       a.runZaloTurn,
 		Stop:      a.stopZaloTurn,
 		Session:   a.zaloSessionTitle,
 		Model:     a.zaloCurrentModel,
@@ -22,32 +23,42 @@ func (a *App) wireZaloRuntime() {
 	})
 }
 
-func (a *App) startZaloTurn(ctx context.Context, existingSession, chatID, text string) (string, error) {
+func (a *App) prepareZaloTurn(ctx context.Context, existingSession, chatID string) (zalo.Turn, error) {
 	svc, err := a.services()
 	if err != nil {
-		return "", err
+		return zalo.Turn{}, err
 	}
-	sessionID := existingSession
-	if sessionID == "" {
-		sess, err := svc.sess.Create(ctx, "Zalo: "+chatID)
+	workspace, ok := svc.ws.Current()
+	if !ok {
+		return zalo.Turn{}, errors.New("no workspace is open")
+	}
+	turn := zalo.Turn{SessionID: existingSession, WorkspaceID: workspace.WorkspaceID, WorkspacePath: workspace.Path}
+	if turn.SessionID == "" {
+		created, err := svc.api.CreateSession(ctx, turn.WorkspaceID, "Zalo: "+chatID)
 		if err != nil {
-			return "", err
+			return zalo.Turn{}, err
 		}
-		sessionID = sess.ID
+		turn.SessionID = created.ID
+	} else if _, err := svc.api.GetSession(ctx, turn.WorkspaceID, turn.SessionID); err != nil {
+		return zalo.Turn{}, err
 	}
-
-	if _, err := svc.sess.Send(ctx, sessionID, text); err != nil {
-		return "", err
-	}
-	return sessionID, nil
+	return turn, nil
 }
 
-func (a *App) stopZaloTurn(ctx context.Context, sessionID string) error {
+func (a *App) runZaloTurn(ctx context.Context, turn zalo.Turn, text string) error {
 	svc, err := a.services()
 	if err != nil {
 		return err
 	}
-	return svc.sess.Cancel(ctx, sessionID)
+	return svc.api.SendPromptWithPurpose(ctx, turn.WorkspaceID, turn.SessionID, text, turn.ID, "zalo", nil)
+}
+
+func (a *App) stopZaloTurn(ctx context.Context, turn zalo.Turn) error {
+	connection := a.getConn()
+	if connection == nil || connection.api == nil {
+		return errors.New("engine connection is unavailable")
+	}
+	return connection.api.CancelPrompt(ctx, turn.WorkspaceID, turn.SessionID)
 }
 
 func (a *App) zaloSessionTitle(ctx context.Context, sessionID string) (string, error) {

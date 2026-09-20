@@ -41,7 +41,15 @@ func newFakeServer(t *testing.T, initial []Update) *fakeServer {
 			}
 			next := rec.updates[0]
 			rec.updates = rec.updates[1:]
-			payload, _ := json.Marshal(next)
+			wire := make([]map[string]any, 0, len(next))
+			for _, update := range next {
+				message := map[string]any{"message_id": update.MessageID, "chat": map[string]any{"id": update.ChatID}, "text": update.Text}
+				if update.AttachmentURL != "" {
+					message["document"] = map[string]string{"url": update.AttachmentURL}
+				}
+				wire = append(wire, map[string]any{"update_id": update.UpdateID, "message": message})
+			}
+			payload, _ := json.Marshal(wire)
 			_, _ = w.Write([]byte(`{"ok":true,"result":` + string(payload) + `}`))
 		case strings.HasSuffix(r.URL.Path, "sendMessage"):
 			rec.mu.Lock()
@@ -82,9 +90,10 @@ func newManagerForTest(t *testing.T, token string) (*Manager, *fakeServer) {
 	t.Helper()
 	server := newFakeServer(t, nil)
 	m := NewManager(tempPath(t), Runtime{
-		Start: func(_ context.Context, existing, chatID, text string) (string, error) {
-			return "session-" + chatID + "-" + strings.ReplaceAll(text, " ", "_"), nil
+		Prepare: func(_ context.Context, existing, chatID string) (Turn, error) {
+			return Turn{WorkspaceID: "workspace", WorkspacePath: t.TempDir(), SessionID: "session-" + chatID}, nil
 		},
+		Run:     func(context.Context, Turn, string) error { return nil },
 		Session: func(_ context.Context, id string) (string, error) { return "title:" + id, nil },
 		Model:   func(_ context.Context) (string, error) { return "mock/large", nil },
 	}, nil)
@@ -111,8 +120,8 @@ func newManagerForTest(t *testing.T, token string) (*Manager, *fakeServer) {
 func TestManagerSetTokenPersistsState(t *testing.T) {
 	m, _ := newManagerForTest(t, "token-1")
 	status := m.Status()
-	if !status.Configured || status.Running == false {
-		t.Fatalf("expected running configured channel, got %+v", status)
+	if !status.Configured || status.Running {
+		t.Fatalf("expected configured channel without implicit remote activation, got %+v", status)
 	}
 	m.Stop()
 	if m.Status().Running {
@@ -134,7 +143,10 @@ func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
 
 	server := newFakeServer(t, nil)
 	manager := NewManager(tempPath(t), Runtime{
-		Start:   func(_ context.Context, _, chatID, _ string) (string, error) { return "session-" + chatID, nil },
+		Prepare: func(_ context.Context, _, chatID string) (Turn, error) {
+			return Turn{WorkspaceID: "workspace", WorkspacePath: t.TempDir(), SessionID: "session-" + chatID}, nil
+		},
+		Run:     func(context.Context, Turn, string) error { return nil },
 		Session: func(_ context.Context, id string) (string, error) { return "title:" + id, nil },
 		Model:   func(_ context.Context) (string, error) { return "mock/large", nil },
 	}, nil)
@@ -153,12 +165,15 @@ func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
 
 	manager.mu.Lock()
 	manager.state.PairedChatIDs = []string{"c1"}
+	manager.state.Token = "token-1"
 	manager.state.ChatSessions = map[string]string{"c1": "session-c1"}
-	manager.active["c1"] = "session-c1"
 	manager.mu.Unlock()
 	id := int64(1)
 	manager.dispatch(context.Background(), mustClient(t, manager, "token-1"), Update{UpdateID: &id, MessageID: "m-1", ChatID: "c1", SenderName: "An", Text: "build me a report"})
-	manager.Done("session-c1", "all finished")
+	manager.mu.Lock()
+	runID := manager.active["c1"].ID
+	manager.mu.Unlock()
+	manager.Done(Completion{RunID: runID, SessionID: "session-c1", Text: "all finished"})
 	if !waitFor(t, 5*time.Second, func() bool {
 		for _, message := range server.deliveredMessages(t) {
 			if strings.Contains(message, "all finished") {
@@ -175,13 +190,14 @@ func TestDispatchAttachmentOnlyUsesDefaultPrompt(t *testing.T) {
 	server := newFakeServer(t, nil)
 	var gotText string
 	manager := NewManager(tempPath(t), Runtime{
-		Start: func(_ context.Context, _, _, text string) (string, error) {
-			gotText = text
-			return "session-c1", nil
+		Prepare: func(context.Context, string, string) (Turn, error) {
+			return Turn{WorkspaceID: "workspace", WorkspacePath: t.TempDir(), SessionID: "session-c1"}, nil
 		},
+		Run: func(_ context.Context, _ Turn, text string) error { gotText = text; return nil },
 	}, nil)
 	manager.mu.Lock()
 	manager.state.PairedChatIDs = []string{"c1"}
+	manager.state.Token = "token-1"
 	manager.mu.Unlock()
 
 	client, err := NewClient("token-1")
@@ -191,8 +207,6 @@ func TestDispatchAttachmentOnlyUsesDefaultPrompt(t *testing.T) {
 	client.allowPrivateHosts = true
 	client.base = server.server.URL
 	fileName := strings.ReplaceAll(t.Name(), "/", "-") + ".png"
-	downloadedPath := filepath.Join(os.TempDir(), "gotack-zalo-inbox", fileName)
-	t.Cleanup(func() { _ = os.Remove(downloadedPath) })
 
 	manager.dispatch(context.Background(), client, Update{
 		ChatID:        "c1",
@@ -202,8 +216,8 @@ func TestDispatchAttachmentOnlyUsesDefaultPrompt(t *testing.T) {
 	if !strings.Contains(gotText, defaultFilePrompt) {
 		t.Fatalf("attachment-only prompt = %q, want default file prompt", gotText)
 	}
-	if !strings.Contains(gotText, downloadedPath) {
-		t.Fatalf("attachment-only prompt = %q, want downloaded path %q", gotText, downloadedPath)
+	if !strings.Contains(gotText, fileName) || !strings.Contains(gotText, "zalo-inbox") {
+		t.Fatalf("missing isolated attachment path: %s", gotText)
 	}
 }
 
