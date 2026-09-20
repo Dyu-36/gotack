@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ const (
 	agentInitPath      = "/v1/workspaces/{id}/agent/init"
 	agentRefreshPath   = "/v1/workspaces/{id}/agent/refresh-prompt"
 	cancelPath         = "/v1/workspaces/{id}/agent/sessions/{sid}/cancel"
+	summarizePath      = "/v1/workspaces/{id}/agent/sessions/{sid}/summarize"
 	currentSessionPath = "/v1/workspaces/{id}/current-session"
 	sessionsPath       = "/v1/workspaces/{id}/sessions"
 	messagesPath       = "/v1/workspaces/{id}/sessions/{sid}/messages"
@@ -174,6 +176,14 @@ func (c *Client) EnsureAgent(ctx context.Context, wsID string, interactive bool)
 		return nil
 	}
 	return c.InitAgent(ctx, wsID, interactive)
+}
+
+func (c *Client) SummarizeSession(ctx context.Context, wsID, sessionID string) error {
+	if wsID == "" || sessionID == "" {
+		return errors.New("engineapi: workspace id and session id are required")
+	}
+	path := expandPath(summarizePath, "id", wsID, "sid", sessionID)
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
 }
 
 func (c *Client) CancelPrompt(ctx context.Context, wsID, sessionID string) error {
