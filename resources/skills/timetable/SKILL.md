@@ -1,70 +1,80 @@
 ---
 name: timetable
-description: "Tạo hoặc điều chỉnh thời khóa biểu trường học từ dữ liệu Excel và yêu cầu người dùng. Dùng khi người dùng yêu cầu tạo TKB, xếp lịch dạy/học, phân công chuyên môn, chuẩn hóa bảng phân công hoặc gửi danh sách giáo viên, lớp, môn. Đọc dữ liệu trực tiếp, dùng OR-Tools CP-SAT để mô hình hóa bài toán hiện tại, kiểm tra đầy đủ hard constraints trước khi giao file. Also use for school timetable or class-scheduling requests in English."
+description: "Tạo, kiểm tra hoặc điều chỉnh thời khóa biểu trường học từ Excel và yêu cầu người dùng. Dùng khi yêu cầu tạo TKB, xếp lịch dạy/học, phân công chuyên môn, chuẩn hóa bảng phân công hoặc cung cấp giáo viên, lớp, môn để lập lịch. Dùng Python đi kèm Gotack, OR-Tools CP-SAT và hai mẫu Excel của skill; kiểm tra độc lập mọi ràng buộc bắt buộc trước khi giao file. Also use for school timetable, teaching allocation and class-scheduling requests in English."
 ---
 
-# Kỹ năng Xếp Thời Khóa Biểu
+# Xếp thời khóa biểu
 
-## 1. Đọc nguồn và hiểu bài toán
+## 1. Chọn môi trường chạy
 
-- File người dùng cung cấp và yêu cầu của người dùng là **source of truth**.
-- Đọc trực tiếp toàn bộ dữ liệu Excel liên quan, gồm phân công chuyên môn, khung thời gian và các dòng ghi chú/ràng buộc.
-- Chuẩn hóa trong quá trình xử lý: tên giáo viên, môn, lớp, số tiết và cách diễn đạt constraint nếu cần.
-- Nếu người dùng đã nói rõ dữ liệu đã đúng hoặc đã xác nhận trước đó thì **không hỏi xác nhận lại**. 
-- Có thể tạo file/script tạm trong thư mục làm việc để kiểm tra và chuẩn hóa dữ liệu.
+Trên bản Windows đóng gói, chạy Python bằng đường dẫn tuyệt đối trong biến môi trường `GOTACK_PYTHON`, không thay Python của hệ thống hoặc của project:
 
-## 2. Chuẩn hóa phân công chuyên môn
+```powershell
+$python = $env:GOTACK_PYTHON
+if (-not $python -or -not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw 'Không tìm thấy Python đi kèm Gotack. Kiểm tra bộ cài hoặc cấu hình GOTACK_PYTHON khi chạy bản phát triển.'
+}
+& $python -I -c 'import openpyxl, defusedxml; from ortools.sat.python import cp_model; print("timetable runtime ready")'
+if ($LASTEXITCODE -ne 0) { throw 'Runtime thời khóa biểu không hợp lệ; không tiếp tục với dữ liệu chưa xử lý.' }
+```
 
-- Khi người dùng yêu cầu chuẩn hóa phân công, hoặc trước khi xếp lịch mà dữ liệu phân công chưa ở dạng chuẩn: tạo `phan-cong-chuan-hoa.xlsx` từ template `<skill_dir>/assets/phan-cong-chuan-hoa.xlsx`.
-- File đầu ra đúng **một sheet `Phân công`, bốn cột `Tên giáo viên | Môn | Lớp | Số tiết`**; mỗi dòng một cặp giáo viên–môn–lớp; ghi raw values vào ô có sẵn, không thêm công thức.
-- Chuẩn hóa khi ghi: tách lớp ghép thành từng lớp một dòng (7AB tách thành 7A và 7B — số tiết chia đều trừ khi đề bài nói rõ, ghi cách tách để người dùng kiểm); viết đủ tên môn viết tắt khi chắc chắn; mục còn mơ hồ thì kèm cảnh báo, không tự chốt.
-- Giao file bằng link `file:///` rồi **dừng xin người dùng chốt**; nếu người dùng chỉ yêu cầu chuẩn hóa thì không xếp lịch trong lượt đó.
-- Nếu người dùng thay đổi phân công sau khi đã chốt, xác nhận cũ hết hiệu lực: cập nhật, giao lại file và xin chốt lại trước khi xếp lịch.
+Chạy các script xử lý bằng `& $python -I <đường-dẫn-script> ...`. Dùng đối số đường dẫn tuyệt đối; không dựa vào Python tìm thấy qua `PATH`. Không cài package vào môi trường người dùng, không tải mã nguồn solver từ website. Runtime đã có OR-Tools, openpyxl và defusedxml. Hai file mẫu nằm trong `assets/` cạnh `SKILL.md`; xác định `<skill_dir>` từ vị trí skill vừa đọc.
 
-## 3. Hard constraints và soft constraints
+## 2. Đọc dữ liệu nguồn
 
-- Mặc định mọi yêu cầu nếu không được phân chia rõ ràng là **hard constraint**, trừ khi người dùng nói rõ là `nên`, `ưu tiên`, `mong muốn` hoặc tương đương.
-- Không được tự bỏ, nới lỏng hoặc đổi hard constraint thành soft constraint để tạo được lịch.
-- Với constraint gồm nhiều mệnh đề, phải giữ **đầy đủ từng mệnh đề** khi mô hình hóa và khi kiểm tra kết quả.
-  - Ví dụ: `T.Hòng dạy từ Thứ 2 đến Thứ 6; riêng Thứ 4 chỉ dạy 2 tiết` nghĩa là vừa phải dạy đủ 5 ngày, vừa phải có **đúng 2 tiết vào Thứ 4**. Không được chỉ kiểm tra điều kiện dạy đủ 5 ngày.
-- Trước khi solve, lập một checklist nội bộ các constraint đã đọc được. Mỗi hard constraint trong checklist phải có:
-  1. logic tương ứng trong model;
-  2. kiểm tra lại sau khi có lời giải.
+- Lấy file nguồn và yêu cầu của người dùng làm căn cứ. Đọc tất cả sheet liên quan, ô gộp, phân công chuyên môn, khung thời gian và ghi chú/ràng buộc.
+- Không suy ra dữ liệu chỉ từ phần trích dẫn đính kèm. Mở workbook gốc bằng Python; giữ nguyên file nguồn.
+- Đối chiếu giá trị công thức với cached values khi cần. Khi cached values thiếu hoặc dữ liệu chưa tính, báo rõ thay vì biến ô trống thành số 0.
+- Chuẩn hóa tên giáo viên, môn, lớp và số tiết nhưng không tự thêm giáo viên, lớp, định mức hoặc thời gian còn thiếu.
+- Không hỏi lại dữ liệu đã được xác nhận. Chỉ hỏi về thiếu sót làm thay đổi bài toán; nêu rõ mục còn mơ hồ, không âm thầm chọn giả định.
+- Tạo một thư mục riêng cho yêu cầu trong `output/`, chứa dữ liệu chuẩn hóa, script giải bài toán và kết quả kiểm tra. Không ghi đè sản phẩm cũ hoặc file nguồn.
 
-## 4. Xếp lịch bằng CP-SAT
+## 3. Chuẩn hóa phân công
 
-- Dùng **OR-Tools CP-SAT**.
-- Tự viết Python phù hợp trực tiếp với bài toán hiện tại; có thể tạo nhiều script tạm có mục đích rõ ràng như:
-  - đọc/kiểm tra input;
-  - thử feasibility;
-  - solve;
-  - validate;
-  - ghi Excel.
-- Có thể thử nhanh các giả thuyết hoặc phương án bằng một model nhỏ trước khi chạy bản cuối.
-- Biểu diễn constraint trực tiếp trong code CP-SAT.
-- Nếu solver trả `INFEASIBLE`, xác định hard constraints xung đột và báo lại cho người dùng. Không tạo lịch giả.
-- `FEASIBLE` hoặc `OPTIMAL` chỉ chứng minh các constraint **đã được encode trong model** là thỏa mãn; chưa được phép kết luận "100% đúng" cho đến khi kiểm tra lại toàn bộ checklist nguồn.
+- Dùng `assets/phan-cong-chuan-hoa.xlsx` làm mẫu khi cần chuẩn hóa. Đầu ra có đúng một sheet `Phân công`, bốn cột `Tên giáo viên | Môn | Lớp | Số tiết`; mỗi dòng là một phân công giáo viên–môn–lớp. Ghi giá trị trực tiếp, không thêm công thức.
+- Không mặc định chia đều số tiết khi tách ký hiệu như `7AB`. Xác định số tiết trong nguồn là của từng lớp, tổng hai lớp hay lớp học ghép. Chỉ tách khi ý nghĩa đã rõ; giữ ràng buộc học ghép nếu có.
+- Không gộp giáo viên chỉ vì tên viết tắt giống nhau. Mở rộng tên môn khi chắc chắn và ghi lại các chuyển đổi để đối chiếu.
+- Khi chỉ được yêu cầu chuẩn hóa, giao file chuẩn hóa và dừng. Khi đã được yêu cầu cả chuẩn hóa và xếp lịch, tiếp tục nếu dữ liệu đủ rõ; không tạo bước xác nhận hình thức.
+- Nếu người dùng yêu cầu chốt phân công trước khi xếp, tôn trọng bước chốt đó. Một thay đổi thực chất trong phân công làm mất hiệu lực việc chốt cũ.
 
-## 5. Kiểm tra bắt buộc sau khi solve
+## 4. Lập mô hình đầy đủ
 
-Trước khi giao file, đọc lại lời giải và kiểm tra tối thiểu:
+- Phân loại mọi yêu cầu: bắt buộc là hard constraint; các từ `nên`, `ưu tiên`, `mong muốn` là soft constraint trừ khi người dùng giải thích khác.
+- Không bỏ, nới hoặc biến hard constraint thành soft constraint để lấy được lịch.
+- Gán mã cho từng ràng buộc nguồn. Với mỗi mã, lưu nguyên văn, cách diễn giải, logic trong model và kiểm tra độc lập tương ứng. Giữ đủ từng mệnh đề của câu.
+- Phân biệt `chỉ được dạy trong Thứ 2–Thứ 6` với `phải có tiết trong cả 5 ngày`; không tự thêm yêu cầu có tiết mỗi ngày. `Đúng 2 tiết` khác `tối đa 2 tiết`.
+- Kiểm tra miền dữ liệu trước khi giải: số tiết hợp lệ, khung thời gian đủ, giáo viên/lớp tồn tại, các yêu cầu cố định không tự mâu thuẫn. Báo lỗi dữ liệu riêng với kết luận vô nghiệm.
+- Dùng **OR-Tools CP-SAT**; viết model Python phù hợp trực tiếp với bài toán hiện tại. Không chỉ nhờ mô hình ngôn ngữ tự điền lịch.
+- Chỉ tối ưu soft constraints sau khi đã biểu diễn đủ hard constraints. Ghi rõ thứ tự ưu tiên và trọng số có ảnh hưởng đến kết quả. Không dùng trọng số để hy sinh hard constraints.
 
-- đủ số tiết của từng phân công;
-- không trùng lớp cùng một slot;
-- không trùng giáo viên cùng một slot;
-- từng hard constraint trong checklist nguồn;
-- các soft constraint nào không đạt thì phải nêu rõ.
-Validator phải kiểm tra **ý nghĩa gốc** của constraint, không chỉ lặp lại một phiên bản đã bị làm yếu trong model.
+## 5. Giải và diễn giải trạng thái
 
-Ví dụ: `Không xếp toàn bộ các tiết trong một buổi đều là môn Nặng` không thể kiểm tra đơn giản bằng `số tiết Nặng <= 3` nếu buổi đó chỉ có đúng 3 tiết; trường hợp 3/3 tiết Nặng vẫn vi phạm câu gốc.
+- Đặt giới hạn tài nguyên có chủ đích, lưu trạng thái solver, objective, best bound và tham số đã dùng. Có thể tiếp tục tìm khi chưa có kết quả; không coi hết thời gian là vô nghiệm.
+- `OPTIMAL`: tối ưu cho model đã mã hóa, chưa phải chứng minh model phản ánh đầy đủ yêu cầu nguồn.
+- `FEASIBLE`: có lời giải thỏa model, chưa chứng minh tối ưu. Giao lịch hợp lệ sau kiểm tra, nêu đúng mức đảm bảo.
+- `UNKNOWN`: chưa xác định được; không nói vô nghiệm và không tạo lịch giả.
+- `MODEL_INVALID`: sửa model hoặc dữ liệu, không kết luận yêu cầu người dùng bất khả thi.
+- `INFEASIBLE`: solver chứng minh model không có lời giải. Kiểm tra lại cách mã hóa so với nguồn trước khi báo xung đột. Dùng assumptions/unsat core hoặc các phép giải thu gọn để tìm nhóm ràng buộc liên quan; không gọi nhóm đó là nhỏ nhất nếu chưa chứng minh.
 
-Nếu bất kỳ hard constraint nào fail:
-- Báo rõ cho người dùng rằng các hard constraints hiện tại không thể đồng thời thỏa mãn.
+## 6. Kiểm tra độc lập
 
-## 6. Tạo và giao file Excel
+Trước khi giao lịch, đọc lại lời giải và kiểm tra bằng code độc lập với các biểu thức CP-SAT:
 
-- Dùng `<skill_dir>/assets/mau-thoi-khoa-bieu.xlsx` làm template đầu ra khi phù hợp.
-- Copy template rồi ghi trực tiếp dữ liệu lịch dạng text/raw values vào các ô trên sheet 'Thời khóa biểu' (môn học, giáo viên từng lớp); không dùng công thức tham chiếu ràng buộc; không tạo lại format từ đầu nếu không cần.
-- Sau khi ghi, mở lại file và kiểm tra dữ liệu thực tế trong workbook trước khi giao.
-- Phải lưu/đóng file, đảm bảo file tồn tại và không rỗng.
-- Trả link Markdown dạng `[Mở thời khóa biểu](file:///...)` với đường dẫn tuyệt đối và URI-encode ký tự đặc biệt khi cần.
+- Đủ số tiết của từng phân công, không có tiết hoặc phân công tự phát sinh.
+- Không trùng giáo viên hoặc lớp trong cùng thời điểm; các buổi/lớp học ghép được xử lý đúng theo dữ liệu nguồn.
+- Phòng học, sức chứa và thiết bị khi đề bài có yêu cầu.
+- Từng hard constraint theo mã; từng soft constraint và mức vi phạm còn lại.
+- Các ràng buộc về chuỗi tiết, số buổi, thời gian nghỉ, lịch cố định, môn nặng/nhẹ và phân bố theo ngày khi có trong nguồn.
+
+Kiểm tra ý nghĩa nguyên gốc, không chỉ lặp lại một phiên bản đã bị làm yếu. Ví dụ: `Không để toàn bộ tiết trong buổi đều là môn nặng` vẫn bị vi phạm ở buổi 3 tiết có 3 tiết nặng, dù thỏa `số tiết nặng <= 3`.
+
+Nếu một hard constraint kiểm tra không đạt: coi lời giải hiện tại là không hợp lệ, tìm lỗi model/validator hoặc tiếp tục giải rồi kiểm tra lại. **Validator thất bại không chứng minh bài toán vô nghiệm.** Không giao lịch sai dưới nhãn hoàn tất.
+
+## 7. Xuất và giao file
+
+- Dùng `assets/mau-thoi-khoa-bieu.xlsx` khi cấu trúc mẫu phù hợp. Sao chép mẫu rồi ghi dữ liệu trực tiếp vào sheet `Thời khóa biểu`; giữ format và ô gộp hữu ích.
+- Kiểm tra kích thước mẫu trước khi ghi. Khi cần mở rộng cho số lớp/khung giờ khác, mở rộng có kiểm soát, không bỏ lớp hoặc cắt lịch cho vừa mẫu.
+- Ghi tên môn/giáo viên như văn bản, không để dữ liệu nguồn bắt đầu bằng dấu `=` trở thành công thức không mong muốn.
+- Lưu/đóng file, mở lại workbook đầu ra và đối chiếu từng tiết với lời giải đã được kiểm tra. Kiểm tra số sheet, tên sheet, ô ngoài vùng in và nội dung thực tế; file tồn tại và không rỗng.
+- Lưu báo cáo kiểm tra ngắn gọn cùng đầu ra: ràng buộc bắt buộc, kết quả, soft constraints còn chưa tối ưu và trạng thái solver thật.
+- Trả link Markdown `file:///` với đường dẫn tuyệt đối, URI-encode ký tự đặc biệt. Nêu rõ lịch đã kiểm tra hợp lệ hay chỉ dữ liệu chuẩn hóa; không nói đã đạt tối ưu khi solver chỉ trả `FEASIBLE`.
