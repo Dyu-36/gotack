@@ -19,10 +19,10 @@ type SessionInfo struct {
 	ID              string  `json:"id"`
 	ParentSessionID string  `json:"parent_session_id,omitempty"`
 	Title           string  `json:"title"`
-	MessageCount int64   `json:"message_count"`
-	Cost         float64 `json:"cost"`
-	UpdatedAt    int64   `json:"updated_at"`
-	IsBusy       bool    `json:"is_busy"`
+	MessageCount    int64   `json:"message_count"`
+	Cost            float64 `json:"cost"`
+	UpdatedAt       int64   `json:"updated_at"`
+	IsBusy          bool    `json:"is_busy"`
 }
 
 type MessageInfo struct {
@@ -365,10 +365,10 @@ func toSessionInfo(session engineapi.Session) SessionInfo {
 		ID:              session.ID,
 		ParentSessionID: session.ParentSessionID,
 		Title:           session.Title,
-		MessageCount: session.MessageCount,
-		Cost:         session.Cost,
-		UpdatedAt:    engineapi.TimestampMillis(session.UpdatedAt),
-		IsBusy:       session.IsBusy,
+		MessageCount:    session.MessageCount,
+		Cost:            session.Cost,
+		UpdatedAt:       engineapi.TimestampMillis(session.UpdatedAt),
+		IsBusy:          session.IsBusy,
 	}
 }
 
