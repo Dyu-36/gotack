@@ -177,19 +177,6 @@ type RunTelemetry struct {
 	RequestShapeBytes    int      `json:"request_shape_bytes,omitempty"`
 }
 
-type TaskProgress struct {
-	SessionID                string `json:"session_id"`
-	RunID                    string `json:"run_id,omitempty"`
-	State                    string `json:"state"`
-	ElapsedSeconds           int    `json:"elapsed_seconds"`
-	LimitSeconds             int    `json:"limit_seconds"`
-	Solutions                int    `json:"solutions,omitempty"`
-	Penalty                  *int   `json:"penalty,omitempty"`
-	ResultStatus             string `json:"result_status,omitempty"`
-	HardConstraintsSatisfied *bool  `json:"hard_constraints_satisfied,omitempty"`
-	SoftViolationCount       int    `json:"soft_violation_count,omitempty"`
-}
-
 type partWrapper struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data"`
