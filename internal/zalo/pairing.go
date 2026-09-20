@@ -27,7 +27,12 @@ func pairingCode() string {
 }
 
 func (m *Manager) rotatePairingLocked(now time.Time) {
-	m.state.PairingCode = pairingCode()
+	previous := m.state.PairingCode
+	next := pairingCode()
+	for next != "" && next == previous {
+		next = pairingCode()
+	}
+	m.state.PairingCode = next
 	m.state.PairingExpiresAt = 0
 	if m.state.PairingCode != "" {
 		m.state.PairingExpiresAt = now.Add(pairingLifetime).Unix()

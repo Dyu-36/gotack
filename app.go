@@ -35,7 +35,9 @@ type engineController interface {
 }
 
 type App struct {
-	ctx context.Context
+	quitting     atomic.Bool
+	shutdownOnce sync.Once
+	ctx          context.Context
 
 	cfg *appconfig.Config
 	log *slog.Logger
@@ -131,16 +133,26 @@ func (a *App) showMainWindow() {
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	c := a.getConn()
-	if c == nil {
-		return
-	}
-
-	a.link.CancelScope()
-	if a.zalo != nil {
-		a.zalo.Stop()
-	}
-	if a.cfg != nil {
-		_ = appconfig.Save(a.cfg)
-	}
+	a.shutdownOnce.Do(func() {
+		if a.link != nil {
+			a.link.CancelScope()
+		}
+		if a.zalo != nil {
+			a.zalo.Stop()
+		}
+		if c := a.getConn(); c != nil && c.fwd != nil {
+			c.fwd.Stop()
+		}
+		if a.sup != nil && a.sup.Owned() {
+			if err := a.sup.Stop(); err != nil && a.log != nil {
+				a.log.Error("stop owned engine on exit", "err", err)
+			}
+		}
+		a.conn.Store(nil)
+		if a.cfg != nil {
+			if err := appconfig.Save(a.cfg); err != nil && a.log != nil {
+				a.log.Error("save desktop settings on exit", "err", err)
+			}
+		}
+	})
 }
