@@ -137,4 +137,3 @@ func TestAddRecentWorkspaceIgnoresCleanVariants(t *testing.T) {
 		t.Fatalf("front entry not normalized: %q", cfg.RecentWorkspaces[0])
 	}
 }
-
