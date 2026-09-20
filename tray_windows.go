@@ -27,9 +27,22 @@ func startTray(a *App) {
 
 func onTrayReady(a *App) {
 	systray.SetIcon(trayIcon)
-	systray.SetTooltip("Tack")
+	systray.SetTooltip("Gotack")
 	show := systray.AddMenuItem(userstrings.TrayShow, userstrings.TrayShow)
-	for range show.ClickedCh {
-		wailsruntime.WindowShow(a.ctx)
-	}
+	exit := systray.AddMenuItem("Quit Gotack", "Stop Gotack and its local engine")
+	go func() {
+		for {
+			select {
+			case <-show.ClickedCh:
+				wailsruntime.WindowShow(a.ctx)
+			case <-exit.ClickedCh:
+				a.quit()
+				systray.Quit()
+				return
+			case <-a.ctx.Done():
+				systray.Quit()
+				return
+			}
+		}
+	}()
 }

@@ -24,24 +24,20 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "Tack",
+		Title:     "Gotack",
 		Width:     1280,
 		Height:    800,
 		MinWidth:  900,
 		MinHeight: 600,
-		// Closing the window only hides it; the process keeps serving the
-		// tray and Zalo bot until it is ended from Task Manager. Windows'
-		// HideWindowOnClose also keeps runtime.Quit from
-		// destroying the window (it goes through OnBeforeClose internally),
-		// so hiding is the single close behavior.
-		HideWindowOnClose: true,
-		StartHidden:       startHidden,
+
+		StartHidden: startHidden,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
+		OnBeforeClose:    app.beforeClose,
 		Bind: []interface{}{
 			app,
 		},
