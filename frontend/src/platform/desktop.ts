@@ -8,8 +8,8 @@ export type EngineInfo = {
   owned: boolean
   error?: string
 }
-export type WorkspaceInfo = { path: string; workspace_id: string; is_default: boolean }
-export type SessionInfo = { id: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
+export type WorkspaceInfo = { path: string; workspace_id: string; is_default: boolean; trusted: boolean; trust_required: boolean; trust_inherited_from?: string; protected_resources?: string[] }
+export type SessionInfo = { id: string; parent_session_id?: string; title: string; message_count: number; cost: number; updated_at: number; is_busy: boolean }
 export type AttachmentInfo = { file_name: string; mime_type: string; size: number; content?: string; path?: string }
 export type PromptAttachment = { file_name: string; mime_type?: string; content?: string; path?: string }
 export type PromptFilePick = { file_name: string; mime_type: string; size: number; path: string }
@@ -98,6 +98,7 @@ export type ProviderUsageInfo = {
   updated_at: number
   unavailable_reason?: string
 }
+export type AgentSettingsInfo = { tools: string[]; disabled_tools: string[] }
 export type SettingsInfo = {
   theme: string
   provider: string
@@ -127,8 +128,13 @@ type BackendApp = {
   OpenWorkspace: (path: string) => Promise<WorkspaceInfo>
   EnsureAssistantWorkspace: () => Promise<WorkspaceInfo>
   CurrentWorkspace: () => Promise<WorkspaceInfo | null>
+  SetWorkspaceTrust: (trusted: boolean) => Promise<WorkspaceInfo>
+  ResetWorkspaceTrust: () => Promise<WorkspaceInfo>
   ListSessions: () => Promise<SessionInfo[]>
   CreateSession: (title: string) => Promise<SessionInfo>
+  CloneSession: (id: string) => Promise<SessionInfo>
+  ForkSession: (id: string, messageID: string) => Promise<SessionInfo>
+  CompactSession: (id: string) => Promise<void>
   RenameSession: (id: string, title: string) => Promise<SessionInfo>
   DeleteSession: (id: string) => Promise<void>
   SwitchSession: (id: string) => Promise<void>
@@ -143,9 +149,10 @@ type BackendApp = {
   FileDiff: (sessionID: string, path: string) => Promise<string>
   GetSettings: () => Promise<SettingsInfo>
   SaveSettings: (settings: SettingsInfo) => Promise<void>
+  GetAgentSettings: () => Promise<AgentSettingsInfo>
+  SaveAgentSettings: (disabledTools: string[]) => Promise<AgentSettingsInfo>
   ListProviders: () => Promise<ProviderCatalogEntry[]>
   GetProviderUsage: (providerID: string) => Promise<ProviderUsageInfo>
-  RevealProviderAPIKey: (providerID: string) => Promise<string>
   DeleteProvider: (providerID: string) => Promise<void>
   LoginChatGPTOAuth: () => Promise<ChatGPTOAuthStatus>
   GetChatGPTOAuthStatus: () => Promise<ChatGPTOAuthStatus>
@@ -183,13 +190,13 @@ export const desktop = {
   backendReady: async () => app()?.BackendReady ? app()!.BackendReady() : false,
   getAutoStart: () => call('GetAutoStart'), setAutoStart: (enabled: boolean) => call('SetAutoStart', enabled),
   engineStatus: () => call('EngineStatus'), startEngine: () => call('StartEngine'), stopEngine: () => call('StopEngine'), reconnectEngine: () => call('ReconnectEngine'),
-  selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), ensureAssistantWorkspace: () => call('EnsureAssistantWorkspace'), currentWorkspace: () => call('CurrentWorkspace'),
-  listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string, attachments: PromptAttachment[] = []) => call('SendPrompt', id, text, attachments), cancelPrompt: (id: string) => call('CancelPrompt', id),
+  selectWorkspace: () => call('SelectWorkspace'), listRecentWorkspaces: () => call('ListRecentWorkspaces'), openWorkspace: (path: string) => call('OpenWorkspace', path), ensureAssistantWorkspace: () => call('EnsureAssistantWorkspace'), currentWorkspace: () => call('CurrentWorkspace'), setWorkspaceTrust: (trusted: boolean) => call('SetWorkspaceTrust', trusted), resetWorkspaceTrust: () => call('ResetWorkspaceTrust'),
+  listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), cloneSession: (id: string) => call('CloneSession', id), forkSession: (id: string, messageID: string) => call('ForkSession', id, messageID), compactSession: (id: string) => call('CompactSession', id), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string, attachments: PromptAttachment[] = []) => call('SendPrompt', id, text, attachments), cancelPrompt: (id: string) => call('CancelPrompt', id),
   pickPromptFiles: () => call('PickPromptFiles'), attachmentLimits: () => call('AttachmentLimits'),
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
   changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
   getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => sendZaloFile(req),
-  getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings),
-  listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), revealProviderAPIKey: (providerID: string) => call('RevealProviderAPIKey', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
+  getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings), getAgentSettings: () => call('GetAgentSettings'), saveAgentSettings: (disabledTools: string[]) => call('SaveAgentSettings', disabledTools),
+  listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),
   loginChatGPTOAuth: () => call('LoginChatGPTOAuth'), getChatGPTOAuthStatus: () => call('GetChatGPTOAuthStatus'), logoutChatGPTOAuth: () => call('LogoutChatGPTOAuth'), cancelChatGPTOAuth: () => call('CancelChatGPTOAuth'), getChatGPTOAuthURL: () => call('GetChatGPTOAuthURL'),
 }
