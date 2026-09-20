@@ -105,10 +105,6 @@ func (a *App) RemoveZaloToken() (ZaloManagerStatus, error) {
 	}
 	if a.cfg != nil {
 		a.cfg.Zalo.Enabled = false
-		//lint:ignore SA1019 legacy Zalo config cleanup remains supported until Gotack v1.0.
-		a.cfg.Zalo.Token = ""
-		//lint:ignore SA1019 legacy Zalo config cleanup remains supported until Gotack v1.0.
-		a.cfg.Zalo.AllowedChats = nil
 		_ = appconfig.Save(a.cfg)
 	}
 	return status, nil
