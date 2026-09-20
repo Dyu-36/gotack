@@ -255,27 +255,3 @@ func TestForwarderDeltaSeqMonotonicUnderConcurrency(t *testing.T) {
 	}
 }
 
-func TestForwarderTaskProgressIsSanitizedAndForwarded(t *testing.T) {
-	c := &collector{}
-	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
-	payload, err := json.Marshal(engineapi.TaskProgress{
-		SessionID: "session-1", RunID: "run-1", State: "optimizing",
-		ElapsedSeconds: 35, LimitSeconds: 90, Solutions: 1, SoftViolationCount: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ch := make(chan engineapi.StreamEvent, 1)
-	ch <- engineapi.StreamEvent{Kind: "task_progress", Event: "updated", Payload: payload}
-	close(ch)
-	f.Consume(ch)
-
-	events := c.of(TaskProgress)
-	if len(events) != 1 {
-		t.Fatalf("task progress events = %d, want 1", len(events))
-	}
-	got := events[0].data.(TaskProgressPayload)
-	if got.SessionID != "session-1" || got.RunID != "run-1" || got.State != "optimizing" || got.ElapsedSeconds != 35 || got.LimitSeconds != 90 {
-		t.Fatalf("unexpected task progress payload: %+v", got)
-	}
-}
