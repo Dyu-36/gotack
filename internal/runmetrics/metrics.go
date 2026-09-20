@@ -2,42 +2,15 @@ package runmetrics
 
 import (
 	"crypto/rand"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sync"
-
-	"github.com/Dyu-36/gotack/internal/engineapi"
 )
 
 const keyFileName = "run-metrics.key"
 
-var validPrefixReasons = map[string]bool{
-	"git_status": true, "date": true, "mcp": true, "skills": true,
-	"context": true, "tool_set": true, "compaction": true, "model_switch": true, "none": true,
-}
-
-// change_reasons covers every primary reason plus changes that only affect
-// dynamic lanes or multi-change runs: initial observation, todo state, and
-// provider-option edits never move prefix_changed_reason off its precedence.
-var validChangeReasons = map[string]bool{
-	"git_status": true, "date": true, "mcp": true, "skills": true,
-	"context": true, "tool_set": true, "compaction": true, "model_switch": true,
-	"none": true, "initial": true, "todo": true, "provider_options": true,
-}
-
-var validCacheStatuses = map[string]bool{
-	"hit": true, "miss": true, "unreported": true,
-}
-
-var idPattern = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{0,256}$`)
-var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9_./:\-]{0,128}$`)
 var keyMu sync.Mutex
 
 func EnsureKey(dataDir string) (string, error) {
@@ -62,8 +35,6 @@ func EnsureKey(dataDir string) (string, error) {
 	if _, err := rand.Read(key); err != nil {
 		return "", fmt.Errorf("generate run metrics key: %w", err)
 	}
-	// Publish only fully written bytes. A second process must never observe a
-	// partially written key and silently switch fingerprint identity.
 	file, err := os.CreateTemp(dataDir, ".run-metrics-key-*")
 	if err != nil {
 		return "", fmt.Errorf("create run metrics key: %w", err)
@@ -87,210 +58,4 @@ func EnsureKey(dataDir string) (string, error) {
 		return "", errors.New("runmetrics: key publication unavailable")
 	}
 	return path, nil
-}
-
-type Writer struct {
-	path  string
-	log   *slog.Logger
-	mu    sync.Mutex
-	build engineapi.BuildTelemetry
-}
-
-func New(logDir string, log *slog.Logger) *Writer {
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
-	}
-	return &Writer{path: filepath.Join(logDir, "input-pipeline.jsonl"), log: log, build: applicationBuild()}
-}
-
-func (writer *Writer) Append(telemetry *engineapi.RunTelemetry) {
-	if telemetry == nil {
-		return
-	}
-	if err := Validate(telemetry); err != nil {
-		writer.log.Warn("runmetrics: rejected invalid telemetry", "err", err)
-		return
-	}
-	sanitized := redactSensitive(telemetry)
-	build := writer.build
-	sanitized.AppBuild = &build
-	encoded, err := json.Marshal(sanitized)
-	if err != nil {
-		writer.log.Warn("runmetrics: failed to encode telemetry", "err", err)
-		return
-	}
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(writer.path), 0o700); err != nil {
-		writer.log.Warn("runmetrics: failed to create log directory", "err", err)
-		return
-	}
-	file, err := os.OpenFile(writer.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		writer.log.Warn("runmetrics: failed to open telemetry log", "err", err)
-		return
-	}
-	defer file.Close()
-	encoded = append(encoded, '\n')
-	if _, err := file.Write(encoded); err != nil {
-		writer.log.Warn("runmetrics: failed to append telemetry", "err", err)
-	}
-}
-
-func Validate(telemetry *engineapi.RunTelemetry) error {
-	if telemetry == nil {
-		return errors.New("telemetry_missing")
-	}
-	if err := validateExecution(telemetry); err != nil {
-		return err
-	}
-	if telemetry.TotalMicros < 0 || telemetry.RetryDelayMicros < 0 {
-		return errors.New("telemetry durations must be non-negative")
-	}
-	for name, duration := range telemetry.SpansMicros {
-		if !validSpans[name] || duration < 0 {
-			return errors.New("telemetry_span_invalid")
-		}
-	}
-	if !validCacheStatuses[telemetry.CacheStatus] {
-		return errors.New("telemetry_cache_status_invalid")
-	}
-	if telemetry.PrefixChangedReason != "" && !validPrefixReasons[telemetry.PrefixChangedReason] {
-		return errors.New("telemetry_prefix_reason_invalid")
-	}
-	for i, reason := range telemetry.ChangeReasons {
-		if reason == "" || !validChangeReasons[reason] {
-			return errors.New("telemetry_change_reason_invalid")
-		}
-		if i > 0 {
-			previous := telemetry.ChangeReasons[i-1]
-			if previous == reason {
-				return errors.New("telemetry_change_reason_duplicate")
-			}
-			if previous > reason {
-				return errors.New("telemetry_change_reason_unsorted")
-			}
-		}
-	}
-	if telemetry.RunID != "" && !idPattern.MatchString(telemetry.RunID) {
-		return fmt.Errorf("invalid run_id format")
-	}
-	if !labelPattern.MatchString(telemetry.Provider) {
-		return fmt.Errorf("provider identifier too long")
-	}
-	if !labelPattern.MatchString(telemetry.Model) {
-		return fmt.Errorf("model identifier too long")
-	}
-	if telemetry.Attempt < 0 || telemetry.RetryCount < 0 || telemetry.StablePrefixBytes < 0 || telemetry.DynamicSuffixBytes < 0 || telemetry.RequestShapeBytes < 0 {
-		return errors.New("telemetry_count_invalid")
-	}
-	for _, count := range []*int64{telemetry.CachedInputTokens, telemetry.UncachedInputTokens} {
-		if count != nil && *count < 0 {
-			return errors.New("telemetry_usage_invalid")
-		}
-	}
-	for _, offset := range []*int64{telemetry.FirstReasoningMicros, telemetry.FirstToolMicros, telemetry.FirstTextMicros} {
-		if offset != nil && *offset < 0 {
-			return errors.New("telemetry_semantic_timing_invalid")
-		}
-	}
-	seenProviderAttempts := make(map[[2]int]struct{}, len(telemetry.ProviderAttempts))
-	for _, attempt := range telemetry.ProviderAttempts {
-		identity := [2]int{attempt.ModelCallID, attempt.HTTPAttempt}
-		if _, exists := seenProviderAttempts[identity]; exists {
-			return errors.New("telemetry_provider_attempt_identity_duplicate")
-		}
-		seenProviderAttempts[identity] = struct{}{}
-		if attempt.ModelCallID <= 0 || attempt.HTTPAttempt <= 0 {
-			return errors.New("telemetry_provider_attempt_identity_invalid")
-		}
-		if !enum(attempt.Purpose, "title", "tool_loop", "summarize", "retry") {
-			return errors.New("telemetry_provider_attempt_purpose_invalid")
-		}
-		for _, offset := range []*int64{attempt.RequestEncodedMicros, attempt.RequestWrittenMicros, attempt.FirstResponseByteMicros, attempt.ResponseHeadersMicros, attempt.FirstSSEFrameMicros, attempt.FirstByteToFirstSSEMicros} {
-			if offset != nil && *offset < 0 {
-				return errors.New("telemetry_provider_attempt_timing_invalid")
-			}
-		}
-		if attempt.FirstByteToFirstSSEMicros != nil {
-			if attempt.FirstResponseByteMicros == nil || attempt.FirstSSEFrameMicros == nil || *attempt.FirstSSEFrameMicros < *attempt.FirstResponseByteMicros || *attempt.FirstByteToFirstSSEMicros != *attempt.FirstSSEFrameMicros-*attempt.FirstResponseByteMicros {
-				return errors.New("telemetry_provider_attempt_span_invalid")
-			}
-		}
-	}
-	for _, digest := range []string{telemetry.StablePrefixHMAC, telemetry.DynamicSuffixHMAC, telemetry.RequestShapeHMAC} {
-		if digest == "" {
-			continue
-		}
-		decoded, err := base64.RawURLEncoding.DecodeString(digest)
-		if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != digest {
-			return errors.New("telemetry_hmac_invalid")
-		}
-	}
-	if !enum(telemetry.FirstSemantic, "", "text", "tool_call", "reasoning") ||
-		!enum(telemetry.ReasoningEffort, "", "none", "minimal", "low", "medium", "high", "xhigh", "max") ||
-		!enum(telemetry.ServiceTier, "", "auto", "default", "flex", "priority", "scale", "standard") ||
-		!enum(telemetry.Purpose, "", "title", "tool_loop", "summarize", "retry", "prep_error", "queued_cancellation") {
-		return errors.New("telemetry_label_invalid")
-	}
-	return nil
-}
-
-var validSpans = map[string]bool{
-	"ready_wait": true, "mcp_wait": true, "local_preparation": true,
-	"model_refresh": true, "skill_scan": true, "tool_build": true,
-	"history_load": true, "prompt_prepare": true, "request_encode": true,
-	"request_write": true, "request_write_to_first_byte": true,
-	"first_byte_to_first_sse": true, "first_sse_to_first_reasoning": true,
-	"first_sse_to_first_tool": true, "first_sse_to_first_text": true,
-	"stream": true, "summarize": true, "retry_delay": true,
-}
-
-func enum(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-func cloneProviderAttempt(in engineapi.ProviderAttemptTelemetry) engineapi.ProviderAttemptTelemetry {
-	out := in
-	cloneInt64 := func(value *int64) *int64 {
-		if value == nil {
-			return nil
-		}
-		copy := *value
-		return &copy
-	}
-	out.RequestEncodedMicros = cloneInt64(in.RequestEncodedMicros)
-	out.RequestWrittenMicros = cloneInt64(in.RequestWrittenMicros)
-	out.FirstResponseByteMicros = cloneInt64(in.FirstResponseByteMicros)
-	out.ResponseHeadersMicros = cloneInt64(in.ResponseHeadersMicros)
-	out.FirstSSEFrameMicros = cloneInt64(in.FirstSSEFrameMicros)
-	out.FirstByteToFirstSSEMicros = cloneInt64(in.FirstByteToFirstSSEMicros)
-	return out
-}
-
-func redactSensitive(telemetry *engineapi.RunTelemetry) *engineapi.RunTelemetry {
-	out := *telemetry
-	out.ProviderRequestID = ""
-	cloneExecution(&out)
-	out.SpansMicros = maps.Clone(telemetry.SpansMicros)
-	if len(telemetry.ProviderAttempts) > 0 {
-		out.ProviderAttempts = make([]engineapi.ProviderAttemptTelemetry, len(telemetry.ProviderAttempts))
-		for i, attempt := range telemetry.ProviderAttempts {
-			out.ProviderAttempts[i] = cloneProviderAttempt(attempt)
-		}
-	}
-	if telemetry.CachedInputTokens != nil {
-		n := *telemetry.CachedInputTokens
-		out.CachedInputTokens = &n
-	}
-	if telemetry.UncachedInputTokens != nil {
-		n := *telemetry.UncachedInputTokens
-		out.UncachedInputTokens = &n
-	}
-	return &out
 }

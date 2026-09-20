@@ -111,19 +111,6 @@ export type SessionDeltaEvent = { session_id: string; message_id: string; text: 
 export type SessionDoneEvent = { session_id: string; text?: string; error?: string; cancelled?: boolean }
 export type SessionUpdatedEvent = { session_id: string; title: string; updated_at: number }
 export type ToolActivityEvent = { session_id: string; name: string; input: unknown; finished: boolean; tool_call_id: string }
-export type TaskProgressEvent = {
-  session_id: string
-  run_id?: string
-  state: 'searching' | 'optimizing' | 'optimal' | 'feasible' | 'infeasible' | 'timed_out' | 'failed'
-  elapsed_seconds: number
-  limit_seconds: number
-  solutions?: number
-  penalty?: number
-  result_status?: string
-  hard_constraints_satisfied?: boolean
-  soft_violation_count?: number
-}
-
 
 type BackendApp = {
   BackendReady: () => Promise<boolean>

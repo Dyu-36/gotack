@@ -50,7 +50,7 @@ Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's n
 | 🪶 **Lightweight** | No bundled Chromium or Electron runtime. |
 | 🧠 **Assistant-first** | Works with your environment instead of acting as a chat-only UI. |
 | 💻 **Built in Go** | Efficient process management, native system integration, and concurrency. |
-| 🏠 **Local-first** | Files, tools, sessions, skills, and assistant context stay close to your machine. |
+| 🏠 **Local-first** | Files, tools, sessions, workspace configuration, and engine state stay close to your machine. |
 | 🧩 **Modular** | Optional capabilities are kept separate so Tack stays focused and maintainable. |
 
 ## 🚀 Features
@@ -58,14 +58,12 @@ Built with **Go**, **Wails**, and **Svelte**, Tack uses the operating system's n
 | Capability | Highlights |
 | --- | --- |
 | 🤖 **General assistant** | Files, folders, research, system tasks, data transformation, and multi-step automation. |
-| 📝 **Office workflows** | Inspect, create, and edit Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`) files. |
-| 👨‍💻 **Developer workflows** | Source code, repositories, shell commands, diffs, project files, and workspace-aware sessions. |
-| 🖥️ **Integrated terminal** | Optional xterm.js terminal, loaded only when needed. |
-| 🧠 **Memory** | Bounded assistant context for longer-running workflows. |
-| 🧰 **Skills** | Reusable procedural knowledge and task-specific workflows. |
-| 🔎 **Recall** | Read-only retrieval from previous sessions. |
+| 📝 **Office attachments** | Reads modern Word (`.docx`), Excel (`.xlsx`), and PowerPoint (`.pptx`) attachments and converts common legacy Office formats when local conversion support is available. |
+| 👨‍💻 **Developer workflows** | Source code, repositories, PowerShell commands, diffs, project files, and workspace-aware sessions. |
+| 🧰 **Skills** | Discovers `SKILL.md` workflows through configured `options.skills_paths`. |
+| 📎 **Attachments** | Handles text, images, PDFs, and Office files while preserving file paths for agent access. |
 | 📱 **Zalo access** | Explicitly paired chats can interact with the desktop assistant remotely. |
-| 🛡️ **Tool execution** | Tools run with automatic permission approval and guarded sensitive operations. |
+| 🔄 **Streaming UX** | Streams assistant text and tool activity into the desktop conversation view. |
 
 ## 🪶 Lightweight by Design
 
@@ -75,7 +73,7 @@ Resource usage is a product constraint in Tack, not an afterthought.
 | --- | --- |
 | Uses the **system WebView / WebView2** | Bundling a full Chromium runtime |
 | Keeps the desktop host in **Go** | Heavy desktop-process overhead |
-| Lazy-loads terminal functionality | Initializing optional components at startup |
+| Keeps the host focused on desktop integration | Re-implementing agent services in the host |
 | Uses event streams where appropriate | Unnecessary background polling |
 | Keeps long-running responsibilities modular | Duplicating state across layers |
 | Focuses on assistant workflows | Becoming another heavyweight IDE |
@@ -94,8 +92,8 @@ The goal is simple: **small enough to leave running, fast enough to open without
 │  ├── Workspaces                            │
 │  ├── Files & diffs                         │
 │  ├── Tool activity                         │
-│  ├── Permissions                           │
-│  └── Terminal                              │
+│  ├── Attachments                           │
+│  └── Provider / model settings             │
 │                    │                       │
 │              Wails bridge                  │
 │                    │                       │
@@ -109,17 +107,15 @@ The goal is simple: **small enough to leave running, fast enough to open without
 │             Local Agent Runtime            │
 │                                            │
 │  ├── Assistant sessions                    │
-│  ├── Tools                                 │
-│  ├── Permissions                           │
-│  ├── Shell                                 │
-│  ├── MCP services                          │
-│  ├── Memory                                │
-│  ├── Skills                                │
-│  └── Recall                                │
+│  ├── Pi-like core tool registry            │
+│  ├── Provider / model execution             │
+│  ├── Compaction, resume & cancellation      │
+│  ├── Attachments                            │
+│  └── SKILL.md discovery                     │
 └────────────────────────────────────────────┘
 ```
 
-The UI and assistant runtime are isolated so the desktop lifecycle does not need to be tightly coupled to active assistant work.
+The desktop host owns desktop UX and integration. The pinned engine owns agent execution, model orchestration, session behavior, and the core tool runtime.
 
 ## 🧱 Technology Stack
 
@@ -132,7 +128,6 @@ The UI and assistant runtime are isolated so the desktop lifecycle does not need
 | Styling | **Tailwind CSS** |
 | Build tooling | **Vite** |
 | Desktop runtime | **System WebView / WebView2** |
-| Terminal | **xterm.js** |
 | Local storage | **SQLite** |
 | Communication | **Local IPC, REST & SSE** |
 | Engine source pin | **`.tack-pin`** |
@@ -150,7 +145,7 @@ The UI and assistant runtime are isolated so the desktop lifecycle does not need
 .\tack.exe
 ```
 
-The release bundle includes the Tack runtime and supporting tools. You do **not** need a system installation of Go, Node.js, pnpm, or Wails to run a packaged release.
+The release bundle includes Tack and its pinned local agent engine. You do **not** need a system installation of Go, Node.js, pnpm, or Wails to run a packaged release.
 
 ### Requirements
 
@@ -200,16 +195,16 @@ wails build -platform windows/amd64 -clean
 
 ## 🔐 Security Model
 
-Tack is designed as a single-user local desktop assistant with automatic tool approval.
+Tack is designed as a single-user local desktop application with a separate local agent runtime.
 
-| Protection | Behavior |
+| Boundary | Behavior |
 | --- | --- |
-| 🛡️ Permission prompts | Skipped for every workspace, including existing workspaces after reconnecting. |
-| ⛔ Guard layer | Protects sensitive operations and blocks catastrophic commands. |
-| ✅ Auto approval | Always enabled in distributed builds. Legacy `auto_approve` settings are ignored. |
+| 🔌 Engine isolation | The desktop host communicates with the pinned local engine over local IPC/HTTP/SSE rather than importing engine internals. |
+| 🧰 Tool ownership | The host does not maintain the legacy permission, MCP, memory, recall, guard, or scheduler services. Tool behavior is owned by the engine. |
+| 🗂️ Workspace migration | Existing Gotack-specific legacy MCP/guard configuration is removed when workspace configuration is migrated. |
 | 📱 Zalo pairing | Remote chats require explicit pairing and can be revoked individually. |
 
-Interactive questions still require an answer. Guard denials remain effective before tool execution.
+Interactive questions remain part of the agent flow when the engine requests user input.
 
 ## 📂 Project Structure
 
@@ -218,17 +213,12 @@ Interactive questions still require an answer. Guard denials remain effective be
 
 ```text
 .
-├── cmd/                    # Bundled local services and tools
-│   ├── guard/
-│   ├── memory/
-│   ├── recall/
-│   └── skills/
-├── internal/               # Go application implementation
+├── internal/               # Go host, engine client, attachments, providers, workspace services
 ├── frontend/               # Svelte desktop UI
-├── resources/              # Bundled skills, context and runtime assets
-│   └── context/legacy/     # Hash-pinned stock TACK.md bases for context migration
-├── scripts/                # Build and repository tooling
-├── docs/                   # Architecture and engineering documentation
+├── scripts/                # Engine build and repository tooling
+├── docs/                   # Current architecture/behavior notes
+├── build/                  # Wails packaging assets
+├── .tack-pin               # Pinned engine commit
 └── .github/workflows/      # CI and release pipelines
 ```
 
@@ -238,7 +228,7 @@ Interactive questions still require an answer. Guard denials remain effective be
 
 Tack is under active development.
 
-The desktop assistant, Office integration, local assistant services, terminal workflow, and Zalo connection are implemented. CI covers Go tests and analysis, frontend validation and tests, production builds, repository invariants, and a Windows portable build.
+The desktop assistant, attachment pipeline, workspace/session flow, provider settings, streaming tool activity, and Zalo connection are implemented. CI covers Go tests and analysis, frontend validation and tests, production builds, generated event consistency, and a Windows portable build.
 
 **Current packaged target:** Windows x64.
 
@@ -251,7 +241,7 @@ You
  ↓
 Tack
  ↓
-Files · Documents · Code · Terminal · Tools · Automation
+Files · Documents · Code · Tools · Automation
 ```
 
 The assistant should be available when you need it and stay out of the way when you do not.

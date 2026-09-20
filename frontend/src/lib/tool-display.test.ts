@@ -73,6 +73,15 @@ describe('parseToolDisplay', () => {
     expect(res.actionLabel).toBe('Hoàn thành công cụ')
     expect(res.detailLabel).toBe('simple string info')
   })
+
+  it('renders removed legacy tool names generically', () => {
+    for (const name of ['mcp_resource', 'schedule_job', 'subagent']) {
+      const res = parseToolDisplay(name, '{}', true)
+      expect(res.category).toBe('generic')
+      expect(res.actionLabel).toBe('Hoàn thành công cụ')
+      expect(res.detailLabel).toBe(name)
+    }
+  })
 })
 
 describe('formatToolGroupSummary', () => {

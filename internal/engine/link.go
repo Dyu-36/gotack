@@ -241,7 +241,7 @@ var (
 )
 
 var StreamKinds = []string{
-	"message", "session", "run_complete", "task_progress", "permission_request", "file",
+	"message", "session", "run_complete", "file",
 }
 
 type EventConsumer interface {

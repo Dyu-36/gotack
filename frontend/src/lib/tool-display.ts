@@ -1,4 +1,4 @@
-export type ToolCategory = 'terminal' | 'read' | 'edit' | 'search' | 'list' | 'mcp' | 'generic'
+export type ToolCategory = 'terminal' | 'read' | 'edit' | 'search' | 'list' | 'generic'
 
 export type ToolDisplayInfo = {
   category: ToolCategory
@@ -41,7 +41,6 @@ function tokenizeToolName(name: string): string[] {
 function classifyToolName(name: string): ToolCategory {
   const tokens = tokenizeToolName(name)
   if (tokens.length === 0) return 'generic'
-  if (tokens[0] === 'mcp' || tokens.includes('schedule') || tokens.includes('subagent')) return 'mcp'
   const has = (...candidates: string[]) => candidates.some((candidate) => tokens.includes(candidate))
   if (has('command', 'cmd', 'run', 'bash', 'terminal', 'exec', 'shell')) return 'terminal'
   if (has('read', 'view', 'cat')) return 'read'
@@ -108,9 +107,6 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
     case 'list':
       actionLabel = finished ? 'Đã duyệt thư mục' : 'Đang duyệt thư mục'
       break
-    case 'mcp':
-      actionLabel = finished ? 'Đã gọi MCP' : 'Đang gọi MCP'
-      break
     default:
       actionLabel = finished ? 'Hoàn thành công cụ' : 'Đang thực thi'
       break
@@ -145,7 +141,6 @@ export function formatToolGroupSummary(tools: readonly { toolName?: string }[]):
       case 'terminal': name = 'chạy lệnh'; break
       case 'search': name = 'tìm kiếm'; break
       case 'list': name = 'duyệt thư mục'; break
-      case 'mcp': name = 'mcp'; break
       default: name = t.toolName || 'công cụ'; break
     }
     if (!labels.includes(name)) labels.push(name)

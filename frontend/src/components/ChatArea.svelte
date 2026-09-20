@@ -5,7 +5,6 @@
   import AgentWorking from './AgentWorking.svelte'
   import ToolCard from './ToolCard.svelte'
   import ThinkingCard from './ThinkingCard.svelte'
-  import TaskProgressCard from './TaskProgressCard.svelte'
   import type { ChatAttachment, Message, ReasoningEffort } from '../features/conversations/types.svelte'
 
   type Props = {
@@ -93,7 +92,6 @@
 
   type DisplayItem =
     | { type: 'message'; message: Message }
-    | { type: 'task'; message: Message }
     | { type: 'tool-group'; id: string; tools: Message[]; allFinished: boolean }
 
   const displayItems = $derived.by(() => {
@@ -117,7 +115,7 @@
         currentTools.push(msg)
       } else {
         flushTools()
-        items.push(msg.kind === 'task' ? { type: 'task', message: msg } : { type: 'message', message: msg })
+        items.push({ type: 'message', message: msg })
       }
     }
     flushTools()
@@ -350,8 +348,6 @@
                 <ToolCard message={tool} />
               {/each}
             {/if}
-          {:else if item.type === 'task'}
-            <TaskProgressCard message={item.message} />
           {:else}
             <MessageBubble
               message={item.message}

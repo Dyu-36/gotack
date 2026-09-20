@@ -30,8 +30,8 @@ func main() {
 		MinWidth:  900,
 		MinHeight: 600,
 		// Closing the window only hides it; the process keeps serving the
-		// tray, the Zalo bot, and the scheduler until it is ended from Task
-		// Manager. Windows' HideWindowOnClose also keeps runtime.Quit from
+		// tray and Zalo bot until it is ended from Task Manager. Windows'
+		// HideWindowOnClose also keeps runtime.Quit from
 		// destroying the window (it goes through OnBeforeClose internally),
 		// so hiding is the single close behavior.
 		HideWindowOnClose: true,
