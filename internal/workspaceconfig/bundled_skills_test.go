@@ -14,11 +14,11 @@ import (
 func TestBundledSkillsAreInstalledBeforeUserOverrides(t *testing.T) {
 	root := t.TempDir()
 	user := filepath.Join(root, "skills")
-	project := ProjectSkillsDir(root)
+	projects := ProjectSkillsDirs(root)
 	custom := filepath.Join(root, "custom-skills")
 	old := filepath.Join(root, "bundled-skills", "old")
 	current := filepath.Join(root, "bundled-skills", "current")
-	cfg := engineapi.WorkspaceConfig{Options: &engineapi.WorkspaceOptions{SkillsPaths: []string{user, old, project, custom}}}
+	cfg := engineapi.WorkspaceConfig{Options: &engineapi.WorkspaceOptions{SkillsPaths: []string{user, old, projects[0], projects[1], custom}}}
 	writes := map[string]json.RawMessage{}
 	var removals []string
 	client := configClient(t, &cfg, &writes, &removals)
@@ -26,7 +26,7 @@ func TestBundledSkillsAreInstalledBeforeUserOverrides(t *testing.T) {
 	if err := RegisterSkillsPaths(context.Background(), client, "ws", desc, user, current); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{current, custom, user, project}
+	want := []string{current, custom, user, projects[0], projects[1]}
 	if !reflect.DeepEqual(cfg.SkillsPaths(), want) {
 		t.Fatalf("paths = %v, want %v", cfg.SkillsPaths(), want)
 	}
