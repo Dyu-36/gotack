@@ -62,6 +62,8 @@
 
   let chatgptOAuthStatus = $state<ChatGPTOAuthStatus | null>(null)
   let isLoggingInChatGPT = $state(false)
+  let chatgptOAuthURL = $state('')
+  let isCopiedOAuthURL = $state(false)
 
   let autoStart = $state(false)
   let autoStartBusy = $state(false)
@@ -105,9 +107,29 @@
     }
   }
 
+  $effect(() => {
+    const unsubUrl = desktop.on<string>('chatgpt:oauth:url', (url: string) => {
+      chatgptOAuthURL = url
+      isLoggingInChatGPT = true
+    })
+    const unsubCanceled = desktop.on('chatgpt:oauth:canceled', () => {
+      chatgptOAuthURL = ''
+      isLoggingInChatGPT = false
+    })
+    return () => {
+      unsubUrl()
+      unsubCanceled()
+    }
+  })
+
   async function loadChatGPTOAuthStatus() {
     try {
       chatgptOAuthStatus = await desktop.getChatGPTOAuthStatus()
+      const url = await desktop.getChatGPTOAuthURL()
+      if (url) {
+        chatgptOAuthURL = url
+        isLoggingInChatGPT = true
+      }
     } catch {
       chatgptOAuthStatus = null
     }
@@ -115,6 +137,7 @@
 
   async function loginWithChatGPT() {
     isLoggingInChatGPT = true
+    chatgptOAuthURL = ''
     try {
       toast.info('Đang mở trình duyệt để đăng nhập tài khoản ChatGPT...')
       chatgptOAuthStatus = await desktop.loginChatGPTOAuth()
@@ -125,9 +148,39 @@
           : 'Đăng nhập ChatGPT OAuth thành công!',
       )
     } catch (cause) {
+      const msg = cause instanceof Error ? cause.message : String(cause)
+      if (!msg.toLowerCase().includes('canceled')) {
+        toast.error(msg)
+      }
+    } finally {
+      isLoggingInChatGPT = false
+      chatgptOAuthURL = ''
+    }
+  }
+
+  async function cancelLoginWithChatGPT() {
+    try {
+      await desktop.cancelChatGPTOAuth()
+      toast.info('Đã hủy phiên đăng nhập ChatGPT')
+    } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
       isLoggingInChatGPT = false
+      chatgptOAuthURL = ''
+    }
+  }
+
+  async function copyOAuthURL() {
+    if (!chatgptOAuthURL) return
+    try {
+      await navigator.clipboard.writeText(chatgptOAuthURL)
+      isCopiedOAuthURL = true
+      toast.success('Đã sao chép link đăng nhập!')
+      setTimeout(() => {
+        isCopiedOAuthURL = false
+      }, 2000)
+    } catch {
+      toast.error('Không thể sao chép vào clipboard')
     }
   }
 
@@ -376,7 +429,45 @@
                       <p>Sử dụng tài khoản ChatGPT (Free, Go, Plus, Pro, Business, Edu hoặc Enterprise) trực tiếp qua trình duyệt mà không cần tạo OpenAI API Key riêng.</p>
                     </div>
                   </div>
-                  {#if chatgptOAuthStatus?.connected}
+                  {#if isLoggingInChatGPT}
+                    <div class="oauth-progress-box">
+                      <div class="oauth-waiting-badge">
+                        <svg class="animate-spin h-3.5 w-3.5 text-emerald-500" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                        <span>Đang chờ hoàn tất đăng nhập trên trình duyệt...</span>
+                      </div>
+                      {#if chatgptOAuthURL}
+                        <div class="oauth-url-box">
+                          <label class="oauth-url-label" for="oauth-link-input">Link đăng nhập (dán vào trình duyệt bạn muốn):</label>
+                          <div class="flex gap-2 items-center">
+                            <input
+                              id="oauth-link-input"
+                              type="text"
+                              readonly
+                              class="field font-mono text-xs flex-1 select-all"
+                              value={chatgptOAuthURL}
+                              onclick={(e) => e.currentTarget.select()}
+                            />
+                            <button
+                              type="button"
+                              class="btn-notion text-xs whitespace-nowrap px-2.5 py-1.5"
+                              onclick={copyOAuthURL}
+                            >
+                              {isCopiedOAuthURL ? '✓ Đã chép' : 'Sao chép link'}
+                            </button>
+                          </div>
+                        </div>
+                      {/if}
+                      <div class="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          class="btn-notion text-xs text-red-500 hover:text-red-600 px-3 py-1"
+                          onclick={cancelLoginWithChatGPT}
+                        >
+                          Hủy đăng nhập
+                        </button>
+                      </div>
+                    </div>
+                  {:else if chatgptOAuthStatus?.connected}
                     <div class="oauth-connected">
                       <div class="oauth-badge">
                         <span class="status-dot"></span>
@@ -384,7 +475,7 @@
                       </div>
                       <div class="oauth-actions">
                         <button type="button" class="btn-notion text-xs text-red-500 hover:text-red-600" onclick={logoutChatGPT}>Đăng xuất</button>
-                        <button type="button" class="btn-notion text-xs" disabled={isLoggingInChatGPT} onclick={loginWithChatGPT}>Đăng nhập lại</button>
+                        <button type="button" class="btn-notion text-xs" onclick={loginWithChatGPT}>Đăng nhập lại</button>
                       </div>
                     </div>
                   {:else}
@@ -392,16 +483,10 @@
                       <button
                         type="button"
                         class="btn-oauth"
-                        disabled={isLoggingInChatGPT}
                         onclick={loginWithChatGPT}
                       >
-                        {#if isLoggingInChatGPT}
-                          <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
-                          <span>Đang chờ đăng nhập trên trình duyệt...</span>
-                        {:else}
-                          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
-                          <span>Đăng nhập bằng tài khoản ChatGPT</span>
-                        {/if}
+                        <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+                        <span>Đăng nhập bằng tài khoản ChatGPT</span>
                       </button>
                     </div>
                   {/if}
@@ -571,4 +656,8 @@
   .btn-oauth { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.1); color: #10b981; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 120ms ease; }
   .btn-oauth:hover:not(:disabled) { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.5); }
   .btn-oauth:disabled { opacity: 0.6; cursor: wait; }
+  .oauth-progress-box { display: grid; gap: 8px; padding-top: 4px; }
+  .oauth-waiting-badge { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mm-text); }
+  .oauth-url-box { display: grid; gap: 4px; padding: 8px; border-radius: 6px; background: var(--mm-bg); border: 1px solid var(--mm-border); }
+  .oauth-url-label { font-size: 11px; font-weight: 500; color: var(--mm-secondary); }
 </style>
