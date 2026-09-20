@@ -134,8 +134,8 @@
 <aside class="w-sidebar h-full flex flex-col bg-mm-sidebar border-r border-mm-border overflow-hidden" aria-label="Danh sách hội thoại">
   <div class="flex items-center justify-between px-3 pt-3 pb-1" data-wails-drag-region>
     <div class="flex items-center gap-2">
-      <img src="/tack.png" alt="Tack Logo" class="w-6 h-6 object-contain" />
-      <span class="text-sm font-semibold text-mm-text">Tack</span>
+      <img src="/tack.png" alt="Gotack Logo" class="w-6 h-6 object-contain" />
+      <span class="text-sm font-semibold text-mm-text">Gotack</span>
     </div>
     <button type="button" class="p-1 rounded hover:bg-mm-hover" title="Thu gọn sidebar" aria-label="Thu gọn sidebar" onclick={onCollapse}>
       <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7M18 19l-7-7 7-7" /></svg>
