@@ -9,7 +9,6 @@ export const events = {
   sessionDelta: "session:delta",
   sessionDone: "session:done",
   sessionUpdated: "session:updated",
-  taskProgress: "task:progress",
   toolActivity: "tool:activity",
 } as const
 export type EventName = (typeof events)[keyof typeof events]

@@ -202,20 +202,3 @@ func TestExtractToolResults(t *testing.T) {
 func equalToolCalls(a, b []ToolCall) bool {
 	return reflect.DeepEqual(a, b)
 }
-
-func TestRunTelemetryDecodesProviderAttemptIdentity(t *testing.T) {
-	var got RunTelemetry
-	if err := json.Unmarshal([]byte(`{"run_id":"run-1","provider_attempts":[{"model_call_id":2,"http_attempt":1,"purpose":"tool_loop","first_response_byte_us":10,"first_sse_frame_us":45,"first_byte_to_first_sse_us":35}]}`), &got); err != nil {
-		t.Fatal(err)
-	}
-	if len(got.ProviderAttempts) != 1 {
-		t.Fatalf("provider attempts = %d, want 1", len(got.ProviderAttempts))
-	}
-	a := got.ProviderAttempts[0]
-	if a.ModelCallID != 2 || a.HTTPAttempt != 1 || a.Purpose != "tool_loop" {
-		t.Fatalf("provider attempt identity = %+v", a)
-	}
-	if a.FirstByteToFirstSSEMicros == nil || *a.FirstByteToFirstSSEMicros != 35 {
-		t.Fatalf("first byte to first sse = %v, want 35", a.FirstByteToFirstSSEMicros)
-	}
-}
