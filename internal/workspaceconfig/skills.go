@@ -12,8 +12,14 @@ import (
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
 
-func ProjectSkillsDir(workspacePath string) string {
-	return filepath.Join(workspacePath, ".agents", "skills")
+func ProjectSkillsDirs(workspacePath string) []string {
+	if strings.TrimSpace(workspacePath) == "" {
+		return nil
+	}
+	return []string{
+		filepath.Join(workspacePath, ".pi", "skills"),
+		filepath.Join(workspacePath, ".agents", "skills"),
+	}
 }
 
 func skillPathKey(path string) string {
@@ -52,25 +58,22 @@ func RegisterSkillsPaths(base context.Context, api *engineapi.Client, workspaceI
 }
 
 // RegisterSkillsPathsWithTrust keeps user and bundled skills available in every
-// workspace while including project-local .agents/skills only after the desktop
-// host has explicitly trusted that project. Existing project-skill entries are
-// removed again when trust is revoked.
+// workspace while including project-local .pi/skills and .agents/skills only
+// after the desktop host has explicitly trusted that project. Existing managed
+// project-skill entries are removed again when trust is revoked.
 func RegisterSkillsPathsWithTrust(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, userSkillsDir string, projectTrusted bool, bundledSkillsDirs ...string) error {
 	ctx, cancel := registrationContext(base)
 	defer cancel()
 
-	projectSkills := ""
-	if desc.Path != "" {
-		projectSkills = ProjectSkillsDir(desc.Path)
-	}
-	additions := make([]string, 0, 2)
+	projectSkills := ProjectSkillsDirs(desc.Path)
+	additions := make([]string, 0, 1+len(projectSkills)+len(bundledSkillsDirs))
 	if userSkillsDir != "" {
 		additions = append(additions, userSkillsDir)
 	}
-	if projectTrusted && projectSkills != "" {
-		additions = append(additions, projectSkills)
+	if projectTrusted {
+		additions = append(additions, projectSkills...)
 	}
-	if len(additions) == 0 && len(bundledSkillsDirs) == 0 && projectSkills == "" {
+	if len(additions) == 0 && len(bundledSkillsDirs) == 0 && len(projectSkills) == 0 {
 		return nil
 	}
 
@@ -82,7 +85,9 @@ func RegisterSkillsPathsWithTrust(base context.Context, api *engineapi.Client, w
 	kept := make([]string, 0, len(current.SkillsPaths())+len(bundledSkillsDirs))
 	kept = append(kept, bundledSkillsDirs...)
 	for _, path := range current.SkillsPaths() {
-		if projectSkills != "" && skillPathKey(path) == skillPathKey(projectSkills) {
+		if slices.ContainsFunc(projectSkills, func(projectPath string) bool {
+			return skillPathKey(path) == skillPathKey(projectPath)
+		}) {
 			continue
 		}
 		managed := slices.ContainsFunc(bundledSkillsDirs, func(bundled string) bool {
