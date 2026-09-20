@@ -144,7 +144,6 @@ func (a *App) SaveSettings(settings SettingsInfo) error {
 	next.Provider = strings.TrimSpace(effective.Provider)
 	next.Model = strings.TrimSpace(effective.Model)
 	next.Thinking = strings.TrimSpace(effective.Thinking)
-	next.APIKey = ""
 	credentialProvider := strings.TrimSpace(effective.CredentialProvider)
 	if credentialProvider == "" || credentialProvider == next.Provider {
 		next.CustomURL = strings.TrimSpace(effective.CustomURL)
