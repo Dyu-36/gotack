@@ -60,7 +60,7 @@ try {
     Copy-Item -LiteralPath "$engineExecutable.build.json" -Destination (Join-Path $staging 'resources/tack-engine.exe.build.json')
     Get-ChildItem -LiteralPath $runtimeRoot -Force | Copy-Item -Destination (Join-Path $staging 'resources/python') -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination (Join-Path $staging 'README.md')
-    $engineLicense = Join-Path $engineRoot 'LICENSE'
+    $engineLicense = Join-Path $engineRoot 'LICENSE.md'
     if (-not (Test-Path -LiteralPath $engineLicense -PathType Leaf)) {
         throw 'Pinned engine license is missing'
     }

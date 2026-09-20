@@ -41,6 +41,7 @@ export type ProviderCatalogEntry = {
   credential_kind?: 'api_key' | 'oauth'
 }
 export type ZaloConfigInfo = {
+  pairing_expires_at?: number
   enabled: boolean
   paired_chats: string[]
   pairing_code: string
@@ -51,6 +52,7 @@ export type ZaloConfigInfo = {
 }
 export type ZaloConfigUpdate = { enabled: boolean; token?: string }
 export type ZaloStatusInfo = {
+  pairing_expires_at?: number
   running: boolean
   configured: boolean
   bot_name?: string
