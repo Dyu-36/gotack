@@ -33,6 +33,7 @@ export type ConversationStatus = 'idle' | 'streaming'
 
 export type Conversation = {
   id: string
+  parentSessionId?: string
   title: string
   updatedAt: number
   pinned: boolean
@@ -40,6 +41,6 @@ export type Conversation = {
   messages: Message[]
 }
 
-export type SessionSummary = Pick<Conversation, 'id' | 'title' | 'updatedAt' | 'pinned'> & { streaming: boolean }
+export type SessionSummary = Pick<Conversation, 'id' | 'parentSessionId' | 'title' | 'updatedAt' | 'pinned'> & { streaming: boolean }
 
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
