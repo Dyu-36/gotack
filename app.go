@@ -13,6 +13,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/logging"
+	"github.com/Dyu-36/gotack/internal/projecttrust"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -45,7 +46,8 @@ type App struct {
 	sup  engineController
 	link *engine.Link
 
-	zalo *zalo.Manager
+	zalo         *zalo.Manager
+	projectTrust *projecttrust.Store
 
 	workspaceRuntime     *workspaceconfig.Manager
 	workspaceRuntimeOnce sync.Once
@@ -103,6 +105,7 @@ func (a *App) startup(ctx context.Context) {
 	a.sup = sup
 	a.link = engine.NewLink(sup, expectedEngineCommit(cfg.EngineBinary))
 
+	a.projectTrust = projecttrust.New(filepath.Join(appconfig.Dir(), "project-trust.json"))
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
 	}, a.log)
