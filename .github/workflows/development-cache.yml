@@ -1,0 +1,52 @@
+name: Development cache transfer
+
+on:
+  pull_request:
+    paths: ['.github/workflows/development-cache.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  transfer:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'production/pi-desktop-completion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: development-dependencies
+          run-id: 35517385740
+          github-token: ${{ github.token }}
+          path: dependencies
+      - name: Split cache into transport-sized parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh dependencies
+          tar -cf - -C dependencies . | split -b 400M -d --additional-suffix=.part - /tmp/deps-
+          sha256sum /tmp/deps-*.part
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-part-00
+          path: /tmp/deps-00.part
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-part-01
+          path: /tmp/deps-01.part
+          retention-days: 1
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-part-02
+          path: /tmp/deps-02.part
+          retention-days: 1
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-part-03
+          path: /tmp/deps-03.part
+          retention-days: 1
+          if-no-files-found: ignore
