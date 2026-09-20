@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
           go install golang.org/x/tools/cmd/deadcode@v0.49.0
-          unformatted="$(gofmt -l $(git -C .engine-source ls-files '*.go'))"
+          unformatted="$(cd .engine-source && gofmt -l $(git ls-files '*.go'))"
           test -z "$unformatted" || { printf 'Engine files need gofmt:\n%s\n' "$unformatted"; exit 1; }
           (cd .engine-source && staticcheck ./...)
           (cd .engine-source && deadcode -test ./... > ../engine-deadcode.txt)
