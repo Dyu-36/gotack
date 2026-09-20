@@ -43,7 +43,7 @@ func main() {
 		},
 
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "com.dyu-36.tack",
+			UniqueId: "com.dyu-36.gotack",
 			OnSecondInstanceLaunch: func(second options.SecondInstanceData) {
 				// A second launch (Start menu, autostart while running)
 				// surfaces the first instance's window instead — unless it
