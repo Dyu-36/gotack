@@ -1,0 +1,80 @@
+name: Development bundle
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/development-bundle.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    if: github.head_ref == 'production/pi-desktop-completion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: Dyu-36/tack-engine
+          ref: fd679e142ab34c09e7a15409649ba5896e1a0316
+          path: .engine-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Prepare dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod download
+          (cd .engine-source && go mod download)
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          go install golang.org/x/tools/cmd/deadcode@v0.49.0
+          wails generate module
+          pnpm --dir frontend install --frozen-lockfile
+      - name: Archive development environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p development-bundle
+          git bundle create development-bundle/host.bundle --all
+          git -C .engine-source bundle create ../development-bundle/engine.bundle --all
+          tar -czf development-bundle/go-sdk.tar.gz -C "$(go env GOROOT)" .
+          tar -czf development-bundle/go-modules.tar.gz -C "$(go env GOPATH)" pkg/mod bin
+          tar -czf development-bundle/node-sdk.tar.gz -C "$(dirname "$(dirname "$(command -v node)")")" .
+          tar -czf development-bundle/frontend-dependencies.tar.gz node_modules frontend/node_modules frontend/wailsjs
+          (cd development-bundle && sha256sum *.gz *.bundle > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-toolchain
+          path: |
+            development-bundle/go-sdk.tar.gz
+            development-bundle/node-sdk.tar.gz
+            development-bundle/host.bundle
+            development-bundle/engine.bundle
+            development-bundle/SHA256SUMS
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-dependencies
+          path: |
+            development-bundle/go-modules.tar.gz
+            development-bundle/frontend-dependencies.tar.gz
+          compression-level: 0
+          retention-days: 1
