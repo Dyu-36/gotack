@@ -24,10 +24,10 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re, subprocess
-          def replace(path, before, after, count=1):
+          import subprocess
+          def replace(path, before, after):
               p=Path(path); text=p.read_text()
-              assert text.count(before)==count,(path,text.count(before),before[:100])
+              assert text.count(before)==1,(path,text.count(before),before[:100])
               p.write_text(text.replace(before,after))
           replace('app.go','if a.zalo.Status().Configured {\n\t\ta.zalo.Start()\n\t}', 'a.startZaloIfEnabled()')
           replace('bind_engine.go','if a.zalo != nil && a.zalo.Status().Configured {\n\t\t\ta.zalo.Start()\n\t\t}', 'a.startZaloIfEnabled()')
@@ -51,8 +51,8 @@ jobs:
           ''')
           replace('bind_zalo.go','type ZaloConfigInfo struct {','type ZaloConfigInfo struct {\n\tPairingExpiresAt int64 `json:"pairing_expires_at,omitempty"`')
           replace('bind_zalo.go','\treturn ZaloConfigInfo{\n','\treturn ZaloConfigInfo{\n\t\tPairingExpiresAt: status.PairingExpiresAt,\n')
-          replace('bind_zalo.go','\ta.cfg.Zalo.Enabled = update.Enabled\n\tif err := appconfig.Save(a.cfg); err != nil {\n\t\treturn zalo.Status{}, err\n\t}',
-              '\tnext := *a.cfg\n\tnext.Zalo.Enabled = update.Enabled\n\tif err := appconfig.Save(&next); err != nil {\n\t\ta.zalo.Stop()\n\t\treturn zalo.Status{}, err\n\t}\n\ta.cfg = &next')
+          replace('bind_zalo.go','\ta.cfg.Zalo.Enabled = update.Enabled\n\tif err := appconfig.Save(a.cfg); err != nil {\n\t\treturn status, err\n\t}',
+              '\tnext := *a.cfg\n\tnext.Zalo.Enabled = update.Enabled\n\tif err := appconfig.Save(&next); err != nil {\n\t\ta.zalo.Stop()\n\t\treturn status, err\n\t}\n\ta.cfg = &next')
           replace('bind_zalo.go','\tif update.Enabled {\n\t\ta.zalo.Start()\n\t} else {\n\t\ta.zalo.Stop()\n\t}', '\ta.startZaloIfEnabled()')
           p=Path('frontend/src/platform/desktop.ts');text=p.read_text()
           text=text.replace('export type ZaloConfigInfo = {','export type ZaloConfigInfo = {\n  pairing_expires_at?: number')
@@ -70,8 +70,8 @@ jobs:
           '''+text[pos:]
           text=text.replace('Đóng cửa sổ chỉ ẩn Tack xuống khay — Zalo bot và tiến trình vẫn chạy ngầm. Muốn tắt hẳn, End Task tiến trình Tack trong Task Manager.',
               'Trên Windows, đóng cửa sổ chỉ ẩn Gotack xuống khay; Zalo tiếp tục hoạt động khi được bật. Chọn Quit Gotack trong khay hệ thống để thoát và dừng engine.')
-          text=text.replace('Tack chạy ẩn trong khay hệ thống', 'Gotack chạy ẩn trong khay hệ thống')
           p.write_text(text)
+          replace('scripts/build-product.ps1', "$engineLicense = Join-Path $engineRoot 'LICENSE'", "$engineLicense = Join-Path $engineRoot 'LICENSE.md'")
           Path('zalo_enable_test.go').write_text('''package main
 
           import (
@@ -79,6 +79,7 @@ jobs:
               "net/http"
               "net/http/httptest"
               "path/filepath"
+              "strings"
               "testing"
 
               "github.com/Dyu-36/gotack/internal/appconfig"
@@ -88,7 +89,11 @@ jobs:
           func TestZaloStartRespectsPersistedEnabledFlag(t *testing.T) {
               server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                   w.Header().Set("Content-Type", "application/json")
-                  _, _ = w.Write([]byte(`{"ok":true,"result":[]}`))
+                  if strings.HasSuffix(r.URL.Path,"/getMe") {
+                      _, _ = w.Write([]byte(`{"ok":true,"result":{"id":"bot","name":"Test"}}`))
+                  } else {
+                      _, _ = w.Write([]byte(`{"ok":true,"result":[]}`))
+                  }
               }))
               defer server.Close()
               t.Setenv("ZALO_BOT_API_BASE", server.URL)
@@ -119,8 +124,8 @@ jobs:
           set -euo pipefail
           git config user.name 'Gotack maintenance'
           git config user.email 'maintenance@gotack.local'
-          git add app.go bind_engine.go bind_zalo.go zalo_enable.go zalo_enable_test.go frontend/src/platform/desktop.ts frontend/src/components/SettingsModal.svelte .github/workflows/apply-channel-state.yml
-          git commit -m 'fix: honor disabled Zalo channels and preserve connection during cancellation'
+          git add app.go bind_engine.go bind_zalo.go zalo_enable.go zalo_enable_test.go frontend/src/platform/desktop.ts frontend/src/components/SettingsModal.svelte scripts/build-product.ps1 .github/workflows/apply-channel-state.yml
+          git commit -m 'fix: honor disabled Zalo channels and preserve original engine license'
           git fetch origin production/pi-desktop-completion
           git rebase origin/production/pi-desktop-completion
           git push origin HEAD:production/pi-desktop-completion
