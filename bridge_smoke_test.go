@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -159,12 +160,16 @@ func TestBridgeServicesSmoke(t *testing.T) {
 	if err != nil || len(files) != 0 {
 		t.Fatalf("new session file changes: %d, %v", len(files), err)
 	}
-	if err := api.SetConfigField(ctx, desc.WorkspaceID, engineapi.ConfigScopeWorkspace, "options.skills_paths", []string{filepath.Join(root, "skills")}); err != nil {
+	skillPath := filepath.Join(root, "skills")
+	if err := api.SetConfigField(ctx, desc.WorkspaceID, engineapi.ConfigScopeWorkspace, "options.skills_paths", []string{skillPath}); err != nil {
 		t.Fatalf("config mutation contract: %v", err)
 	}
 	cfg, err := api.GetWorkspaceConfig(ctx, desc.WorkspaceID)
-	if err != nil || len(cfg.SkillsPaths()) != 1 {
-		t.Fatalf("config read contract: %+v %v", cfg, err)
+	if err != nil {
+		t.Fatalf("config read contract: %v", err)
+	}
+	if !slices.Contains(cfg.SkillsPaths(), skillPath) {
+		t.Fatalf("config read contract dropped requested skills path %q: %v", skillPath, cfg.SkillsPaths())
 	}
 	if len(appconfig.Defaults().RecentWorkspaces) != 0 {
 		t.Fatal("workspace service mutated desktop defaults")
