@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +41,7 @@ type supervisor interface {
 }
 
 type Link struct {
+	expectedCommit   string
 	sup              supervisor
 	dial             DialFunc
 	handshakeTimeout time.Duration
@@ -52,8 +54,13 @@ type Link struct {
 	scopeCancel context.CancelFunc
 }
 
-func NewLink(sup supervisor) *Link {
+func NewLink(sup supervisor, expected ...string) *Link {
+	commit := ""
+	if len(expected) > 0 {
+		commit = strings.TrimSpace(expected[0])
+	}
 	return &Link{
+		expectedCommit:   commit,
 		sup:              sup,
 		dial:             engineapi.Dial,
 		handshakeTimeout: defaultHandshakeTimeout,
@@ -125,6 +132,9 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 		return fmt.Errorf("handshake: %w", err)
 	}
 
+	if l.expectedCommit != "" && vi.Commit != l.expectedCommit {
+		return fmt.Errorf("engine commit mismatch: expected %s, got %s; reinstall the bundled engine", l.expectedCommit, vi.Commit)
+	}
 	return ready(scope, api, ep, vi.Version)
 }
 

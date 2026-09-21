@@ -7,6 +7,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/workspace"
+	"github.com/Dyu-36/gotack/resources"
 )
 
 type Options struct {
@@ -29,7 +30,7 @@ func NewManager(options Options) *Manager {
 	}
 }
 
-func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspace.Descriptor) error {
+func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspace.Descriptor, projectTrusted bool) error {
 	if m == nil || api == nil || desc.WorkspaceID == "" {
 		return nil
 	}
@@ -37,7 +38,14 @@ func (m *Manager) Apply(ctx context.Context, api *engineapi.Client, desc workspa
 		m.warn("workspace runtime: legacy tool cleanup failed", "err", err)
 		return fmt.Errorf("workspace runtime: legacy tool cleanup: %w", err)
 	}
-	if err := RegisterSkillsPaths(ctx, api, desc.WorkspaceID, desc, m.userSkillsDir); err != nil {
+	if err := api.SetConfigField(ctx, desc.WorkspaceID, engineapi.ConfigScopeWorkspace, "options.project_trusted", projectTrusted); err != nil {
+		return fmt.Errorf("workspace runtime: project trust: %w", err)
+	}
+	bundledDir, err := resources.InstallSkills(m.managedRoot)
+	if err != nil {
+		return fmt.Errorf("workspace runtime: install bundled skills: %w", err)
+	}
+	if err := RegisterSkillsPathsWithTrust(ctx, api, desc.WorkspaceID, desc, m.userSkillsDir, projectTrusted, bundledDir); err != nil {
 		m.warn("workspace runtime: skills registration failed", "err", err)
 		return fmt.Errorf("workspace runtime: skills registration: %w", err)
 	}

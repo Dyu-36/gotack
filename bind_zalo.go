@@ -11,13 +11,14 @@ import (
 )
 
 type ZaloConfigInfo struct {
-	Enabled     bool     `json:"enabled"`
-	PairedChats []string `json:"paired_chats"`
-	PairingCode string   `json:"pairing_code"`
-	HasToken    bool     `json:"has_token"`
-	BotName     string   `json:"bot_name,omitempty"`
-	TokenSuffix string   `json:"token_suffix,omitempty"`
-	Running     bool     `json:"running"`
+	PairingExpiresAt int64    `json:"pairing_expires_at,omitempty"`
+	Enabled          bool     `json:"enabled"`
+	PairedChats      []string `json:"paired_chats"`
+	PairingCode      string   `json:"pairing_code"`
+	HasToken         bool     `json:"has_token"`
+	BotName          string   `json:"bot_name,omitempty"`
+	TokenSuffix      string   `json:"token_suffix,omitempty"`
+	Running          bool     `json:"running"`
 }
 
 type ZaloConfigUpdate struct {
@@ -38,13 +39,14 @@ func (a *App) snapshotZaloConfig() ZaloConfigInfo {
 	}
 	status := a.zalo.Status()
 	return ZaloConfigInfo{
-		Enabled:     a.cfg != nil && a.cfg.Zalo.Enabled,
-		PairedChats: status.PairedChatIDs,
-		PairingCode: status.PairingCode,
-		HasToken:    status.Configured,
-		BotName:     status.BotName,
-		TokenSuffix: status.TokenSuffix,
-		Running:     status.Running,
+		PairingExpiresAt: status.PairingExpiresAt,
+		Enabled:          a.cfg != nil && a.cfg.Zalo.Enabled,
+		PairedChats:      status.PairedChatIDs,
+		PairingCode:      status.PairingCode,
+		HasToken:         status.Configured,
+		BotName:          status.BotName,
+		TokenSuffix:      status.TokenSuffix,
+		Running:          status.Running,
 	}
 }
 
@@ -73,15 +75,14 @@ func (a *App) SaveZaloConfig(update ZaloConfigUpdate) (ZaloManagerStatus, error)
 	if a.cfg == nil {
 		a.cfg = appconfig.Defaults()
 	}
-	a.cfg.Zalo.Enabled = update.Enabled
-	if err := appconfig.Save(a.cfg); err != nil {
+	next := *a.cfg
+	next.Zalo.Enabled = update.Enabled
+	if err := appconfig.Save(&next); err != nil {
+		a.zalo.Stop()
 		return status, err
 	}
-	if update.Enabled {
-		a.zalo.Start()
-	} else {
-		a.zalo.Stop()
-	}
+	a.cfg = &next
+	a.startZaloIfEnabled()
 	return a.zalo.Status(), nil
 }
 
@@ -104,10 +105,6 @@ func (a *App) RemoveZaloToken() (ZaloManagerStatus, error) {
 	}
 	if a.cfg != nil {
 		a.cfg.Zalo.Enabled = false
-		//lint:ignore SA1019 legacy Zalo config cleanup remains supported until Gotack v1.0.
-		a.cfg.Zalo.Token = ""
-		//lint:ignore SA1019 legacy Zalo config cleanup remains supported until Gotack v1.0.
-		a.cfg.Zalo.AllowedChats = nil
 		_ = appconfig.Save(a.cfg)
 	}
 	return status, nil

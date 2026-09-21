@@ -2,11 +2,11 @@
   import { toast } from 'svelte-sonner'
   import { untrack } from 'svelte'
   import { catalog } from '../features/conversations/catalog.svelte'
-  import { desktop, type ChatGPTOAuthStatus, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
+  import { desktop, type AgentSettingsInfo, type ChatGPTOAuthStatus, type WorkspaceInfo, type ZaloConfigUpdate, type ZaloStatusInfo } from '../platform/desktop'
 
   type Theme = 'system' | 'light' | 'dark'
 
-  type Tab = 'providers' | 'zalo' | 'appearance'
+  type Tab = 'providers' | 'agent' | 'zalo' | 'appearance'
 
   type SettingsPayload = {
     theme: Theme
@@ -26,7 +26,7 @@
     thinking?: string
     customUrl?: string
     onThemeChange: (theme: Theme) => void
-    onSaveSettings?: (settings: SettingsPayload) => void
+    onSaveSettings?: (settings: SettingsPayload) => Promise<void>
     onClose: () => void
   }
 
@@ -37,7 +37,7 @@
     thinking = 'high',
     customUrl = '',
     onThemeChange,
-    onSaveSettings = () => {},
+    onSaveSettings = async () => {},
     onClose,
   }: Props = $props()
 
@@ -47,9 +47,11 @@
   let currentApiKey = $state('')
   let currentCustomUrl = $state('')
   let showApiKey = $state(false)
-  let revealedProviderKeys = $state<Record<string, string>>({})
-  let revealingProvider = $state('')
   let deletingProvider = $state('')
+
+  let agentSettings = $state<AgentSettingsInfo>({ tools: [], disabled_tools: [] })
+  let agentBusy = $state(false)
+  let workspaceInfo = $state<WorkspaceInfo | null>(null)
 
   let zaloEnabled = $state(false)
   let zaloToken = $state('')
@@ -58,6 +60,7 @@
   let zaloSaving = $state(false)
   let zaloBusy = $state(false)
   let zaloPairingCode = $state('')
+  let zaloPairingExpires = $state(0)
   let zaloPairedChats = $state<string[]>([])
 
   let chatgptOAuthStatus = $state<ChatGPTOAuthStatus | null>(null)
@@ -69,6 +72,7 @@
   let autoStartBusy = $state(false)
 
   let hydrated = false
+  let savingSettings = $state(false)
 
   $effect(() => {
     selectedTheme = theme
@@ -82,6 +86,7 @@
       void loadZalo()
       void loadChatGPTOAuthStatus()
       void loadAutoStart()
+      void loadAgentSettings()
     })
   })
 
@@ -203,6 +208,7 @@
       zaloEnabled = config.enabled
       zaloHasToken = config.has_token
       zaloPairingCode = config.pairing_code
+      zaloPairingExpires = config.pairing_expires_at ?? 0
       zaloPairedChats = config.paired_chats ?? []
       zaloStatus = await desktop.zaloStatus()
     } catch (cause) {
@@ -219,32 +225,11 @@
     currentCustomUrl = id === provider ? customUrl : (catalog.provider(id)?.api_endpoint ?? '')
   }
 
-  async function toggleProviderKey(providerID: string) {
-    if (revealedProviderKeys[providerID] !== undefined) {
-      const next = { ...revealedProviderKeys }
-      delete next[providerID]
-      revealedProviderKeys = next
-      return
-    }
-    revealingProvider = providerID
-    try {
-      const key = await desktop.revealProviderAPIKey(providerID)
-      revealedProviderKeys = { ...revealedProviderKeys, [providerID]: key }
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      revealingProvider = ''
-    }
-  }
-
   async function deleteConfiguredProvider(providerID: string, name: string) {
     if (!window.confirm(`Xóa cấu hình provider ${name}? Provider sẽ bị tắt trong Tack và credential đã lưu sẽ bị xóa.`)) return
     deletingProvider = providerID
     try {
       await desktop.deleteProvider(providerID)
-      const next = { ...revealedProviderKeys }
-      delete next[providerID]
-      revealedProviderKeys = next
       if (selectedProvider === providerID) {
         selectedProvider = ''
         currentApiKey = ''
@@ -259,7 +244,57 @@
     }
   }
 
-  function save() {
+  async function loadAgentSettings() {
+    try {
+      agentSettings = await desktop.getAgentSettings()
+      workspaceInfo = await desktop.currentWorkspace()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  async function toggleAgentTool(tool: string, enabled: boolean) {
+    const disabled = new Set(agentSettings.disabled_tools)
+    if (enabled) disabled.delete(tool)
+    else disabled.add(tool)
+    agentBusy = true
+    try {
+      agentSettings = await desktop.saveAgentSettings([...disabled])
+      toast.success('Đã cập nhật tool của agent')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      agentBusy = false
+    }
+  }
+
+  async function setProjectTrust(trusted: boolean) {
+    agentBusy = true
+    try {
+      workspaceInfo = await desktop.setWorkspaceTrust(trusted)
+      toast.success(trusted ? 'Đã trust project' : 'Đã chặn tài nguyên động của project')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      agentBusy = false
+    }
+  }
+
+  async function resetProjectTrust() {
+    agentBusy = true
+    try {
+      workspaceInfo = await desktop.resetWorkspaceTrust()
+      toast.success('Đã xóa quyết định trust riêng của project')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      agentBusy = false
+    }
+  }
+
+  async function save() {
+    if (savingSettings) return
+    savingSettings = true
     const payload: SettingsPayload = {
       theme: selectedTheme,
       provider,
@@ -270,10 +305,16 @@
       api_key: selectedProvider === 'codex' ? '' : currentApiKey.trim(),
       custom_url: selectedProvider && selectedProvider !== 'codex' ? currentCustomUrl.trim() : '',
     }
-    onThemeChange(selectedTheme)
-    onSaveSettings(payload)
-    currentApiKey = ''
-    onClose()
+    try {
+      await onSaveSettings(payload)
+      onThemeChange(selectedTheme)
+      currentApiKey = ''
+      onClose()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      savingSettings = false
+    }
   }
 
   async function saveZalo() {
@@ -285,6 +326,7 @@
       zaloHasToken = zaloStatus.configured
       zaloToken = ''
       zaloPairingCode = zaloStatus.pairing_code ?? ''
+      zaloPairingExpires = zaloStatus.pairing_expires_at ?? 0
       zaloPairedChats = zaloStatus.paired_chat_ids ?? []
       toast.success(zaloStatus.bot_name ? `Zalo đã nối: ${zaloStatus.bot_name}` : 'Đã lưu cấu hình Zalo')
     } catch (cause) {
@@ -301,6 +343,7 @@
       zaloHasToken = zaloStatus.configured
       zaloPairedChats = zaloStatus.paired_chat_ids ?? []
       zaloPairingCode = zaloStatus.pairing_code ?? ''
+      zaloPairingExpires = zaloStatus.pairing_expires_at ?? 0
       toast.success(ok)
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
@@ -341,6 +384,15 @@
       <button
         type="button"
         class="tab-btn"
+        class:active={activeTab === 'agent'}
+        onclick={() => (activeTab = 'agent')}
+      >
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1M12 8a4 4 0 100 8 4 4 0 000-8z" /></svg>
+        Agent
+      </button>
+      <button
+        type="button"
+        class="tab-btn"
         class:active={activeTab === 'zalo'}
         onclick={() => (activeTab = 'zalo')}
       >
@@ -372,28 +424,8 @@
                       <strong>{item.name}</strong>
                       <small>{item.credential_kind === 'oauth' ? 'OAuth' : 'API key'}</small>
                     </div>
-                    <code class="provider-secret">
-                      {#if revealedProviderKeys[item.id] !== undefined}
-                        {revealedProviderKeys[item.id] || (item.credential_kind === 'oauth' ? 'OAuth credential' : 'Không có API key')}
-                      {:else}
-                        ••••••••••••••••
-                      {/if}
-                    </code>
+                    <code class="provider-secret">{item.credential_kind === 'oauth' ? 'OAuth credential' : '••••••••••••••••'}</code>
                     <div class="provider-actions">
-                      <button
-                        type="button"
-                        class="icon-btn"
-                        disabled={revealingProvider === item.id || item.credential_kind === 'oauth'}
-                        title={item.credential_kind === 'oauth' ? 'Provider dùng OAuth' : revealedProviderKeys[item.id] !== undefined ? 'Ẩn API key' : 'Hiện API key'}
-                        aria-label={revealedProviderKeys[item.id] !== undefined ? `Ẩn API key ${item.name}` : `Hiện API key ${item.name}`}
-                        onclick={() => void toggleProviderKey(item.id)}
-                      >
-                        {#if revealedProviderKeys[item.id] !== undefined}
-                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.7M9.9 4.2A10.9 10.9 0 0112 4c5.5 0 9.5 5.4 9.5 8a7.7 7.7 0 01-2 3.6M6.2 6.2C4 7.7 2.5 10.2 2.5 12c0 2.6 4 8 9.5 8 1.4 0 2.7-.3 3.9-.8" /></svg>
-                        {:else}
-                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6.5 4 12 4s9.5 8 9.5 8-4 8-9.5 8-9.5-8z" /><circle cx="12" cy="12" r="3" /></svg>
-                        {/if}
-                      </button>
                       <button
                         type="button"
                         class="icon-btn delete-btn"
@@ -515,6 +547,44 @@
             <p class="hint">Không tải được provider catalog: {catalog.error}. Tack sẽ tự thử lại khi backend sẵn sàng.</p>
           {/if}
         </section>
+      {:else if activeTab === 'agent'}
+        <section class="setting-section">
+          <div class="section-title">Công cụ agent</div>
+          <p class="hint">Mặc định Gotack bật toàn bộ 6 công cụ lõi. Đây là cấu hình capability, không phải cơ chế xin quyền từng lần.</p>
+          {#each agentSettings.tools as tool (tool)}
+            <label class="toggle-row">
+              <span>
+                <strong>{tool}</strong>
+                <small>{tool === 'powershell' ? 'Thực thi lệnh hệ thống với quyền của người dùng đang chạy Gotack.' : 'Công cụ lõi của agent.'}</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={!agentSettings.disabled_tools.includes(tool)}
+                disabled={agentBusy}
+                onchange={(event) => void toggleAgentTool(tool, event.currentTarget.checked)}
+              />
+            </label>
+          {/each}
+
+          <div class="section-title mt-3">Project Trust</div>
+          {#if workspaceInfo}
+            <div class="notice">
+              <div><strong>Workspace:</strong> <code>{workspaceInfo.path}</code></div>
+              <div><strong>Trạng thái:</strong> {workspaceInfo.trusted ? 'Trusted' : workspaceInfo.trust_required ? 'Chưa quyết định' : 'Không trusted'}</div>
+              {#if workspaceInfo.protected_resources?.length}
+                <p class="hint">Tài nguyên động: {workspaceInfo.protected_resources.join(', ')}</p>
+              {:else}
+                <p class="hint">Workspace không có tài nguyên động cần trust.</p>
+              {/if}
+            </div>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button type="button" class="btn-notion text-xs" disabled={agentBusy} onclick={() => void setProjectTrust(false)}>Không trust</button>
+              <button type="button" class="btn-notion text-xs" disabled={agentBusy} onclick={() => void resetProjectTrust()}>Kế thừa</button>
+              <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={agentBusy} onclick={() => void setProjectTrust(true)}>Trust project</button>
+            </div>
+          {/if}
+        </section>
+
       {:else if activeTab === 'zalo'}
         <section class="setting-section">
           <div class="section-title">Zalo</div>
@@ -559,7 +629,10 @@
             </div>
           {/if}
 
-          <div class="flex flex-wrap justify-end gap-2 pt-2">
+          {#if zaloPairingCode && zaloPairingExpires}
+  <p class="hint">Mã ghép cặp hết hạn lúc {new Date(zaloPairingExpires * 1000).toLocaleString('vi-VN')}. Tạo mã mới nếu mã đã hết hạn.</p>
+{/if}
+<div class="flex flex-wrap justify-end gap-2 pt-2">
             <button type="button" class="btn-notion text-xs" disabled={zaloBusy || !zaloHasToken} onclick={() => runZalo(() => desktop.testZaloConnection(), 'Kết nối Zalo thành công')}>Kiểm tra kết nối</button>
             <button type="button" class="btn-danger text-xs" disabled={zaloBusy || !zaloHasToken} onclick={removeZalo}>Ngắt kết nối</button>
             <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={zaloSaving || (zaloEnabled && !zaloHasToken && !zaloToken.trim())} onclick={saveZalo}>
@@ -595,7 +668,7 @@
             </span>
             <input type="checkbox" checked={autoStart} disabled={autoStartBusy} onchange={toggleAutoStart} />
           </label>
-          <p class="hint">Đóng cửa sổ chỉ ẩn Tack xuống khay — Zalo bot và tiến trình vẫn chạy ngầm. Muốn tắt hẳn, End Task tiến trình Tack trong Task Manager.</p>
+          <p class="hint">Trên Windows, đóng cửa sổ chỉ ẩn Gotack xuống khay; Zalo tiếp tục hoạt động khi được bật. Chọn Quit Gotack trong khay hệ thống để thoát và dừng engine.</p>
         </section>
       {/if}
     </div>
@@ -603,7 +676,7 @@
     <footer class="px-5 py-3 border-t border-mm-border flex items-center justify-end">
       <div class="flex gap-2">
         <button type="button" class="btn-notion px-3 py-1.5 text-xs" onclick={onClose}>Hủy</button>
-        <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={save}>Lưu & áp dụng</button>
+        <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={save} disabled={savingSettings}>Lưu & áp dụng</button>
       </div>
     </footer>
   </div>

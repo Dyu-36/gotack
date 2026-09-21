@@ -118,6 +118,9 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 		return engineapi.Endpoint{}, fmt.Errorf("engine: prepare isolated configuration: %w", err)
 	}
 	cmd.Env = isolatedEngineEnvironment(engineDir)
+	if executable, err := os.Executable(); err == nil {
+		cmd.Env = bundledPythonEnvironment(cmd.Env, executable)
+	}
 	cmd.Dir = engineDir
 	if keyPath, keyErr := runmetrics.EnsureKey(appconfig.Dir()); keyErr != nil {
 		s.log.Warn("engine: cannot prepare telemetry key", "err", keyErr)

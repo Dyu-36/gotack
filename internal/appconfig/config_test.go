@@ -2,9 +2,6 @@ package appconfig
 
 import (
 	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -104,8 +101,8 @@ func TestDefaults(t *testing.T) {
 	if d.Provider != "" || d.Model != "" || d.Thinking != "" {
 		t.Errorf("agent settings must default empty so engine catalog defaults apply, got provider=%q model=%q thinking=%q", d.Provider, d.Model, d.Thinking)
 	}
-	if d.Zalo.Enabled || d.Zalo.Token != "" {
-		t.Errorf("Zalo must default disabled with no token, got %+v", d.Zalo)
+	if d.Zalo.Enabled {
+		t.Errorf("Zalo must default disabled, got %+v", d.Zalo)
 	}
 }
 
@@ -138,37 +135,5 @@ func TestAddRecentWorkspaceIgnoresCleanVariants(t *testing.T) {
 	}
 	if filepath.Clean(cfg.RecentWorkspaces[0]) != filepath.Clean("/tmp/proj") {
 		t.Fatalf("front entry not normalized: %q", cfg.RecentWorkspaces[0])
-	}
-}
-
-func TestZaloLegacyFieldsCarryDeprecationNotice(t *testing.T) {
-	file, err := parser.ParseFile(token.NewFileSet(), "config.go", nil, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse config.go: %v", err)
-	}
-	notices := map[string]bool{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		spec, ok := node.(*ast.TypeSpec)
-		if !ok || spec.Name.Name != "ZaloSettings" {
-			return true
-		}
-		layout, ok := spec.Type.(*ast.StructType)
-		if !ok {
-			return true
-		}
-		for _, field := range layout.Fields.List {
-			if field.Doc == nil || len(field.Names) == 0 {
-				continue
-			}
-			if strings.Contains(field.Doc.Text(), "Deprecated:") {
-				notices[field.Names[0].Name] = true
-			}
-		}
-		return true
-	})
-	for _, name := range []string{"Token", "AllowedChats"} {
-		if !notices[name] {
-			t.Errorf("ZaloSettings.%s lost its // Deprecated: notice; ImportLegacy still migrates it", name)
-		}
 	}
 }
