@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
 func findProvider(t *testing.T, providers []engineapi.Provider, id string) engineapi.Provider {
@@ -21,12 +22,12 @@ func findProvider(t *testing.T, providers []engineapi.Provider, id string) engin
 }
 
 func TestMergeLocalProviderOverlaysAddsLocalProvidersWhenMissing(t *testing.T) {
-	providers, overlays := mergeLocalProviderOverlays([]engineapi.Provider{{ID: "openai", Name: "OpenAI"}})
+	providers, overlays := providerdomain.MergeLocalOverlays([]engineapi.Provider{{ID: "openai", Name: "OpenAI"}})
 	if len(providers) != 3 {
 		t.Fatalf("provider count = %d, want 3", len(providers))
 	}
-	mistral := findProvider(t, providers, mistralProviderID)
-	if mistral.Type != openAICompatType || mistral.APIEndpoint != mistralDefaultEndpoint {
+	mistral := findProvider(t, providers, providerdomain.MistralID)
+	if mistral.Type != providerdomain.OpenAICompatType || mistral.APIEndpoint != providerdomain.MistralDefaultEndpoint {
 		t.Fatalf("Mistral overlay = %#v", mistral)
 	}
 	if len(mistral.Models) < 3 || !mistral.Models[0].SupportsVision {
@@ -41,25 +42,25 @@ func TestMergeLocalProviderOverlaysAddsLocalProvidersWhenMissing(t *testing.T) {
 	if openai := findProvider(t, providers, openAIProviderID); openai.Name != "OpenAI" {
 		t.Fatalf("OpenAI provider = %#v", openai)
 	}
-	if !overlays[mistralProviderID] || !overlays[codexProviderID] {
+	if !overlays[providerdomain.MistralID] || !overlays[codexProviderID] {
 		t.Fatalf("local overlays = %#v", overlays)
 	}
 }
 
 func TestMergeLocalProviderOverlaysLetsUpstreamMistralWin(t *testing.T) {
 	upstream := engineapi.Provider{
-		ID:          mistralProviderID,
+		ID:          providerdomain.MistralID,
 		Name:        "Mistral upstream",
 		Type:        "openai-compat",
 		APIEndpoint: "https://upstream.example/v1",
 		Models:      []engineapi.Model{{ID: "upstream-model", Name: "Upstream model"}},
 	}
-	providers, overlays := mergeLocalProviderOverlays([]engineapi.Provider{upstream})
-	mistral := findProvider(t, providers, mistralProviderID)
+	providers, overlays := providerdomain.MergeLocalOverlays([]engineapi.Provider{upstream})
+	mistral := findProvider(t, providers, providerdomain.MistralID)
 	if mistral.Name != upstream.Name || mistral.APIEndpoint != upstream.APIEndpoint || mistral.Models[0].ID != "upstream-model" {
 		t.Fatalf("upstream Mistral was changed: %#v", mistral)
 	}
-	if overlays[mistralProviderID] {
+	if overlays[providerdomain.MistralID] {
 		t.Fatal("upstream Mistral must not be marked as a local overlay")
 	}
 }
@@ -70,25 +71,25 @@ func TestMergeProviderModelsKeepsConfiguredMetadataFirst(t *testing.T) {
 		{ID: "mistral-medium-3-5", Name: "Overlay", SupportsVision: true},
 		{ID: "mistral-small-2603", Name: "Small", SupportsVision: true},
 	}
-	models := mergeProviderModels(configured, fallback)
+	models := providerdomain.MergeModels(configured, fallback)
 	if len(models) != 2 || models[0].Name != "Configured" || models[0].SupportsVision || models[1].ID != "mistral-small-2603" {
 		t.Fatalf("merged models = %#v", models)
 	}
 }
 
 func TestLocalProviderIdentityMatchesOnlyStableManagedIdentity(t *testing.T) {
-	spec := mistralProviderSpec()
-	if !localProviderIdentityMatches(engineapi.ProviderConfig{
+	spec := providerdomain.MistralSpec()
+	if !providerdomain.IdentityMatches(engineapi.ProviderConfig{
 		Name:    spec.Provider.Name,
 		Type:    spec.Provider.Type,
 		BaseURL: "https://custom.example/v1",
 	}, spec) {
 		t.Fatal("custom endpoint made a Gotack-managed provider lose ownership")
 	}
-	if localProviderIdentityMatches(engineapi.ProviderConfig{Name: "User Mistral", Type: spec.Provider.Type}, spec) {
+	if providerdomain.IdentityMatches(engineapi.ProviderConfig{Name: "User Mistral", Type: spec.Provider.Type}, spec) {
 		t.Fatal("hand-written provider was treated as Gotack-managed")
 	}
-	if localProviderIdentityMatches(engineapi.ProviderConfig{Name: spec.Provider.Name, Type: "custom"}, spec) {
+	if providerdomain.IdentityMatches(engineapi.ProviderConfig{Name: spec.Provider.Name, Type: "custom"}, spec) {
 		t.Fatal("provider with a custom type was treated as Gotack-managed")
 	}
 }
@@ -120,12 +121,12 @@ func TestPrepareLocalProviderConfigSeedsProviderFields(t *testing.T) {
 		}
 	})
 	api := engineapi.NewClient(&http.Client{Transport: transport})
-	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID)
+	seeded, err := providerdomain.PrepareLocal(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, providerdomain.MistralID)
 	if err != nil {
-		t.Fatalf("prepareLocalProviderConfig() error = %v", err)
+		t.Fatalf("providerdomain.PrepareLocal() error = %v", err)
 	}
 	if !seeded {
-		t.Fatal("prepareLocalProviderConfig() did not seed Mistral")
+		t.Fatal("providerdomain.PrepareLocal() did not seed Mistral")
 	}
 	want := []string{
 		"providers.mistral.discover_models",
@@ -176,16 +177,16 @@ func TestPrepareLocalProviderConfigRetriesWholeBatchAfterFailure(t *testing.T) {
 	})
 	api := engineapi.NewClient(&http.Client{Transport: transport})
 
-	if _, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID); err == nil {
+	if _, err := providerdomain.PrepareLocal(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, providerdomain.MistralID); err == nil {
 		t.Fatal("first prepare succeeded despite batch failure")
 	}
 	failBatch = false
-	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID)
+	seeded, err := providerdomain.PrepareLocal(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, providerdomain.MistralID)
 	if err != nil || !seeded {
 		t.Fatalf("retry prepare = seeded:%v err:%v", seeded, err)
 	}
 	upstreamProviderVisible = true
-	managed, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, mistralProviderID)
+	managed, err := providerdomain.PrepareLocal(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, providerdomain.MistralID)
 	if err != nil || !managed {
 		t.Fatalf("completed provider prepare = managed:%v err:%v", managed, err)
 	}
@@ -221,12 +222,12 @@ func TestPrepareLocalProviderConfigOmitsCredentialFieldsForCodex(t *testing.T) {
 		}
 	})
 	api := engineapi.NewClient(&http.Client{Transport: transport})
-	seeded, err := prepareLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, codexProviderID)
+	seeded, err := providerdomain.PrepareLocal(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, codexProviderID)
 	if err != nil {
-		t.Fatalf("prepareLocalProviderConfig() error = %v", err)
+		t.Fatalf("providerdomain.PrepareLocal() error = %v", err)
 	}
 	if !seeded {
-		t.Fatal("prepareLocalProviderConfig() did not seed Codex")
+		t.Fatal("providerdomain.PrepareLocal() did not seed Codex")
 	}
 	want := []string{
 		"providers.codex.discover_models",
@@ -250,7 +251,7 @@ func TestFinalizeLocalProviderConfigSkipsCodex(t *testing.T) {
 		return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 	})
 	api := engineapi.NewClient(&http.Client{Transport: transport})
-	if err := finalizeLocalProviderConfig(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, codexProviderID); err != nil {
-		t.Fatalf("finalizeLocalProviderConfig() error = %v", err)
+	if err := providerdomain.FinalizeLocal(context.Background(), api, "ws", engineapi.ConfigScopeGlobal, codexProviderID); err != nil {
+		t.Fatalf("providerdomain.FinalizeLocal() error = %v", err)
 	}
 }

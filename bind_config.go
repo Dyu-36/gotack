@@ -89,33 +89,6 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 	return providers, nil
 }
 
-func (a *App) RevealProviderAPIKey(providerID string) (string, error) {
-	svc, err := a.services()
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-
-	workspaceID, err := a.configWorkspaceID(ctx, svc)
-	if err != nil {
-		return "", err
-	}
-	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
-	if err != nil {
-		return "", err
-	}
-	configured, exists := cfg.Providers[strings.TrimSpace(providerID)]
-	if !exists || configured.Disable {
-		return "", fmt.Errorf("provider %q is not configured", providerID)
-	}
-	kind, key, usable := providerdomain.ResolvedCredential(configured)
-	if !usable || kind != "api_key" {
-		return "", fmt.Errorf("provider %q does not have a revealable API key", providerID)
-	}
-	return key, nil
-}
-
 func (a *App) DeleteProvider(providerID string) error {
 	providerID = strings.TrimSpace(providerID)
 	if !providerdomain.ValidID(providerID) {
@@ -171,7 +144,6 @@ func (a *App) SaveSettings(settings SettingsInfo) error {
 	next.Provider = strings.TrimSpace(effective.Provider)
 	next.Model = strings.TrimSpace(effective.Model)
 	next.Thinking = strings.TrimSpace(effective.Thinking)
-	next.APIKey = ""
 	credentialProvider := strings.TrimSpace(effective.CredentialProvider)
 	if credentialProvider == "" || credentialProvider == next.Provider {
 		next.CustomURL = strings.TrimSpace(effective.CustomURL)

@@ -13,6 +13,7 @@ import (
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/logging"
+	"github.com/Dyu-36/gotack/internal/projecttrust"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/uievents"
 	"github.com/Dyu-36/gotack/internal/workspace"
@@ -35,7 +36,9 @@ type engineController interface {
 }
 
 type App struct {
-	ctx context.Context
+	quitting     atomic.Bool
+	shutdownOnce sync.Once
+	ctx          context.Context
 
 	cfg *appconfig.Config
 	log *slog.Logger
@@ -43,7 +46,8 @@ type App struct {
 	sup  engineController
 	link *engine.Link
 
-	zalo *zalo.Manager
+	zalo         *zalo.Manager
+	projectTrust *projecttrust.Store
 
 	workspaceRuntime     *workspaceconfig.Manager
 	workspaceRuntimeOnce sync.Once
@@ -99,25 +103,20 @@ func (a *App) startup(ctx context.Context) {
 	}
 	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.sup = sup
-	a.link = engine.NewLink(sup)
+	a.link = engine.NewLink(sup, expectedEngineCommit(cfg.EngineBinary))
 
+	a.projectTrust = projecttrust.New(filepath.Join(appconfig.Dir(), "project-trust.json"))
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
 		Workspace: a.workspacePath,
 	}, a.log)
 
-	//lint:ignore SA1019 legacy Zalo config migration remains supported until Gotack v1.0.
-	if err := a.zalo.ImportLegacy(cfg.Zalo.Token, cfg.Zalo.AllowedChats); err != nil && a.log != nil {
-		a.log.Warn("zalo legacy import failed", "err", err)
-	}
 	a.wireZaloRuntime()
 
 	a.registerFileDrop()
 	go attachments.PruneCache()
 
 	a.tryConnect()
-	if a.zalo.Status().Configured {
-		a.zalo.Start()
-	}
+	a.startZaloIfEnabled()
 	startTray(a)
 }
 
@@ -131,16 +130,26 @@ func (a *App) showMainWindow() {
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	c := a.getConn()
-	if c == nil {
-		return
-	}
-
-	a.link.CancelScope()
-	if a.zalo != nil {
-		a.zalo.Stop()
-	}
-	if a.cfg != nil {
-		_ = appconfig.Save(a.cfg)
-	}
+	a.shutdownOnce.Do(func() {
+		if a.link != nil {
+			a.link.CancelScope()
+		}
+		if a.zalo != nil {
+			a.zalo.Stop()
+		}
+		if c := a.getConn(); c != nil && c.fwd != nil {
+			c.fwd.Stop()
+		}
+		if a.sup != nil && a.sup.Owned() {
+			if err := a.sup.Stop(); err != nil && a.log != nil {
+				a.log.Error("stop owned engine on exit", "err", err)
+			}
+		}
+		a.conn.Store(nil)
+		if a.cfg != nil {
+			if err := appconfig.Save(a.cfg); err != nil && a.log != nil {
+				a.log.Error("save desktop settings on exit", "err", err)
+			}
+		}
+	})
 }

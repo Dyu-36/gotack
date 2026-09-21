@@ -1,4 +1,4 @@
-import { desktop, type EngineInfo } from '../../platform/desktop'
+import { desktop, type EngineInfo, type WorkspaceInfo } from '../../platform/desktop'
 import { type ChatAttachment, type Conversation, type ReasoningEffort, type SessionSummary } from './types.svelte'
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
@@ -14,6 +14,7 @@ export function createLiveConversationState() {
   let input = $state('')
   let attachments = $state<ChatAttachment[]>([])
   let workspace = $state(DEFAULT_WORKSPACE_LABEL)
+  let workspaceInfo = $state<WorkspaceInfo | null>(null)
   let backendReady = $state(false)
   let engine = $state<EngineInfo | null>(null)
   let error = $state('')
@@ -55,6 +56,7 @@ export function createLiveConversationState() {
     input: { get value() { return input }, set value(v) { input = v } },
     attachments: { get value() { return attachments }, set value(v) { attachments = v } },
     workspace: { get value() { return workspace }, set value(v) { workspace = v } },
+    workspaceInfo: { get value() { return workspaceInfo }, set value(v) { workspaceInfo = v } },
     streamingText: { get value() { return streamingText }, set value(v) { streamingText = v } },
     reportError, clearError, updateConversation, rememberSession,
     applyLoadedSelection: (providerID, modelID) => engineState.applyLoadedSelection(providerID, modelID),
@@ -85,13 +87,14 @@ export function createLiveConversationState() {
 
   return {
     get sessions(): SessionSummary[] {
-      return conversations.map(({ id, title, updatedAt, pinned, status: s }) => ({ id, title, updatedAt, pinned, streaming: s === 'streaming' }))
+      return conversations.map(({ id, parentSessionId, title, updatedAt, pinned, status: s }) => ({ id, parentSessionId, title, updatedAt, pinned, streaming: s === 'streaming' }))
     },
     get activeId() { return activeId },
     get active() { return conversations.find((item) => item.id === activeId) },
     get input() { return input },
     get attachments() { return attachments },
     get workspace() { return workspace },
+    get workspaceInfo() { return workspaceInfo },
     get backendReady() { return backendReady },
     get engine() { return engine },
     get error() { return error },
@@ -136,7 +139,16 @@ export function createLiveConversationState() {
     },
     destroy: () => { clearError(); engineState.destroy() },
     pickWorkspace: () => messages.pickWorkspace(),
+    setWorkspaceTrust: async (trusted: boolean) => {
+      try {
+        workspaceInfo = await desktop.setWorkspaceTrust(trusted)
+        clearError()
+      } catch (cause) { reportError(cause, 'Project trust') }
+    },
     create: () => messages.create(),
+    clone: (id: string) => messages.clone(id),
+    fork: (id: string, messageID: string) => messages.fork(id, messageID),
+    compact: (id: string) => messages.compact(id),
     select: (id: string) => messages.select(id),
     send: () => messages.send(),
     cancel: () => messages.cancel(),

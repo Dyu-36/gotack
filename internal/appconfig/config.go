@@ -22,7 +22,6 @@ type Config struct {
 	Provider          string                             `json:"provider,omitempty"`
 	Model             string                             `json:"model,omitempty"`
 	Thinking          string                             `json:"thinking,omitempty"`
-	APIKey            string                             `json:"api_key,omitempty"`
 	CustomURL         string                             `json:"custom_url,omitempty"`
 	ModelCapabilities map[string]ModelCapabilityOverride `json:"model_capabilities,omitempty"`
 	Zalo              ZaloSettings                       `json:"zalo,omitempty"`
@@ -35,19 +34,6 @@ type ModelCapabilityOverride struct {
 
 type ZaloSettings struct {
 	Enabled bool `json:"enabled,omitempty"`
-	// Token carried the bot token before the channel state file existed.
-	//
-	// Deprecated: the channel state file (<configDir>/zalo.json) owns the
-	// token now; this field is consumed only once at startup by
-	// zalo.Manager.ImportLegacy. Removal target: Gotack v1.0 — drop the
-	// field, the ImportLegacy call site, and ImportLegacy together.
-	Token string `json:"token,omitempty"`
-	// AllowedChats carried the pre-pairing allow-list.
-	//
-	// Deprecated: paired chats live in the channel state file now; this
-	// field is consumed only once at startup by zalo.Manager.ImportLegacy.
-	// Removal target: Gotack v1.0, together with Token.
-	AllowedChats []string `json:"allowed_chats,omitempty"`
 }
 
 func Defaults() *Config {

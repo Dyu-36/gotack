@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,9 @@ func (m *Manager) run(ctx context.Context, generation uint64, done chan struct{}
 		}
 		m.mu.Unlock()
 	}()
+	var dispatches sync.WaitGroup
+	defer dispatches.Wait()
+	slots := make(chan struct{}, 8)
 	backoff := minBackoff
 	var client *Client
 	var clientToken string
@@ -89,13 +93,26 @@ func (m *Manager) run(ctx context.Context, generation uint64, done chan struct{}
 			if !m.remember(update) {
 				continue
 			}
-			go m.dispatch(context.Background(), client, update)
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			dispatches.Add(1)
+			go func(c *Client, u Update) {
+				defer dispatches.Done()
+				defer func() { <-slots }()
+				m.dispatch(ctx, c, u)
+			}(client, update)
 		}
 	}
 }
 
 func (m *Manager) remember(update Update) bool {
-	key := update.MessageID
+	key := ""
+	if update.MessageID != "" {
+		key = update.ChatID + "\x00" + update.MessageID
+	}
 	if key == "" && update.UpdateID != nil {
 		key = fmt.Sprintf("update:%d", *update.UpdateID)
 	}
@@ -126,8 +143,8 @@ func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	state := m.snapshot()
 	paired := contains(state.PairedChatIDs, update.ChatID)
 
-	if command == "/pair" || strings.HasPrefix(strings.ToLower(text), "/pair") {
-		m.handlePair(ctx, client, update.ChatID, text, paired, state.PairingCode)
+	if command == "/pair" {
+		m.handlePair(ctx, client, update.ChatID, text)
 		return
 	}
 	if !paired {
@@ -167,172 +184,29 @@ func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	}
 }
 
-func (m *Manager) handlePair(ctx context.Context, client *Client, chatID, text string, paired bool, expected string) {
-	if paired {
-		m.reply(ctx, client, chatID, "✅ Tài khoản Zalo này đã ghép cặp với Gotack rồi.\n\n/help để xem các lệnh.")
-		return
-	}
+func (m *Manager) handlePair(ctx context.Context, client *Client, chatID, text string) {
 	fields := strings.Fields(text)
 	code := ""
-	if len(fields) > 1 {
+	if len(fields) == 2 {
 		code = fields[1]
 	}
-	if expected == "" {
-		m.reply(ctx, client, chatID, "⚠️ Chưa có mã ghép cặp. Hãy mở Gotack → Cài đặt → Zalo để lấy mã.")
-		return
-	}
-	if code != expected {
-		m.reply(ctx, client, chatID, "❌ Mã ghép cặp không đúng. Hãy xem mã 6 số trong Cài đặt → Zalo và nhắn lại /pair <mã>.")
-		return
-	}
-	m.mu.Lock()
-	if !contains(m.state.PairedChatIDs, chatID) {
-		m.state.PairedChatIDs = append(m.state.PairedChatIDs, chatID)
-	}
-	m.state.PairingCode = pairingCode()
-	err := m.saveLocked()
-	m.mu.Unlock()
-	if err != nil {
-		m.reply(ctx, client, chatID, "⚠️ "+err.Error())
+	if err := m.acceptPairing(chatID, code, time.Now()); err != nil {
+		m.reply(ctx, client, chatID, err.Error())
 		return
 	}
 	m.log.Info("zalo chat paired", "chat", chatID)
 	m.reply(ctx, client, chatID, helpText)
 }
 
-func (m *Manager) startTurn(ctx context.Context, client *Client, update Update) {
-	if m.runtime.Start == nil {
-		m.reply(ctx, client, update.ChatID, "Gotack hiện chưa sẵn sàng xử lý yêu cầu.")
-		return
-	}
-	m.mu.Lock()
-	if _, busy := m.active[update.ChatID]; busy {
-		m.mu.Unlock()
-		m.reply(ctx, client, update.ChatID, "Bot đang xử lý yêu cầu trước đó, vui lòng đợi chút rồi thử lại.")
-		return
-	}
-	existingSession := m.state.ChatSessions[update.ChatID]
-	m.active[update.ChatID] = "starting"
-	m.mu.Unlock()
-
-	content := strings.TrimSpace(update.Text)
-	if update.AttachmentURL != "" {
-		client.SendChatAction(ctx, update.ChatID, "typing")
-		inbox := filepath.Join(os.TempDir(), "gotack-zalo-inbox")
-		path, err := client.DownloadAttachment(ctx, update.AttachmentURL, inbox)
-		if err != nil {
-			m.reply(ctx, client, update.ChatID, "⚠️ Không tải được tệp bạn gửi: "+err.Error())
-		} else {
-			m.reply(ctx, client, update.ChatID, "📥 Đã nhận "+filepath.Base(path)+", đang xử lý...")
-			if content == "" {
-				content = defaultFilePrompt
-			}
-			content += "\n\nTệp Zalo đã tải về máy tại: " + path
-		}
-	}
-	if content == "" {
-		m.mu.Lock()
-		delete(m.active, update.ChatID)
-		m.mu.Unlock()
-		return
-	}
-	startedAt := time.Now().Add(-5 * time.Second)
-	sessionID, err := m.runtime.Start(ctx, existingSession, update.ChatID, content)
-	if err != nil {
-		m.mu.Lock()
-		delete(m.active, update.ChatID)
-		m.mu.Unlock()
-		m.log.Warn("zalo request rejected", "chat", update.ChatID, "err", err)
-		m.reply(ctx, client, update.ChatID, "Gotack hiện chưa sẵn sàng xử lý yêu cầu.")
-		return
-	}
-	m.mu.Lock()
-	m.active[update.ChatID] = sessionID
-	m.state.ChatSessions[update.ChatID] = sessionID
-	if err := m.saveLocked(); err != nil {
-		m.lastError = err.Error()
-	}
-	m.mu.Unlock()
-	client.SendChatAction(ctx, update.ChatID, "typing")
-	m.log.Info("zalo turn started", "chat", update.ChatID, "session", sessionID, "started", startedAt)
-}
-
-func (m *Manager) Done(sessionID, text string) {
-	m.mu.Lock()
-	chatID := ""
-	for chat, activeSession := range m.active {
-		if activeSession == sessionID {
-			chatID = chat
-			delete(m.active, chat)
-			break
-		}
-	}
-	state := m.state
-	m.mu.Unlock()
-	if chatID == "" || state.Token == "" {
-		return
-	}
-	go func() {
-		client, err := m.newClient(state.Token)
-		if err != nil {
-			m.setError(err)
-			return
-		}
-		m.deliverAnswer(context.Background(), client, chatID, text)
-	}()
-}
-
-func (m *Manager) deliverAnswer(ctx context.Context, client *Client, chatID, text string) {
-	workspace := ""
-	if m.runtime.Workspace != nil {
-		workspace = m.runtime.Workspace()
-	}
-	paths := extractMediaPaths(text, workspace, time.Time{})
-	clean := sanitizeReply(text)
-	if clean == "" {
-		clean = "✅ Đã xong."
-	}
-	for _, part := range chunkText(clean, maxMessageChars) {
-		if err := client.SendMessage(ctx, chatID, part); err != nil {
-			m.setError(err)
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	for _, path := range paths {
-		if err := m.sendPath(ctx, client, chatID, path); err != nil {
-			m.reply(ctx, client, chatID, "⚠️ Không gửi được "+filepath.Base(path)+": "+err.Error())
-		}
-	}
-}
-
-func (m *Manager) stopTurn(ctx context.Context, client *Client, chatID string) {
-	m.mu.Lock()
-	sessionID, active := m.active[chatID]
-	m.mu.Unlock()
-	if !active || sessionID == "starting" {
-		m.reply(ctx, client, chatID, "Hiện không có việc nào đang chạy.")
-		return
-	}
-	if m.runtime.Stop == nil {
-		m.reply(ctx, client, chatID, "⚠️ Không dừng được yêu cầu này.")
-		return
-	}
-	if err := m.runtime.Stop(ctx, sessionID); err != nil {
-		m.reply(ctx, client, chatID, "⚠️ Không dừng được: "+err.Error())
-		return
-	}
-	m.reply(ctx, client, chatID, "🛑 Đã dừng việc đang chạy.")
-}
-
 func (m *Manager) sendRuntimeStatus(ctx context.Context, client *Client, chatID string) {
+	runtime := m.runtimeSnapshot()
 	m.mu.Lock()
 	sessionID := m.state.ChatSessions[chatID]
 	_, busy := m.active[chatID]
 	m.mu.Unlock()
 	title := "chưa có (nhắn một câu là tạo)"
-	if sessionID != "" && m.runtime.Session != nil {
-		if value, err := m.runtime.Session(ctx, sessionID); err == nil && value != "" {
+	if sessionID != "" && runtime.Session != nil {
+		if value, err := runtime.Session(ctx, sessionID); err == nil && value != "" {
 			title = value
 		}
 	}
@@ -344,11 +218,12 @@ func (m *Manager) sendRuntimeStatus(ctx context.Context, client *Client, chatID 
 }
 
 func (m *Manager) sendModel(ctx context.Context, client *Client, chatID string) {
-	if m.runtime.Model == nil {
+	runtime := m.runtimeSnapshot()
+	if runtime.Model == nil {
 		m.reply(ctx, client, chatID, "⚠️ Không đọc được mô hình đang dùng.")
 		return
 	}
-	model, err := m.runtime.Model(ctx)
+	model, err := runtime.Model(ctx)
 	if err != nil {
 		m.reply(ctx, client, chatID, "⚠️ Không đọc được cài đặt: "+err.Error())
 		return
@@ -370,9 +245,10 @@ func (m *Manager) sendScreenshot(ctx context.Context, client *Client, chatID str
 }
 
 func (m *Manager) handleSendFile(ctx context.Context, client *Client, chatID, argument string) {
+	runtime := m.runtimeSnapshot()
 	workspace := ""
-	if m.runtime.Workspace != nil {
-		workspace = m.runtime.Workspace()
+	if runtime.Workspace != nil {
+		workspace = runtime.Workspace()
 	}
 	if strings.TrimSpace(argument) == "" {
 		files := listOutputFiles(workspace)
@@ -444,10 +320,16 @@ func (m *Manager) SendFile(ctx context.Context, path, chatID string) (string, er
 }
 
 func (m *Manager) sendPath(ctx context.Context, client *Client, chatID, path string) error {
+	if !m.paired(chatID) {
+		return fmt.Errorf("Zalo chat is no longer paired")
+	}
 	client.SendChatAction(ctx, chatID, map[bool]string{true: "upload_photo", false: "typing"}[isImageFile(path)])
 	url, err := uploadFile(ctx, path)
 	if err != nil {
 		return err
+	}
+	if !m.paired(chatID) {
+		return fmt.Errorf("Zalo chat was unpaired while uploading")
 	}
 	if isImageFile(path) {
 		return client.SendPhotoURL(ctx, chatID, url, "🖼️ "+filepath.Base(path))

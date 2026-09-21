@@ -12,6 +12,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -82,8 +83,8 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 	if len(providers) != 3 || providers[0].ID != "anthropic" || len(providers[0].Models) != 1 {
 		t.Fatalf("ListProviders() = %#v", providers)
 	}
-	mistral := findProvider(t, providers, mistralProviderID)
-	if mistral.APIEndpoint != mistralDefaultEndpoint || len(mistral.Models) == 0 {
+	mistral := findProvider(t, providers, providerdomain.MistralID)
+	if mistral.APIEndpoint != providerdomain.MistralDefaultEndpoint || len(mistral.Models) == 0 {
 		t.Fatalf("Mistral overlay = %#v", mistral)
 	}
 
@@ -111,7 +112,7 @@ func jsonHTTPResponse(status int, body string) *http.Response {
 
 func TestResolvedProviderCredentialRejectsUnsetEnvTemplate(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "")
-	kind, value, ok := resolvedProviderCredential(engineapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
+	kind, value, ok := providerdomain.ResolvedCredential(engineapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
 	if ok || kind != "" || value != "" {
 		t.Fatalf("unset env template reported usable: kind=%q value=%q ok=%v", kind, value, ok)
 	}
@@ -119,23 +120,23 @@ func TestResolvedProviderCredentialRejectsUnsetEnvTemplate(t *testing.T) {
 
 func TestResolvedProviderCredentialResolvesEnvTemplate(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "minimax-secret")
-	kind, value, ok := resolvedProviderCredential(engineapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
+	kind, value, ok := providerdomain.ResolvedCredential(engineapi.ProviderConfig{APIKey: "$MINIMAX_API_KEY"})
 	if !ok || kind != "api_key" || value != "minimax-secret" {
 		t.Fatalf("resolved env credential = kind=%q value=%q ok=%v", kind, value, ok)
 	}
 }
 
 func TestResolvedProviderCredentialAcceptsLiteralKey(t *testing.T) {
-	kind, value, ok := resolvedProviderCredential(engineapi.ProviderConfig{APIKey: "literal-secret"})
+	kind, value, ok := providerdomain.ResolvedCredential(engineapi.ProviderConfig{APIKey: "literal-secret"})
 	if !ok || kind != "api_key" || value != "literal-secret" {
 		t.Fatalf("literal credential = kind=%q value=%q ok=%v", kind, value, ok)
 	}
 }
 
 func TestProviderReasoningPreservesMax(t *testing.T) {
-	effort, think := providerReasoning("max")
+	effort, think := providerdomain.Reasoning("max")
 	if effort != "max" || !think {
-		t.Fatalf("providerReasoning(max) = effort=%q think=%v", effort, think)
+		t.Fatalf("providerdomain.Reasoning(max) = effort=%q think=%v", effort, think)
 	}
 }
 

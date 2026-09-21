@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -125,11 +126,11 @@ func TestSelectChatGPTModelUsesLiveCatalog(t *testing.T) {
 		Models:              []engineapi.Model{{ID: "gpt-default"}, {ID: "gpt-existing"}},
 	}}
 
-	model, err := selectChatGPTModel(providers, "gpt-existing")
+	model, err := providerdomain.SelectChatGPTModel(providers, "gpt-existing")
 	if err != nil || model != "gpt-existing" {
 		t.Fatalf("existing model: got %q, %v", model, err)
 	}
-	model, err = selectChatGPTModel(providers, "gpt-retired")
+	model, err = providerdomain.SelectChatGPTModel(providers, "gpt-retired")
 	if err != nil || model != "gpt-default" {
 		t.Fatalf("fallback model: got %q, %v", model, err)
 	}
@@ -305,8 +306,8 @@ func TestSelectionStrandedOnLegacyOpenAI(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := selectionStrandedOnLegacyOpenAI(tc.cfg, tc.provider); got != tc.want {
-				t.Fatalf("selectionStrandedOnLegacyOpenAI() = %v, want %v", got, tc.want)
+			if got := providerdomain.SelectionStrandedOnLegacyOpenAI(tc.cfg, tc.provider); got != tc.want {
+				t.Fatalf("providerdomain.SelectionStrandedOnLegacyOpenAI() = %v, want %v", got, tc.want)
 			}
 		})
 	}

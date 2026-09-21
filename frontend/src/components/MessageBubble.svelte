@@ -10,9 +10,10 @@
   type Props = {
     message: Message
     isStreaming?: boolean
+    onFork?: (messageId: string) => void
   }
 
-  let { message, isStreaming = false }: Props = $props()
+  let { message, isStreaming = false, onFork }: Props = $props()
 
   let copied = $state(false)
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
@@ -108,6 +109,16 @@
         >
           {copied ? 'Đã sao chép' : 'Sao chép'}
         </button>
+        {#if onFork}
+          <button
+            type="button"
+            class="text-xs text-mm-secondary hover:text-mm-text transition-colors cursor-pointer"
+            onclick={() => onFork?.(message.id)}
+            title="Tạo nhánh hội thoại từ tin nhắn này"
+          >
+            Fork
+          </button>
+        {/if}
       </div>
     </div>
   </div>

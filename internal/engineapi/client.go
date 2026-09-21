@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,13 +15,13 @@ import (
 )
 
 const (
-	healthPath         = "/v1/health"
 	versionPath        = "/v1/version"
 	workspacesPath     = "/v1/workspaces"
 	agentPath          = "/v1/workspaces/{id}/agent"
 	agentInitPath      = "/v1/workspaces/{id}/agent/init"
 	agentRefreshPath   = "/v1/workspaces/{id}/agent/refresh-prompt"
 	cancelPath         = "/v1/workspaces/{id}/agent/sessions/{sid}/cancel"
+	summarizePath      = "/v1/workspaces/{id}/agent/sessions/{sid}/summarize"
 	currentSessionPath = "/v1/workspaces/{id}/current-session"
 	sessionsPath       = "/v1/workspaces/{id}/sessions"
 	messagesPath       = "/v1/workspaces/{id}/sessions/{sid}/messages"
@@ -38,23 +39,6 @@ func NewClient(hc *http.Client) *Client {
 }
 
 func (c *Client) ID() string { return c.clientID }
-
-func Ping(hc *http.Client, ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL(healthPath), nil)
-	if err != nil {
-		return err
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return decodeError(resp)
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return nil
-}
 
 func (c *Client) Version(ctx context.Context) (VersionInfo, error) {
 	var v VersionInfo
@@ -192,6 +176,14 @@ func (c *Client) EnsureAgent(ctx context.Context, wsID string, interactive bool)
 		return nil
 	}
 	return c.InitAgent(ctx, wsID, interactive)
+}
+
+func (c *Client) SummarizeSession(ctx context.Context, wsID, sessionID string) error {
+	if wsID == "" || sessionID == "" {
+		return errors.New("engineapi: workspace id and session id are required")
+	}
+	path := expandPath(summarizePath, "id", wsID, "sid", sessionID)
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
 }
 
 func (c *Client) CancelPrompt(ctx context.Context, wsID, sessionID string) error {

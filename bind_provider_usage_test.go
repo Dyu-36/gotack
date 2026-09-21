@@ -14,34 +14,34 @@ func TestProviderUsageFromChatGPTPreservesProviderWindows(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(1_700_000_000, 0)
-	usage := providerUsageFromChatGPT(chatGPTUsagePayload{
+	usage := providerUsageInfoFromDomain(providerdomain.UsageFromChatGPT(providerdomain.ChatGPTUsagePayload{
 		PlanType: "plus",
-		RateLimit: &chatGPTRateLimitDetails{
+		RateLimit: &providerdomain.ChatGPTRateLimitDetails{
 			Allowed: true,
-			PrimaryWindow: &chatGPTRateLimitWindow{
+			PrimaryWindow: &providerdomain.ChatGPTRateLimitWindow{
 				UsedPercent:        36,
 				LimitWindowSeconds: 18_000,
 				ResetAt:            1_700_003_600,
 			},
-			SecondaryWindow: &chatGPTRateLimitWindow{
+			SecondaryWindow: &providerdomain.ChatGPTRateLimitWindow{
 				UsedPercent:        72,
 				LimitWindowSeconds: 604_800,
 				ResetAt:            1_700_086_400,
 			},
 		},
-		AdditionalRateLimits: []chatGPTAdditionalRateLimit{{
+		AdditionalRateLimits: []providerdomain.ChatGPTAdditionalRateLimit{{
 			LimitName: "Codex Spark",
-			RateLimit: &chatGPTRateLimitDetails{
+			RateLimit: &providerdomain.ChatGPTRateLimitDetails{
 				Allowed:      false,
 				LimitReached: true,
-				PrimaryWindow: &chatGPTRateLimitWindow{
+				PrimaryWindow: &providerdomain.ChatGPTRateLimitWindow{
 					UsedPercent:        101,
 					LimitWindowSeconds: 86_400,
 					ResetAfterSeconds:  900,
 				},
 			},
 		}},
-	}, now)
+	}, now))
 
 	if !usage.Available {
 		t.Fatal("usage should be available")
@@ -88,14 +88,15 @@ func TestFetchChatGPTUsageSendsAccountScopedHeaders(t *testing.T) {
 	defer server.Close()
 
 	now := time.Unix(1_700_000_000, 0)
-	usage, err := fetchChatGPTUsage(context.Background(), server.Client(), server.URL, providerdomain.OpenAIOAuthToken{
+	domainUsage, err := providerdomain.FetchChatGPTUsage(context.Background(), server.Client(), server.URL, providerdomain.OpenAIOAuthToken{
 		AccessToken:    "access-token",
 		AccountID:      "account-123",
 		AccountFedRAMP: true,
 	}, now)
 	if err != nil {
-		t.Fatalf("fetchChatGPTUsage() error = %v", err)
+		t.Fatalf("FetchChatGPTUsage() error = %v", err)
 	}
+	usage := providerUsageInfoFromDomain(domainUsage)
 	if len(usage.Windows) != 1 || usage.Windows[0].RemainingPercent != 75 {
 		t.Fatalf("usage = %#v", usage)
 	}

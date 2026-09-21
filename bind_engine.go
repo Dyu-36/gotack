@@ -107,9 +107,7 @@ func (a *App) connect(scope context.Context) {
 		a.emit(uievents.EngineStatus, status)
 
 		a.reapplySavedWorkspaceSettings()
-		if a.zalo != nil && a.zalo.Status().Configured {
-			a.zalo.Start()
-		}
+		a.startZaloIfEnabled()
 		return nil
 	})
 	switch {
@@ -198,6 +196,9 @@ func (a *App) replaceWorkspaceStream(workspaceID string) error {
 }
 
 func (a *App) stopTransport() {
+	if a.zalo != nil {
+		a.zalo.Stop()
+	}
 	if a.getConn() == nil {
 		return
 	}
@@ -215,9 +216,6 @@ func (a *App) stopTransport() {
 	a.link.Disconnect()
 	if fwd != nil {
 		fwd.Stop()
-	}
-	if a.zalo != nil {
-		a.zalo.Stop()
 	}
 	a.emit(uievents.EngineStatus, a.engineInfo())
 }
