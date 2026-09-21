@@ -88,8 +88,11 @@ jobs:
             exit 1
           fi
           (cd .engine-source && staticcheck ./...)
-          (cd .engine-source && deadcode -test ./... > ../engine-deadcode.txt)
-          test ! -s engine-deadcode.txt || { cat engine-deadcode.txt; exit 1; }
+          # Analyze the actual shipped engine entrypoint, not every test binary.
+          # The Windows product job repeats this on Windows so build-tagged code
+          # is checked on the platform we distribute.
+          (cd .engine-source && deadcode . > ../engine-deadcode-linux.txt)
+          test ! -s engine-deadcode-linux.txt || { cat engine-deadcode-linux.txt; exit 1; }
           (cd .engine-source && go test -race -mod=readonly -count=1 ./internal/agent ./internal/projects ./internal/fsext)
       - name: Verify and build pinned engine
         shell: pwsh
@@ -150,6 +153,22 @@ jobs:
         run: |
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
           if ($LASTEXITCODE -ne 0) { throw 'Cannot install Wails' }
+      - name: Check shipped engine dead code on Windows
+        shell: pwsh
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@v0.49.0
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install deadcode analyzer' }
+          Push-Location .engine-source
+          try {
+            $dead = @(deadcode .)
+            if ($LASTEXITCODE -ne 0) { throw 'deadcode analysis failed' }
+            if ($dead.Count -gt 0) {
+              $dead | ForEach-Object { Write-Host $_ }
+              throw 'Unreachable code remains in the shipped Windows engine'
+            }
+          } finally {
+            Pop-Location
+          }
       - name: Build verified complete product
         shell: pwsh
         run: ./scripts/build-product.ps1 -EngineSource .engine-source
