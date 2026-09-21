@@ -140,14 +140,14 @@ func TestBridgeAgentReadEditAndRemoteCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := api.SetCurrentSession(ctx, ws.ID, visible.ID); err != nil {
-		t.Fatal(err)
-	}
 	events, stop, err := api.Stream(ctx, ws.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer stop()
+	if err := api.SetCurrentSession(ctx, ws.ID, visible.ID); err != nil {
+		t.Fatal(err)
+	}
 	runID := uuid.NewString()
 	if err := api.SendPromptWithPurpose(ctx, ws.ID, remote.ID, "Read roundtrip.txt, replace before with after, then confirm the edit.", runID, "zalo", nil); err != nil {
 		t.Fatal(err)

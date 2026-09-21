@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
@@ -54,7 +52,7 @@ func (s *Service) open(ctx context.Context, path, dataDir string) (Descriptor, e
 		return Descriptor{}, err
 	}
 
-	ws, err := s.findOrCreate(ctx, clean, dataDir)
+	ws, err := s.claimWorkspace(ctx, clean, dataDir)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -88,44 +86,17 @@ func (s *Service) preparePath(path string) (string, error) {
 	return clean, nil
 }
 
-func (s *Service) findOrCreate(ctx context.Context, clean, dataDir string) (engineapi.Workspace, error) {
+func (s *Service) claimWorkspace(ctx context.Context, clean, dataDir string) (engineapi.Workspace, error) {
 	if s.api == nil {
 		return engineapi.Workspace{}, errors.New("engine client not configured")
 	}
-
-	existing, err := s.api.ListWorkspaces(ctx)
-	if err != nil {
-		return engineapi.Workspace{}, fmt.Errorf("list workspaces: %w", err)
-	}
-	for _, w := range existing {
-		if samePath(w.Path, clean) {
-			return w, nil
-		}
-	}
-
+	// The engine's create endpoint is intentionally idempotent by workspace
+	// path. Calling it for every open both reuses an existing workspace and
+	// registers this client ID, which is required by current-session and
+	// presence semantics after reconnects.
 	ws, err := s.api.CreateWorkspaceWithDataDir(ctx, clean, dataDir, true)
 	if err != nil {
-		return engineapi.Workspace{}, fmt.Errorf("create workspace: %w", err)
+		return engineapi.Workspace{}, fmt.Errorf("claim workspace: %w", err)
 	}
 	return ws, nil
-}
-
-func samePath(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	ca, err := filepath.Abs(a)
-	if err != nil {
-		ca = a
-	}
-	cb, err := filepath.Abs(b)
-	if err != nil {
-		cb = b
-	}
-	ca = filepath.Clean(ca)
-	cb = filepath.Clean(cb)
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		return strings.EqualFold(ca, cb)
-	}
-	return ca == cb
 }
