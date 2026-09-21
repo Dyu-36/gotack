@@ -6,11 +6,46 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
 )
+
+type samePathTestCase struct {
+	name string
+	a, b string
+	want bool
+}
+
+func TestSamePathPlatformConvention(t *testing.T) {
+	cases := []samePathTestCase{
+		{name: "identical", a: "/tmp/proj", b: "/tmp/proj", want: true},
+		{name: "empty", a: "", b: "/tmp/proj", want: false},
+		{name: "trailing slash cleaned", a: "/tmp/proj", b: "/tmp/proj/", want: true},
+		{name: "double slash collapsed", a: "/tmp/proj", b: "/tmp//proj", want: true},
+		{name: "dot segment cleaned", a: "/tmp/proj", b: "/tmp/./proj", want: true},
+		{name: "different dir", a: "/tmp/proj", b: "/tmp/other", want: false},
+	}
+
+	caseInsensitive := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	if caseInsensitive {
+		cases = append(cases,
+			samePathTestCase{name: "case differs windows fs", a: "C:\\Proj", b: "c:\\proj", want: true},
+		)
+	} else {
+		cases = append(cases,
+			samePathTestCase{name: "case differs posix fs", a: "/tmp/Proj", b: "/tmp/proj", want: false},
+		)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := samePath(tc.a, tc.b); got != tc.want {
+				t.Fatalf("samePath(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestOpenCreatesWorkspaceWithPermissionsSkipped(t *testing.T) {
 	dir := t.TempDir()
@@ -50,7 +85,7 @@ func TestOpenCreatesWorkspaceWithPermissionsSkipped(t *testing.T) {
 	if !gotYOLO {
 		t.Fatal("CreateWorkspace() did not enable YOLO/permission-skip mode")
 	}
-	if filepath.Clean(gotPath) != filepath.Clean(dir) {
+	if !samePath(gotPath, dir) {
 		t.Fatalf("CreateWorkspace() path = %q, want %q", gotPath, dir)
 	}
 }
