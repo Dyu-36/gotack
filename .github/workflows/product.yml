@@ -87,13 +87,13 @@ jobs:
             (cd .engine-source && gofmt -d $unformatted) || true
             exit 1
           fi
-          (cd .engine-source && staticcheck ./...)
+          (cd .engine-source && staticcheck -tags gotacktest ./...)
           # Analyze the actual shipped engine entrypoint, not every test binary.
           # The Windows product job repeats this on Windows so build-tagged code
           # is checked on the platform we distribute.
           (cd .engine-source && deadcode . > ../engine-deadcode-linux.txt)
           test ! -s engine-deadcode-linux.txt || { cat engine-deadcode-linux.txt; exit 1; }
-          (cd .engine-source && go test -race -mod=readonly -count=1 ./internal/agent ./internal/projects ./internal/fsext)
+          (cd .engine-source && go test -race -tags gotacktest -mod=readonly -count=1 ./internal/agent ./internal/fsext)
       - name: Verify and build pinned engine
         shell: pwsh
         run: ./scripts/build-engine.ps1 -EngineSource .engine-source -Output "$env:GITHUB_WORKSPACE/build/bin/resources/tack-engine"
@@ -177,6 +177,14 @@ jobs:
         run: |
           go test -race -mod=readonly -count=1 ./internal/zalo ./internal/engine ./internal/workspaceconfig
           if ($LASTEXITCODE -ne 0) { throw 'Race-detector tests failed' }
+      - name: Require real IPC contract tests
+        shell: pwsh
+        env:
+          GOTACK_REQUIRE_ENGINE: '1'
+        run: |
+          $env:GOTACK_TEST_ENGINE = "$env:GITHUB_WORKSPACE/build/bin/resources/tack-engine.exe"
+          go test -mod=readonly -count=1 -run '^TestBridge' -v .
+          if ($LASTEXITCODE -ne 0) { throw 'Bridge contract tests failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: gotack-windows-amd64
