@@ -94,7 +94,9 @@ def build(output: Path) -> None:
         )
         templates = ROOT / "resources" / "skills" / "timetable" / "assets"
         result = subprocess.run(
-            [str(runtime / "python.exe"), "-I", str(smoke),
+            # -B keeps the smoke run from writing bytecode caches into the
+            # runtime we are about to ship.
+            [str(runtime / "python.exe"), "-I", "-B", str(smoke),
              str(templates / "mau-thoi-khoa-bieu.xlsx"), str(templates / "phan-cong-chuan-hoa.xlsx")],
             check=True, capture_output=True, text=True, timeout=120,
             env={key: value for key, value in os.environ.items() if key.upper() not in {"PYTHONHOME", "PYTHONPATH"}},
@@ -102,6 +104,13 @@ def build(output: Path) -> None:
         versions = json.loads(result.stdout)
         if versions["python"] != PYTHON_VERSION:
             raise RuntimeError("Packaged Python version mismatch")
+        # CPython stamps bytecode caches with the absolute source path, so any
+        # __pycache__ left behind would make the shipped runtime carry the
+        # builder's filesystem layout and differ between build machines. The
+        # runtime ships sources only and recompiles on first use.
+        for cache in runtime.rglob("__pycache__"):
+            if cache.is_dir():
+                shutil.rmtree(cache)
         manifest = {
             "schema": 1,
             "versions": versions,
