@@ -21,12 +21,14 @@ if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
 
 Push-Location $engineRoot
 try {
-    & go test -mod=readonly -count=1 ./...
+    # The engine keeps its cross-package test harness behind the gotacktest
+    # build tag so it never ships; type-checking tests therefore needs the tag.
+    & go test -tags gotacktest -mod=readonly -count=1 ./...
     if ($LASTEXITCODE -ne 0) { throw 'Pinned engine tests failed; packaging stopped' }
     # JSONSchemaAlias intentionally uses a value receiver so invopop/jsonschema
     # can discover it on non-pointer generic Map types. Disable only vet's
     # copylocks analyzer; all other vet analyzers still gate packaging.
-    & go vet -copylocks=false -mod=readonly ./...
+    & go vet -tags gotacktest -copylocks=false -mod=readonly ./...
     if ($LASTEXITCODE -ne 0) { throw 'Pinned engine analysis failed; packaging stopped' }
 } finally {
     Pop-Location
@@ -70,7 +72,7 @@ try {
         source_timestamp = $builtAt
         executable_sha256 = (Get-FileHash -LiteralPath $stagedOutput -Algorithm SHA256).Hash.ToLowerInvariant()
         tests_run = $true
-        checks = @('go test -mod=readonly -count=1 ./...', 'go vet -copylocks=false -mod=readonly ./...')
+        checks = @('go test -tags gotacktest -mod=readonly -count=1 ./...', 'go vet -tags gotacktest -copylocks=false -mod=readonly ./...')
     }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$stagedOutput.build.json" -Encoding utf8NoBOM
     Move-Item -LiteralPath $stagedOutput -Destination $outputPath -Force
