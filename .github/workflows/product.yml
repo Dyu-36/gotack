@@ -54,65 +54,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  linux-contract:
-    name: Linux engine and IPC contract
-    needs: sources
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v5
-        with:
-          repository: Dyu-36/tack-engine
-          ref: ${{ needs.sources.outputs.engine_sha }}
-          path: .engine-source
-          persist-credentials: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            .engine-source/go.sum
-      - name: Analyze pinned engine source
-        shell: bash
-        run: |
-          set -euo pipefail
-          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-          go install golang.org/x/tools/cmd/deadcode@v0.49.0
-          unformatted="$(cd .engine-source && gofmt -l $(git ls-files '*.go'))"
-          if [ -n "$unformatted" ]; then
-            printf 'Engine files need gofmt:\n%s\n' "$unformatted"
-            (cd .engine-source && gofmt -d $unformatted) || true
-            exit 1
-          fi
-          (cd .engine-source && staticcheck -tags gotacktest ./...)
-          # Analyze the actual shipped engine entrypoint, not every test binary.
-          # The Windows product job repeats this on Windows so build-tagged code
-          # is checked on the platform we distribute.
-          (cd .engine-source && deadcode . > ../engine-deadcode-linux.txt)
-          test ! -s engine-deadcode-linux.txt || { cat engine-deadcode-linux.txt; exit 1; }
-          (cd .engine-source && go test -race -tags gotacktest -mod=readonly -count=1 ./internal/agent ./internal/fsext)
-      - name: Verify and build pinned engine
-        shell: pwsh
-        run: ./scripts/build-engine.ps1 -EngineSource .engine-source -Output "$env:GITHUB_WORKSPACE/build/bin/resources/tack-engine"
-      - name: Verify desktop
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -mod=readonly -count=1 ./...
-          go vet -mod=readonly ./...
-          go test -race -mod=readonly -count=1 ./internal/zalo ./internal/engine ./internal/workspaceconfig
-      - name: Require real IPC contract tests
-        shell: bash
-        env:
-          GOTACK_REQUIRE_ENGINE: '1'
-        run: |
-          set -euo pipefail
-          export GOTACK_TEST_ENGINE="$GITHUB_WORKSPACE/build/bin/resources/tack-engine"
-          go test -mod=readonly -count=1 -run '^TestBridge' -v .
-
   windows-product:
     name: Complete Windows distribution
     needs: sources
