@@ -82,7 +82,10 @@ try {
     $archive = Join-Path $output 'gotack-windows-amd64.zip'
     Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -Force
     $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$digest  gotack-windows-amd64.zip" | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS') -Encoding ascii
+    # `sha256sum -c` (Linux, WSL, Git Bash, CI) rejects the trailing CR that
+    # Set-Content adds on Windows, so write the published checksum file with
+    # explicit LF line endings instead of the platform default.
+    [IO.File]::WriteAllText((Join-Path $output 'SHA256SUMS'), "$digest  gotack-windows-amd64.zip`n", [Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath (Join-Path $staging 'product-manifest.json') -Destination (Join-Path $output 'product-manifest.json') -Force
     Write-Output "Verified product: $archive"
 } finally {
