@@ -23,6 +23,7 @@ type WorkspaceConfig struct {
 
 type WorkspaceOptions struct {
 	SkillsPaths        []string `json:"skills_paths,omitempty"`
+	ContextPaths       []string `json:"context_paths,omitempty"`
 	GlobalContextPaths []string `json:"global_context_paths,omitempty"`
 	DisabledTools      []string `json:"disabled_tools,omitempty"`
 	ProjectTrusted     *bool    `json:"project_trusted,omitempty"`
