@@ -54,6 +54,7 @@ type App struct {
 
 	vision sync.Map
 	conn   atomic.Pointer[conn]
+	attachMu sync.Mutex
 
 	oauthMu     sync.Mutex
 	oauthCancel context.CancelFunc

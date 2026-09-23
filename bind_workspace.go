@@ -109,10 +109,6 @@ func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, re
 	if remember && a.cfg != nil {
 		appconfig.AddRecentWorkspace(a.cfg, desc.Path)
 	}
-	if err := a.rebindWorkspaceRuntime(desc.WorkspaceID); err != nil {
-		return WorkspaceInfo{}, err
-	}
-
 	return a.workspaceInfo(desc), nil
 }
 
@@ -167,9 +163,6 @@ func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
-		if err := a.rebindWorkspaceRuntime(desc.WorkspaceID); err != nil {
-			return WorkspaceInfo{}, err
-		}
 		return a.workspaceInfo(desc), nil
 	}
 	desc, err := svc.ws.OpenWithDataDir(a.ctx, defaultWorkspacePath(), defaultWorkspaceDataDir())
@@ -188,6 +181,9 @@ func (a *App) EnsureAssistantWorkspace() (WorkspaceInfo, error) {
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
+	if err := a.rebindWorkspaceRuntime(info.WorkspaceID); err != nil {
+		return WorkspaceInfo{}, err
+	}
 	a.reapplySavedWorkspaceSettings()
 	return info, nil
 }
@@ -199,6 +195,9 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 	}
 	info, err := a.activateWorkspace(svc, path, true)
 	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	if err := a.rebindWorkspaceRuntime(info.WorkspaceID); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	a.reapplySavedWorkspaceSettings()
@@ -233,10 +232,14 @@ func (a *App) SetWorkspaceTrust(trusted bool) (WorkspaceInfo, error) {
 	if a.projectTrust == nil {
 		a.projectTrust = projecttrust.New(filepath.Join(appconfig.Dir(), "project-trust.json"))
 	}
-	if err := a.projectTrust.Set(desc.Path, trusted); err != nil {
+	previous := a.inspectWorkspaceTrust(desc.Path)
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trusted); err != nil {
 		return WorkspaceInfo{}, err
 	}
-	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trusted); err != nil {
+	if err := a.projectTrust.Set(desc.Path, trusted); err != nil {
+		// Runtime was applied but persistence failed; restore the prior runtime
+		// decision before returning so disk and engine never knowingly diverge.
+		_ = a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, previous.Trusted)
 		return WorkspaceInfo{}, err
 	}
 	if err := svc.api.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
@@ -254,14 +257,16 @@ func (a *App) ResetWorkspaceTrust() (WorkspaceInfo, error) {
 	if !ok {
 		return WorkspaceInfo{}, fmt.Errorf("no workspace is open")
 	}
-	if a.projectTrust != nil {
-		if err := a.projectTrust.Clear(desc.Path); err != nil {
-			return WorkspaceInfo{}, err
-		}
-	}
-	status := a.inspectWorkspaceTrust(desc.Path)
+	previous := a.inspectWorkspaceTrust(desc.Path)
+	status := projecttrust.Status{Path: desc.Path, Trusted: true}
 	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, status.Trusted); err != nil {
 		return WorkspaceInfo{}, err
+	}
+	if a.projectTrust != nil {
+		if err := a.projectTrust.Clear(desc.Path); err != nil {
+			_ = a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, previous.Trusted)
+			return WorkspaceInfo{}, err
+		}
 	}
 	if err := svc.api.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
 		a.log.Debug("prompt refresh deferred until agent initialization", "err", err)
