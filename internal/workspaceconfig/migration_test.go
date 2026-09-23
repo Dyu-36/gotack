@@ -45,11 +45,20 @@ func configClient(t *testing.T, cfg *engineapi.WorkspaceConfig, writes *map[stri
 				*removals = append(*removals, request.Key)
 			case "/v1/workspaces/ws/config/set":
 				(*writes)[request.Key] = request.Value
-				if request.Key == "options.skills_paths" {
-					if cfg.Options == nil {
-						cfg.Options = &engineapi.WorkspaceOptions{}
-					}
+				if cfg.Options == nil {
+					cfg.Options = &engineapi.WorkspaceOptions{}
+				}
+				switch request.Key {
+				case "options.skills_paths":
 					if err := json.Unmarshal(request.Value, &cfg.Options.SkillsPaths); err != nil {
+						t.Fatal(err)
+					}
+				case "options.context_paths":
+					if err := json.Unmarshal(request.Value, &cfg.Options.ContextPaths); err != nil {
+						t.Fatal(err)
+					}
+				case "options.global_context_paths":
+					if err := json.Unmarshal(request.Value, &cfg.Options.GlobalContextPaths); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -132,9 +141,23 @@ func TestMigrationPreservesUserHooksAndContext(t *testing.T) {
 	user := filepath.Join(root, "instructions.md")
 	hook := engineapi.HookEntry{Name: "user-hook", Command: "keep"}
 	cfg := engineapi.WorkspaceConfig{
-		Hooks:   map[string][]engineapi.HookEntry{LegacyGuardHookEvent: {{Name: LegacyGuardHookName}, hook}},
-		Options: &engineapi.WorkspaceOptions{GlobalContextPaths: []string{filepath.Join(root, "context-prompt", "generation"), user}},
-		Env:     map[string]string{"PATH": filepath.Join(root, "bin")},
+		Hooks: map[string][]engineapi.HookEntry{LegacyGuardHookEvent: {{Name: LegacyGuardHookName}, hook}},
+		Options: &engineapi.WorkspaceOptions{
+			ContextPaths: []string{
+				".github/copilot-instructions.md",
+				".cursor/rules/",
+				"GEMINI.md",
+				"CRUSH.md",
+				"AGENTS.md",
+				"docs/custom-agent-context.md",
+			},
+			GlobalContextPaths: []string{
+				filepath.Join(root, "context-prompt", "generation"),
+				filepath.Join(root, "CRUSH.md"),
+				user,
+			},
+		},
+		Env: map[string]string{"PATH": filepath.Join(root, "bin")},
 	}
 	writes := map[string]json.RawMessage{}
 	var removals []string
@@ -158,6 +181,13 @@ func TestMigrationPreservesUserHooksAndContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(paths, []string{user}) {
-		t.Fatalf("paths = %v", paths)
+		t.Fatalf("global paths = %v", paths)
+	}
+	paths = nil
+	if err := json.Unmarshal(writes["options.context_paths"], &paths); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(paths, []string{"AGENTS.md", "docs/custom-agent-context.md"}) {
+		t.Fatalf("project paths = %v", paths)
 	}
 }
