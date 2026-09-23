@@ -14,4 +14,3 @@ func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []at
 	}
 	return attachments.PrepareInputs(items, supportsVision)
 }
-
