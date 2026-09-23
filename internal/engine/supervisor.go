@@ -161,7 +161,7 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 
 func isolatedEngineEnvironment(root string) []string {
 	overrides := map[string]string{
-		"TACK_GLOBAL_CONFIG":  filepath.Join(root, "config"),
+		"TACK_GLOBAL_CONFIG":  filepath.Join(root, "prompt-config"),
 		"CRUSH_GLOBAL_CONFIG": filepath.Join(root, "config"),
 		"CRUSH_GLOBAL_DATA":   filepath.Join(root, "data"),
 		"CRUSH_CACHE_DIR":     filepath.Join(root, "cache"),
