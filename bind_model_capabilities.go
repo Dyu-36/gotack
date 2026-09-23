@@ -50,4 +50,3 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	a.vision.Store(key, supportsVision)
 	return supportsVision
 }
-
