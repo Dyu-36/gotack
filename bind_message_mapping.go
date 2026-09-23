@@ -77,4 +77,3 @@ func toMessageInfo(message engineapi.Message) MessageInfo {
 	}
 	return info
 }
-
