@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
