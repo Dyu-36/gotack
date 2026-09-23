@@ -89,6 +89,10 @@ func (a *App) connect(scope context.Context) {
 
 		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
 		a.migrateChatGPTProviderCredential(svc)
+		if !a.link.IsCurrent(ctx) {
+			return engine.ErrAttachSuperseded
+		}
+		a.link.MarkRunning()
 		workspaceWarning := ""
 		if _, err := a.activateAssistantWorkspace(svc); err != nil {
 			a.log.Warn("could not attach the default workspace", "err", err)
@@ -99,7 +103,6 @@ func (a *App) connect(scope context.Context) {
 		if !a.link.IsCurrent(ctx) {
 			return engine.ErrAttachSuperseded
 		}
-		a.link.MarkRunning()
 		status := a.engineInfo()
 		if status.Error == "" {
 			status.Error = workspaceWarning
