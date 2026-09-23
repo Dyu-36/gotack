@@ -74,9 +74,9 @@ func (a *App) ListRecentWorkspaces() []string {
 	return out
 }
 
-func (a *App) rebindWorkspaceRuntime(workspaceID string) {
+func (a *App) rebindWorkspaceRuntime(workspaceID string) error {
 	if a.link == nil || a.link.Status() != engine.StatusRunning {
-		return
+		return nil
 	}
 	var scope context.Context
 	if a.getConn() != nil {
@@ -89,23 +89,29 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) {
 
 	svc, err := a.services()
 	if err != nil {
-		return
+		return err
 	}
 	desc, ok := svc.ws.Current()
 	if !ok || desc.WorkspaceID != workspaceID {
-		return
+		return nil
 	}
 	trust := a.inspectWorkspaceTrust(desc.Path)
-	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trust.Trusted); err != nil && a.log != nil {
-		a.log.Warn("workspace runtime apply failed", "workspace", desc.Path, "err", err)
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trust.Trusted); err != nil {
+		if a.log != nil {
+			a.log.Warn("workspace runtime apply failed", "workspace", desc.Path, "err", err)
+		}
+		return fmt.Errorf("apply workspace runtime: %w", err)
 	}
+	return nil
 }
 
 func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, remember bool) (WorkspaceInfo, error) {
 	if remember && a.cfg != nil {
 		appconfig.AddRecentWorkspace(a.cfg, desc.Path)
 	}
-	a.rebindWorkspaceRuntime(desc.WorkspaceID)
+	if err := a.rebindWorkspaceRuntime(desc.WorkspaceID); err != nil {
+		return WorkspaceInfo{}, err
+	}
 
 	return a.workspaceInfo(desc), nil
 }
@@ -161,7 +167,9 @@ func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
 	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
-		a.rebindWorkspaceRuntime(desc.WorkspaceID)
+		if err := a.rebindWorkspaceRuntime(desc.WorkspaceID); err != nil {
+			return WorkspaceInfo{}, err
+		}
 		return a.workspaceInfo(desc), nil
 	}
 	desc, err := svc.ws.OpenWithDataDir(a.ctx, defaultWorkspacePath(), defaultWorkspaceDataDir())

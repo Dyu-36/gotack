@@ -52,6 +52,7 @@ type Link struct {
 	ep          engineapi.Endpoint
 	version     string
 	scopeCancel context.CancelFunc
+	scopeDone   <-chan struct{}
 }
 
 func NewLink(sup supervisor, expected ...string) *Link {
@@ -103,6 +104,7 @@ func (l *Link) BeginConnect(parent context.Context) (context.Context, bool) {
 	}
 	scope, cancel := context.WithCancel(parent)
 	l.scopeCancel = cancel
+	l.scopeDone = scope.Done()
 	l.status = StatusStarting
 	l.lastError = ""
 	return scope, true
@@ -138,10 +140,19 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 	return ready(scope, api, ep, vi.Version)
 }
 
+func (l *Link) IsCurrent(scope context.Context) bool {
+	if scope == nil || scope.Err() != nil {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.scopeDone != nil && l.scopeDone == scope.Done()
+}
+
 func (l *Link) CommitAttach(scope context.Context, ep engineapi.Endpoint, version string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if scope.Err() != nil {
+	if scope == nil || scope.Err() != nil || l.scopeDone == nil || l.scopeDone != scope.Done() {
 		return false
 	}
 	l.ep = ep
@@ -182,6 +193,7 @@ func (l *Link) Disconnect() {
 	l.mu.Lock()
 	cancel := l.scopeCancel
 	l.scopeCancel = nil
+	l.scopeDone = nil
 	l.status = StatusStopped
 	l.lastError = ""
 	l.ep = engineapi.Endpoint{}
@@ -200,6 +212,7 @@ func (l *Link) ReplaceStreamScope(parent context.Context) context.Context {
 	}
 	scope, cancel := context.WithCancel(parent)
 	l.scopeCancel = cancel
+	l.scopeDone = scope.Done()
 	return scope
 }
 
@@ -207,6 +220,7 @@ func (l *Link) CancelScope() {
 	l.mu.Lock()
 	cancel := l.scopeCancel
 	l.scopeCancel = nil
+	l.scopeDone = nil
 	l.mu.Unlock()
 	if cancel != nil {
 		cancel()

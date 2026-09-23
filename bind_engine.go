@@ -96,10 +96,10 @@ func (a *App) connect(scope context.Context) {
 		}
 
 		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
-		a.link.MarkRunning()
-		if desc, ok := svc.ws.Current(); ok {
-			a.rebindWorkspaceRuntime(desc.WorkspaceID)
+		if !a.link.IsCurrent(ctx) {
+			return engine.ErrAttachSuperseded
 		}
+		a.link.MarkRunning()
 		status := a.engineInfo()
 		if status.Error == "" {
 			status.Error = workspaceWarning
@@ -114,7 +114,7 @@ func (a *App) connect(scope context.Context) {
 	case err == nil:
 	case errors.Is(err, engine.ErrAttachSuperseded):
 	default:
-		a.failConnect(err.Error())
+		a.failConnect(scope, err.Error())
 	}
 }
 
@@ -147,7 +147,10 @@ func (a *App) commitAttach(
 	return stillCurrent && a.link.CommitAttach(ctx, ep, version)
 }
 
-func (a *App) failConnect(reason string) {
+func (a *App) failConnect(scope context.Context, reason string) {
+	if !a.link.IsCurrent(scope) {
+		return
+	}
 	if a.log != nil {
 		a.log.Error("engine connect failed", "reason", reason)
 	}
