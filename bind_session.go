@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -53,7 +52,6 @@ type AttachmentInfo struct {
 	Content  string `json:"content,omitempty"`
 	Path     string `json:"path,omitempty"`
 }
-
 
 func (a *App) setCurrentSession(sessionID string) error {
 	if sessionID == "" {
@@ -193,7 +191,6 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	return out, nil
 }
 
-
 func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, error) {
 	svc, err := a.services()
 	if err != nil {
@@ -231,8 +228,6 @@ func (a *App) CancelPrompt(id string) error {
 	}
 	return svc.sess.Cancel(a.ctx, id)
 }
-
-
 
 func toSessionInfo(session engineapi.Session) SessionInfo {
 	return SessionInfo{

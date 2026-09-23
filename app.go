@@ -9,7 +9,6 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
-	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/logging"
@@ -23,11 +22,10 @@ import (
 )
 
 type conn struct {
-	api   *engineapi.Client
-	fwd   *uievents.Forwarder
-	ws    *workspace.Service
-	sess  *session.Service
-	diffs *changes.Service
+	api  *engineapi.Client
+	fwd  *uievents.Forwarder
+	ws   *workspace.Service
+	sess *session.Service
 }
 
 type engineController interface {
@@ -52,8 +50,8 @@ type App struct {
 	workspaceRuntime     *workspaceconfig.Manager
 	workspaceRuntimeOnce sync.Once
 
-	vision sync.Map
-	conn   atomic.Pointer[conn]
+	vision   sync.Map
+	conn     atomic.Pointer[conn]
 	attachMu sync.Mutex
 
 	oauthMu     sync.Mutex

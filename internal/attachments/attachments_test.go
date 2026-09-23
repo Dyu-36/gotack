@@ -77,23 +77,24 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func TestClampText(t *testing.T) {
+func TestClampLines(t *testing.T) {
 	short := "line 1\nline 2\nline 3"
-	got, truncated := ClampText(short)
-	if truncated || got != short {
-		t.Errorf("ClampText(short) = %q, truncated = %v", got, truncated)
+	kept, truncated, total := clampLines(short)
+	if truncated || total != 3 || strings.Join(kept, "\n") != short {
+		t.Errorf("clampLines(short) = %q, truncated = %v, total = %d", kept, truncated, total)
 	}
 
 	longLines := make([]string, MaxDerivedLines+50)
 	for i := range longLines {
 		longLines[i] = "content"
 	}
-	clamped, truncated := ClampText(strings.Join(longLines, "\n"))
-	if !truncated {
-		t.Errorf("ClampText(long) expected truncated=true")
+	long := strings.Join(longLines, "\n")
+	kept, truncated, total = clampLines(long)
+	if !truncated || len(kept) != MaxDerivedLines || total != len(longLines) {
+		t.Errorf("clampLines(long) kept = %d, truncated = %v, total = %d", len(kept), truncated, total)
 	}
-	if !strings.Contains(clamped, "cắt bớt") {
-		t.Errorf("ClampText(long) missing truncation notice: %s", clamped)
+	if content := derivedContent(long); !strings.Contains(content, "cắt bớt") {
+		t.Errorf("derivedContent(long) missing truncation notice: %s", content)
 	}
 }
 

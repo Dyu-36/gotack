@@ -23,7 +23,7 @@ func TestBundledSkillsAreInstalledBeforeUserOverrides(t *testing.T) {
 	var removals []string
 	client := configClient(t, &cfg, &writes, &removals)
 	desc := workspace.Descriptor{WorkspaceID: "ws", Path: root}
-	if err := RegisterSkillsPaths(context.Background(), client, "ws", desc, user, current); err != nil {
+	if err := RegisterSkillsPathsWithTrust(context.Background(), client, "ws", desc, user, true, current); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{current, custom, user, projects[0], projects[1]}
@@ -31,7 +31,7 @@ func TestBundledSkillsAreInstalledBeforeUserOverrides(t *testing.T) {
 		t.Fatalf("paths = %v, want %v", cfg.SkillsPaths(), want)
 	}
 	clear(writes)
-	if err := RegisterSkillsPaths(context.Background(), client, "ws", desc, user, current); err != nil {
+	if err := RegisterSkillsPathsWithTrust(context.Background(), client, "ws", desc, user, true, current); err != nil {
 		t.Fatal(err)
 	}
 	if len(writes) != 0 {

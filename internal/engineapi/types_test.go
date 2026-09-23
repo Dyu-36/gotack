@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestExtractText(t *testing.T) {
+func TestExtractPartsText(t *testing.T) {
 	tests := []struct {
 		name  string
 		parts string
@@ -83,33 +83,33 @@ func TestExtractText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractText(json.RawMessage(tt.parts))
+			got := ExtractParts(json.RawMessage(tt.parts)).Text
 			if got != tt.want {
-				t.Fatalf("ExtractText(%q) = %q, want %q", tt.parts, got, tt.want)
+				t.Fatalf("ExtractParts(%q).Text = %q, want %q", tt.parts, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestExtractAttachments(t *testing.T) {
+func TestExtractPartsAttachments(t *testing.T) {
 	parts := json.RawMessage(`[
 		{"type":"text","data":{"text":"review this"}},
 		{"type":"binary","data":{"Path":"photo.png","MIMEType":"image/png","Data":"iVBORw=="}}
 	]`)
 
-	got := ExtractAttachments(parts)
+	got := ExtractParts(parts).Attachments
 	if len(got) != 1 {
-		t.Fatalf("ExtractAttachments() len = %d, want 1", len(got))
+		t.Fatalf("ExtractParts().Attachments len = %d, want 1", len(got))
 	}
 	if got[0].FileName != "photo.png" || got[0].MimeType != "image/png" {
-		t.Fatalf("ExtractAttachments() metadata = %#v", got[0])
+		t.Fatalf("ExtractParts().Attachments metadata = %#v", got[0])
 	}
 	if string(got[0].Content) != "\x89PNG" {
-		t.Fatalf("ExtractAttachments() content = %q, want PNG header", got[0].Content)
+		t.Fatalf("ExtractParts().Attachments content = %q, want PNG header", got[0].Content)
 	}
 }
 
-func TestExtractToolCalls(t *testing.T) {
+func TestExtractPartsToolCalls(t *testing.T) {
 	tests := []struct {
 		name  string
 		parts string
@@ -170,9 +170,9 @@ func TestExtractToolCalls(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractToolCalls(json.RawMessage(tt.parts))
+			got := ExtractParts(json.RawMessage(tt.parts)).ToolCalls
 			if !equalToolCalls(got, tt.want) {
-				t.Fatalf("ExtractToolCalls(%q) = %+v, want %+v", tt.parts, got, tt.want)
+				t.Fatalf("ExtractParts(%q).ToolCalls = %+v, want %+v", tt.parts, got, tt.want)
 			}
 		})
 	}

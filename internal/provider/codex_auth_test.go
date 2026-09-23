@@ -28,19 +28,18 @@ func TestGenerateOpenAIPKCE(t *testing.T) {
 	}
 }
 
-func TestParseOpenAIIDTokenClaims(t *testing.T) {
+func TestParseOpenAIIDTokenMetadata(t *testing.T) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 	claims := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/profile":{"email":"user@example.com"},"https://api.openai.com/auth":{"chatgpt_plan_type":"plus","chatgpt_account_id":"acct_123","chatgpt_user_id":"user_123","chatgpt_account_is_fedramp":true}}`))
 	jwt := fmt.Sprintf("%s.%s.signature", header, claims)
 
-	email, plan := parseOpenAIIDTokenClaims(jwt)
-	if email != "user@example.com" {
-		t.Errorf("got email %q, want user@example.com", email)
-	}
-	if plan != "plus" {
-		t.Errorf("got plan %q, want plus", plan)
-	}
 	metadata := parseOpenAIIDTokenMetadata(jwt)
+	if metadata.Email != "user@example.com" {
+		t.Errorf("got email %q, want user@example.com", metadata.Email)
+	}
+	if metadata.Plan != "plus" {
+		t.Errorf("got plan %q, want plus", metadata.Plan)
+	}
 	if metadata.AccountID != "acct_123" || metadata.ChatGPTUserID != "user_123" || !metadata.AccountFedRAMP {
 		t.Fatalf("unexpected account metadata: %+v", metadata)
 	}

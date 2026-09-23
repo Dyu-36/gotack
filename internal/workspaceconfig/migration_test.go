@@ -111,7 +111,7 @@ func TestSkillsRegistrationReplacesDuplicatesWithoutLosingAdditions(t *testing.T
 	var removals []string
 	client := configClient(t, &cfg, &writes, &removals)
 	desc := workspace.Descriptor{WorkspaceID: "ws", Path: root}
-	if err := RegisterSkillsPaths(context.Background(), client, "ws", desc, user); err != nil {
+	if err := RegisterSkillsPathsWithTrust(context.Background(), client, "ws", desc, user, true); err != nil {
 		t.Fatal(err)
 	}
 	want := append([]string{user}, ProjectSkillsDirs(root)...)
@@ -119,7 +119,7 @@ func TestSkillsRegistrationReplacesDuplicatesWithoutLosingAdditions(t *testing.T
 		t.Fatalf("paths = %v, want %v", cfg.SkillsPaths(), want)
 	}
 	clear(writes)
-	if err := RegisterSkillsPaths(context.Background(), client, "ws", desc, user); err != nil {
+	if err := RegisterSkillsPathsWithTrust(context.Background(), client, "ws", desc, user, true); err != nil {
 		t.Fatal(err)
 	}
 	if len(writes) != 0 {

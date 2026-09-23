@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
@@ -81,13 +80,11 @@ func (a *App) connect(scope context.Context) {
 		fwd := uievents.NewForwarder(a.log, a.emit, callbacks)
 		ws := workspace.NewService(api)
 		sess := session.NewService(api, ws)
-		diffs := changes.NewService(api, ws)
-
-		if !a.commitAttach(ctx, api, fwd, ws, sess, diffs, ep, version) {
+		if !a.commitAttach(ctx, api, fwd, ws, sess, ep, version) {
 			return engine.ErrAttachSuperseded
 		}
 
-		svc := &bridgeServices{api: api, ws: ws, sess: sess, diffs: diffs}
+		svc := &bridgeServices{api: api, ws: ws, sess: sess}
 		a.migrateChatGPTProviderCredential(svc)
 		if !a.link.IsCurrent(ctx) {
 			return engine.ErrAttachSuperseded
@@ -130,7 +127,6 @@ func (a *App) commitAttach(
 	fwd *uievents.Forwarder,
 	ws *workspace.Service,
 	sess *session.Service,
-	diffs *changes.Service,
 	ep engineapi.Endpoint,
 	version string,
 ) bool {
@@ -150,7 +146,6 @@ func (a *App) commitAttach(
 		c.fwd = fwd
 		c.ws = ws
 		c.sess = sess
-		c.diffs = diffs
 		return c
 	})
 	return true
@@ -223,7 +218,6 @@ func (a *App) stopTransport() {
 		c.fwd = nil
 		c.ws = nil
 		c.sess = nil
-		c.diffs = nil
 		return c
 	})
 	a.vision.Clear()
