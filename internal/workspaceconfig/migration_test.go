@@ -136,6 +136,37 @@ func TestSkillsRegistrationReplacesDuplicatesWithoutLosingAdditions(t *testing.T
 	}
 }
 
+func TestLegacyOnlyContextIsMaskedWithExplicitEmptyLists(t *testing.T) {
+	root := t.TempDir()
+	cfg := engineapi.WorkspaceConfig{
+		Options: &engineapi.WorkspaceOptions{
+			ContextPaths:       []string{".cursor/rules/", "GEMINI.md", "CRUSH.md"},
+			GlobalContextPaths: []string{filepath.Join(root, "CRUSH.md")},
+		},
+	}
+	writes := map[string]json.RawMessage{}
+	var removals []string
+	client := configClient(t, &cfg, &writes, &removals)
+	if err := removeLegacyTools(context.Background(), client, "ws", root); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, key := range []string{"options.context_paths", "options.global_context_paths"} {
+		var paths []string
+		if err := json.Unmarshal(writes[key], &paths); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		if len(paths) != 0 {
+			t.Fatalf("%s = %v, want explicit empty list", key, paths)
+		}
+	}
+	for _, key := range removals {
+		if key == "options.context_paths" || key == "options.global_context_paths" {
+			t.Fatalf("legacy context must be masked, not removed: %v", removals)
+		}
+	}
+}
+
 func TestMigrationPreservesUserHooksAndContext(t *testing.T) {
 	root := t.TempDir()
 	user := filepath.Join(root, "instructions.md")
