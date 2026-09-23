@@ -74,12 +74,16 @@ func TestIsolatedEngineEnvironmentSetsGotackPromptRoot(t *testing.T) {
 			got[strings.ToUpper(name)] = value
 		}
 	}
-	wantConfig := filepath.Join(root, "config")
-	if got["TACK_GLOBAL_CONFIG"] != wantConfig {
-		t.Fatalf("TACK_GLOBAL_CONFIG = %q, want %q", got["TACK_GLOBAL_CONFIG"], wantConfig)
+	wantPromptConfig := filepath.Join(root, "prompt-config")
+	if got["TACK_GLOBAL_CONFIG"] != wantPromptConfig {
+		t.Fatalf("TACK_GLOBAL_CONFIG = %q, want %q", got["TACK_GLOBAL_CONFIG"], wantPromptConfig)
 	}
-	if got["CRUSH_GLOBAL_CONFIG"] != wantConfig {
-		t.Fatalf("CRUSH_GLOBAL_CONFIG = %q, want %q", got["CRUSH_GLOBAL_CONFIG"], wantConfig)
+	wantEngineConfig := filepath.Join(root, "config")
+	if got["CRUSH_GLOBAL_CONFIG"] != wantEngineConfig {
+		t.Fatalf("CRUSH_GLOBAL_CONFIG = %q, want %q", got["CRUSH_GLOBAL_CONFIG"], wantEngineConfig)
+	}
+	if got["TACK_GLOBAL_CONFIG"] == got["CRUSH_GLOBAL_CONFIG"] {
+		t.Fatal("Gotack prompt resources must not share the legacy engine config root")
 	}
 }
 
