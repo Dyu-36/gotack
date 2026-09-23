@@ -94,9 +94,12 @@ func (a *App) connect(scope context.Context) {
 		}
 		a.link.MarkRunning()
 		workspaceWarning := ""
-		if _, err := a.activateAssistantWorkspace(svc); err != nil {
+		if info, err := a.activateAssistantWorkspace(svc); err != nil {
 			a.log.Warn("could not attach the default workspace", "err", err)
 			workspaceWarning = fmt.Sprintf("initialize assistant workspace: %v", err)
+		} else if err := a.rebindWorkspaceRuntime(info.WorkspaceID); err != nil {
+			a.log.Warn("could not apply assistant workspace runtime", "err", err)
+			workspaceWarning = fmt.Sprintf("apply assistant workspace runtime: %v", err)
 		}
 
 		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
@@ -131,23 +134,26 @@ func (a *App) commitAttach(
 	ep engineapi.Endpoint,
 	version string,
 ) bool {
-	if a.getConn() == nil {
+	a.attachMu.Lock()
+	defer a.attachMu.Unlock()
+	if a.getConn() == nil || !a.link.IsCurrent(ctx) {
 		return false
 	}
-	var stillCurrent bool
+	// Commit the lifecycle state and service bundle under one application-level
+	// critical section. Reconnect/stop takes the same lock, so it cannot cancel
+	// the scope between these two commits and leave a half-attached connection.
+	if !a.link.CommitAttach(ctx, ep, version) {
+		return false
+	}
 	a.swapConn(func(c *conn) *conn {
-		if ctx.Err() != nil {
-			return c
-		}
 		c.api = api
 		c.fwd = fwd
 		c.ws = ws
 		c.sess = sess
 		c.diffs = diffs
-		stillCurrent = true
 		return c
 	})
-	return stillCurrent && a.link.CommitAttach(ctx, ep, version)
+	return true
 }
 
 func (a *App) failConnect(scope context.Context, reason string) {
@@ -202,6 +208,8 @@ func (a *App) replaceWorkspaceStream(workspaceID string) error {
 }
 
 func (a *App) stopTransport() {
+	a.attachMu.Lock()
+	defer a.attachMu.Unlock()
 	if a.zalo != nil {
 		a.zalo.Stop()
 	}
