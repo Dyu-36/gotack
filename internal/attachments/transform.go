@@ -200,15 +200,6 @@ func clampLines(text string) ([]string, bool, int) {
 	return kept, false, len(all)
 }
 
-func ClampText(text string) (string, bool) {
-	kept, truncated, _ := clampLines(text)
-	out := strings.Join(kept, "\n")
-	if truncated {
-		out += "\n... (đã cắt bớt vì quá dài)"
-	}
-	return out, truncated
-}
-
 func formatSize(bytes int) string {
 	if bytes < 1024 {
 		return fmt.Sprintf("%d B", bytes)

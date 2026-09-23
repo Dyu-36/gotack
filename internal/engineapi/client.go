@@ -25,7 +25,6 @@ const (
 	currentSessionPath = "/v1/workspaces/{id}/current-session"
 	sessionsPath       = "/v1/workspaces/{id}/sessions"
 	messagesPath       = "/v1/workspaces/{id}/sessions/{sid}/messages"
-	historyPath        = "/v1/workspaces/{id}/sessions/{sid}/history"
 	eventsPath         = "/v1/workspaces/{id}/events"
 )
 
@@ -107,15 +106,6 @@ func (c *Client) Messages(ctx context.Context, wsID, sessionID string) ([]Messag
 		return nil, err
 	}
 	return ms, nil
-}
-
-func (c *Client) History(ctx context.Context, wsID, sessionID string) ([]File, error) {
-	var fs []File
-	path := expandPath(historyPath, "id", wsID, "sid", sessionID)
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, &fs); err != nil {
-		return nil, err
-	}
-	return fs, nil
 }
 
 func (c *Client) SendPromptWithAttachments(ctx context.Context, wsID, sessionID, text, runID string, attachments []Attachment) error {

@@ -55,6 +55,12 @@ func (c *collector) of(name string) []namedEvent {
 	return out
 }
 
+func (f *Forwarder) setDelay(d time.Duration) {
+	f.mu.Lock()
+	f.delayOverride = d
+	f.mu.Unlock()
+}
+
 func TestForwarderDelayPolicyAndTestOverride(t *testing.T) {
 	f := NewForwarder(slog.Default(), nil, Callbacks{})
 	if got := f.nextDelay(1); got != 16*time.Millisecond {

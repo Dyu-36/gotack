@@ -132,11 +132,6 @@ func parseOpenAIIDTokenMetadata(idToken string) openAIIDTokenClaims {
 	return metadata
 }
 
-func parseOpenAIIDTokenClaims(idToken string) (email, plan string) {
-	metadata := parseOpenAIIDTokenMetadata(idToken)
-	return metadata.Email, metadata.Plan
-}
-
 type OpenAIOAuthOptions struct {
 	ClientID     string
 	AuthURL      string

@@ -43,11 +43,6 @@ type ToolActivityPayload struct {
 	ToolCallID string          `json:"tool_call_id"`
 }
 
-type ChangesUpdatedPayload struct {
-	SessionID string `json:"session_id"`
-	Path      string `json:"path"`
-}
-
 const coalesceDelay = 40 * time.Millisecond
 
 type pendingMessage struct {
@@ -104,12 +99,6 @@ func NewForwarder(log *slog.Logger, emit Emitter, callbacks Callbacks) *Forwarde
 	}
 }
 
-func (f *Forwarder) setDelay(d time.Duration) {
-	f.mu.Lock()
-	f.delayOverride = d
-	f.mu.Unlock()
-}
-
 func (f *Forwarder) nextDelay(bytesSinceLastFlush int) time.Duration {
 	if f.delayOverride > 0 {
 		return f.delayOverride
@@ -164,8 +153,6 @@ func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 				f.send(SessionUpdated, SessionUpdatedPayload{SessionID: session.ID, Title: session.Title, UpdatedAt: engineapi.TimestampMillis(session.UpdatedAt)})
 			}
 		}
-	case "file":
-		f.handleFile(ev.Payload)
 	default:
 		if f.log != nil {
 			f.log.Debug("uievents: ignoring unknown stream event", "kind", ev.Kind, "event", ev.Event)
@@ -263,20 +250,6 @@ func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 	f.emitMu.Lock()
 	f.send(SessionDone, done)
 	f.emitMu.Unlock()
-}
-
-func (f *Forwarder) handleFile(payload json.RawMessage) {
-	var file engineapi.File
-	if err := json.Unmarshal(payload, &file); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode file event", "err", err)
-		}
-		return
-	}
-	if file.SessionID == "" {
-		return
-	}
-	f.send(ChangesUpdated, ChangesUpdatedPayload{SessionID: file.SessionID, Path: file.Path})
 }
 
 func (f *Forwarder) send(name string, data any) {

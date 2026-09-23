@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
-	"github.com/Dyu-36/gotack/internal/changes"
 	"github.com/Dyu-36/gotack/internal/engine"
 	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/session"
@@ -154,11 +153,6 @@ func TestBridgeServicesSmoke(t *testing.T) {
 	}
 	if _, err := sessSvc.Messages(ctx, sess.ID); err != nil {
 		t.Fatal(err)
-	}
-	diffSvc := changes.NewService(api, wsSvc)
-	files, err := diffSvc.ChangedFiles(ctx, sess.ID)
-	if err != nil || len(files) != 0 {
-		t.Fatalf("new session file changes: %d, %v", len(files), err)
 	}
 	skillPath := filepath.Join(root, "skills")
 	if err := api.SetConfigField(ctx, desc.WorkspaceID, engineapi.ConfigScopeWorkspace, "options.skills_paths", []string{skillPath}); err != nil {

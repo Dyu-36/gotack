@@ -3,7 +3,6 @@
 // Regenerate with: go run ./internal/uievents/gen/main.go
 
 export const events = {
-  changesUpdated: "changes:updated",
   engineStatus: "engine:status",
   promptFiles: "prompt:files",
   sessionDelta: "session:delta",

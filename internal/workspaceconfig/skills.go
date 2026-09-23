@@ -53,10 +53,6 @@ func MergeSkillsPaths(existing []string, additions ...string) []string {
 	return merged
 }
 
-func RegisterSkillsPaths(base context.Context, api *engineapi.Client, workspaceID string, desc workspace.Descriptor, userSkillsDir string, bundledSkillsDirs ...string) error {
-	return RegisterSkillsPathsWithTrust(base, api, workspaceID, desc, userSkillsDir, true, bundledSkillsDirs...)
-}
-
 // RegisterSkillsPathsWithTrust keeps user and bundled skills available in every
 // workspace while including project-local .pi/skills and .agents/skills only
 // after the desktop host has explicitly trusted that project. Existing managed

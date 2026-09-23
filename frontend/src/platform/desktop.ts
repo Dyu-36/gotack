@@ -16,7 +16,6 @@ export type PromptFilePick = { file_name: string; mime_type: string; size: numbe
 export type AttachmentLimitsInfo = { max_bytes: number; max_derived_lines: number; max_derived_bytes: number }
 export type ToolCallInfo = { id: string; name: string; input?: string; finished: boolean }
 export type MessageInfo = { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; text: string; model: string; provider: string; created_at: number; completed_at?: number; attachments?: AttachmentInfo[]; tool_calls?: ToolCallInfo[] }
-export type ChangedFileInfo = { path: string; size: number; updated_at: number }
 export type ModelCatalogEntry = {
   id: string
   name: string
@@ -145,8 +144,6 @@ type BackendApp = {
   AttachmentLimits: () => Promise<AttachmentLimitsInfo>
   OpenGeneratedFile: (path: string) => Promise<void>
   RevealGeneratedFile: (path: string) => Promise<void>
-  ChangedFiles: (sessionID: string) => Promise<ChangedFileInfo[]>
-  FileDiff: (sessionID: string, path: string) => Promise<string>
   GetSettings: () => Promise<SettingsInfo>
   SaveSettings: (settings: SettingsInfo) => Promise<void>
   GetAgentSettings: () => Promise<AgentSettingsInfo>
@@ -194,7 +191,6 @@ export const desktop = {
   listSessions: () => call('ListSessions'), createSession: (title: string) => call('CreateSession', title), cloneSession: (id: string) => call('CloneSession', id), forkSession: (id: string, messageID: string) => call('ForkSession', id, messageID), compactSession: (id: string) => call('CompactSession', id), renameSession: (id: string, title: string) => call('RenameSession', id, title), deleteSession: (id: string) => call('DeleteSession', id), switchSession: (id: string) => call('SwitchSession', id), sessionMessages: (id: string) => call('SessionMessages', id), sendPrompt: (id: string, text: string, attachments: PromptAttachment[] = []) => call('SendPrompt', id, text, attachments), cancelPrompt: (id: string) => call('CancelPrompt', id),
   pickPromptFiles: () => call('PickPromptFiles'), attachmentLimits: () => call('AttachmentLimits'),
   openGeneratedFile: (path: string) => call('OpenGeneratedFile', path), revealGeneratedFile: (path: string) => call('RevealGeneratedFile', path),
-  changedFiles: (sessionID: string) => call('ChangedFiles', sessionID), fileDiff: (sessionID: string, path: string) => call('FileDiff', sessionID, path),
   getZaloConfig: () => call('GetZaloConfig'), saveZaloConfig: (update: ZaloConfigUpdate) => call('SaveZaloConfig', update), testZaloConnection: () => call('TestZaloConnection'), removeZaloToken: () => call('RemoveZaloToken'), regenerateZaloPairingCode: () => call('RegenerateZaloPairingCode'), unpairZaloChat: (chatID: string) => call('UnpairZaloChat', chatID), zaloStatus: () => call('ZaloStatus'), sendZaloFile: (req: ZaloFileRequest) => sendZaloFile(req),
   getSettings: () => call('GetSettings'), saveSettings: (settings: SettingsInfo) => call('SaveSettings', settings), getAgentSettings: () => call('GetAgentSettings'), saveAgentSettings: (disabledTools: string[]) => call('SaveAgentSettings', disabledTools),
   listProviders: () => call('ListProviders'), getProviderUsage: (providerID: string) => call('GetProviderUsage', providerID), deleteProvider: (providerID: string) => call('DeleteProvider', providerID),

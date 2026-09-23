@@ -93,16 +93,6 @@ type BinaryPart struct {
 	Data     []byte `json:"Data"`
 }
 
-type File struct {
-	ID        string `json:"id"`
-	SessionID string `json:"session_id"`
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	Version   int64  `json:"version"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
-}
-
 type RunComplete struct {
 	SessionID string `json:"session_id"`
 	RunID     string `json:"run_id,omitempty"`
@@ -181,9 +171,3 @@ func ExtractParts(parts json.RawMessage) Parts {
 	out.Text = b.String()
 	return out
 }
-
-func ExtractText(parts json.RawMessage) string { return ExtractParts(parts).Text }
-
-func ExtractToolCalls(parts json.RawMessage) []ToolCall { return ExtractParts(parts).ToolCalls }
-
-func ExtractAttachments(parts json.RawMessage) []Attachment { return ExtractParts(parts).Attachments }
