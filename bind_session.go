@@ -2,17 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/engineapi"
-	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
 type SessionInfo struct {
@@ -59,11 +54,6 @@ type AttachmentInfo struct {
 	Path     string `json:"path,omitempty"`
 }
 
-type visionCacheKey struct {
-	workspaceID string
-	providerID  string
-	modelID     string
-}
 
 func (a *App) setCurrentSession(sessionID string) error {
 	if sessionID == "" {
@@ -203,42 +193,6 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	return out, nil
 }
 
-func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
-	if a.cfg == nil || svc == nil || svc.api == nil || svc.ws == nil {
-		return false
-	}
-	providerID := strings.TrimSpace(a.cfg.Provider)
-	modelID := strings.TrimSpace(a.cfg.Model)
-	if providerID == "" || modelID == "" {
-		return false
-	}
-	if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil && !*override.SupportsVision {
-		return false
-	}
-	desc, ok := svc.ws.Current()
-	if !ok || desc.WorkspaceID == "" {
-		return false
-	}
-	key := visionCacheKey{workspaceID: desc.WorkspaceID, providerID: providerID, modelID: modelID}
-	if cached, ok := a.vision.Load(key); ok {
-		return cached.(bool)
-	}
-	base := a.ctx
-	if base == nil {
-		base = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(base, 10*time.Second)
-	defer cancel()
-	supportsVision, err := providerdomain.SupportsVision(ctx, svc.api, desc.WorkspaceID, providerID, modelID)
-	if err != nil {
-		if a.log != nil {
-			a.log.Warn("could not resolve model attachment capability; using text fallback", "provider", providerID, "model", modelID, "err", err)
-		}
-		return false
-	}
-	a.vision.Store(key, supportsVision)
-	return supportsVision
-}
 
 func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, error) {
 	svc, err := a.services()
@@ -278,87 +232,7 @@ func (a *App) CancelPrompt(id string) error {
 	return svc.sess.Cancel(a.ctx, id)
 }
 
-const maxToolInputPreview = 4096
 
-func toolInputPreview(input string) string {
-	if len(input) <= maxToolInputPreview {
-		return input
-	}
-	runes := 0
-	for offset := range input {
-		if runes == maxToolInputPreview {
-			return input[:offset] + "…"
-		}
-		runes++
-	}
-	return input
-}
-
-func toMessageInfo(message engineapi.Message) MessageInfo {
-	parts := engineapi.ExtractParts(message.Parts)
-	text, refs := attachments.ParseAttachmentBlocks(parts.Text)
-	info := MessageInfo{
-		ID:        message.ID,
-		Role:      string(message.Role),
-		Text:      text,
-		Model:     message.Model,
-		Provider:  message.Provider,
-		CreatedAt: engineapi.TimestampMillis(message.CreatedAt),
-	}
-	if message.Role == "assistant" {
-		info.CompletedAt = parts.CompletedAt
-		if info.CompletedAt == 0 && message.UpdatedAt > message.CreatedAt {
-			info.CompletedAt = engineapi.TimestampMillis(message.UpdatedAt)
-		}
-	}
-	for _, ref := range refs {
-		info.Attachments = append(info.Attachments, AttachmentInfo{
-			FileName: ref.FileName,
-			MimeType: ref.MimeType,
-			Size:     ref.Size,
-			Path:     ref.Path,
-		})
-	}
-	for _, attachment := range parts.Attachments {
-		content := ""
-		if strings.HasPrefix(attachment.MimeType, "image/") {
-			content = base64.StdEncoding.EncodeToString(attachment.Content)
-		}
-		size := len(attachment.Content)
-		if stat, err := os.Stat(attachment.FilePath); err == nil {
-			size = int(stat.Size())
-		}
-		info.Attachments = append(info.Attachments, AttachmentInfo{
-			FileName: attachments.BaseName(attachment.FileName),
-			MimeType: attachment.MimeType,
-			Size:     size,
-			Content:  content,
-			Path:     attachment.FilePath,
-		})
-	}
-	for _, call := range parts.ToolCalls {
-		info.ToolCalls = append(info.ToolCalls, ToolCallInfo{
-			ID:       call.ID,
-			Name:     call.Name,
-			Input:    toolInputPreview(string(call.Input)),
-			Finished: call.Finished,
-		})
-	}
-	return info
-}
-
-func decodePromptAttachments(input []PromptAttachment, supportsVision bool) []attachments.Prepared {
-	items := make([]attachments.Input, len(input))
-	for i, item := range input {
-		items[i] = attachments.Input{
-			FileName: item.FileName,
-			MimeType: item.MimeType,
-			Content:  item.Content,
-			Path:     item.Path,
-		}
-	}
-	return attachments.PrepareInputs(items, supportsVision)
-}
 
 func toSessionInfo(session engineapi.Session) SessionInfo {
 	return SessionInfo{
