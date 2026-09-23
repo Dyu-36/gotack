@@ -2,6 +2,15 @@
 
 Gotack is a production Windows desktop coding agent written in Go with a Svelte/Wails UI. Its interaction model follows Pi: a small explicit tool set, configurable system resources and skills, persistent sessions with branching/compaction, project trust for project-provided resources, and direct model/provider access. Gotack adds a native Zalo remote channel and ships one built-in timetable skill.
 
+## Product direction
+
+Gotack is a **Windows desktop app for a Pi-style local coding agent**. Its core agent runtime is provided by the separately pinned `Dyu-36/tack-engine` repository, while Gotack owns the desktop UI, workspace and session experience, provider integration, packaging, and local lifecycle. The product differentiates itself with two built-in capabilities:
+
+- a bundled **timetable skill** for workbook generation and constraint-based scheduling;
+- an optional **Zalo remote channel** for controlling the same agent runtime from a paired chat.
+
+In short: **Gotack = Pi-style local coding agent desktop app + timetable skill + Zalo remote control.**
+
 ## Product guarantees
 
 - **Full local agent capability by default.** The six core tools are enabled unless the user explicitly disables one: `read`, `powershell`, `edit`, `write`, `grep`, and `glob`. Gotack does not insert per-command permission prompts.
