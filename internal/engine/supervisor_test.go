@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +60,26 @@ func waitForProcess(t *testing.T, done <-chan struct{}) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("engine process did not exit")
+	}
+}
+
+func TestIsolatedEngineEnvironmentSetsGotackPromptRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TACK_GLOBAL_CONFIG", "host-value-must-not-leak")
+	env := isolatedEngineEnvironment(root)
+	got := make(map[string]string)
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok {
+			got[strings.ToUpper(name)] = value
+		}
+	}
+	wantConfig := filepath.Join(root, "config")
+	if got["TACK_GLOBAL_CONFIG"] != wantConfig {
+		t.Fatalf("TACK_GLOBAL_CONFIG = %q, want %q", got["TACK_GLOBAL_CONFIG"], wantConfig)
+	}
+	if got["CRUSH_GLOBAL_CONFIG"] != wantConfig {
+		t.Fatalf("CRUSH_GLOBAL_CONFIG = %q, want %q", got["CRUSH_GLOBAL_CONFIG"], wantConfig)
 	}
 }
 
