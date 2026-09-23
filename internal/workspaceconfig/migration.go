@@ -60,9 +60,26 @@ func removeLegacyTools(base context.Context, api *engineapi.Client, workspaceID,
 	}
 
 	if cfg.Options != nil {
+		contextKept := make([]string, 0, len(cfg.Options.ContextPaths))
+		for _, path := range cfg.Options.ContextPaths {
+			if isLegacyPromptContextPath(path) {
+				continue
+			}
+			contextKept = append(contextKept, path)
+		}
+		if len(contextKept) != len(cfg.Options.ContextPaths) {
+			if len(contextKept) == 0 {
+				if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.context_paths"); err != nil {
+					removalErrs = append(removalErrs, fmt.Errorf("legacy context path removal: %w", err))
+				}
+			} else if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.context_paths", contextKept); err != nil {
+				removalErrs = append(removalErrs, fmt.Errorf("legacy context path cleanup: %w", err))
+			}
+		}
+
 		kept := make([]string, 0, len(cfg.Options.GlobalContextPaths))
 		for _, path := range cfg.Options.GlobalContextPaths {
-			if isManagedPath(path, managedRoot) {
+			if isManagedPath(path, managedRoot) || isLegacyGlobalPromptContextPath(path) {
 				continue
 			}
 			kept = append(kept, path)
@@ -85,6 +102,21 @@ func removeLegacyTools(base context.Context, api *engineapi.Client, workspaceID,
 	}
 
 	return errors.Join(removalErrs...)
+}
+
+func isLegacyPromptContextPath(path string) bool {
+	normalized := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
+	normalized = strings.TrimPrefix(normalized, "./")
+	switch normalized {
+	case ".github/copilot-instructions.md", ".cursorrules", "gemini.md", "crush.md", "crush.local.md":
+		return true
+	}
+	return normalized == ".cursor/rules" || strings.HasPrefix(normalized, ".cursor/rules/")
+}
+
+func isLegacyGlobalPromptContextPath(path string) bool {
+	base := strings.ToLower(filepath.Base(filepath.Clean(path)))
+	return base == "crush.md" || base == "crush.local.md"
 }
 
 func isManagedPath(path, managedRoot string) bool {
