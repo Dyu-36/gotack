@@ -68,11 +68,7 @@ func removeLegacyTools(base context.Context, api *engineapi.Client, workspaceID,
 			contextKept = append(contextKept, path)
 		}
 		if len(contextKept) != len(cfg.Options.ContextPaths) {
-			if len(contextKept) == 0 {
-				if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.context_paths"); err != nil {
-					removalErrs = append(removalErrs, fmt.Errorf("legacy context path removal: %w", err))
-				}
-			} else if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.context_paths", contextKept); err != nil {
+			if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.context_paths", contextKept); err != nil {
 				removalErrs = append(removalErrs, fmt.Errorf("legacy context path cleanup: %w", err))
 			}
 		}
@@ -85,11 +81,7 @@ func removeLegacyTools(base context.Context, api *engineapi.Client, workspaceID,
 			kept = append(kept, path)
 		}
 		if len(kept) != len(cfg.Options.GlobalContextPaths) {
-			if len(kept) == 0 {
-				if err := api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.global_context_paths"); err != nil {
-					return errors.Join(errors.Join(removalErrs...), fmt.Errorf("managed context path removal: %w", err))
-				}
-			} else if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.global_context_paths", kept); err != nil {
+			if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.global_context_paths", kept); err != nil {
 				return errors.Join(errors.Join(removalErrs...), fmt.Errorf("managed context path cleanup: %w", err))
 			}
 		}
