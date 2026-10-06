@@ -2,6 +2,7 @@ package runmetrics
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -29,4 +30,14 @@ func TestEnsureKeyEmptyDir(t *testing.T) {
 	_, err := EnsureKey("")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "empty")
+}
+
+func TestEnsureKeyRejectsMalformedKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, keyFileName), []byte("short"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := EnsureKey(dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exactly 32 bytes")
 }

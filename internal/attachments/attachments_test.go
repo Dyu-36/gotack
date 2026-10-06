@@ -1,7 +1,9 @@
 package attachments
 
 import (
+	"encoding/base64"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -124,6 +126,32 @@ func TestPrepare(t *testing.T) {
 	tooLarge := make([]byte, MaxAttachmentSize+1)
 	if _, err := Prepare("large.txt", "text/plain", tooLarge, true); err == nil {
 		t.Errorf("Prepare(tooLarge) expected an error for exceeding the limit")
+	}
+}
+
+func TestPrepareInputsPreservesOrderAndFailures(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("ghi chu"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	items := PrepareInputs([]Input{
+		{Content: "%%%"},
+		{FileName: "note.txt", Path: path},
+		{FileName: "large.txt", Content: strings.Repeat("A", base64.StdEncoding.EncodedLen(MaxAttachmentSize)+1)},
+	}, false)
+	if len(items) != 3 {
+		t.Fatalf("PrepareInputs() returned %d items, want 3", len(items))
+	}
+	if items[0].DisplayName != "attachment-1.bin" || !strings.Contains(items[0].Warning, "không hợp lệ") {
+		t.Fatalf("invalid upload result = %+v", items[0])
+	}
+	if items[1].DisplayName != "note.txt" || !strings.Contains(items[1].PromptBlock, "ghi chu") {
+		t.Fatalf("file result = %+v", items[1])
+	}
+	if items[2].DisplayName != "large.txt" || !strings.Contains(items[2].Warning, "vượt quá giới hạn") {
+		t.Fatalf("large upload result = %+v", items[2])
 	}
 }
 

@@ -63,24 +63,21 @@ func (s *Store) Inspect(projectPath string) (Status, error) {
 }
 
 func (s *Store) Set(projectPath string, trusted bool) error {
-	canonical, err := canonicalPath(projectPath)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	state, err := s.loadLocked()
-	if err != nil {
-		return err
-	}
-	if state.Decisions == nil {
-		state.Decisions = make(map[string]bool)
-	}
-	state.Decisions[pathKey(canonical)] = trusted
-	return s.saveLocked(state)
+	return s.updateDecision(projectPath, func(state *fileState, key string) {
+		if state.Decisions == nil {
+			state.Decisions = make(map[string]bool)
+		}
+		state.Decisions[key] = trusted
+	})
 }
 
 func (s *Store) Clear(projectPath string) error {
+	return s.updateDecision(projectPath, func(state *fileState, key string) {
+		delete(state.Decisions, key)
+	})
+}
+
+func (s *Store) updateDecision(projectPath string, update func(*fileState, string)) error {
 	canonical, err := canonicalPath(projectPath)
 	if err != nil {
 		return err
@@ -91,7 +88,7 @@ func (s *Store) Clear(projectPath string) error {
 	if err != nil {
 		return err
 	}
-	delete(state.Decisions, pathKey(canonical))
+	update(&state, pathKey(canonical))
 	return s.saveLocked(state)
 }
 

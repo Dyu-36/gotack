@@ -23,14 +23,31 @@ func EnsureKey(dataDir string) (string, error) {
 		return "", fmt.Errorf("create data directory: %w", err)
 	}
 	path := filepath.Join(dataDir, keyFileName)
-	if content, err := os.ReadFile(path); err == nil {
-		if len(content) != 32 {
-			return "", errors.New("run metrics key must contain exactly 32 bytes")
-		}
-		return path, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("read run metrics key: %w", err)
+	existing, err := readKey(path)
+	if err != nil {
+		return "", err
 	}
+	if existing {
+		return path, nil
+	}
+	return createKey(dataDir, path)
+}
+
+func readKey(path string) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err == nil {
+		if len(content) != 32 {
+			return false, errors.New("run metrics key must contain exactly 32 bytes")
+		}
+		return true, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("read run metrics key: %w", err)
+	}
+	return false, nil
+}
+
+func createKey(dataDir, path string) (string, error) {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return "", fmt.Errorf("generate run metrics key: %w", err)

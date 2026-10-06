@@ -25,6 +25,22 @@ func InstallSkills(configDir string) (string, error) {
 	installMu.Lock()
 	defer installMu.Unlock()
 
+	files, digest, err := loadBundledSkills()
+	if err != nil {
+		return "", fmt.Errorf("read bundled skills: %w", err)
+	}
+	base := filepath.Join(configDir, "bundled-skills")
+	root := filepath.Join(base, digest)
+	if installedSkillsMatch(root, files) {
+		return root, nil
+	}
+	if err := installSkills(base, root, files); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func loadBundledSkills() (map[string][]byte, string, error) {
 	files := make(map[string][]byte)
 	digest := sha256.New()
 	err := fs.WalkDir(bundledSkills, "skills", func(path string, entry fs.DirEntry, walkErr error) error {
@@ -45,52 +61,51 @@ func InstallSkills(configDir string) (string, error) {
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("read bundled skills: %w", err)
+		return nil, "", err
 	}
-	base := filepath.Join(configDir, "bundled-skills")
-	root := filepath.Join(base, hex.EncodeToString(digest.Sum(nil)))
-	if installedSkillsMatch(root, files) {
-		return root, nil
-	}
+	return files, hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func installSkills(base, root string, files map[string][]byte) error {
 	if err := os.MkdirAll(base, 0o700); err != nil {
-		return "", fmt.Errorf("create bundled skills directory: %w", err)
+		return fmt.Errorf("create bundled skills directory: %w", err)
 	}
 	staging, err := os.MkdirTemp(base, ".install-")
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer os.RemoveAll(staging)
 	for name, data := range files {
 		path := filepath.Join(staging, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return "", err
+			return err
 		}
 		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return "", err
+			return err
 		}
 	}
 	old := staging + ".previous"
 	hadPrevious := false
 	if _, err := os.Lstat(root); err == nil {
 		if err := os.Rename(root, old); err != nil {
-			return "", fmt.Errorf("replace damaged bundled skills: %w", err)
+			return fmt.Errorf("replace damaged bundled skills: %w", err)
 		}
 		hadPrevious = true
 	} else if !os.IsNotExist(err) {
-		return "", err
+		return err
 	}
 	if err := os.Rename(staging, root); err != nil {
 		if hadPrevious {
 			if restoreErr := os.Rename(old, root); restoreErr != nil {
-				return "", fmt.Errorf("install bundled skills: %w; previous resources retained at %s: %v", err, old, restoreErr)
+				return fmt.Errorf("install bundled skills: %w; previous resources retained at %s: %v", err, old, restoreErr)
 			}
 		}
-		return "", fmt.Errorf("install bundled skills: %w", err)
+		return fmt.Errorf("install bundled skills: %w", err)
 	}
 	if hadPrevious {
 		_ = os.RemoveAll(old)
 	}
-	return root, nil
+	return nil
 }
 
 func installedSkillsMatch(root string, files map[string][]byte) bool {
