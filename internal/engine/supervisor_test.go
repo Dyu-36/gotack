@@ -74,6 +74,9 @@ func TestIsolatedEngineEnvironmentSetsGotackPromptRoot(t *testing.T) {
 			got[strings.ToUpper(name)] = value
 		}
 	}
+	if got["CRUSH_DISABLE_PROVIDER_AUTO_UPDATE"] != "1" {
+		t.Fatalf("CRUSH_DISABLE_PROVIDER_AUTO_UPDATE = %q, want 1", got["CRUSH_DISABLE_PROVIDER_AUTO_UPDATE"])
+	}
 	wantPromptConfig := filepath.Join(root, "prompt-config")
 	if got["TACK_GLOBAL_CONFIG"] != wantPromptConfig {
 		t.Fatalf("TACK_GLOBAL_CONFIG = %q, want %q", got["TACK_GLOBAL_CONFIG"], wantPromptConfig)

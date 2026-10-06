@@ -384,6 +384,28 @@ func TestConnectHandshakeSuccess(t *testing.T) {
 	}
 }
 
+func TestConnectWaitsForDelayedEngineReadiness(t *testing.T) {
+	sup := &fakeSupervisor{}
+	release := make(chan struct{})
+	time.AfterFunc(50*time.Millisecond, func() { close(release) })
+	var waitOnce sync.Once
+	base := (&engineTransport{version: "1.2.3"}).roundTrip()
+	link := NewLink(sup)
+	link.dial = func(engineapi.Endpoint) (*http.Client, error) {
+		return &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			waitOnce.Do(func() { <-release })
+			return base.RoundTrip(req)
+		})}, nil
+	}
+	scope, started := link.BeginConnect(context.Background())
+	if !started {
+		t.Fatal("stopped link must accept a connect attempt")
+	}
+	if err := link.Connect(scope, readyRecorder(new(int), nil, nil)); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+}
+
 func TestConnectLaunchesEngineWhenAbsent(t *testing.T) {
 	sup := &fakeSupervisor{}
 	tr := &engineTransport{version: "9.9.9", streamBody: sseBody("")}

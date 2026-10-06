@@ -21,7 +21,7 @@ const (
 	StatusError    Status = "error"
 )
 
-const defaultHandshakeTimeout = 15 * time.Second
+const defaultHandshakeTimeout = 60 * time.Second
 
 var ErrAttachSuperseded = errors.New("enginelink: attach scope superseded")
 
