@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/provider"
 )
 
@@ -12,6 +13,27 @@ type visionCacheKey struct {
 	workspaceID string
 	providerID  string
 	modelID     string
+}
+
+func (a *App) applyModelCapabilityOverrides(providers []engineapi.Provider) {
+	if a.cfg == nil || a.cfg.ModelCapabilities == nil {
+		return
+	}
+	for i := range providers {
+		for j := range providers[i].Models {
+			model := &providers[i].Models[j]
+			override, ok := a.cfg.ModelCapabilities[model.ID]
+			if !ok {
+				continue
+			}
+			if override.SupportsVision != nil && !*override.SupportsVision {
+				model.SupportsVision = false
+			}
+			if override.CanReason != nil {
+				model.CanReason = *override.CanReason
+			}
+		}
+	}
 }
 
 func (a *App) isCurrentModelVision(svc *bridgeServices) bool {

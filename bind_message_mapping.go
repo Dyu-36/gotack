@@ -51,21 +51,7 @@ func toMessageInfo(message engineapi.Message) MessageInfo {
 		})
 	}
 	for _, attachment := range parts.Attachments {
-		content := ""
-		if strings.HasPrefix(attachment.MimeType, "image/") {
-			content = base64.StdEncoding.EncodeToString(attachment.Content)
-		}
-		size := len(attachment.Content)
-		if stat, err := os.Stat(attachment.FilePath); err == nil {
-			size = int(stat.Size())
-		}
-		info.Attachments = append(info.Attachments, AttachmentInfo{
-			FileName: attachments.BaseName(attachment.FileName),
-			MimeType: attachment.MimeType,
-			Size:     size,
-			Content:  content,
-			Path:     attachment.FilePath,
-		})
+		info.Attachments = append(info.Attachments, toAttachmentInfo(attachment))
 	}
 	for _, call := range parts.ToolCalls {
 		info.ToolCalls = append(info.ToolCalls, ToolCallInfo{
@@ -76,4 +62,22 @@ func toMessageInfo(message engineapi.Message) MessageInfo {
 		})
 	}
 	return info
+}
+
+func toAttachmentInfo(attachment engineapi.Attachment) AttachmentInfo {
+	content := ""
+	if strings.HasPrefix(attachment.MimeType, "image/") {
+		content = base64.StdEncoding.EncodeToString(attachment.Content)
+	}
+	size := len(attachment.Content)
+	if stat, err := os.Stat(attachment.FilePath); err == nil {
+		size = int(stat.Size())
+	}
+	return AttachmentInfo{
+		FileName: attachments.BaseName(attachment.FileName),
+		MimeType: attachment.MimeType,
+		Size:     size,
+		Content:  content,
+		Path:     attachment.FilePath,
+	}
 }

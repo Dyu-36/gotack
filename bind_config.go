@@ -65,21 +65,7 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := range providers {
-		for j := range providers[i].Models {
-			model := &providers[i].Models[j]
-			if a.cfg != nil && a.cfg.ModelCapabilities != nil {
-				if override, ok := a.cfg.ModelCapabilities[model.ID]; ok {
-					if override.SupportsVision != nil && !*override.SupportsVision {
-						model.SupportsVision = false
-					}
-					if override.CanReason != nil {
-						model.CanReason = *override.CanReason
-					}
-				}
-			}
-		}
-	}
+	a.applyModelCapabilityOverrides(providers)
 	a.vision.Clear()
 	for _, provider := range providers {
 		for _, model := range provider.Models {
