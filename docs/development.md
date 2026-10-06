@@ -8,29 +8,32 @@ also require cgo and a C compiler available to Go.
 
 ## Engine checkout
 
-The engine is a separate repository and is not committed inside Gotack:
+The engine is maintained in its own Go module and repository, not nested as a
+host-repository submodule:
 
 ```powershell
-git clone --no-checkout https://github.com/Dyu-36/tack-engine.git third_party/engine-source
-git -C third_party/engine-source checkout --detach (Get-Content .tack-pin -Raw).Trim()
+git clone --no-checkout https://github.com/Dyu-36/tack-engine.git tack-engine-source
+git -C tack-engine-source checkout --detach (Get-Content .tack-pin -Raw).Trim()
 ```
 
-Keep the checkout clean. The build verifies its revision and source contents.
-Pass `-EngineSource <path>` to use a checkout outside the workspace.
+The committed `.tack-pin` identifies the exact engine source revision. Keep the
+checkout clean: the build checks its revision and source contents before
+building. The engine repository retains its required license notices. Pass
+`-EngineSource <path>` to use a checkout outside the workspace.
 
 ## Desktop development
 
 ```powershell
 pnpm --dir frontend install --frozen-lockfile
 wails generate module
-./scripts/build-engine.ps1 -EngineSource third_party/engine-source
+./scripts/build-engine.ps1 -EngineSource tack-engine-source
 wails dev
 ```
 
 Windows x64 Wails builds also verify and bundle the pinned engine through a
 post-build hook. A tested copy is cached in `resources/bin/` so `wails build
 -clean` retains it. If no verified copy exists, the hook builds from
-`third_party/engine-source` (or the checkout in `GOTACK_ENGINE_SOURCE`). The build
+`tack-engine-source` (or the checkout in `GOTACK_ENGINE_SOURCE`). The build
 fails with setup instructions if that source is missing. Keep the generated
 `resources/` directory beside `gotack.exe`; no engine entry in `PATH` is needed.
 Reconnect searches again if the engine was installed after Gotack started.
@@ -38,6 +41,27 @@ Reconnect searches again if the engine was installed after Gotack started.
 For a browser-only UI preview, use `pnpm --dir frontend dev`. Conversations use
 DEV-only fixtures when the desktop bridge is unavailable. Production requires
 the Wails bridge. See [CONTRIBUTING](../CONTRIBUTING.md) for checks.
+
+## Build outputs
+
+Wails v2 fixes the desktop output directory at `build/bin/<outputfilename>`, so
+`wails.json` cannot relocate it. Keep one output per purpose:
+
+- `build/bin/` — Wails output: `gotack.exe` plus the bundled `resources/tack-engine.exe`.
+- `resources/bin/tack-engine.exe` — tested engine cache that survives `wails build -clean`.
+- `artifacts/` — the distribution written by `scripts/build-product.ps1`.
+
+Always build with `wails build -clean`: it drops stale entries such as a locked
+`gotack.exe~`. Never pass a directory to `-o`: Wails joins that value onto
+`build/bin`, so `-o pi-update/gotack.exe` leaves a duplicate host and a second
+engine copy behind. `scripts/verify-build-output.ps1` checks the layout and
+`scripts/ensure-engine.ps1` refuses to bundle an engine outside `build/bin`; the
+product build packages only an output that passes both.
+
+Windows cannot replace a running host binary, so the Wails pre-build hook and
+`scripts/build-product.ps1` run `scripts/stop-app.ps1` first. It stops
+`gotack.exe` and `tack-engine.exe` started from `build/bin`, leaves same-named
+processes started elsewhere alone, and fails if the output files stay locked.
 
 ## Real host-engine contract tests
 

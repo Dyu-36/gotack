@@ -7,6 +7,8 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	"github.com/Dyu-36/gotack/internal/modelcatalog"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
@@ -57,6 +59,20 @@ func TestListProvidersCapabilityOverrides(t *testing.T) {
 			})})
 			ws := workspace.NewService(api)
 			app := NewApp()
+			app.providerCatalog = providerdomain.NewPiCatalog(staticPiCatalogSource{
+				catalog: modelcatalog.Catalog{
+					"test": {
+						"model": {
+							ID: "model", Name: "Model", API: "openai-completions", Provider: "test",
+							BaseURL: "https://example.test/v1", Input: []string{"text", "image"}, Type: "chat",
+						},
+						"text": {
+							ID: "text", Name: "Text", API: "openai-completions", Provider: "test",
+							BaseURL: "https://example.test/v1", Input: []string{"text"}, Reasoning: true, Type: "chat",
+						},
+					},
+				},
+			}, "")
 			app.ctx = context.Background()
 			app.cfg = tt.config
 			app.swapConn(func(c *conn) *conn {

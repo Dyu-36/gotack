@@ -91,8 +91,8 @@ Desktop.ini
 # Local history archives
 /.history-backup/
 
-# Vendored upstream source (own git history)
-/third_party/engine-source/
+# Separately versioned engine source checkout
+/tack-engine-source/
 /.engine-source/
 /product-sources/
 /package-inspection/

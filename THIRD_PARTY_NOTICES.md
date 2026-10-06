@@ -6,8 +6,7 @@ It does not replace the licenses of the separately built engine or dependencies.
 ## Agent engine
 
 Gotack communicates over local IPC with [Dyu-36/tack-engine](https://github.com/Dyu-36/tack-engine),
-pinned to the exact commit in `.tack-pin`. That repository derives from
-[Charmbracelet Crush](https://github.com/charmbracelet/crush).
+pinned to the exact commit in `.tack-pin`. That repository contains a derivative of code originally published by Charmbracelet.
 The current pinned engine's `LICENSE.md` identifies FSL-1.1-MIT and credits
 Charmbracelet, Inc. The product build copies that exact file into
 `licenses/tack-engine-LICENSE`; the engine's own license remains authoritative.

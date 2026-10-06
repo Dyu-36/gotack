@@ -8,6 +8,19 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $pin = (Get-Content -LiteralPath (Join-Path $repoRoot '.tack-pin') -Raw).Trim()
 if ($pin -notmatch '^[0-9a-f]{40}$') { throw 'Invalid engine pin' }
+
+# Wails always writes the host to build/bin, but -o accepts a path and would
+# leave a second host tree with its own 100+ MB engine copy inside it. Bundle
+# the engine only beside the canonical host; see docs/development.md.
+function Get-CanonicalDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+}
+$hostDirectory = Get-CanonicalDirectory (Split-Path -Parent ([IO.Path]::GetFullPath($HostBinary)))
+$canonicalBin = Get-CanonicalDirectory (Join-Path $repoRoot 'build/bin')
+if (-not [string]::Equals($hostDirectory, $canonicalBin, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to bundle the pinned engine outside $canonicalBin (received $hostDirectory). Build the desktop host into build/bin, for example with 'wails build -clean'."
+}
 $output = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($HostBinary))) 'resources/tack-engine.exe'
 $cache = Join-Path $repoRoot 'resources/bin/tack-engine.exe'
 
@@ -29,7 +42,7 @@ if (Test-PinnedEngine $output) {
 if (-not (Test-PinnedEngine $cache)) {
     $engineSource = $env:GOTACK_ENGINE_SOURCE
     if ([string]::IsNullOrWhiteSpace($engineSource)) {
-        $engineSource = Join-Path $repoRoot 'third_party/engine-source'
+        $engineSource = Join-Path $repoRoot 'tack-engine-source'
     }
     if (-not (Test-Path -LiteralPath $engineSource -PathType Container)) {
         throw 'Pinned engine source is missing. Follow docs/development.md to obtain it, or set GOTACK_ENGINE_SOURCE to its checkout. The desktop build requires a bundled engine.'

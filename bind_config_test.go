@@ -12,10 +12,33 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	"github.com/Dyu-36/gotack/internal/modelcatalog"
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 	"github.com/Dyu-36/gotack/internal/session"
 	"github.com/Dyu-36/gotack/internal/workspace"
 )
+
+type staticPiCatalogSource struct {
+	catalog modelcatalog.Catalog
+}
+
+func (s staticPiCatalogSource) Load(ctx context.Context) (modelcatalog.Catalog, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return s.catalog, nil
+}
+
+func findProvider(t *testing.T, providers []engineapi.Provider, id string) engineapi.Provider {
+	t.Helper()
+	for _, entry := range providers {
+		if entry.ID == id {
+			return entry
+		}
+	}
+	t.Fatalf("provider %q is missing from %#v", id, providers)
+	return engineapi.Provider{}
+}
 
 type catalogRoundTripper func(*http.Request) (*http.Response, error)
 
@@ -49,6 +72,8 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 			body = `[{"id":"anthropic","name":"Anthropic","models":[{"id":"claude","name":"Claude"}]}]`
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/workspaces/catalog-ws/config":
 			body = `{"providers":{"anthropic":{"id":"anthropic","name":"Anthropic","api_key":"secret"}}}`
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/workspaces/catalog-ws/config/set-batch":
+			body = `{}`
 		default:
 			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
@@ -59,6 +84,22 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 	api := engineapi.NewClient(&http.Client{Transport: transport})
 	ws := workspace.NewService(api)
 	app := NewApp()
+	app.providerCatalog = providerdomain.NewPiCatalog(staticPiCatalogSource{
+		catalog: modelcatalog.Catalog{
+			"anthropic": {
+				"claude": {
+					ID: "claude", Name: "Claude", API: "anthropic-messages", Provider: "anthropic",
+					BaseURL: "https://api.anthropic.com", Input: []string{"text"}, Type: "chat",
+				},
+			},
+			"mistral": {
+				"mistral-large": {
+					ID: "mistral-large", Name: "Mistral Large", API: "mistral-conversations", Provider: "mistral",
+					BaseURL: "https://api.mistral.ai", Input: []string{"text"}, Type: "chat",
+				},
+			},
+		},
+	}, "")
 	app.ctx = context.Background()
 	app.swapConn(func(c *conn) *conn {
 		c.API = api

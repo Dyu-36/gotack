@@ -1,5 +1,5 @@
 param(
-    [string]$EngineSource = (Join-Path $PSScriptRoot '../third_party/engine-source'),
+    [string]$EngineSource = (Join-Path $PSScriptRoot '../tack-engine-source'),
     [string]$Python = 'python',
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts')
 )
@@ -26,6 +26,9 @@ $staging = $null
 $previousEngine = $env:GOTACK_TEST_ENGINE
 $previousRequired = $env:GOTACK_REQUIRE_ENGINE
 try {
+    # Release the previous run of the host and its sidecar before the pipeline
+    # touches build/bin; the Wails pre-build hook repeats this for direct builds.
+    & (Join-Path $PSScriptRoot 'stop-app.ps1')
     Invoke-Checked 'pnpm' @('--dir', 'frontend', 'install', '--frozen-lockfile')
     Invoke-Checked 'wails' @('generate', 'module')
     Invoke-Checked 'go' @('test', '-mod=readonly', '-count=1', './...')
@@ -40,6 +43,10 @@ try {
     # it. The desktop post-build hook copies it beside the compiled host.
     & (Join-Path $PSScriptRoot 'build-engine.ps1') -EngineSource $engineRoot -Output (Join-Path $repoRoot 'resources/bin/tack-engine.exe')
     Invoke-Checked 'wails' @('build', '-platform', 'windows/amd64', '-clean', '-webview2', 'download')
+    # The Wails output layout is an invariant: one host binary plus the bundled
+    # engine under resources/. A path passed to -o would leave a duplicate host
+    # tree behind, so refuse to package an output that violates it.
+    & (Join-Path $PSScriptRoot 'verify-build-output.ps1')
 
     $engineExecutable = Join-Path $repoRoot 'build/bin/resources/tack-engine.exe'
     Invoke-Checked $Python @((Join-Path $PSScriptRoot 'build-timetable-runtime.py'))

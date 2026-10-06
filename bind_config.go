@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,12 +62,10 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	var providers []engineapi.Provider
-	if a.providerCatalog != nil {
-		providers, err = a.providerCatalog.List(ctx, svc.API, workspaceID)
-	} else {
-		providers, err = providerdomain.ListCatalog(ctx, svc.API, workspaceID)
+	if a.providerCatalog == nil {
+		return nil, errors.New("Pi model catalog is not initialized")
 	}
+	providers, err := a.providerCatalog.List(ctx, svc.API, workspaceID)
 	if err != nil {
 		return nil, err
 	}

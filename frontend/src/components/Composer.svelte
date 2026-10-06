@@ -301,9 +301,10 @@
               <div class="max-h-64 overflow-y-auto scroll-stable space-y-2 pr-0.5">
                 {#if catalog.status === 'loading'}
                   <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{t('composer.loadingModels')}</div>
-                {:else if catalog.status === 'error'}
-                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{catalog.error}</div>
                 {:else}
+                  {#if catalog.error}
+                    <div class="px-2 py-2 text-center text-xs text-amber-600">{catalog.error}</div>
+                  {/if}
                   {#each [...groupedModels.entries()] as [providerId, models] (providerId)}
                     <div class="space-y-0.5">
                       <div class="flex items-center justify-between px-1.5 py-0.5 text-2xs font-semibold text-mm-tertiary uppercase tracking-wider bg-mm-panel/40 rounded">

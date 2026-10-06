@@ -79,6 +79,13 @@ The desktop host owns the public model catalog. `internal/modelcatalog` fetches
 an atomic disk cache plus a bundled Pi snapshot for offline startup. The UI
 refreshes while connected; hidden windows defer polling until visible again.
 
+Settings shows the supported model catalog per provider, including configured
+and unconfigured providers, with metadata for model selection. Users can refresh
+the catalog manually. The UI displays failures returned by the catalog bridge
+call while retaining the prior list. If Pi's HTTP request fails, the host serves
+its cached or bundled snapshot and logs a warning instead. The Composer only
+offers models for configured providers.
+
 `internal/provider` maps Pi protocol identifiers to engine-supported transports
 and stable Gotack provider IDs. Unsupported protocols and non-chat models are
 excluded. `model_routes` carries each model's protocol, endpoint and header
@@ -118,5 +125,7 @@ boundaries using Go/Wails packages and a separately pinned engine.
 
 Keep source, tests, lockfiles, `.tack-pin`, skill templates and build icons/manifests.
 `build/bin/`, `frontend/dist/`, `frontend/wailsjs/`, `node_modules/` and `artifacts/`
-are generated, ignored local outputs. The engine checkout and history backups
-are not part of routine generated-output cleanup.
+are generated, ignored local outputs. Inside `build/bin/` the complete expected
+content is the host binary and its `resources/` payload, and the development
+guide lists the build rules that keep stray output trees out of it. The engine
+checkout and history backups are not part of routine generated-output cleanup.

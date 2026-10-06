@@ -10,61 +10,6 @@ import (
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
-func findProvider(t *testing.T, providers []engineapi.Provider, id string) engineapi.Provider {
-	t.Helper()
-	for _, provider := range providers {
-		if provider.ID == id {
-			return provider
-		}
-	}
-	t.Fatalf("provider %q is missing from %#v", id, providers)
-	return engineapi.Provider{}
-}
-
-func TestMergeLocalProviderOverlaysAddsLocalProvidersWhenMissing(t *testing.T) {
-	providers, overlays := providerdomain.MergeLocalOverlays([]engineapi.Provider{{ID: "openai", Name: "OpenAI"}})
-	if len(providers) != 3 {
-		t.Fatalf("provider count = %d, want 3", len(providers))
-	}
-	mistral := findProvider(t, providers, providerdomain.MistralID)
-	if mistral.Type != providerdomain.OpenAICompatType || mistral.APIEndpoint != providerdomain.MistralDefaultEndpoint {
-		t.Fatalf("Mistral overlay = %#v", mistral)
-	}
-	if len(mistral.Models) < 3 || !mistral.Models[0].SupportsVision {
-		t.Fatalf("Mistral models = %#v", mistral.Models)
-	}
-
-	codex := findProvider(t, providers, codexProviderID)
-	if codex.Type != codexProviderType || codex.APIEndpoint != codexBackendURL || len(codex.Models) != 0 {
-		t.Fatalf("Codex overlay = %#v", codex)
-	}
-
-	if openai := findProvider(t, providers, openAIProviderID); openai.Name != "OpenAI" {
-		t.Fatalf("OpenAI provider = %#v", openai)
-	}
-	if !overlays[providerdomain.MistralID] || !overlays[codexProviderID] {
-		t.Fatalf("local overlays = %#v", overlays)
-	}
-}
-
-func TestMergeLocalProviderOverlaysLetsUpstreamMistralWin(t *testing.T) {
-	upstream := engineapi.Provider{
-		ID:          providerdomain.MistralID,
-		Name:        "Mistral upstream",
-		Type:        "openai-compat",
-		APIEndpoint: "https://upstream.example/v1",
-		Models:      []engineapi.Model{{ID: "upstream-model", Name: "Upstream model"}},
-	}
-	providers, overlays := providerdomain.MergeLocalOverlays([]engineapi.Provider{upstream})
-	mistral := findProvider(t, providers, providerdomain.MistralID)
-	if mistral.Name != upstream.Name || mistral.APIEndpoint != upstream.APIEndpoint || mistral.Models[0].ID != "upstream-model" {
-		t.Fatalf("upstream Mistral was changed: %#v", mistral)
-	}
-	if overlays[providerdomain.MistralID] {
-		t.Fatal("upstream Mistral must not be marked as a local overlay")
-	}
-}
-
 func TestMergeProviderModelsKeepsConfiguredMetadataFirst(t *testing.T) {
 	configured := []engineapi.Model{{ID: "mistral-medium-3-5", Name: "Configured", SupportsVision: false}}
 	fallback := []engineapi.Model{

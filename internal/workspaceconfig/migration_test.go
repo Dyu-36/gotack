@@ -140,8 +140,8 @@ func TestLegacyOnlyContextIsMaskedWithExplicitEmptyLists(t *testing.T) {
 	root := t.TempDir()
 	cfg := engineapi.WorkspaceConfig{
 		Options: &engineapi.WorkspaceOptions{
-			ContextPaths:       []string{".cursor/rules/", "GEMINI.md", "CRUSH.md"},
-			GlobalContextPaths: []string{filepath.Join(root, "CRUSH.md")},
+			ContextPaths:       []string{".cursor/rules/", "GEMINI.md"},
+			GlobalContextPaths: []string{filepath.Join(root, "context-prompt", "generation")},
 		},
 	}
 	writes := map[string]json.RawMessage{}
@@ -178,13 +178,11 @@ func TestMigrationPreservesUserHooksAndContext(t *testing.T) {
 				".github/copilot-instructions.md",
 				".cursor/rules/",
 				"GEMINI.md",
-				"CRUSH.md",
 				"AGENTS.md",
 				"docs/custom-agent-context.md",
 			},
 			GlobalContextPaths: []string{
 				filepath.Join(root, "context-prompt", "generation"),
-				filepath.Join(root, "CRUSH.md"),
 				user,
 			},
 		},

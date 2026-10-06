@@ -7,10 +7,13 @@ Settings > Agent can disable tools globally; an empty disabled list means full
 capability. The engine constructs the system prompt from the same enabled tool
 registry exposed to the model.
 
-Providers and chat models come from Pi.dev and refresh every five minutes while
-the app is connected and visible. A local cache and bundled snapshot keep the
-catalog available offline. Models using protocols the engine supports appear
-in Settings; the chat model picker shows providers with usable credentials.
+Providers and chat models come from Pi.dev. The app refreshes the catalog every
+five minutes while connected and visible; a local cache and bundled snapshot
+keep it available offline. Settings lists supported models and their metadata
+for configured and unconfigured providers, and offers a manual refresh action.
+If the catalog bridge call fails, the UI shows an error and keeps the prior list.
+When Pi is unreachable, the host serves its cache or bundled snapshot and logs a
+warning. The chat model picker shows only providers with usable credentials.
 ChatGPT/Codex uses the account's own OAuth model list. Custom providers and
 endpoints remain supported. Credentials can be replaced or removed; previously
 stored keys are not returned to JavaScript as plaintext.
@@ -57,5 +60,5 @@ transport and owned engine. Auto-start can launch it hidden after Windows login.
 
 On Windows, host configuration, engine state, skills, trust decisions and Zalo
 state live under the user's application-data `gotack` directory. Logs use the
-cache directory. The engine receives isolated Crush-compatible config/data/cache
-paths owned by Gotack. Workspace cleanup does not remove user data.
+cache directory. The engine receives isolated config and data paths owned by
+Gotack. Workspace cleanup does not remove user data.

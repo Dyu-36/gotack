@@ -167,6 +167,41 @@
     {:else}
       <p class="hint">{t('providers.noneLoaded')}</p>
     {/if}
+    {#if catalog.error}
+      <p class="hint" role="status">{t('providers.catalogRefreshFailed', { error: catalog.error })}</p>
+    {/if}
+    <details class="provider-model-catalog">
+      <summary>{t('providers.supportedModels', { count: catalog.models.length })}</summary>
+      <div class="catalog-provider-list">
+        {#each catalog.providers as item (item.id)}
+          <details class="catalog-provider">
+            <summary>
+              <strong>{item.name}</strong>
+              <span class="catalog-state">{item.configured ? t('providers.configured') : t('providers.notConfigured')}</span>
+              <small>{t('providers.modelCount', { count: item.models.length })}</small>
+            </summary>
+            {#if item.models.length}
+              <ul>
+                {#each item.models as model (`${item.id}:${model.id}`)}
+                  <li class="catalog-model">
+                    <span class="catalog-model-name">{model.name}</span>
+                    <code>{model.id}</code>
+                    <span class="catalog-model-meta">
+                      {#if model.context_window}<small>{t('providers.contextWindow', { count: model.context_window.toLocaleString() })}</small>{/if}
+                      {#if model.supports_vision}<small>{t('providers.vision')}</small>{/if}
+                      {#if model.can_reason}<small>{t('providers.reasoning')}</small>{/if}
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            {:else}
+              <p class="hint">{t('providers.noModels')}</p>
+            {/if}
+          </details>
+        {/each}
+      </div>
+      <button type="button" class="btn-notion text-xs" onclick={() => void catalog.refresh()}>{t('providers.refreshCatalog')}</button>
+    </details>
 
     <label class="field-label" for="provider-select">{t('providers.addEdit')}</label>
     <select id="provider-select" class="field" value={selectedProvider} onchange={(event) => chooseProvider(event.currentTarget.value)} aria-label="Provider">
@@ -304,4 +339,20 @@
   .oauth-waiting-badge { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mm-text); }
   .oauth-url-box { display: grid; gap: 4px; padding: 8px; border-radius: 6px; background: var(--mm-bg); border: 1px solid var(--mm-border); }
   .oauth-url-label { font-size: 11px; font-weight: 500; color: var(--mm-secondary); }
+  .provider-model-catalog { margin-top: 12px; padding: 9px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); }
+  .provider-model-catalog > summary, .catalog-provider > summary { display: flex; align-items: center; gap: 8px; color: var(--mm-text); font-size: 12px; cursor: pointer; }
+  .provider-model-catalog > summary { font-weight: 600; }
+  .catalog-provider-list { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; margin: 8px 0; border-top: 1px solid var(--mm-border); border-bottom: 1px solid var(--mm-border); }
+  .catalog-provider { padding: 7px 3px; border-bottom: 1px solid var(--mm-border); }
+  .catalog-provider:last-child { border-bottom: 0; }
+  .catalog-provider > summary { min-height: 24px; }
+  .catalog-provider > summary strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .catalog-state { margin-left: auto; color: var(--mm-secondary); font-size: 10px; white-space: nowrap; }
+  .catalog-provider > summary small { color: var(--mm-tertiary); font-size: 10px; white-space: nowrap; }
+  .catalog-provider ul { display: grid; gap: 5px; padding: 7px 4px 2px 18px; margin: 0; list-style: none; }
+  .catalog-model { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; padding: 6px 7px; border: 1px solid var(--mm-border); border-radius: 5px; background: var(--mm-bg); }
+  .catalog-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--mm-text); font-size: 11px; font-weight: 600; }
+  .catalog-model code { grid-column: 1 / -1; overflow-wrap: anywhere; color: var(--mm-secondary); font-size: 10px; }
+  .catalog-model-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+  .catalog-model-meta small { color: var(--mm-tertiary); font-size: 10px; }
 </style>

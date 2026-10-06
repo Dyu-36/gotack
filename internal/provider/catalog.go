@@ -98,24 +98,6 @@ func localSpecFor(providerID string) (LocalSpec, bool) {
 	}
 }
 
-func MergeLocalOverlays(providers []engineapi.Provider) ([]engineapi.Provider, map[string]bool) {
-	seen := make(map[string]bool, len(providers))
-	for _, candidate := range providers {
-		seen[candidate.ID] = true
-	}
-
-	overlaid := make(map[string]bool)
-	for _, providerID := range []string{MistralID, CodexID} {
-		if seen[providerID] {
-			continue
-		}
-		spec, _ := localSpecFor(providerID)
-		providers = append(providers, spec.Provider)
-		overlaid[providerID] = true
-	}
-	return providers, overlaid
-}
-
 func MergeModels(primary, fallback []engineapi.Model) []engineapi.Model {
 	result := make([]engineapi.Model, 0, len(primary)+len(fallback))
 	seen := make(map[string]bool, len(primary)+len(fallback))
@@ -215,43 +197,4 @@ func FinalizeLocal(ctx context.Context, api *engineapi.Client, workspaceID strin
 		return fmt.Errorf("enable model discovery for local provider %s: %w", providerID, err)
 	}
 	return nil
-}
-
-func ListCatalog(ctx context.Context, api *engineapi.Client, workspaceID string) ([]engineapi.Provider, error) {
-	providers, err := api.ListProviders(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	providers, localOverlays := MergeLocalOverlays(providers)
-	cfg, err := api.GetWorkspaceConfig(ctx, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("get resolved engine config: %w", err)
-	}
-	for i := range providers {
-		configured, exists := cfg.Providers[providers[i].ID]
-		if !exists || configured.Disable {
-			continue
-		}
-		if localOverlays[providers[i].ID] {
-			if configured.Name != "" {
-				providers[i].Name = configured.Name
-			}
-			if configured.Type != "" {
-				providers[i].Type = configured.Type
-			}
-			if configured.BaseURL != "" {
-				providers[i].APIEndpoint = configured.BaseURL
-			}
-			if len(configured.Models) > 0 {
-				providers[i].Models = MergeModels(configured.Models, providers[i].Models)
-			}
-		}
-		kind, _, usable := ResolvedCredential(configured)
-		if !usable {
-			continue
-		}
-		providers[i].Configured = true
-		providers[i].CredentialKind = kind
-	}
-	return providers, nil
 }
