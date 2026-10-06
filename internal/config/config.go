@@ -129,6 +129,12 @@ type ProviderConfig struct {
 
 	// The provider models
 	Models []catwalk.Model `json:"models,omitempty" jsonschema:"description=List of models available from this provider"`
+
+	// ModelRoutes lets external catalogs select the protocol for new model IDs.
+	ModelRoutes map[string]ModelRoute `json:"model_routes,omitempty"`
+
+	// CatalogModels makes Models authoritative instead of adding bundled models.
+	CatalogModels bool `json:"catalog_models,omitempty"`
 }
 
 // ToProvider converts the [ProviderConfig] to a [catwalk.Provider].

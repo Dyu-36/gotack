@@ -235,7 +235,7 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 			if config.APIKey != "" {
 				p.APIKey = config.APIKey
 			}
-			if len(config.Models) > 0 {
+			if config.CatalogModels || len(config.Models) > 0 {
 				models := []catwalk.Model{}
 				seen := make(map[string]bool)
 
@@ -252,7 +252,7 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 				// A ChatGPT OAuth catalog is already account-scoped. Appending the
 				// public OpenAI catalog would expose models the subscription cannot
 				// run, especially after an app restart and config reload.
-				if !openaioauth.HasSubscriptionCredential(string(p.ID), config.OAuthToken) {
+				if !config.CatalogModels && !openaioauth.HasSubscriptionCredential(string(p.ID), config.OAuthToken) {
 					for _, model := range p.Models {
 						if seen[model.ID] {
 							continue

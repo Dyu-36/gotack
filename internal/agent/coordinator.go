@@ -372,6 +372,11 @@ func effectiveReasoningEffort(model Model) string {
 }
 
 func getProviderOptions(model Model, providerCfg config.ProviderConfig) (fantasy.ProviderOptions, error) {
+	var routeErr error
+	providerCfg, routeErr = providerCfg.ForModel(model.ModelCfg.Model)
+	if routeErr != nil {
+		return nil, routeErr
+	}
 	options := fantasy.ProviderOptions{}
 
 	cfgOpts := []byte("{}")
@@ -433,8 +438,8 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) (fantasy
 		if !hasReasoningEffort && shouldSetEffort {
 			mergedOptions["reasoning_effort"] = reasoningEffort
 		}
-		if openai.IsResponsesModel(model.CatwalkCfg.ID) {
-			if openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) {
+		if providerCfg.UsesResponsesAPI(model.CatwalkCfg.ID, openai.IsResponsesModel(model.CatwalkCfg.ID)) {
+			if providerCfg.UsesResponsesAPI(model.CatwalkCfg.ID, false) && model.CatwalkCfg.CanReason || openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) {
 				// jsons.Merge treats an explicit JSON null as absent, but
 				// a user-set null is an explicit omission that must beat
 				// any lower-layer default. Restore it from the
@@ -967,24 +972,31 @@ func (c *coordinator) buildAgentModels(ctx context.Context) (Model, Model, error
 	}
 
 	return Model{
-		Model:               largeModel,
-		CatwalkCfg:          *largeCatwalkModel,
-		ModelCfg:            largeModelCfg,
-		FlatRate:            largeProviderCfg.FlatRate,
-		OmitMaxOutputTokens: omitMaxOutputTokens(largeProviderCfg),
-	}, Model{
-		Model:               smallModel,
-		CatwalkCfg:          *smallCatwalkModel,
-		ModelCfg:            smallModelCfg,
-		FlatRate:            smallProviderCfg.FlatRate,
-		OmitMaxOutputTokens: omitMaxOutputTokens(smallProviderCfg),
-	}, nil
+			Model:               largeModel,
+			CatwalkCfg:          *largeCatwalkModel,
+			ModelCfg:            largeModelCfg,
+			FlatRate:            largeProviderCfg.FlatRate,
+			OmitMaxOutputTokens: omitMaxOutputTokens(largeProviderCfg),
+		}, Model{
+			Model:               smallModel,
+			CatwalkCfg:          *smallCatwalkModel,
+			ModelCfg:            smallModelCfg,
+			FlatRate:            smallProviderCfg.FlatRate,
+			OmitMaxOutputTokens: omitMaxOutputTokens(smallProviderCfg),
+		}, nil
 }
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []anthropic.Option
 
 	switch {
+	case providerID == string(catwalk.InferenceProviderCopilot):
+		headers["Authorization"] = "Bearer " + apiKey
+		client := copilot.NewClient(false, c.cfg.Config().Options.Debug)
+		client.Transport = &anthropicBearerTransport{
+			base: client.Transport, token: apiKey,
+		}
+		opts = append(opts, anthropic.WithHTTPClient(client))
 	case strings.HasPrefix(apiKey, "Bearer "):
 		// NOTE: Prevent the SDK from picking up the API key from env.
 		os.Setenv("ANTHROPIC_API_KEY", "")
@@ -1006,19 +1018,24 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 		opts = append(opts, anthropic.WithBaseURL(baseURL))
 	}
 
-	if c.cfg.Config().Options.Debug {
+	if c.cfg.Config().Options.Debug && providerID != string(catwalk.InferenceProviderCopilot) {
 		httpClient := log.NewHTTPClient()
 		opts = append(opts, anthropic.WithHTTPClient(httpClient))
 	}
 	return anthropic.New(opts...)
 }
 
-func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string) (fantasy.Provider, error) {
+func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string, providerCfg config.ProviderConfig) (fantasy.Provider, error) {
 	opts := []openai.Option{
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
+		openai.WithResponsesAPIFunc(func(id string) bool {
+			return providerCfg.UsesResponsesAPI(id, openai.IsResponsesModel(id))
+		}),
 	}
-	if c.cfg.Config().Options.Debug {
+	if providerCfg.ID == string(catwalk.InferenceProviderCopilot) {
+		opts = append(opts, openai.WithHTTPClient(copilot.NewClient(false, c.cfg.Config().Options.Debug)))
+	} else if c.cfg.Config().Options.Debug {
 		httpClient := log.NewHTTPClient()
 		opts = append(opts, openai.WithHTTPClient(httpClient))
 	}
@@ -1059,7 +1076,7 @@ func (c *coordinator) buildVercelProvider(_, apiKey string, headers map[string]s
 	return vercel.New(opts...)
 }
 
-func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers map[string]string, extraBody map[string]any, providerID string) (fantasy.Provider, error) {
+func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers map[string]string, extraBody map[string]any, providerID, routeAPI string) (fantasy.Provider, error) {
 	opts := []openaicompat.Option{
 		openaicompat.WithBaseURL(baseURL),
 		openaicompat.WithAPIKey(apiKey),
@@ -1083,6 +1100,9 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	}
 	if httpClient != nil {
 		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
+	}
+	if routeAPI == "openai-completions" {
+		opts = append(opts, openaicompat.WithResponsesAPIFunc(func(string) bool { return false }))
 	}
 
 	if len(headers) > 0 {
@@ -1190,6 +1210,11 @@ func (c *coordinator) isAnthropicThinking(model config.SelectedModel) bool {
 }
 
 func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model config.SelectedModel) (fantasy.Provider, error) {
+	var routeErr error
+	providerCfg, routeErr = providerCfg.ForModel(model.Model)
+	if routeErr != nil {
+		return nil, routeErr
+	}
 	headers := maps.Clone(providerCfg.ExtraHeaders)
 	if headers == nil {
 		headers = make(map[string]string)
@@ -1213,7 +1238,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 
 	switch providerCfg.ID {
 	case string(catwalk.InferenceProviderOpenCodeGo), string(catwalk.InferenceProviderOpenCodeZen):
-		if opencodeMessagesModels[model.Model] {
+		if _, routed := providerCfg.ModelRoutes[model.Model]; !routed && opencodeMessagesModels[model.Model] {
 			baseURL = strings.TrimSuffix(baseURL, "/v1")
 			return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID)
 		}
@@ -1221,7 +1246,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 
 	switch providerCfg.Type {
 	case openai.Name:
-		return c.buildOpenaiProvider(baseURL, apiKey, headers)
+		return c.buildOpenaiProvider(baseURL, apiKey, headers, providerCfg)
 	case anthropic.Name:
 		return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID)
 	case openrouter.Name:
@@ -1229,6 +1254,9 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	case vercel.Name:
 		return c.buildVercelProvider(baseURL, apiKey, headers)
 	case azure.Name:
+		if providerCfg.ModelRoutes[model.Model].API == "azure-openai-responses" {
+			return c.buildRoutedAzureProvider(baseURL, apiKey, headers)
+		}
 		return c.buildAzureProvider(baseURL, apiKey, headers, providerCfg.ExtraParams)
 	case bedrock.Name:
 		return c.buildBedrockProvider(apiKey, headers, providerCfg.ID)
@@ -1246,12 +1274,12 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 			}
 			providerCfg.ExtraBody["tool_stream"] = true
 		}
-		return c.buildOpenaiCompatProvider(baseURL, apiKey, headers, providerCfg.ExtraBody, providerCfg.ID)
+		return c.buildOpenaiCompatProvider(baseURL, apiKey, headers, providerCfg.ExtraBody, providerCfg.ID, providerCfg.ModelRoutes[model.Model].API)
 	default:
 		// Known custom providers (litellm, ollama, omlx) are
 		// openai-compat under the hood.
 		if discover.IsKnownCustomProvider(string(providerCfg.Type)) {
-			return c.buildOpenaiCompatProvider(baseURL, apiKey, headers, providerCfg.ExtraBody, providerCfg.ID)
+			return c.buildOpenaiCompatProvider(baseURL, apiKey, headers, providerCfg.ExtraBody, providerCfg.ID, providerCfg.ModelRoutes[model.Model].API)
 		}
 		return nil, fmt.Errorf("provider type not supported: %q", providerCfg.Type)
 	}
