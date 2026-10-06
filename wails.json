@@ -6,6 +6,9 @@
   "frontend:build": "pnpm build",
   "frontend:dev:watcher": "pnpm dev",
   "frontend:dev:serverUrl": "auto",
+  "postBuildHooks": {
+    "windows/amd64": "pwsh -NoProfile -File ../../scripts/ensure-engine.ps1 -HostBinary ${bin}"
+  },
   "author": {
     "name": "Dyu-36"
   },

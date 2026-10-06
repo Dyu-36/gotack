@@ -140,6 +140,38 @@ func TestSupervisorStartUsesEndpointAndReusesProcess(t *testing.T) {
 	}
 }
 
+func TestSupervisorDiscoversEngineInstalledAfterFailure(t *testing.T) {
+	_, statePath := newProcessSupervisor(t)
+	root := filepath.Dir(statePath)
+	t.Chdir(root)
+	t.Setenv("GOTACK_ENGINE", "")
+	t.Setenv("GOTACK_TEST_ENGINE", "")
+	t.Setenv("PATH", root)
+	sup := NewSupervisor(nil, "")
+	t.Cleanup(func() { _ = sup.Stop() })
+	if _, err := sup.Start(); err == nil || !strings.Contains(err.Error(), "scripts/build-engine.ps1") {
+		t.Fatalf("Start() without an engine = %v, want engine setup instructions", err)
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(root, "build", "bin", "resources", defaultBinary())
+	if err := os.MkdirAll(filepath.Dir(installed), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sup.Start(); err != nil {
+		t.Fatalf("Start() after installing the bundled engine = %v", err)
+	}
+}
+
 func TestSupervisorRestartsAfterExitAndStop(t *testing.T) {
 	sup, statePath := newProcessSupervisor(t)
 	if _, err := sup.Start(); err != nil {

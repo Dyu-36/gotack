@@ -27,6 +27,14 @@ wails generate module
 wails dev
 ```
 
+Windows x64 Wails builds also verify and bundle the pinned engine through a
+post-build hook. A tested copy is cached in `resources/bin/` so `wails build
+-clean` retains it. If no verified copy exists, the hook builds from
+`third_party/engine-source` (or the checkout in `GOTACK_ENGINE_SOURCE`). The build
+fails with setup instructions if that source is missing. Keep the generated
+`resources/` directory beside `gotack.exe`; no engine entry in `PATH` is needed.
+Reconnect searches again if the engine was installed after Gotack started.
+
 For a browser-only UI preview, use `pnpm --dir frontend dev`. Conversations use
 DEV-only fixtures when the desktop bridge is unavailable. Production requires
 the Wails bridge. See [CONTRIBUTING](../CONTRIBUTING.md) for checks.

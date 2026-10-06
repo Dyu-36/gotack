@@ -18,8 +18,9 @@ import (
 )
 
 type Supervisor struct {
-	log    *slog.Logger
-	binary string
+	log        *slog.Logger
+	binary     string
+	autoBinary bool
 
 	lifecycle sync.Mutex
 	mu        sync.Mutex
@@ -33,10 +34,11 @@ func NewSupervisor(log *slog.Logger, binary string) *Supervisor {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	if binary == "" {
+	autoBinary := binary == ""
+	if autoBinary {
 		binary = defaultBinary()
 	}
-	return &Supervisor{log: log, binary: binary}
+	return &Supervisor{log: log, binary: binary, autoBinary: autoBinary}
 }
 
 func defaultBinary() string {
@@ -125,6 +127,11 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 	}
 	bin := s.binary
 	s.mu.Unlock()
+	// Build hooks or an installation repair may provide the sidecar after the
+	// supervisor was created. Resolve again on every launch and reconnect.
+	if s.autoBinary {
+		bin = defaultBinary()
+	}
 
 	if !filepath.IsAbs(bin) && strings.ContainsAny(bin, `/\`) {
 		absolute, err := filepath.Abs(bin)
@@ -165,6 +172,11 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
 			_ = logFile.Close()
+		}
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			return engineapi.Endpoint{}, fmt.Errorf("engine: executable %s is missing; "+
+				"restore the bundled engine in resources beside Gotack, "+
+				"or run scripts/build-engine.ps1 for development: %w", bin, err)
 		}
 		return engineapi.Endpoint{}, fmt.Errorf("engine: start %s: %w", bin, err)
 	}

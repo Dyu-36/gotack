@@ -35,10 +35,13 @@ try {
     Invoke-Checked 'pnpm' @('--dir', 'frontend', 'check')
     Invoke-Checked 'pnpm' @('--dir', 'frontend', 'test')
     Invoke-Checked 'pnpm' @('--dir', 'frontend', 'build')
+
+    # Keep the verified sidecar outside build/bin so Wails -clean cannot erase
+    # it. The desktop post-build hook copies it beside the compiled host.
+    & (Join-Path $PSScriptRoot 'build-engine.ps1') -EngineSource $engineRoot -Output (Join-Path $repoRoot 'resources/bin/tack-engine.exe')
     Invoke-Checked 'wails' @('build', '-platform', 'windows/amd64', '-clean', '-webview2', 'download')
 
     $engineExecutable = Join-Path $repoRoot 'build/bin/resources/tack-engine.exe'
-    & (Join-Path $PSScriptRoot 'build-engine.ps1') -EngineSource $engineRoot -Output $engineExecutable
     Invoke-Checked $Python @((Join-Path $PSScriptRoot 'build-timetable-runtime.py'))
 
     $env:GOTACK_TEST_ENGINE = $engineExecutable
