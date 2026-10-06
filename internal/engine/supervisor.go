@@ -47,15 +47,38 @@ func defaultBinary() string {
 
 	primary := "tack-engine" + ext
 
+	for _, envKey := range []string{"GOTACK_ENGINE", "GOTACK_TEST_ENGINE"} {
+		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
+			if info, err := os.Stat(val); err == nil && !info.IsDir() {
+				if abs, err := filepath.Abs(val); err == nil {
+					return abs
+				}
+				return val
+			}
+		}
+	}
+
+	candidates := make([]string, 0, 8)
 	if executable, err := os.Executable(); err == nil {
 		root := filepath.Dir(executable)
-		for _, candidate := range []string{
+		candidates = append(candidates,
 			filepath.Join(root, "resources", primary),
 			filepath.Join(root, primary),
-		} {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
+		)
+	}
+
+	candidates = append(candidates,
+		filepath.Join("build", "bin", "resources", primary),
+		filepath.Join("resources", primary),
+		primary,
+	)
+
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if abs, err := filepath.Abs(candidate); err == nil {
+				return abs
 			}
+			return candidate
 		}
 	}
 

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,5 +21,39 @@ func TestDefaultBinaryResolvesTackEngineName(t *testing.T) {
 	}
 	if !strings.Contains(bin, "tack-engine") {
 		t.Fatalf("defaultBinary() = %s, expected tack-engine", bin)
+	}
+}
+
+func TestDefaultBinary_EnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	fakeBinary := filepath.Join(dir, "custom-engine.exe")
+	if err := os.WriteFile(fakeBinary, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GOTACK_ENGINE", fakeBinary)
+	t.Setenv("GOTACK_TEST_ENGINE", "")
+
+	got := defaultBinary()
+	expected, _ := filepath.Abs(fakeBinary)
+	if got != expected {
+		t.Fatalf("defaultBinary() with GOTACK_ENGINE = %s, want %s", got, expected)
+	}
+}
+
+func TestDefaultBinary_TestEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	fakeBinary := filepath.Join(dir, "test-engine.exe")
+	if err := os.WriteFile(fakeBinary, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GOTACK_ENGINE", "")
+	t.Setenv("GOTACK_TEST_ENGINE", fakeBinary)
+
+	got := defaultBinary()
+	expected, _ := filepath.Abs(fakeBinary)
+	if got != expected {
+		t.Fatalf("defaultBinary() with GOTACK_TEST_ENGINE = %s, want %s", got, expected)
 	}
 }

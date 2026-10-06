@@ -57,6 +57,10 @@ frontend/package.json.md5
 mcp.json
 .codebase-memory/
 .cbmignore
+.agents/
+.claude/
+skills-lock.json
+agent/
 
 # ==========================================
 # Logs & Temp

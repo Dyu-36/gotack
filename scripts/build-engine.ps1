@@ -48,7 +48,9 @@ $sourceEntries = @(foreach ($relativePath in ($sourceFiles | Sort-Object -Unique
     "$relativePath $digest"
 })
 $sourceBytes = [Text.Encoding]::UTF8.GetBytes(($sourceEntries -join "`n"))
-$sourceDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($sourceBytes)).ToLowerInvariant()
+$hasher = [Security.Cryptography.SHA256]::Create()
+$sourceDigest = [BitConverter]::ToString($hasher.ComputeHash($sourceBytes)).Replace('-', '').ToLowerInvariant()
+$hasher.Dispose()
 $commitEpoch = (& git -C $engineRoot show -s --format=%ct HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read source timestamp' }
 $builtAt = [DateTimeOffset]::FromUnixTimeSeconds([long]$commitEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -74,7 +76,9 @@ try {
         tests_run = $true
         checks = @('go test -tags gotacktest -mod=readonly -count=1 ./...', 'go vet -tags gotacktest -copylocks=false -mod=readonly ./...')
     }
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$stagedOutput.build.json" -Encoding utf8NoBOM
+    $manifestJson = $manifest | ConvertTo-Json -Depth 5
+    $utf8NoBOM = New-Object System.Text.UTF8Encoding $false
+    [IO.File]::WriteAllText("$stagedOutput.build.json", $manifestJson, $utf8NoBOM)
     Move-Item -LiteralPath $stagedOutput -Destination $outputPath -Force
     Move-Item -LiteralPath "$stagedOutput.build.json" -Destination "$outputPath.build.json" -Force
 } finally {
