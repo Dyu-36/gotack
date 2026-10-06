@@ -31,6 +31,7 @@ tack-engine — agent loop, tools, model calls and persisted sessions
 | `internal/engineapi` | IPC transport, typed requests and engine responses |
 | `internal/session`, `internal/workspace` | Desktop services over the engine API |
 | `internal/provider` | Desktop provider configuration, credentials and OAuth integration |
+| `internal/modelcatalog` | Pi.dev catalog fetching, HTTP revalidation and offline snapshots |
 | `internal/attachments`, `internal/office` | File ingestion, extraction and Office parsing |
 | `internal/projecttrust`, `internal/workspaceconfig` | Trust decisions and resource registration |
 | `internal/zalo` | Optional remote channel, pairing, delivery and lifecycle |
@@ -70,6 +71,35 @@ different asset layout.
 The frontend calls `window.go.main.App`. Wails bindings follow package and struct
 names, so `App` remains an explicit façade. Internal refactors keep its public
 methods and DTO shapes stable; `bindings_contract_test.go` checks that surface.
+
+## Model catalog
+
+The desktop host owns the public model catalog. `internal/modelcatalog` fetches
+`https://pi.dev/api/models`, revalidates with ETag every five minutes, and keeps
+an atomic disk cache plus a bundled Pi snapshot for offline startup. The UI
+refreshes while connected; hidden windows defer polling until visible again.
+
+`internal/provider` maps Pi protocol identifiers to engine-supported transports
+and stable Gotack provider IDs. Unsupported protocols and non-chat models are
+excluded. `model_routes` carries each model's protocol, endpoint and header
+defaults into the engine. Protocol selection therefore follows catalog metadata
+even for new model names that the bundled SDK does not recognize. The engine's
+provider response supplies existing transport identities and subscription data,
+rather than the public catalog's model list.
+
+Before selecting a Pi model, the host synchronizes the provider's models through
+the existing batched engine config API. The engine reloads that configuration,
+so newly published models can run without rebuilding or restarting it. A local
+ownership manifest tracks synchronized models so later updates can replace or
+remove catalog entries while retaining custom model edits. Credential values
+and custom endpoints remain owned by the engine configuration.
+
+`catalog_models` marks that synchronized list as authoritative so the engine
+does not append older bundled catalog entries after each reload.
+
+Codex keeps its account-scoped OAuth catalog from the engine. Public Pi models
+are never merged into that subscription catalog. Custom configured providers
+also remain available independently of the public Pi catalog.
 
 File count is not an architectural constraint. Bindings may remain split by
 capability. Tests stay beside their Go package, and packages are named for their

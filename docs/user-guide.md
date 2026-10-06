@@ -7,10 +7,13 @@ Settings > Agent can disable tools globally; an empty disabled list means full
 capability. The engine constructs the system prompt from the same enabled tool
 registry exposed to the model.
 
-Provider/model discovery comes from the engine. The desktop adds ChatGPT/Codex
-OAuth, OpenAI-compatible keys/endpoints, Mistral bootstrap, reasoning level,
-vision capability and usage where supported. Credentials can be replaced or
-removed; previously stored keys are not returned to JavaScript as plaintext.
+Providers and chat models come from Pi.dev and refresh every five minutes while
+the app is connected and visible. A local cache and bundled snapshot keep the
+catalog available offline. Models using protocols the engine supports appear
+in Settings; the chat model picker shows providers with usable credentials.
+ChatGPT/Codex uses the account's own OAuth model list. Custom providers and
+endpoints remain supported. Credentials can be replaced or removed; previously
+stored keys are not returned to JavaScript as plaintext.
 
 ## Sessions
 

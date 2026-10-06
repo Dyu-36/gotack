@@ -20,4 +20,14 @@ Their upstream license and attribution files remain applicable.
 The product build includes Python runtime notices, and release automation
 produces an SBOM of the complete distribution.
 
-OpenCode and Pi are architectural references. Gotack is an independent project.
+## Pi model catalog
+
+Gotack fetches public provider/model metadata from [Pi.dev](https://pi.dev/api/models)
+and bundles an offline snapshot in `internal/modelcatalog/snapshot.json`.
+The [Pi repository](https://github.com/earendil-works/pi) is MIT-licensed,
+Copyright (c) 2025 Mario Zechner. The full upstream license accompanies the
+snapshot in `internal/modelcatalog/LICENSE.pi` and packaged releases include it
+as `licenses/pi-LICENSE`. Snapshot provenance is recorded in
+`internal/modelcatalog/README.md`.
+
+OpenCode and Pi are also architectural references. Gotack is an independent project.

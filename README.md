@@ -17,6 +17,10 @@ The host owns the desktop experience and integrations. The engine owns model
 calls, agent execution, tools and persistence. See [architecture](docs/architecture.md)
 for package boundaries and the Go/Wails layout.
 
+The host updates its public provider/model catalog from [Pi.dev](https://pi.dev/api/models).
+It caches the catalog for offline use and synchronizes supported models into the
+engine, so catalog updates do not require an application release.
+
 ## Build and develop
 
 Use Windows x64, PowerShell 7, the Go version in `go.mod`, Node.js 24,

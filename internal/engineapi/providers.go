@@ -33,6 +33,8 @@ type Model struct {
 	DefaultReasoningEffort string   `json:"default_reasoning_effort,omitempty"`
 	CostPer1MIn            float64  `json:"cost_per_1m_in,omitempty"`
 	CostPer1MOut           float64  `json:"cost_per_1m_out,omitempty"`
+	CostPer1MInCached      float64  `json:"cost_per_1m_in_cached,omitempty"`
+	CostPer1MOutCached     float64  `json:"cost_per_1m_out_cached,omitempty"`
 }
 
 func (m *Model) UnmarshalJSON(data []byte) error {

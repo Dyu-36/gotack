@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -11,8 +12,11 @@ import (
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/desktop"
 	"github.com/Dyu-36/gotack/internal/engine"
+	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/logging"
+	"github.com/Dyu-36/gotack/internal/modelcatalog"
 	"github.com/Dyu-36/gotack/internal/projecttrust"
+	"github.com/Dyu-36/gotack/internal/provider"
 	workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 	"github.com/Dyu-36/gotack/internal/zalo"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -23,6 +27,11 @@ type conn = desktop.Connection
 type engineController interface {
 	Owned() bool
 	Stop() error
+}
+
+type providerCatalog interface {
+	List(context.Context, *engineapi.Client, string) ([]engineapi.Provider, error)
+	Prepare(context.Context, *engineapi.Client, string, string) error
 }
 
 type App struct {
@@ -42,7 +51,8 @@ type App struct {
 	workspaceRuntime     *workspaceconfig.Manager
 	workspaceRuntimeOnce sync.Once
 
-	vision sync.Map
+	vision          sync.Map
+	providerCatalog providerCatalog
 
 	oauthMu     sync.Mutex
 	oauthCancel context.CancelFunc
@@ -88,6 +98,15 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.log = logger
 	}
+	a.providerCatalog = provider.NewPiCatalog(
+		modelcatalog.NewWithOptions(modelcatalog.Options{
+			CachePath: filepath.Join(appconfig.Dir(), "pi-models-cache.json"),
+			Logf: func(format string, args ...any) {
+				a.log.Warn(fmt.Sprintf(format, args...))
+			},
+		}),
+		filepath.Join(appconfig.Dir(), "pi-models-managed.json"),
+	)
 	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.sup = sup
 	a.host.Link = engine.NewLink(sup, expectedEngineCommit(cfg.EngineBinary))

@@ -18,28 +18,55 @@ let status = $state<CatalogStatus>('idle')
 let loadError = $state('')
 let refreshEpoch = 0
 let refreshPromise: Promise<void> | null = null
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000
+let autoRefresh = false
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearRefreshTimer() {
+  if (refreshTimer !== null) clearTimeout(refreshTimer)
+  refreshTimer = null
+}
+
+function scheduleRefresh() {
+  clearRefreshTimer()
+  if (!autoRefresh) return
+  refreshTimer = setTimeout(async () => {
+    refreshTimer = null
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') await refresh()
+    scheduleRefresh()
+  }, REFRESH_INTERVAL_MS)
+}
+
+function startAutoRefresh() {
+  autoRefresh = true
+  scheduleRefresh()
+}
+
+function stopAutoRefresh() {
+  autoRefresh = false
+  clearRefreshTimer()
+}
 
 async function refresh() {
   if (refreshPromise) return refreshPromise
   const epoch = refreshEpoch
-  status = 'loading'
+  if (!providers.length) status = 'loading'
   loadError = ''
   refreshPromise = (async () => {
     try {
       const rawProviders = await desktop.listProviders()
       if (epoch !== refreshEpoch) return
+      if (!rawProviders.length) throw new Error('Backend returned an empty provider catalog')
       providers = rawProviders
         .map((p) => ({
           ...p,
           models: p.models || [],
         }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-      if (!providers.length) throw new Error('Backend returned an empty provider catalog')
       status = 'ready'
     } catch (cause) {
       if (epoch !== refreshEpoch) return
-      providers = []
-      status = 'error'
+      status = providers.length ? 'ready' : 'error'
       loadError = cause instanceof Error ? cause.message : String(cause)
     } finally {
       if (epoch === refreshEpoch) refreshPromise = null
@@ -49,6 +76,7 @@ async function refresh() {
 }
 
 function reset() {
+  stopAutoRefresh()
   refreshEpoch += 1
   refreshPromise = null
   providers = []
@@ -89,4 +117,6 @@ export const catalog = {
   },
   refresh,
   reset,
+  startAutoRefresh,
+  stopAutoRefresh,
 }

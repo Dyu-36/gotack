@@ -117,6 +117,7 @@ export function createEngineState(deps: EngineDeps) {
           if (destroyed || attachedTo !== fp) return
         }
         deps.backendReady.value = true
+        catalog.startAutoRefresh()
         reconnectAttempt = 0
         settleReadyWaiters(true)
       } catch (cause) {
@@ -311,6 +312,7 @@ export function createEngineState(deps: EngineDeps) {
   }
 
   const destroy = () => {
+    catalog.stopAutoRefresh()
     destroyed = true
     initGeneration += 1
     hostReady = false

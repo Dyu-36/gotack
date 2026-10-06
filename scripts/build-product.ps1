@@ -78,6 +78,7 @@ try {
         throw 'Pinned engine license is missing'
     }
     Copy-Item -LiteralPath $engineLicense -Destination (Join-Path $staging 'licenses/tack-engine-LICENSE')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'internal/modelcatalog/LICENSE.pi') -Destination (Join-Path $staging 'licenses/pi-LICENSE')
     $hostRevision = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify desktop revision' }
     $manifest = [ordered]@{

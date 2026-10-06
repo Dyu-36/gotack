@@ -44,14 +44,23 @@ type HookEntry struct {
 }
 
 type ProviderConfig struct {
-	ID      string          `json:"id,omitempty"`
-	Name    string          `json:"name,omitempty"`
-	BaseURL string          `json:"base_url,omitempty"`
-	Type    string          `json:"type,omitempty"`
-	APIKey  string          `json:"api_key,omitempty"`
-	OAuth   json.RawMessage `json:"oauth,omitempty"`
-	Disable bool            `json:"disable,omitempty"`
-	Models  []Model         `json:"models,omitempty"`
+	ID                 string                `json:"id,omitempty"`
+	Name               string                `json:"name,omitempty"`
+	BaseURL            string                `json:"base_url,omitempty"`
+	Type               string                `json:"type,omitempty"`
+	APIKey             string                `json:"api_key,omitempty"`
+	OAuth              json.RawMessage       `json:"oauth,omitempty"`
+	Disable            bool                  `json:"disable,omitempty"`
+	Models             []Model               `json:"models,omitempty"`
+	ModelRoutes        map[string]ModelRoute `json:"model_routes,omitempty"`
+	CatalogModels      bool                  `json:"catalog_models,omitempty"`
+	AutoDiscoverModels *bool                 `json:"discover_models,omitempty"`
+}
+
+type ModelRoute struct {
+	API     string            `json:"api"`
+	BaseURL string            `json:"base_url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 func (c *Client) GetWorkspaceConfig(ctx context.Context, wsID string) (WorkspaceConfig, error) {

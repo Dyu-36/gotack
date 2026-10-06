@@ -20,6 +20,7 @@ type Settings struct {
 	Model              string
 	Thinking           string
 	CustomURL          string
+	CatalogManaged     bool
 }
 
 func ValidID(providerID string) bool {
@@ -80,7 +81,7 @@ func Apply(ctx context.Context, api *engineapi.Client, workspaceID string, setti
 	scope := engineapi.ConfigScopeGlobal
 	managedLocalProvider := false
 	var err error
-	if credentialProvider != "" {
+	if credentialProvider != "" && !settings.CatalogManaged {
 		managedLocalProvider, err = PrepareLocal(ctx, api, workspaceID, scope, credentialProvider)
 		if err != nil {
 			return err

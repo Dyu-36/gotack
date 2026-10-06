@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
@@ -52,7 +53,20 @@ func (a *App) applyProviderSettings(settings SettingsInfo, apiKey string) error 
 	if !ok || desc.WorkspaceID == "" {
 		return needWorkspace(apiKey, "no workspace is open")
 	}
-	return providerdomain.Apply(a.ctx, svc.API, desc.WorkspaceID, providerSettingsFromInfo(settings), apiKey)
+	if a.providerCatalog != nil {
+		providerID := strings.TrimSpace(settings.CredentialProvider)
+		if providerID == "" {
+			providerID = strings.TrimSpace(settings.Provider)
+		}
+		if providerID != "" {
+			if err := a.providerCatalog.Prepare(a.ctx, svc.API, desc.WorkspaceID, providerID); err != nil {
+				return fmt.Errorf("prepare provider models: %w", err)
+			}
+		}
+	}
+	providerSettings := providerSettingsFromInfo(settings)
+	providerSettings.CatalogManaged = a.providerCatalog != nil
+	return providerdomain.Apply(a.ctx, svc.API, desc.WorkspaceID, providerSettings, apiKey)
 }
 
 func needWorkspace(apiKey, reason string) error {

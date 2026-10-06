@@ -18,9 +18,10 @@ import (
 )
 
 type Supervisor struct {
-	log        *slog.Logger
-	binary     string
-	autoBinary bool
+	log           *slog.Logger
+	binary        string
+	autoBinary    bool
+	fixedEndpoint engineapi.Endpoint
 
 	lifecycle sync.Mutex
 	mu        sync.Mutex
@@ -39,6 +40,21 @@ func NewSupervisor(log *slog.Logger, binary string) *Supervisor {
 		binary = defaultBinary()
 	}
 	return &Supervisor{log: log, binary: binary, autoBinary: autoBinary}
+}
+
+// NewSupervisorWithEndpoint creates an isolated sidecar on an explicit IPC
+// endpoint, allowing contract tests to run alongside the desktop's engine.
+func NewSupervisorWithEndpoint(log *slog.Logger, binary string, ep engineapi.Endpoint) *Supervisor {
+	supervisor := NewSupervisor(log, binary)
+	supervisor.fixedEndpoint = ep
+	return supervisor
+}
+
+func (s *Supervisor) ipcEndpoint() engineapi.Endpoint {
+	if s.fixedEndpoint.Network != "" && s.fixedEndpoint.Address != "" {
+		return s.fixedEndpoint
+	}
+	return appconfig.PipeEndpoint()
 }
 
 func defaultBinary() string {
@@ -97,7 +113,7 @@ func defaultBinary() string {
 }
 
 func (s *Supervisor) Locate(ctx context.Context) (engineapi.Endpoint, bool) {
-	ep := appconfig.PipeEndpoint()
+	ep := s.ipcEndpoint()
 	if err := engineapi.Probe(ctx, ep); err != nil {
 		s.log.Debug("engine: probe failed", "endpoint", ep, "err", err)
 		return engineapi.Endpoint{}, false
@@ -141,7 +157,7 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 		bin = absolute
 	}
 
-	ep := appconfig.PipeEndpoint()
+	ep := s.ipcEndpoint()
 	cmd := exec.Command(bin, "server", "--host", ep.Network+"://"+ep.Address)
 	engineDir := filepath.Join(appconfig.Dir(), "engine")
 	if err := os.MkdirAll(engineDir, 0o700); err != nil {
