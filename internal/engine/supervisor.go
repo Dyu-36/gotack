@@ -161,11 +161,12 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 
 func isolatedEngineEnvironment(root string) []string {
 	overrides := map[string]string{
-		"TACK_GLOBAL_CONFIG":  filepath.Join(root, "prompt-config"),
-		"CRUSH_GLOBAL_CONFIG": filepath.Join(root, "config"),
-		"CRUSH_GLOBAL_DATA":   filepath.Join(root, "data"),
-		"CRUSH_CACHE_DIR":     filepath.Join(root, "cache"),
-		"CRUSH_SKILLS_DIR":    filepath.Join(appconfig.Dir(), "skills"),
+		"TACK_GLOBAL_CONFIG":                 filepath.Join(root, "prompt-config"),
+		"CRUSH_GLOBAL_CONFIG":                filepath.Join(root, "config"),
+		"CRUSH_GLOBAL_DATA":                  filepath.Join(root, "data"),
+		"CRUSH_CACHE_DIR":                    filepath.Join(root, "cache"),
+		"CRUSH_SKILLS_DIR":                   filepath.Join(appconfig.Dir(), "skills"),
+		"CRUSH_DISABLE_PROVIDER_AUTO_UPDATE": "1",
 	}
 	env := make([]string, 0, len(os.Environ())+len(overrides))
 	for _, entry := range os.Environ() {
@@ -174,7 +175,7 @@ func isolatedEngineEnvironment(root string) []string {
 			env = append(env, entry)
 		}
 	}
-	for _, key := range []string{"TACK_GLOBAL_CONFIG", "CRUSH_GLOBAL_CONFIG", "CRUSH_GLOBAL_DATA", "CRUSH_CACHE_DIR", "CRUSH_SKILLS_DIR"} {
+	for _, key := range []string{"TACK_GLOBAL_CONFIG", "CRUSH_GLOBAL_CONFIG", "CRUSH_GLOBAL_DATA", "CRUSH_CACHE_DIR", "CRUSH_SKILLS_DIR", "CRUSH_DISABLE_PROVIDER_AUTO_UPDATE"} {
 		env = append(env, key+"="+overrides[key])
 	}
 	return env

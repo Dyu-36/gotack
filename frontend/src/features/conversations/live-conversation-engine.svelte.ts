@@ -16,8 +16,14 @@ import { catalog } from './catalog.svelte'
 import { conversationTitle, isDefaultTitle } from './title'
 
 const RECONNECT_MAX_MS = 30_000
+const ENGINE_STATUS_POLL_MS = 250
+const ENGINE_STATUS_TIMEOUT_MS = 70_000
 const BACKEND_READY_ATTEMPTS = 10
 const BACKEND_READY_DELAY_MS = 500
+const waitFor = (ms: number) => new Promise<void>((resolve) => {
+  window.setTimeout(resolve, ms)
+})
+
 type SettingsPayload = { theme: string; provider: string; credential_provider?: string; provider_only?: boolean; model: string; thinking: string; api_key: string; custom_url: string }
 
 export type EngineDeps = {
@@ -261,7 +267,7 @@ export function createEngineState(deps: EngineDeps) {
     deps.backendReady.value = false
     hostReady = await desktop.backendReady().catch(() => false)
     for (let attempt = 1; !hostReady && attempt < BACKEND_READY_ATTEMPTS && !destroyed && generation === initGeneration; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, BACKEND_READY_DELAY_MS))
+      await waitFor(BACKEND_READY_DELAY_MS)
       hostReady = await desktop.backendReady().catch(() => false)
     }
     if (destroyed || generation !== initGeneration) return
@@ -284,10 +290,17 @@ export function createEngineState(deps: EngineDeps) {
       if (destroyed || generation !== initGeneration) return
       await handleEngine(status)
 
-      for (let attempt = 0; !status.running && status.status !== 'error' && attempt < 24 && !destroyed && generation === initGeneration; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 250))
+      let waited = 0
+      for (; !status.running && status.status !== 'error' && waited < ENGINE_STATUS_TIMEOUT_MS && !destroyed && generation === initGeneration; waited += ENGINE_STATUS_POLL_MS) {
+        await waitFor(ENGINE_STATUS_POLL_MS)
+        if (destroyed || generation !== initGeneration) return
         status = await desktop.engineStatus()
         await handleEngine(status)
+      }
+      if (!status.running && status.status !== 'error' && !destroyed && generation === initGeneration) {
+        settleReadyWaiters(false)
+        deps.reportError('Engine is taking too long to start')
+        scheduleReconnect()
       }
     } catch (cause) {
       if (destroyed || generation !== initGeneration) return
