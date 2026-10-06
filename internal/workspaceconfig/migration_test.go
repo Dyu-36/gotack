@@ -140,7 +140,7 @@ func TestLegacyOnlyContextIsMaskedWithExplicitEmptyLists(t *testing.T) {
 	root := t.TempDir()
 	cfg := engineapi.WorkspaceConfig{
 		Options: &engineapi.WorkspaceOptions{
-			ContextPaths:       []string{".cursor/rules/", "GEMINI.md"},
+			ContextPaths:       []string{".cursor/rules/", "GEMINI.md", ".cursorrules"},
 			GlobalContextPaths: []string{filepath.Join(root, "context-prompt", "generation")},
 		},
 	}
