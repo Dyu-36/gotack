@@ -78,6 +78,48 @@ func TestForwarderDelayPolicyAndTestOverride(t *testing.T) {
 	}
 }
 
+func TestForwarderSessionUpdateEvents(t *testing.T) {
+	var c collector
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{})
+
+	payload, err := json.Marshal(engineapi.Session{ID: "session-1", Title: "A title", UpdatedAt: 123})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.handle(engineapi.StreamEvent{Kind: "session", Event: "updated", Payload: payload})
+	f.handle(engineapi.StreamEvent{Kind: "session", Event: "updated", Payload: json.RawMessage(`{"title":"missing id"}`)})
+	f.handle(engineapi.StreamEvent{Kind: "session", Event: "updated", Payload: json.RawMessage(`{`)})
+
+	updates := c.of(SessionUpdated)
+	if len(updates) != 1 {
+		t.Fatalf("expected one valid session update, got %d", len(updates))
+	}
+	got := updates[0].data.(SessionUpdatedPayload)
+	if got != (SessionUpdatedPayload{SessionID: "session-1", Title: "A title", UpdatedAt: 123000}) {
+		t.Fatalf("session update = %+v", got)
+	}
+}
+
+func TestForwarderIgnoresMalformedEvents(t *testing.T) {
+	var c collector
+	called := false
+	f := NewForwarder(slog.Default(), c.emit, Callbacks{RunDone: func(SessionDonePayload) { called = true }})
+
+	f.handle(engineapi.StreamEvent{Kind: "message", Event: "updated", Payload: json.RawMessage(`{`)})
+	f.handle(engineapi.StreamEvent{Kind: "run_complete", Payload: json.RawMessage(`{`)})
+	f.handle(engineapi.StreamEvent{Kind: "session", Event: "updated", Payload: json.RawMessage(`{`)})
+
+	if called {
+		t.Fatal("malformed run_complete must not invoke callback")
+	}
+	if events := c.of(SessionDelta); len(events) != 0 {
+		t.Fatalf("malformed message emitted deltas: %+v", events)
+	}
+	if events := c.of(SessionDone); len(events) != 0 {
+		t.Fatalf("malformed run_complete emitted done events: %+v", events)
+	}
+}
+
 func TestForwarderCoalescesDeltas(t *testing.T) {
 	var c collector
 	f := NewForwarder(slog.Default(), c.emit, Callbacks{})

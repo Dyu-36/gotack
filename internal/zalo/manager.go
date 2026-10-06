@@ -68,17 +68,33 @@ func NewManager(path string, runtime Runtime, log *slog.Logger) *Manager {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	m := &Manager{path: path, runtime: runtime, log: log, active: make(map[string]*activeTurn), clientFactory: NewClient}
-	if data, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(data, &m.state); err != nil {
-			m.state = StoredChannel{}
-			m.lastError = "cannot parse saved Zalo channel: " + err.Error()
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		m.lastError = "cannot read saved Zalo channel: " + err.Error()
+	state, lastError := loadState(path)
+	m := &Manager{
+		path:          path,
+		runtime:       runtime,
+		log:           log,
+		state:         state,
+		lastError:     lastError,
+		active:        make(map[string]*activeTurn),
+		clientFactory: NewClient,
 	}
 	m.normalizeLocked()
 	return m
+}
+
+func loadState(path string) (StoredChannel, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return StoredChannel{}, ""
+		}
+		return StoredChannel{}, "cannot read saved Zalo channel: " + err.Error()
+	}
+	var state StoredChannel
+	if err := json.Unmarshal(data, &state); err != nil {
+		return StoredChannel{}, "cannot parse saved Zalo channel: " + err.Error()
+	}
+	return state, ""
 }
 
 func (m *Manager) newClient(token string) (*Client, error) {
@@ -150,19 +166,11 @@ func (m *Manager) saveLocked() error {
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	suffix := ""
-	if token := []rune(m.state.Token); len(token) > 0 {
-		start := len(token) - 4
-		if start < 0 {
-			start = 0
-		}
-		suffix = string(token[start:])
-	}
 	return Status{
 		Configured:       m.state.Token != "",
 		Running:          m.running,
 		BotName:          m.state.BotName,
-		TokenSuffix:      suffix,
+		TokenSuffix:      tokenSuffix(m.state.Token),
 		PairingCode:      m.state.PairingCode,
 		PairingExpiresAt: m.state.PairingExpiresAt,
 		PairedChatIDs:    append([]string{}, m.state.PairedChatIDs...),
@@ -173,17 +181,29 @@ func (m *Manager) Status() Status {
 func (m *Manager) snapshot() StoredChannel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	copyState := m.state
-	copyState.PairedChatIDs = append([]string(nil), m.state.PairedChatIDs...)
-	copyState.ChatSessions = make(map[string]string, len(m.state.ChatSessions))
-	for chatID, sessionID := range m.state.ChatSessions {
+	return cloneStoredChannel(m.state)
+}
+
+func cloneStoredChannel(state StoredChannel) StoredChannel {
+	copyState := state
+	copyState.PairedChatIDs = append([]string(nil), state.PairedChatIDs...)
+	copyState.ChatSessions = make(map[string]string, len(state.ChatSessions))
+	for chatID, sessionID := range state.ChatSessions {
 		copyState.ChatSessions[chatID] = sessionID
 	}
-	if m.state.UpdateOffset != nil {
-		offset := *m.state.UpdateOffset
+	if state.UpdateOffset != nil {
+		offset := *state.UpdateOffset
 		copyState.UpdateOffset = &offset
 	}
 	return copyState
+}
+
+func tokenSuffix(token string) string {
+	runes := []rune(token)
+	if len(runes) <= 4 {
+		return string(runes)
+	}
+	return string(runes[len(runes)-4:])
 }
 
 func (m *Manager) setError(err error) {
@@ -398,14 +418,17 @@ func cancelRemoteRuns(stop func(context.Context, Turn) error, runs []Turn) error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	seen := make(map[string]bool, len(runs))
+	seen := make(map[string]struct{}, len(runs))
 	var failures []error
 	for _, run := range runs {
 		key := run.WorkspaceID + "\x00" + run.SessionID
-		if run.SessionID == "" || run.WorkspaceID == "" || seen[key] {
+		if run.SessionID == "" || run.WorkspaceID == "" {
 			continue
 		}
-		seen[key] = true
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		if err := stop(ctx, run); err != nil {
 			failures = append(failures, fmt.Errorf("cancel remote session %s: %w", run.SessionID, err))
 		}

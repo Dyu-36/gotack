@@ -55,6 +55,32 @@ type pendingMessage struct {
 	nextSeq int64
 }
 
+func (pm *pendingMessage) stopTimer() {
+	if pm.timer == nil {
+		return
+	}
+	pm.timer.Stop()
+	pm.timer = nil
+}
+
+func (pm *pendingMessage) delta(messageID string) (SessionDeltaPayload, bool) {
+	if pm.text == pm.sent {
+		return SessionDeltaPayload{}, false
+	}
+	previous := pm.sent
+	pm.timer = nil
+	pm.sent = pm.text
+	seq := pm.nextSeq
+	pm.nextSeq++
+	return SessionDeltaPayload{
+		SessionID: pm.sessionID,
+		MessageID: messageID,
+		Text:      pm.text,
+		Append:    deltaSuffix(previous, pm.text),
+		Seq:       seq,
+	}, true
+}
+
 func (pm *pendingMessage) markToolStates(calls []engineapi.ToolCall) []engineapi.ToolCall {
 	var out []engineapi.ToolCall
 	for _, c := range calls {
@@ -138,6 +164,12 @@ func (f *Forwarder) isStopped() bool {
 	return f.stopped
 }
 
+func (f *Forwarder) debug(message string, args ...any) {
+	if f.log != nil {
+		f.log.Debug(message, args...)
+	}
+}
+
 func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 	switch ev.Kind {
 	case "message":
@@ -154,9 +186,7 @@ func (f *Forwarder) handle(ev engineapi.StreamEvent) {
 			}
 		}
 	default:
-		if f.log != nil {
-			f.log.Debug("uievents: ignoring unknown stream event", "kind", ev.Kind, "event", ev.Event)
-		}
+		f.debug("uievents: ignoring unknown stream event", "kind", ev.Kind, "event", ev.Event)
 	}
 }
 
@@ -170,9 +200,7 @@ type messageWire struct {
 func (f *Forwarder) handleMessageUpdate(payload json.RawMessage) {
 	var msg messageWire
 	if err := json.Unmarshal(payload, &msg); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode message update", "err", err)
-		}
+		f.debug("uievents: failed to decode message update", "err", err)
 		return
 	}
 	if msg.ID == "" {
@@ -217,26 +245,22 @@ func (f *Forwarder) flush(messageID string) {
 	defer f.emitMu.Unlock()
 	f.mu.Lock()
 	pm, ok := f.pending[messageID]
-	if !ok || pm.text == pm.sent {
+	if !ok {
 		f.mu.Unlock()
 		return
 	}
-	prev := pm.sent
-	pm.timer = nil
-	pm.sent = pm.text
-	seq := pm.nextSeq
-	pm.nextSeq++
-	payload := SessionDeltaPayload{SessionID: pm.sessionID, MessageID: messageID, Text: pm.text, Append: deltaSuffix(prev, pm.text), Seq: seq}
+	payload, ok := pm.delta(messageID)
 	f.mu.Unlock()
+	if !ok {
+		return
+	}
 	f.send(SessionDelta, payload)
 }
 
 func (f *Forwarder) handleRunComplete(payload json.RawMessage) {
 	var rc engineapi.RunComplete
 	if err := json.Unmarshal(payload, &rc); err != nil {
-		if f.log != nil {
-			f.log.Debug("uievents: failed to decode run_complete", "err", err)
-		}
+		f.debug("uievents: failed to decode run_complete", "err", err)
 		return
 	}
 	if rc.SessionID != "" {
@@ -267,13 +291,9 @@ func (f *Forwarder) drain(sessionID string) {
 		if sessionID != "" && pm.sessionID != sessionID {
 			continue
 		}
-		if pm.timer != nil {
-			pm.timer.Stop()
-		}
-		if pm.text != pm.sent {
-			seq := pm.nextSeq
-			pm.nextSeq++
-			out = append(out, SessionDeltaPayload{SessionID: pm.sessionID, MessageID: id, Text: pm.text, Append: deltaSuffix(pm.sent, pm.text), Seq: seq})
+		pm.stopTimer()
+		if payload, ok := pm.delta(id); ok {
+			out = append(out, payload)
 		}
 		delete(f.pending, id)
 	}

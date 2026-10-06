@@ -311,29 +311,10 @@ func (c *Client) redact(message string) string {
 }
 
 func parseUpdates(raw json.RawMessage) []Update {
-	var values []json.RawMessage
 	if len(raw) == 0 {
 		return nil
 	}
-	if raw[0] == '[' {
-		_ = json.Unmarshal(raw, &values)
-	} else {
-		var wrapper struct {
-			Updates []json.RawMessage `json:"updates"`
-			Data    []json.RawMessage `json:"data"`
-		}
-		if json.Unmarshal(raw, &wrapper) == nil {
-			switch {
-			case len(wrapper.Updates) > 0:
-				values = wrapper.Updates
-			case len(wrapper.Data) > 0:
-				values = wrapper.Data
-			}
-		}
-		if len(values) == 0 {
-			values = []json.RawMessage{raw}
-		}
-	}
+	values := updateValues(raw)
 	updates := make([]Update, 0, len(values))
 	for _, value := range values {
 		if update, ok := parseUpdate(value); ok {
@@ -341,6 +322,31 @@ func parseUpdates(raw json.RawMessage) []Update {
 		}
 	}
 	return updates
+}
+
+func updateValues(raw json.RawMessage) []json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	if raw[0] == '[' {
+		var values []json.RawMessage
+		_ = json.Unmarshal(raw, &values)
+		return values
+	}
+
+	var wrapper struct {
+		Updates []json.RawMessage `json:"updates"`
+		Data    []json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &wrapper) == nil {
+		switch {
+		case len(wrapper.Updates) > 0:
+			return wrapper.Updates
+		case len(wrapper.Data) > 0:
+			return wrapper.Data
+		}
+	}
+	return []json.RawMessage{raw}
 }
 
 func decodeJSONObject(raw json.RawMessage) (map[string]any, bool) {

@@ -36,6 +36,41 @@ func TestParseUpdatesAcceptsDataWrapper(t *testing.T) {
 	}
 }
 
+func TestParseUpdatesPreservesEnvelopeShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        json.RawMessage
+		wantNil    bool
+		wantLength int
+		wantChatID string
+	}{
+		{name: "nil input", raw: nil, wantNil: true},
+		{name: "empty array", raw: json.RawMessage(`[]`), wantLength: 0},
+		{
+			name:       "updates takes precedence",
+			raw:        json.RawMessage(`{"updates":[{"message":{"chat_id":"updates"}}],"data":[{"message":{"chat_id":"data"}}]}`),
+			wantLength: 1,
+			wantChatID: "updates",
+		},
+		{name: "malformed payload", raw: json.RawMessage(`{`), wantLength: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseUpdates(tt.raw)
+			if (got == nil) != tt.wantNil {
+				t.Fatalf("parseUpdates nil = %v, want %v", got == nil, tt.wantNil)
+			}
+			if len(got) != tt.wantLength {
+				t.Fatalf("parseUpdates length = %d, want %d", len(got), tt.wantLength)
+			}
+			if tt.wantChatID != "" && got[0].ChatID != tt.wantChatID {
+				t.Fatalf("chat id = %q, want %q", got[0].ChatID, tt.wantChatID)
+			}
+		})
+	}
+}
+
 func TestInboundImageReachesAgentTurn(t *testing.T) {
 	const imageBody = "fake image payload"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

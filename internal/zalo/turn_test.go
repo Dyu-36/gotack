@@ -8,6 +8,46 @@ import (
 	"time"
 )
 
+func TestCompletionMessagePreservesPrefixes(t *testing.T) {
+	tests := []struct {
+		name       string
+		completion Completion
+		wantText   string
+		wantFiles  bool
+	}{
+		{
+			name:       "success",
+			completion: Completion{Text: "done"},
+			wantText:   "done",
+			wantFiles:  true,
+		},
+		{
+			name:       "error",
+			completion: Completion{Text: "details", Error: "provider unavailable"},
+			wantText:   "Request failed: provider unavailable\ndetails",
+		},
+		{
+			name:       "cancelled",
+			completion: Completion{Text: "partial", Cancelled: true},
+			wantText:   "Request cancelled.\npartial",
+		},
+		{
+			name:       "error and cancelled",
+			completion: Completion{Text: "partial", Error: "provider unavailable", Cancelled: true},
+			wantText:   "Request cancelled.\nRequest failed: provider unavailable\npartial",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotText, gotFiles := completionMessage(tt.completion)
+			if gotText != tt.wantText || gotFiles != tt.wantFiles {
+				t.Fatalf("completionMessage() = (%q, %v), want (%q, %v)", gotText, gotFiles, tt.wantText, tt.wantFiles)
+			}
+		})
+	}
+}
+
 func TestCompletionBeforeSendReturnsIsDeliveredExactlyOnce(t *testing.T) {
 	manager, server := newManagerForTest(t, "token")
 	defer manager.Stop()

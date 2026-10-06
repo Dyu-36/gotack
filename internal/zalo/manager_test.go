@@ -186,6 +186,28 @@ func TestManagerPairingAndTurnRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDispatchNewCommandClearsChatSession(t *testing.T) {
+	manager, server := newManagerForTest(t, "token")
+	defer manager.Stop()
+	manager.mu.Lock()
+	manager.state.PairedChatIDs = []string{"chat"}
+	manager.state.ChatSessions = map[string]string{"chat": "session"}
+	manager.mu.Unlock()
+
+	manager.dispatch(context.Background(), mustClient(t, manager, "token"), Update{ChatID: "chat", Text: "/new"})
+
+	manager.mu.Lock()
+	_, exists := manager.state.ChatSessions["chat"]
+	manager.mu.Unlock()
+	if exists {
+		t.Fatal("/new must clear the chat session")
+	}
+	messages := server.deliveredMessages(t)
+	if len(messages) != 1 || !strings.Contains(messages[0], "hội thoại mới") {
+		t.Fatalf("/new response = %v", messages)
+	}
+}
+
 func TestDispatchAttachmentOnlyUsesDefaultPrompt(t *testing.T) {
 	server := newFakeServer(t, nil)
 	var gotText string

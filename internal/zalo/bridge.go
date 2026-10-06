@@ -136,10 +136,7 @@ func (m *Manager) remember(update Update) bool {
 
 func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	text := strings.TrimSpace(update.Text)
-	command := ""
-	if fields := strings.Fields(text); len(fields) > 0 {
-		command = strings.ToLower(fields[0])
-	}
+	command, argument := parseCommand(text)
 	state := m.snapshot()
 	paired := contains(state.PairedChatIDs, update.ChatID)
 
@@ -158,16 +155,9 @@ func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	case "/screenshot", "/cap", "/screen":
 		m.sendScreenshot(ctx, client, update.ChatID)
 	case "/send", "/file", "/files", "/guifile":
-		argument := ""
-		if _, tail, ok := strings.Cut(text, " "); ok {
-			argument = strings.TrimSpace(tail)
-		}
 		m.handleSendFile(ctx, client, update.ChatID, argument)
 	case "/new":
-		m.mu.Lock()
-		delete(m.state.ChatSessions, update.ChatID)
-		err := m.saveLocked()
-		m.mu.Unlock()
+		err := m.resetChatSession(update.ChatID)
 		if err != nil {
 			m.reply(ctx, client, update.ChatID, "⚠️ "+err.Error())
 		} else {
@@ -182,6 +172,26 @@ func (m *Manager) dispatch(ctx context.Context, client *Client, update Update) {
 	default:
 		m.startTurn(ctx, client, update)
 	}
+}
+
+func parseCommand(text string) (string, string) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return "", ""
+	}
+	command := strings.ToLower(fields[0])
+	_, argument, ok := strings.Cut(text, " ")
+	if !ok {
+		return command, ""
+	}
+	return command, strings.TrimSpace(argument)
+}
+
+func (m *Manager) resetChatSession(chatID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.state.ChatSessions, chatID)
+	return m.saveLocked()
 }
 
 func (m *Manager) handlePair(ctx context.Context, client *Client, chatID, text string) {

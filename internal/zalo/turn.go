@@ -169,16 +169,21 @@ func (m *Manager) Done(completion Completion) {
 			m.setError(err)
 			return
 		}
-		text := completion.Text
-		includeFiles := completion.Error == "" && !completion.Cancelled
-		if completion.Error != "" {
-			text = "Request failed: " + completion.Error + "\n" + text
-		}
-		if completion.Cancelled {
-			text = "Request cancelled.\n" + text
-		}
+		text, includeFiles := completionMessage(completion)
 		m.deliverAnswer(active.ctx, client, chatID, text, run.WorkspacePath, includeFiles)
 	}()
+}
+
+func completionMessage(completion Completion) (string, bool) {
+	text := completion.Text
+	includeFiles := completion.Error == "" && !completion.Cancelled
+	if completion.Error != "" {
+		text = "Request failed: " + completion.Error + "\n" + text
+	}
+	if completion.Cancelled {
+		text = "Request cancelled.\n" + text
+	}
+	return text, includeFiles
 }
 
 func (m *Manager) authorized(chatID, token string) bool {
