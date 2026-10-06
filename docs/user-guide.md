@@ -57,5 +57,5 @@ transport and owned engine. Auto-start can launch it hidden after Windows login.
 
 On Windows, host configuration, engine state, skills, trust decisions and Zalo
 state live under the user's application-data `gotack` directory. Logs use the
-cache directory. The engine receives isolated Crush-compatible config/data/cache
-paths owned by Gotack. Workspace cleanup does not remove user data.
+cache directory. The engine receives isolated config/data/cache paths owned by
+Gotack. Workspace cleanup does not remove user data.

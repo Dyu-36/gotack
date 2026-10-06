@@ -74,18 +74,18 @@ func TestIsolatedEngineEnvironmentSetsGotackPromptRoot(t *testing.T) {
 			got[strings.ToUpper(name)] = value
 		}
 	}
-	if got["CRUSH_DISABLE_PROVIDER_AUTO_UPDATE"] != "1" {
-		t.Fatalf("CRUSH_DISABLE_PROVIDER_AUTO_UPDATE = %q, want 1", got["CRUSH_DISABLE_PROVIDER_AUTO_UPDATE"])
+	if got["TACK_DISABLE_PROVIDER_AUTO_UPDATE"] != "1" {
+		t.Fatalf("TACK_DISABLE_PROVIDER_AUTO_UPDATE = %q, want 1", got["TACK_DISABLE_PROVIDER_AUTO_UPDATE"])
 	}
 	wantPromptConfig := filepath.Join(root, "prompt-config")
 	if got["TACK_GLOBAL_CONFIG"] != wantPromptConfig {
 		t.Fatalf("TACK_GLOBAL_CONFIG = %q, want %q", got["TACK_GLOBAL_CONFIG"], wantPromptConfig)
 	}
 	wantEngineConfig := filepath.Join(root, "config")
-	if got["CRUSH_GLOBAL_CONFIG"] != wantEngineConfig {
-		t.Fatalf("CRUSH_GLOBAL_CONFIG = %q, want %q", got["CRUSH_GLOBAL_CONFIG"], wantEngineConfig)
+	if got["TACK_ENGINE_GLOBAL_CONFIG"] != wantEngineConfig {
+		t.Fatalf("TACK_ENGINE_GLOBAL_CONFIG = %q, want %q", got["TACK_ENGINE_GLOBAL_CONFIG"], wantEngineConfig)
 	}
-	if got["TACK_GLOBAL_CONFIG"] == got["CRUSH_GLOBAL_CONFIG"] {
+	if got["TACK_GLOBAL_CONFIG"] == got["TACK_ENGINE_GLOBAL_CONFIG"] {
 		t.Fatal("Gotack prompt resources must not share the legacy engine config root")
 	}
 }

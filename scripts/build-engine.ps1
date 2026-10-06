@@ -54,7 +54,7 @@ $hasher.Dispose()
 $commitEpoch = (& git -C $engineRoot show -s --format=%ct HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read source timestamp' }
 $builtAt = [DateTimeOffset]::FromUnixTimeSeconds([long]$commitEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
-$package = 'github.com/charmbracelet/crush/internal/version'
+$package = 'github.com/Dyu-36/tack-engine/internal/version'
 $linkerFlags = "-X $package.Commit=$revision -X $package.BuildID=$sourceDigest -X $package.SourceDigest=$sourceDigest -X $package.BuiltAt=$builtAt"
 New-Item -ItemType Directory -Path (Split-Path -Parent $outputPath) -Force | Out-Null
 $stagedOutput = "$outputPath.stage-$PID"

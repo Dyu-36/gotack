@@ -75,7 +75,7 @@ func removeLegacyTools(base context.Context, api *engineapi.Client, workspaceID,
 
 		kept := make([]string, 0, len(cfg.Options.GlobalContextPaths))
 		for _, path := range cfg.Options.GlobalContextPaths {
-			if isManagedPath(path, managedRoot) || isLegacyGlobalPromptContextPath(path) {
+			if isManagedPath(path, managedRoot) {
 				continue
 			}
 			kept = append(kept, path)
@@ -100,15 +100,10 @@ func isLegacyPromptContextPath(path string) bool {
 	normalized := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
 	normalized = strings.TrimPrefix(normalized, "./")
 	switch normalized {
-	case ".github/copilot-instructions.md", ".cursorrules", "gemini.md", "crush.md", "crush.local.md":
+	case ".github/copilot-instructions.md", ".cursorrules", "gemini.md":
 		return true
 	}
 	return normalized == ".cursor/rules" || strings.HasPrefix(normalized, ".cursor/rules/")
-}
-
-func isLegacyGlobalPromptContextPath(path string) bool {
-	base := strings.ToLower(filepath.Base(filepath.Clean(path)))
-	return base == "crush.md" || base == "crush.local.md"
 }
 
 func isManagedPath(path, managedRoot string) bool {
