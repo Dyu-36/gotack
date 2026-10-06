@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 )
 
 // ConfigSetRequest represents a request to set a config field.

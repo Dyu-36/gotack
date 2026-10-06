@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/agent/tools/mcp"
+	"github.com/Dyu-36/tack-engine/internal/config"
 )
 
 // Argument represents a command argument with its metadata.

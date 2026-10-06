@@ -15,9 +15,9 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/filepathext"
-	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/filepathext"
+	"github.com/Dyu-36/tack-engine/internal/fsext"
 )
 
 const GlobToolName = "glob"

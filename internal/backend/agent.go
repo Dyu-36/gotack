@@ -5,12 +5,12 @@ import (
 	"errors"
 	"os"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/shell"
+	"github.com/Dyu-36/tack-engine/internal/agent"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/proto"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/shell"
 )
 
 type promptRefresher interface {
@@ -72,7 +72,7 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 // On a non-cancel error it surfaces the failure to observers via a
 // notify.TypeAgentError notification (lossy, best-effort). That alone is
 // not a reliable terminal signal: the agent-event fan-in uses lossy
-// subscribers, so a `crush run` caller blocking on its RunID could hang
+// subscribers, so a `tack run` caller blocking on its RunID could hang
 // if the event is dropped. To guarantee termination, when msg.RunID is
 // non-empty and the coordinator did not already publish the run's
 // authoritative terminal RunComplete (e.g. the error was returned before

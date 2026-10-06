@@ -6,8 +6,8 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/session"
 	"github.com/stretchr/testify/require"
 )
 

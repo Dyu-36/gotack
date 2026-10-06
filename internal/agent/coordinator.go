@@ -20,23 +20,23 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/prompt"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/discover"
-	"github.com/charmbracelet/crush/internal/extensions"
-	"github.com/charmbracelet/crush/internal/filetracker"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/hooks"
-	"github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/oauth/copilot"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/agent/hyper"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/agent/prompt"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/discover"
+	"github.com/Dyu-36/tack-engine/internal/extensions"
+	"github.com/Dyu-36/tack-engine/internal/filetracker"
+	"github.com/Dyu-36/tack-engine/internal/history"
+	"github.com/Dyu-36/tack-engine/internal/hooks"
+	"github.com/Dyu-36/tack-engine/internal/log"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/oauth/copilot"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
 
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/Dyu-36/tack-engine/internal/session"
+	"github.com/Dyu-36/tack-engine/internal/skills"
 	"golang.org/x/sync/errgroup"
 
 	"charm.land/fantasy/providers/anthropic"
@@ -283,7 +283,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// Coalesce per-attempt RunComplete payloads so only the final
 	// outcome reaches subscribers. Without this, the first attempt's
 	// failed RunComplete (unauthorized) would race ahead of the
-	// retry's success, and `crush run` would exit on the stale error
+	// retry's success, and `tack run` would exit on the stale error
 	// before ever seeing the retry result. Each attempt's
 	// SessionAgentCall.OnComplete hook overwrites latest; we publish
 	// exactly once after retries resolve, via PublishMustDeliver, so

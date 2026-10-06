@@ -8,12 +8,12 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/openaicompat"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/Dyu-36/tack-engine/internal/agent"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/db"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/proto"
+	"github.com/Dyu-36/tack-engine/internal/session"
 	"github.com/stretchr/testify/require"
 )
 

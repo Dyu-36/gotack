@@ -33,17 +33,17 @@ const (
 	ShellTypePowerShell
 )
 
-// CrushEnvMarkers returns a fresh slice of the environment variables that
-// Crush unconditionally sets on every shell it spawns — both the interactive
+// TackEnvMarkers returns a fresh slice of the environment variables that
+// Tack unconditionally sets on every shell it spawns — both the interactive
 // bash tool's [Shell] and the hook runner's [Run] calls. Tools that want to
 // detect "am I being invoked by an AI agent?" can check any of these.
 // Keeping them in one place guarantees the two shell surfaces cannot drift.
 // A fresh slice is returned on every call so callers may append freely.
-func CrushEnvMarkers() []string {
+func TackEnvMarkers() []string {
 	return []string{
-		"CRUSH=1",
-		"AGENT=crush",
-		"AI_AGENT=crush",
+		"TACK=1",
+		"AGENT=tack",
+		"AI_AGENT=tack",
 	}
 }
 
@@ -94,7 +94,7 @@ func NewShell(opts *Options) *Shell {
 	}
 
 	// Strip herdr pane-ownership vars so subprocesses (including test
-	// binaries and nested crush instances) can't attach to or release
+	// binaries and nested tack instances) can't attach to or release
 	// the parent pane's agent authority.
 	env = withoutHerdrEnv(env)
 	if runtime.GOOS == "windows" {
@@ -102,8 +102,8 @@ func NewShell(opts *Options) *Shell {
 		env = withDefaultEnvironment(env, "PYTHONUTF8", "1")
 	}
 
-	// Allow tools to detect execution by Crush.
-	env = append(env, CrushEnvMarkers()...)
+	// Allow tools to detect execution by Tack.
+	env = append(env, TackEnvMarkers()...)
 
 	logger := opts.Logger
 	if logger == nil {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/lock"
+	"github.com/Dyu-36/tack-engine/internal/lock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,7 +57,7 @@ func TestRelease_NoopForUnknownDataDir(t *testing.T) {
 	require.NoError(t, Release("/nonexistent/path"), "releasing unknown data dir should not error")
 }
 
-// TestConnect_FailsWhenDataDirLocked simulates a second crush process by
+// TestConnect_FailsWhenDataDirLocked simulates a second tack process by
 // taking the data-dir lock directly via the OS primitive on a separate
 // file descriptor and then asserting that Connect surfaces a clean
 // ErrDataDirLocked instead of opening the database under contention.
@@ -163,7 +163,7 @@ func TestConnect_SkipLockEnvBypassesAcquisition(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(release)
 
-	t.Setenv("CRUSH_SKIP_DATADIR_LOCK", "1")
+	t.Setenv("TACK_SKIP_DATADIR_LOCK", "1")
 
 	conn, err := Connect(context.Background(), dataDir, WithDataDirLock(true))
 	require.NoError(t, err, "skip-lock env should bypass contention")
@@ -223,19 +223,19 @@ func TestConnect_CreatesTackDB(t *testing.T) {
 	require.FileExists(t, tackPath, "Connect should create tack.db")
 }
 
-func TestConnect_MigratesLegacyCrushDB(t *testing.T) {
+func TestConnect_MigratesLegacyTackDB(t *testing.T) {
 	t.Cleanup(ResetPool)
 
 	dataDir := t.TempDir()
-	crushPath := filepath.Join(dataDir, "crush.db")
-	require.NoError(t, os.WriteFile(crushPath, []byte("legacy-data"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "crush.db-wal"), []byte("wal"), 0o600))
+	tackPath := filepath.Join(dataDir, "tack.db")
+	require.NoError(t, os.WriteFile(tackPath, []byte("legacy-data"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "tack.db-wal"), []byte("wal"), 0o600))
 
 	resolved := resolveDBPath(dataDir)
 	require.Equal(t, filepath.Join(dataDir, "tack.db"), resolved)
 	require.FileExists(t, filepath.Join(dataDir, "tack.db"))
 	require.FileExists(t, filepath.Join(dataDir, "tack.db-wal"))
-	require.NoFileExists(t, crushPath)
+	require.NoFileExists(t, tackPath)
 }
 
 // ResetPool closes all pooled connections and clears the pool. This is

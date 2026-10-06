@@ -14,7 +14,7 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
-	"github.com/charmbracelet/crush/internal/stringext"
+	"github.com/Dyu-36/tack-engine/internal/stringext"
 	"github.com/charmbracelet/x/ansi"
 )
 

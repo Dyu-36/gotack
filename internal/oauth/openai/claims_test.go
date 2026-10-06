@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 )
 
 func testJWT(t *testing.T, claims map[string]any) string {

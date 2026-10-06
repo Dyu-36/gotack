@@ -9,10 +9,10 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/question"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/permission"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/question"
 )
 
 // NewForTest constructs a minimal [App] suitable for in-process tests

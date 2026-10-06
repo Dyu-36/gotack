@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/oauth"
-	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	openaioauth "github.com/Dyu-36/tack-engine/internal/oauth/openai"
 	"github.com/stretchr/testify/require"
 )
 

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/oauth"
-	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	openaioauth "github.com/Dyu-36/tack-engine/internal/oauth/openai"
 )
 
 func boolPtr(value bool) *bool { return &value }

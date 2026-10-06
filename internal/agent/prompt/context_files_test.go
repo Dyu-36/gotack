@@ -27,7 +27,7 @@ func TestDefaultContextDiscoveryMatchesPiStyle(t *testing.T) {
 	require.NoError(t, os.MkdirAll(legacyRules, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(legacyRules, "legacy.md"), []byte("cursor legacy"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "GEMINI.md"), []byte("gemini legacy"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "CRUSH.md"), []byte("crush legacy"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "TACK.md"), []byte("tack legacy"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".cursorrules"), []byte("cursor legacy"), 0o600))
 
 	project, globals, err := loadDefaultContextFiles(nested, "linux")
@@ -48,7 +48,7 @@ func TestDefaultContextDiscoveryMatchesPiStyle(t *testing.T) {
 	joined := strings.Join(contents, "\n")
 	require.NotContains(t, joined, "cursor legacy")
 	require.NotContains(t, joined, "gemini legacy")
-	require.NotContains(t, joined, "crush legacy")
+	require.NotContains(t, joined, "tack legacy")
 }
 
 func TestPromptSourcesAndSizeDiagnostics(t *testing.T) {

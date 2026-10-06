@@ -3,7 +3,7 @@ package proto
 // The wire schema for per-tool parameters is owned by the tool itself, not
 // duplicated here. We alias the canonical names so there is exactly one
 // source of truth.
-import "github.com/charmbracelet/crush/internal/agent/tools"
+import "github.com/Dyu-36/tack-engine/internal/agent/tools"
 
 // ToolResponseType represents the type of tool response.
 type ToolResponseType string

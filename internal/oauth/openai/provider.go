@@ -1,8 +1,8 @@
 package openai
 
-import "github.com/charmbracelet/crush/internal/oauth"
+import "github.com/Dyu-36/tack-engine/internal/oauth"
 
-// ProviderID is the Crush provider id reserved for ChatGPT subscription
+// ProviderID is the Tack provider id reserved for ChatGPT subscription
 // authentication. Keeping it separate from the public "openai" provider lets a
 // user hold an OpenAI API key and a ChatGPT subscription at the same time
 // without either credential overwriting the other's endpoint or model catalog.

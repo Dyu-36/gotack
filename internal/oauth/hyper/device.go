@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/agent/hyper"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 )
 
 // ExchangeToken exchanges a refresh token for an access token.
@@ -32,7 +32,7 @@ func ExchangeToken(ctx context.Context, refreshToken string) (*oauth.Token, erro
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "crush")
+	req.Header.Set("User-Agent", "tack")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

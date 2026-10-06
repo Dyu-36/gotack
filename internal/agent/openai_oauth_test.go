@@ -9,9 +9,9 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	fantasyopenai "charm.land/fantasy/providers/openai"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/oauth"
-	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	openaioauth "github.com/Dyu-36/tack-engine/internal/oauth/openai"
 	"github.com/stretchr/testify/require"
 )
 

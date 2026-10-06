@@ -45,7 +45,7 @@ func init() {
 // lock is acquired exactly once when the entry is created and released
 // when the last reference is dropped, which lets the same process open
 // the same data directory concurrently while still blocking a second
-// crush process from racing the storage.
+// tack process from racing the storage.
 type connEntry struct {
 	db       *sql.DB
 	refCount int
@@ -69,7 +69,7 @@ type connectOptions struct {
 // WithDataDirLock toggles acquisition of the per-data-directory lock
 // for this Connect call. The lock is off by default so local-mode
 // invocations do not regress today's behavior; the server's
-// workspace-bootstrap path opts in. CRUSH_SKIP_DATADIR_LOCK still
+// workspace-bootstrap path opts in. TACK_SKIP_DATADIR_LOCK still
 // bypasses acquisition even when this option is set.
 func WithDataDirLock(enable bool) ConnectOption {
 	return func(o *connectOptions) { o.lockDataDir = enable }
@@ -77,7 +77,7 @@ func WithDataDirLock(enable bool) ConnectOption {
 
 const (
 	DatabaseFileName       = "tack.db"
-	legacyDatabaseFileName = "crush.db"
+	legacyDatabaseFileName = "tack.db"
 )
 
 func resolveDBPath(dataDir string) string {
@@ -87,8 +87,8 @@ func resolveDBPath(dataDir string) string {
 		return target
 	}
 	if _, err := os.Stat(legacy); err == nil {
-		_ = os.Rename(filepath.Join(dataDir, "crush.db-wal"), filepath.Join(dataDir, "tack.db-wal"))
-		_ = os.Rename(filepath.Join(dataDir, "crush.db-shm"), filepath.Join(dataDir, "tack.db-shm"))
+		_ = os.Rename(filepath.Join(dataDir, "tack.db-wal"), filepath.Join(dataDir, "tack.db-wal"))
+		_ = os.Rename(filepath.Join(dataDir, "tack.db-shm"), filepath.Join(dataDir, "tack.db-shm"))
 		if err := os.Rename(legacy, target); err == nil {
 			return target
 		}
@@ -131,11 +131,11 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 
 	// Take the per-data-directory lock before opening the database so
 	// we fail fast and with a clear error rather than racing another
-	// crush process on the same SQLite file. The lock is released when
+	// tack process on the same SQLite file. The lock is released when
 	// the matching Release call drops the refcount to zero. Ensuring
 	// the data directory exists is required because the lock file
 	// lives inside it. Locking is opt-in via WithDataDirLock so that
-	// local-mode invocations do not refuse a second crush against the
+	// local-mode invocations do not refuse a second tack against the
 	// same data dir until client/server becomes the default.
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create data directory %q: %w", dataDir, err)

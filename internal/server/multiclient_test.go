@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/Dyu-36/tack-engine/internal/backend"
+	"github.com/Dyu-36/tack-engine/internal/proto"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

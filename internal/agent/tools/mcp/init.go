@@ -1,5 +1,5 @@
 // Package mcp provides functionality for managing Model Context Protocol (MCP)
-// clients within the Crush application.
+// clients within the Tack application.
 package mcp
 
 import (
@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/oauth"
-	mcpoauth "github.com/charmbracelet/crush/internal/oauth/mcp"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/home"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	mcpoauth "github.com/Dyu-36/tack-engine/internal/oauth/mcp"
+	"github.com/Dyu-36/tack-engine/internal/permission"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
@@ -782,7 +782,7 @@ func updateState(name string, state State, err error, client *ClientSession, cou
 		// close it so the child process and its stdio pipes are released — the
 		// bare map delete this used to do leaked both. Clearing the tool
 		// registry keeps the agent from advertising tools it can no longer
-		// call: without it, crush_info / the `/mcp` menu and the tool list
+		// call: without it, tack_info / the `/mcp` menu and the tool list
 		// handed to the LLM diverge, so a server still reads "connected, N
 		// tools" while every call fails with "tool not found".
 		if old, ok := sessions.Take(name); ok {
@@ -870,9 +870,9 @@ func createSession(ctx context.Context, cfg *config.ConfigStore, name string, m 
 	}
 	client := mcp.NewClient(
 		&mcp.Implementation{
-			Name:    "crush",
+			Name:    "tack",
 			Version: version.Version,
-			Title:   "Crush",
+			Title:   "Tack",
 		},
 		opts,
 	)
@@ -912,7 +912,7 @@ func createSession(ctx context.Context, cfg *config.ConfigStore, name string, m 
 	}, nil
 }
 
-// transportWrapper is implemented by every transport decorator crush layers
+// transportWrapper is implemented by every transport decorator tack layers
 // around a base transport, so diagnostics that need the innermost transport
 // can reach it without knowing which decorators are in play.
 type transportWrapper interface {

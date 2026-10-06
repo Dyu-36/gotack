@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/Dyu-36/tack-engine/internal/agent"
+	"github.com/Dyu-36/tack-engine/internal/app"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/proto"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

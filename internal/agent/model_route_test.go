@@ -9,7 +9,7 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/openai"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/config"
 	"github.com/stretchr/testify/require"
 )
 

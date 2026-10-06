@@ -4,8 +4,8 @@ import (
 	"slices"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent/prompt"
-	"github.com/charmbracelet/crush/internal/agent/tools"
+	"github.com/Dyu-36/tack-engine/internal/agent/prompt"
+	"github.com/Dyu-36/tack-engine/internal/agent/tools"
 )
 
 // toolSpec is one entry of the explicit Pi-like tool registry: the name the

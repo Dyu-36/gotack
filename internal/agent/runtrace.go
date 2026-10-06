@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/version"
 )
 
 // requestShapeHMACDomain is the domain-separation prefix for the

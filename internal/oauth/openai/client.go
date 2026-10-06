@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 	defaultOriginator = "gotack"
 
 	// CodexClientVersion is the Codex backend protocol compatibility level.
-	// Keep it independent from Crush/Gotack's application version: the Codex
+	// Keep it independent from Tack/Gotack's application version: the Codex
 	// backend uses this value for model/capability negotiation.
 	CodexClientVersion = "0.150.1"
 )

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 	"github.com/stretchr/testify/require"
 )
 

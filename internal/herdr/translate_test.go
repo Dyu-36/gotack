@@ -3,11 +3,11 @@ package herdr
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/permission"
+	"github.com/Dyu-36/tack-engine/internal/proto"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
 	"github.com/stretchr/testify/assert"
 )
 

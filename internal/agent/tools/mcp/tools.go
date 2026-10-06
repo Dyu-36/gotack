@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/csync"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

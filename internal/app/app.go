@@ -17,28 +17,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/clipboard"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/filetracker"
-	"github.com/charmbracelet/crush/internal/format"
-	"github.com/charmbracelet/crush/internal/herdr"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/question"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
-	"github.com/charmbracelet/crush/internal/ui/anim"
-	"github.com/charmbracelet/crush/internal/ui/styles"
-	"github.com/charmbracelet/crush/internal/update"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/Dyu-36/tack-engine/internal/agent"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/agent/tools/mcp"
+	"github.com/Dyu-36/tack-engine/internal/clipboard"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/db"
+	"github.com/Dyu-36/tack-engine/internal/filetracker"
+	"github.com/Dyu-36/tack-engine/internal/format"
+	"github.com/Dyu-36/tack-engine/internal/herdr"
+	"github.com/Dyu-36/tack-engine/internal/history"
+	"github.com/Dyu-36/tack-engine/internal/log"
+	"github.com/Dyu-36/tack-engine/internal/lsp"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/permission"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/question"
+	"github.com/Dyu-36/tack-engine/internal/session"
+	"github.com/Dyu-36/tack-engine/internal/skills"
+	"github.com/Dyu-36/tack-engine/internal/ui/anim"
+	"github.com/Dyu-36/tack-engine/internal/ui/styles"
+	"github.com/Dyu-36/tack-engine/internal/update"
+	"github.com/Dyu-36/tack-engine/internal/version"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 )
@@ -78,7 +78,7 @@ type App struct {
 	// runCompletions is the authoritative per-run completion signal,
 	// emitted once per top-level agent turn after all message
 	// updates have been flushed. Bridged into app.events so SSE
-	// subscribers (notably `crush run` in client/server mode) can
+	// subscribers (notably `tack run` in client/server mode) can
 	// drive their exit on a deterministic, payload-bearing event
 	// instead of guessing from message finish parts.
 	runCompletions *pubsub.Broker[notify.RunComplete]
@@ -135,7 +135,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 
 	// Check for updates in the background unless an isolated host explicitly
 	// disables network release checks.
-	if os.Getenv("CRUSH_DISABLE_UPDATE_CHECK") != "1" {
+	if os.Getenv("TACK_DISABLE_UPDATE_CHECK") != "1" {
 		go app.checkForUpdates(ctx)
 	}
 
@@ -639,7 +639,7 @@ func setupSubscriber[T any](
 // app.events broker using PublishMustDeliver instead of Publish. Use
 // this for terminal events that subscribers cannot tolerate losing —
 // notably RunComplete, which is the authoritative end-of-run signal
-// for `crush run`. A lossy fan-in here can drop the only terminal
+// for `tack run`. A lossy fan-in here can drop the only terminal
 // event and hang non-interactive clients waiting on it.
 func setupSubscriberMustDeliver[T any](
 	ctx context.Context,

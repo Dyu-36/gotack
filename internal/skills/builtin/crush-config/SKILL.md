@@ -1,36 +1,36 @@
 ---
-name: crush-config
-description: Use when the user needs help configuring Tack — writing crushrc (the Bash config format) or crush.json, setting up providers, models, LSPs, MCP servers, hooks, skills, permissions, or changing Tack behavior.
+name: tack-config
+description: Use when the user needs help configuring Tack — writing tackrc (the Bash config format) or tack.json, setting up providers, models, LSPs, MCP servers, hooks, skills, permissions, or changing Tack behavior.
 ---
 
 # Tack Configuration
 
 Tack supports two config formats:
 
-- **`crushrc`** — a Bash script that builds config by calling Tack builtins.
+- **`tackrc`** — a Bash script that builds config by calling Tack builtins.
   **Preferred.** Because it is real Bash you get includes, secrets,
   conditionals, and variables for free.
-- **`crush.json`** — static JSON. Fully supported; see
+- **`tack.json`** — static JSON. Fully supported; see
   [Legacy JSON format](#legacy-json-format).
 
 Both are discovered together and deep-merged. Priority (highest to lowest):
 
-1. `.crushrc` / `crushrc` / `.crush.json` / `crush.json` (project-local,
-   closer-to-cwd wins; Windows uses `.\.crushrc` / `.\crushrc`)
-2. `$XDG_CONFIG_HOME/crush/crushrc` or `~/.config/crush/crushrc`
-   (`%XDG_CONFIG_HOME%\crush\crushrc` or
-   `%USERPROFILE%\.config\crush\crushrc` on Windows)
+1. `.tackrc` / `tackrc` / `.tack.json` / `tack.json` (project-local,
+   closer-to-cwd wins; Windows uses `.\.tackrc` / `.\tackrc`)
+2. `$XDG_CONFIG_HOME/tack/tackrc` or `~/.config/tack/tackrc`
+   (`%XDG_CONFIG_HOME%\tack\tackrc` or
+   `%USERPROFILE%\.config\tack\tackrc` on Windows)
 
-Data directories (`~/.local/share/crush` and `%LOCALAPPDATA%\crush`) contain
-machine-owned JSON state only; Tack does not discover or execute a `crushrc`
+Data directories (`~/.local/share/tack` and `%LOCALAPPDATA%\tack`) contain
+machine-owned JSON state only; Tack does not discover or execute a `tackrc`
 from those locations.
 
-If a directory has both `crushrc` and `crush.json`, they merge (`crushrc` wins
+If a directory has both `tackrc` and `tack.json`, they merge (`tackrc` wins
 on conflicts) and Tack logs a warning.
 
-## crushrc at a glance
+## tackrc at a glance
 
-A `crushrc` is a plain Bash script executed at load time with the same embedded
+A `tackrc` is a plain Bash script executed at load time with the same embedded
 shell the `bash` tool uses. It builds config by calling builtins (`provider`,
 `model`, `mcp`, `lsp`, `hook`, `permissions`, `option`). Statements run top to
 bottom; later statements win, and `remove`/`reset` operate on anything defined
@@ -39,7 +39,7 @@ earlier or pulled in via `source`.
 ```bash
 #!/usr/bin/env bash
 # Includes and secrets are just Bash.
-source ~/.config/crush/shared.sh
+source ~/.config/tack/shared.sh
 
 provider add anthropic --api-key "$ANTHROPIC_API_KEY"
 
@@ -53,11 +53,11 @@ permissions allow view ls grep edit
 Values are ordinary Bash — quote and expand normally (`"$VAR"`, `$(cmd)`,
 `${VAR:?required}`). A failing `$(command)` aborts the load.
 
-`CRUSH_VERSION` is exported into the script so you can feature-detect the
+`TACK_VERSION` is exported into the script so you can feature-detect the
 running Tack (it is the literal `devel` for local builds):
 
 ```bash
-[[ "$CRUSH_VERSION" != devel ]] && lsp add gopls --command gopls
+[[ "$TACK_VERSION" != devel ]] && lsp add gopls --command gopls
 ```
 
 ## Commands
@@ -94,7 +94,7 @@ model large [<provider>/<id>] [flags]  # set the large slot; no arg prints it
 model small [<provider>/<id>] [flags]  # set the small slot; no arg prints it
 ```
 
-- `<provider>/<id>` is the same form `crush models` prints. A missing slash is
+- `<provider>/<id>` is the same form `tack models` prints. A missing slash is
   an error. `model add` requires the provider to already exist.
 - `model add` flags: `--name`, `--context-window N`, `--default-max-tokens N`,
   `--can-reason BOOL`, `--supports-images BOOL`, `--price-input F`,
@@ -157,7 +157,7 @@ intend to remove it later. See [Hooks runtime](#hooks-runtime) for how hooks
 execute (stdin payload, env vars, decisions).
 
 ```bash
-hook add PreToolUse --matcher "^bash$" --command ".crush/hooks/no-haskell.sh" --name no-haskell
+hook add PreToolUse --matcher "^bash$" --command ".tack/hooks/no-haskell.sh" --name no-haskell
 ```
 
 ### permissions
@@ -196,7 +196,7 @@ option reset <list-key>    # clear a list option back to empty
 ```bash
 option progress false
 option skill-path ./skills
-option disable-skill crush-config
+option disable-skill tack-config
 option attribution-trailer-style assisted-by
 option attribution-generated-with true
 option ui compact true
@@ -205,7 +205,7 @@ option ui exit-banner compact
 ```
 
 > [!IMPORTANT] These skill paths are loaded by default and do NOT need
-> `skill-path`: `.agents/skills`, `.crush/skills`, `.claude/skills`,
+> `skill-path`: `.agents/skills`, `.tack/skills`, `.claude/skills`,
 > `.cursor/skills`.
 
 ## Hooks runtime
@@ -241,13 +241,13 @@ Event names are case-insensitive and accept snake_case: `PreToolUse`,
 
 | Variable                     | Description                                       |
 | ---------------------------- | ------------------------------------------------- |
-| `CRUSH_EVENT`                | Event name (e.g. `PreToolUse`)                    |
-| `CRUSH_TOOL_NAME`            | Name of the tool being called                     |
-| `CRUSH_SESSION_ID`           | Current session ID                                |
-| `CRUSH_CWD`                  | Current working directory                         |
-| `CRUSH_PROJECT_DIR`          | Project root directory                            |
-| `CRUSH_TOOL_INPUT_COMMAND`   | Value of `command` from tool input (if present)   |
-| `CRUSH_TOOL_INPUT_FILE_PATH` | Value of `file_path` from tool input (if present) |
+| `TACK_EVENT`                | Event name (e.g. `PreToolUse`)                    |
+| `TACK_TOOL_NAME`            | Name of the tool being called                     |
+| `TACK_SESSION_ID`           | Current session ID                                |
+| `TACK_CWD`                  | Current working directory                         |
+| `TACK_PROJECT_DIR`          | Project root directory                            |
+| `TACK_TOOL_INPUT_COMMAND`   | Value of `command` from tool input (if present)   |
+| `TACK_TOOL_INPUT_FILE_PATH` | Value of `file_path` from tool input (if present) |
 
 ### Hook output
 
@@ -308,20 +308,20 @@ user-invocable: true
 
 ## Environment variables
 
-- `CRUSH_VERSION` — exported into `crushrc` at load; the running version (or
+- `TACK_VERSION` — exported into `tackrc` at load; the running version (or
   `devel` for local builds).
-- `CRUSH_GLOBAL_CONFIG` — override global config location.
-- `CRUSH_GLOBAL_DATA` — override data directory location.
-- `CRUSH_SKILLS_DIR` — override default skills directory.
+- `TACK_GLOBAL_CONFIG` — override global config location.
+- `TACK_GLOBAL_DATA` — override data directory location.
+- `TACK_SKILLS_DIR` — override default skills directory.
 
 ## Legacy JSON format
 
-`crush.json` is the original static format. It still works and merges with
-`crushrc`. Basic structure:
+`tack.json` is the original static format. It still works and merges with
+`tackrc`. Basic structure:
 
 ```json
 {
-  "$schema": "https://charm.land/crush.json",
+  "$schema": "https://charm.land/tack.json",
   "models": {},
   "providers": {},
   "mcp": {},
@@ -334,9 +334,9 @@ user-invocable: true
 
 The `$schema` property enables IDE autocomplete but is optional.
 
-### crushrc ↔ crush.json mapping
+### tackrc ↔ tack.json mapping
 
-| crushrc                             | crush.json                                             |
+| tackrc                             | tack.json                                             |
 | ------------------------------------ | ------------------------------------------------------ |
 | `provider add openai --api-key "$K"` | `providers.openai = {"api_key": "$K"}`                 |
 | `model add openai/gpt-x --name X`    | append to `providers.openai.models[]`                  |
@@ -351,10 +351,10 @@ The `$schema` property enables IDE autocomplete but is optional.
 | `option attribution-trailer-style none` | `options.attribution.trailer_style = "none"`        |
 | `option attribution-generated-with false` | `options.attribution.generated_with = false`       |
 
-### Shell expansion in crush.json
+### Shell expansion in tack.json
 
 In JSON, only selected string fields are run through the embedded shell at load
-time (in `crushrc`, everything is native Bash so this table does not apply):
+time (in `tackrc`, everything is native Bash so this table does not apply):
 
 | Surface                                                         | Expansion                          |
 | --------------------------------------------------------------- | ---------------------------------- |
@@ -371,7 +371,7 @@ the request.
 
 ### Security note
 
-Both formats are trusted code. `crushrc` runs entirely, and any `$(...)` in
-`crush.json` runs at load time, with the invoking user's shell privileges,
+Both formats are trusted code. `tackrc` runs entirely, and any `$(...)` in
+`tack.json` runs at load time, with the invoking user's shell privileges,
 before the UI appears. Don't launch Tack in a directory whose config you
 haven't reviewed.

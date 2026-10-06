@@ -1,11 +1,11 @@
 ---
-name: crush-hooks
-description: Use when the user wants to add, write, debug, or configure a Tack hook — gating or blocking tool calls, approving or rewriting tool input before execution, injecting context into tool results, or troubleshooting hook behavior in crush.json.
+name: tack-hooks
+description: Use when the user wants to add, write, debug, or configure a Tack hook — gating or blocking tool calls, approving or rewriting tool input before execution, injecting context into tool results, or troubleshooting hook behavior in tack.json.
 ---
 
 # Tack Hooks
 
-Hooks are user-defined commands in `crush.json` that fire at specific points
+Hooks are user-defined commands in `tack.json` that fire at specific points
 during execution, giving deterministic control over tool behavior. They run
 **before** permission checks and **only on the top-level agent's** tool calls —
 sub-agent calls (task tool, agentic_fetch, etc.) are not intercepted, though
@@ -51,13 +51,13 @@ the input/output contract is identical regardless of language.
 
 | Variable                     | Description                              |
 | ---------------------------- | ---------------------------------------- |
-| `CRUSH_EVENT`                | Event name (e.g. `PreToolUse`)           |
-| `CRUSH_TOOL_NAME`            | Tool being called (e.g. `bash`)          |
-| `CRUSH_SESSION_ID`           | Current session ID                       |
-| `CRUSH_CWD`                  | Working directory                        |
-| `CRUSH_PROJECT_DIR`          | Project root directory                   |
-| `CRUSH_TOOL_INPUT_COMMAND`   | For `bash` calls: the shell command      |
-| `CRUSH_TOOL_INPUT_FILE_PATH` | For file tools: the target file path     |
+| `TACK_EVENT`                | Event name (e.g. `PreToolUse`)           |
+| `TACK_TOOL_NAME`            | Tool being called (e.g. `bash`)          |
+| `TACK_SESSION_ID`           | Current session ID                       |
+| `TACK_CWD`                  | Working directory                        |
+| `TACK_PROJECT_DIR`          | Project root directory                   |
+| `TACK_TOOL_INPUT_COMMAND`   | For `bash` calls: the shell command      |
+| `TACK_TOOL_INPUT_FILE_PATH` | For file tools: the target file path     |
 
 **JSON on stdin:**
 
@@ -129,7 +129,7 @@ Composed in **config order**:
 #!/usr/bin/env bash
 set -euo pipefail
 
-if echo "$CRUSH_TOOL_INPUT_COMMAND" | grep -qE 'rm\s+-(rf|fr)\s+/'; then
+if echo "$TACK_TOOL_INPUT_COMMAND" | grep -qE 'rm\s+-(rf|fr)\s+/'; then
   echo "Refusing to run rm -rf against root" >&2
   exit 2
 fi
@@ -153,7 +153,7 @@ Emit only `context` — omit `decision` so the normal permission flow still runs
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$CRUSH_TOOL_INPUT_FILE_PATH" == *.go ]]; then
+if [[ "$TACK_TOOL_INPUT_FILE_PATH" == *.go ]]; then
   echo '{"context": "Remember: run gofumpt after editing Go files."}'
 else
   echo '{}'
@@ -187,7 +187,7 @@ preserved.
 
 1. Add `#!/usr/bin/env bash` and `set -euo pipefail` (for shell scripts).
 2. `chmod +x` the script.
-3. Add the entry under `hooks.PreToolUse` in `crush.json` with the right matcher.
+3. Add the entry under `hooks.PreToolUse` in `tack.json` with the right matcher.
 4. Decide intent: inject context (omit `decision`), auto-approve (`"allow"`),
    block (`exit 2`), or halt (`exit 49`).
 5. If rewriting input, remember `updated_input` is a shallow merge — only

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/hooks"
-	"github.com/charmbracelet/crush/internal/runobserve"
+	"github.com/Dyu-36/tack-engine/internal/agent/notify"
+	"github.com/Dyu-36/tack-engine/internal/hooks"
+	"github.com/Dyu-36/tack-engine/internal/runobserve"
 )
 
 const maxExecutionRecords = 2048

@@ -121,16 +121,16 @@ func TestLoadSystemResourcesUntrustedProjectUsesOnlyGlobal(t *testing.T) {
 	}
 }
 
-func TestLoadSystemResourcesIgnoresCrushGlobalPromptRoot(t *testing.T) {
+func TestLoadSystemResourcesIgnoresTackGlobalPromptRoot(t *testing.T) {
 	legacy := t.TempDir()
 	current := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("CRUSH_GLOBAL_CONFIG", legacy)
+	t.Setenv("TACK_GLOBAL_CONFIG", legacy)
 	t.Setenv("TACK_GLOBAL_CONFIG", current)
-	if err := os.WriteFile(filepath.Join(legacy, "SYSTEM.md"), []byte("legacy crush system"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(legacy, "SYSTEM.md"), []byte("legacy tack system"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(legacy, "APPEND_SYSTEM.md"), []byte("legacy crush append"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(legacy, "APPEND_SYSTEM.md"), []byte("legacy tack append"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -139,7 +139,7 @@ func TestLoadSystemResourcesIgnoresCrushGlobalPromptRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Replace || got.System != "" || got.Append != "" {
-		t.Fatalf("CRUSH_GLOBAL_CONFIG prompt resources must be ignored: %+v", got)
+		t.Fatalf("TACK_GLOBAL_CONFIG prompt resources must be ignored: %+v", got)
 	}
 }
 

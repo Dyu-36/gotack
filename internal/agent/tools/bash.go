@@ -17,8 +17,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/fsext"
-	"github.com/charmbracelet/crush/internal/shell"
+	"github.com/Dyu-36/tack-engine/internal/fsext"
+	"github.com/Dyu-36/tack-engine/internal/shell"
 )
 
 type BashParams struct {

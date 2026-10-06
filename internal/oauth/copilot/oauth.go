@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 )
 
 const (

@@ -1,6 +1,6 @@
 package config
 
-import "github.com/charmbracelet/crush/internal/csync"
+import "github.com/Dyu-36/tack-engine/internal/csync"
 
 type testEnv map[string]string
 

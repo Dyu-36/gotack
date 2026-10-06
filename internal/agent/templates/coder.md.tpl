@@ -25,7 +25,7 @@ Project-specific instructions and guidelines:
 <skills>
 {{.AvailSkillXML}}
 
-Skills are loaded on demand with the {{.SkillReadTool}} tool: the `<description>` tells you when a skill applies, and the skill's instructions live in its SKILL.md. Before doing a task that matches a skill, read its SKILL.md at the `<location>` value. Builtin skills use virtual `crush://skills/...` locations; pass the location verbatim.
+Skills are loaded on demand with the {{.SkillReadTool}} tool: the `<description>` tells you when a skill applies, and the skill's instructions live in its SKILL.md. Before doing a task that matches a skill, read its SKILL.md at the `<location>` value. Builtin skills use virtual `tack://skills/...` locations; pass the location verbatim.
 </skills>
 {{end}}
 <cwd>

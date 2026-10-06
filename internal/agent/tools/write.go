@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/diff"
-	"github.com/charmbracelet/crush/internal/filepathext"
-	"github.com/charmbracelet/crush/internal/filetracker"
-	"github.com/charmbracelet/crush/internal/history"
+	"github.com/Dyu-36/tack-engine/internal/diff"
+	"github.com/Dyu-36/tack-engine/internal/filepathext"
+	"github.com/Dyu-36/tack-engine/internal/filetracker"
+	"github.com/Dyu-36/tack-engine/internal/history"
 )
 
 //go:embed write.md

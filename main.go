@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	_ "github.com/charmbracelet/crush/internal/dns"
-	"github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/server"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	_ "github.com/Dyu-36/tack-engine/internal/dns"
+	"github.com/Dyu-36/tack-engine/internal/log"
+	"github.com/Dyu-36/tack-engine/internal/server"
 )
 
 func main() {

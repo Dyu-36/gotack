@@ -1,4 +1,4 @@
-module github.com/charmbracelet/crush
+module github.com/Dyu-36/tack-engine
 
 go 1.27.0
 

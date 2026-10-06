@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/lsp"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
 )
 
 // LSPEventType represents the type of LSP event

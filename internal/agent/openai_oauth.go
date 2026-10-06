@@ -4,8 +4,8 @@ import (
 	"errors"
 	"maps"
 
-	"github.com/charmbracelet/crush/internal/config"
-	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	openaioauth "github.com/Dyu-36/tack-engine/internal/oauth/openai"
 )
 
 // applyOpenAIOAuthRouting switches an OAuth-authenticated ChatGPT subscription

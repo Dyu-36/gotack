@@ -15,7 +15,7 @@ const docTemplate = `{
         },
         "license": {
             "name": "MIT",
-            "url": "https://github.com/charmbracelet/crush/blob/main/LICENSE"
+            "url": "https://github.com/Dyu-36/tack-engine/blob/main/LICENSE"
         },
         "version": "{{.Version}}"
     },
@@ -2275,7 +2275,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_charmbracelet_tack_internal_proto.Message"
                             }
                         }
                     },
@@ -3070,7 +3070,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_charmbracelet_tack_internal_proto.Message"
                             }
                         }
                     },
@@ -3120,7 +3120,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_charmbracelet_tack_internal_proto.Message"
                             }
                         }
                     },
@@ -3469,7 +3469,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "oauth_callback_port": {
-                    "description": "OAuthCallbackPort pins the localhost port used for the OAuth\nredirect listener. Set this when the OAuth provider requires an\nexact-match callback URL (e.g. GitHub OAuth Apps). When omitted,\nCrush picks the first free port from its default range.",
+                    "description": "OAuthCallbackPort pins the localhost port used for the OAuth\nredirect listener. Set this when the OAuth provider requires an\nexact-match callback URL (e.g. GitHub OAuth Apps). When omitted,\nTack picks the first free port from its default range.",
                     "type": "integer"
                 },
                 "oauth_client_id": {
@@ -3489,7 +3489,7 @@ const docTemplate = `{
                     ]
                 },
                 "sessionless": {
-                    "description": "Sessionless marks a server that does not maintain an MCP session (it\nnever issues a Mcp-Session-Id). When true, Crush omits the\ntools/prompts/resources list-changed handlers: the go-sdk opens a\nSEP-2575 \"subscriptions/listen\" stream whenever any of those handlers\nis set, and sessionless streamable-HTTP servers (e.g. GitHub MCP)\nanswer that POST with 404 (\"session not found\"), which the SDK treats\nas fatal. The cost is no live list-changed notifications from this\nserver.\n\nWhen nil, Crush auto-detects a set of known sessionless servers (see\nIsSessionless); set it explicitly to override that detection.",
+                    "description": "Sessionless marks a server that does not maintain an MCP session (it\nnever issues a Mcp-Session-Id). When true, Tack omits the\ntools/prompts/resources list-changed handlers: the go-sdk opens a\nSEP-2575 \"subscriptions/listen\" stream whenever any of those handlers\nis set, and sessionless streamable-HTTP servers (e.g. GitHub MCP)\nanswer that POST with 404 (\"session not found\"), which the SDK treats\nas fatal. The cost is no live list-changed notifications from this\nserver.\n\nWhen nil, Tack auto-detects a set of known sessionless servers (see\nIsSessionless); set it explicitly to override that detection.",
                     "type": "boolean"
                 },
                 "timeout": {
@@ -3669,7 +3669,7 @@ const docTemplate = `{
         "csync.Map-string-config_ProviderConfig": {
             "type": "object"
         },
-        "github_com_charmbracelet_crush_internal_config.Config": {
+        "github_com_charmbracelet_tack_internal_config.Config": {
             "type": "object",
             "properties": {
                 "$schema": {
@@ -3705,7 +3705,7 @@ const docTemplate = `{
                     }
                 },
                 "options": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Options"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Options"
                 },
                 "permissions": {
                     "$ref": "#/definitions/config.Permissions"
@@ -3733,7 +3733,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_charmbracelet_crush_internal_config.Options": {
+        "github_com_charmbracelet_tack_internal_config.Options": {
             "type": "object",
             "properties": {
                 "attribution": {
@@ -3749,7 +3749,7 @@ const docTemplate = `{
                     }
                 },
                 "data_directory": {
-                    "description": "DataDirectory is where Crush keeps per-project state such as\nthe SQLite database and workspace overrides. Relative paths are\nresolved against the working directory; absolute paths are used\nverbatim. After defaulting the stored value is always absolute.",
+                    "description": "DataDirectory is where Tack keeps per-project state such as\nthe SQLite database and workspace overrides. Relative paths are\nresolved against the working directory; absolute paths are used\nverbatim. After defaulting the stored value is always absolute.",
                     "type": "string"
                 },
                 "debug": {
@@ -3808,7 +3808,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_charmbracelet_crush_internal_config.Scope": {
+        "github_com_charmbracelet_tack_internal_config.Scope": {
             "type": "integer",
             "enum": [
                 0,
@@ -3819,7 +3819,7 @@ const docTemplate = `{
                 "ScopeWorkspace"
             ]
         },
-        "github_com_charmbracelet_crush_internal_proto.Message": {
+        "github_com_charmbracelet_tack_internal_proto.Message": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4054,7 +4054,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4068,7 +4068,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/config.SelectedModelType"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4086,7 +4086,7 @@ const docTemplate = `{
                     }
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4106,7 +4106,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4117,7 +4117,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4128,7 +4128,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4144,7 +4144,7 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 }
             }
         },
@@ -4155,7 +4155,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
                 },
                 "value": {}
             }
@@ -4760,7 +4760,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "config": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Config"
+                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Config"
                 },
                 "data_dir": {
                     "type": "string"
@@ -4828,8 +4828,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "/v1",
 	Schemes:          []string{},
-	Title:            "Crush API",
-	Description:      "Crush is a terminal-based AI coding assistant. This API is served over a Unix socket (or Windows named pipe) and provides programmatic access to workspaces, sessions, agents, LSP, MCP, and more.",
+	Title:            "Tack API",
+	Description:      "Tack is a terminal-based AI coding assistant. This API is served over a Unix socket (or Windows named pipe) and provides programmatic access to workspaces, sessions, agents, LSP, MCP, and more.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

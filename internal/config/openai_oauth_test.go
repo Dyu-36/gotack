@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/oauth"
-	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	openaioauth "github.com/Dyu-36/tack-engine/internal/oauth/openai"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSetProviderAPIKeyPersistsChatGPTCatalog(t *testing.T) {
 	for _, providerID := range []string{openaioauth.ProviderID, openaioauth.LegacyProviderID} {
 		t.Run(providerID, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "crush.json")
+			path := filepath.Join(t.TempDir(), "tack.json")
 			require.NoError(t, os.WriteFile(path, []byte(`{}`), 0o600))
 			store := &ConfigStore{
 				config: &Config{Providers: testMap(map[string]ProviderConfig{
@@ -53,7 +53,7 @@ func TestSetProviderAPIKeyPersistsChatGPTCatalog(t *testing.T) {
 func TestRefreshOAuthTokenRoutesSubscriptionProviderIDs(t *testing.T) {
 	for _, providerID := range []string{openaioauth.ProviderID, openaioauth.LegacyProviderID} {
 		t.Run(providerID, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "crush.json")
+			path := filepath.Join(t.TempDir(), "tack.json")
 			require.NoError(t, os.WriteFile(path, []byte(`{}`), 0o600))
 			expired := &oauth.Token{
 				AccessToken: "old-access", RefreshToken: "old-refresh",

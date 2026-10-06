@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/Dyu-36/tack-engine/internal/home"
+	"github.com/Dyu-36/tack-engine/internal/pubsub"
 )
 
 // Manager owns per-workspace skill discovery state: the latest discovery

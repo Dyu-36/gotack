@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/Dyu-36/tack-engine/internal/skills"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +25,7 @@ func generationPrompt(t *testing.T, template string, opts ...Option) *Prompt {
 func writeWorkspaceContextConfig(t *testing.T, workingDir, contextFile string) {
 	t.Helper()
 	configJSON := `{"options": {"context_paths": ["` + filepath.Base(contextFile) + `"]}}`
-	require.NoError(t, os.WriteFile(filepath.Join(workingDir, "crush.json"), []byte(configJSON), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(workingDir, "tack.json"), []byte(configJSON), 0o644))
 }
 
 func TestGenerationStableOnIdenticalInputs(t *testing.T) {

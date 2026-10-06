@@ -3,9 +3,9 @@ package shell
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/Dyu-36/tack-engine/internal/db"
+	"github.com/Dyu-36/tack-engine/internal/message"
+	"github.com/Dyu-36/tack-engine/internal/session"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

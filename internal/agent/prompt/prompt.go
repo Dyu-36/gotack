@@ -16,10 +16,10 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/filepathext"
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/Dyu-36/tack-engine/internal/config"
+	"github.com/Dyu-36/tack-engine/internal/filepathext"
+	"github.com/Dyu-36/tack-engine/internal/home"
+	"github.com/Dyu-36/tack-engine/internal/skills"
 )
 
 // Prompt represents a template-based prompt generator.

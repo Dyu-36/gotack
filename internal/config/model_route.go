@@ -5,7 +5,7 @@ import (
 	"maps"
 
 	"charm.land/catwalk/pkg/catwalk"
-	openaioauth "github.com/charmbracelet/crush/internal/oauth/openai"
+	openaioauth "github.com/Dyu-36/tack-engine/internal/oauth/openai"
 )
 
 // ModelRoute describes a model's wire protocol and optional endpoint defaults.

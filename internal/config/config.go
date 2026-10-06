@@ -13,14 +13,14 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/oauth/copilot"
+	"github.com/Dyu-36/tack-engine/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/oauth/copilot"
 	"github.com/invopop/jsonschema"
 )
 
 const (
-	appName              = "crush"
+	appName              = "tack"
 	defaultDataDirectory = ".tack"
 	defaultInitializeAs  = "AGENTS.md"
 )
@@ -121,7 +121,7 @@ type ProviderConfig struct {
 	FlatRate bool `json:"flat_rate,omitempty" jsonschema:"description=Flat-rate mode for this provider"`
 
 	// AutoDiscoverModels controls model discovery via /v1/models endpoint.
-	// When Models is empty and this is nil or true, Crush auto-discovers
+	// When Models is empty and this is nil or true, Tack auto-discovers
 	// models. When true and Models is non-empty, discovered models are
 	// merged in (user-specified models take precedence). When false,
 	// only explicitly listed models are used.
@@ -191,7 +191,7 @@ type MCPConfig struct {
 	Timeout       int               `json:"timeout,omitempty" jsonschema:"description=Timeout in seconds for MCP server connections,default=10,example=30,example=60,example=120"`
 
 	// Sessionless marks a server that does not maintain an MCP session (it
-	// never issues a Mcp-Session-Id). When true, Crush omits the
+	// never issues a Mcp-Session-Id). When true, Tack omits the
 	// tools/prompts/resources list-changed handlers: the go-sdk opens a
 	// SEP-2575 "subscriptions/listen" stream whenever any of those handlers
 	// is set, and sessionless streamable-HTTP servers (e.g. GitHub MCP)
@@ -199,9 +199,9 @@ type MCPConfig struct {
 	// as fatal. The cost is no live list-changed notifications from this
 	// server.
 	//
-	// When nil, Crush auto-detects a set of known sessionless servers (see
+	// When nil, Tack auto-detects a set of known sessionless servers (see
 	// IsSessionless); set it explicitly to override that detection.
-	Sessionless *bool `json:"sessionless,omitempty" jsonschema:"description=Mark a sessionless MCP server (no Mcp-Session-Id) so Crush skips the subscriptions/listen stream it would otherwise reject. Leave unset to auto-detect known sessionless servers (e.g. GitHub MCP),default=false"`
+	Sessionless *bool `json:"sessionless,omitempty" jsonschema:"description=Mark a sessionless MCP server (no Mcp-Session-Id) so Tack skips the subscriptions/listen stream it would otherwise reject. Leave unset to auto-detect known sessionless servers (e.g. GitHub MCP),default=false"`
 
 	// Headers are HTTP headers for HTTP/SSE MCP servers. Values run
 	// through shell expansion at MCP startup, so $VAR and $(cmd)
@@ -232,7 +232,7 @@ type MCPConfig struct {
 	// OAuthCallbackPort pins the localhost port used for the OAuth
 	// redirect listener. Set this when the OAuth provider requires an
 	// exact-match callback URL (e.g. GitHub OAuth Apps). When omitted,
-	// Crush picks the first free port from its default range.
+	// Tack picks the first free port from its default range.
 	OAuthCallbackPort int `json:"oauth_callback_port,omitempty" jsonschema:"description=Fixed localhost port for the OAuth callback, required by providers that enforce exact-match redirect URIs"`
 
 	// OAuthToken is the persisted OAuth token for this server. It is
@@ -267,7 +267,7 @@ type TUIOptions struct {
 	Completions Completions `json:"completions,omitzero" jsonschema:"description=Completions UI options"`
 	Transparent *bool       `json:"transparent,omitempty" jsonschema:"description=Enable transparent background for the TUI interface,default=false"`
 	Scrollbar   string      `json:"scrollbar,omitempty" jsonschema:"description=Chat scrollbar visibility,enum=default,enum=always,enum=never,default=default"`
-	ExitBanner  ExitBanner  `json:"exit_banner,omitempty" jsonschema:"description=Exit banner style after quitting Crush,enum=default,enum=compact,enum=none,default=default"`
+	ExitBanner  ExitBanner  `json:"exit_banner,omitempty" jsonschema:"description=Exit banner style after quitting Tack,enum=default,enum=compact,enum=none,default=default"`
 }
 
 // IsTransparent reports whether the TUI draws a transparent background. The
@@ -302,7 +302,7 @@ const (
 	ScrollbarNever   = "never"   // Never show scrollbar
 )
 
-// ExitBanner selects what Crush prints after the TUI exits.
+// ExitBanner selects what Tack prints after the TUI exits.
 type ExitBanner string
 
 const (
@@ -311,7 +311,7 @@ const (
 	ExitBannerDefault ExitBanner = "default"
 	// ExitBannerCompact renders only the session and resume lines, with no
 	// logo and no padding. With no active session it renders nothing at all,
-	// so Crush exits silently.
+	// so Tack exits silently.
 	ExitBannerCompact ExitBanner = "compact"
 	// ExitBannerNone renders nothing.
 	ExitBannerNone ExitBanner = "none"
@@ -347,7 +347,7 @@ func (Attribution) JSONSchemaExtend(schema *jsonschema.Schema) {
 type Options struct {
 	ContextPaths         []string    `json:"context_paths,omitempty" jsonschema:"description=Additional explicit context paths. Gotack's default discovery follows Pi-style AGENTS.override.md/AGENTS.md/CLAUDE.md inheritance."`
 	GlobalContextPaths   []string    `json:"global_context_paths,omitempty" jsonschema:"description=Additional explicit global context paths. Gotack's default global context follows Pi-style AGENTS.override.md/AGENTS.md/CLAUDE.md discovery."`
-	SkillsPaths          []string    `json:"skills_paths,omitempty" jsonschema:"description=Paths to directories containing Agent Skills (folders with SKILL.md files),example=~/.config/crush/skills,example=./skills"`
+	SkillsPaths          []string    `json:"skills_paths,omitempty" jsonschema:"description=Paths to directories containing Agent Skills (folders with SKILL.md files),example=~/.config/tack/skills,example=./skills"`
 	ProjectTrusted       *bool       `json:"project_trusted,omitempty" jsonschema:"description=Whether project-local dynamic resources are trusted. Unset preserves standalone full-trust behavior,default=true"`
 	ExtensionPaths       []string    `json:"extension_paths,omitempty" jsonschema:"description=Additional directories containing Gotack extension manifests"`
 	DisabledExtensions   []string    `json:"disabled_extensions,omitempty" jsonschema:"description=Extension names to disable"`
@@ -355,21 +355,21 @@ type Options struct {
 	Debug                bool        `json:"debug,omitempty" jsonschema:"description=Enable debug logging,default=false"`
 	DebugLSP             bool        `json:"debug_lsp,omitempty" jsonschema:"description=Enable debug logging for LSP servers,default=false"`
 	DisableAutoSummarize bool        `json:"disable_auto_summarize,omitempty" jsonschema:"description=Disable automatic conversation summarization,default=false"`
-	// DataDirectory is where Crush keeps per-project state such as
+	// DataDirectory is where Tack keeps per-project state such as
 	// the SQLite database and workspace overrides. Relative paths are
 	// resolved against the working directory; absolute paths are used
 	// verbatim. After defaulting the stored value is always absolute.
-	DataDirectory             string       `json:"data_directory,omitempty" jsonschema:"description=Directory for storing application data. Relative paths are resolved against the working directory; absolute paths are used as-is.,default=.crush,example=.crush"`
+	DataDirectory             string       `json:"data_directory,omitempty" jsonschema:"description=Directory for storing application data. Relative paths are resolved against the working directory; absolute paths are used as-is.,default=.tack,example=.tack"`
 	DisabledTools             []string     `json:"disabled_tools,omitempty" jsonschema:"description=List of built-in tools to disable and hide from the agent,example=bash,example=sourcegraph"`
 	DisableProviderAutoUpdate bool         `json:"disable_provider_auto_update,omitempty" jsonschema:"description=Disable providers auto-update,default=false"`
 	DisableDefaultProviders   bool         `json:"disable_default_providers,omitempty" jsonschema:"description=Ignore all default/embedded providers. When enabled\\, providers must be fully specified in the config file with base_url\\, models\\, and api_key - no merging with defaults occurs,default=false"`
 	Attribution               *Attribution `json:"attribution,omitempty" jsonschema:"description=Attribution settings for generated content"`
 	DisableMetrics            bool         `json:"disable_metrics,omitempty" jsonschema:"description=Disable sending metrics,default=false"`
-	InitializeAs              string       `json:"initialize_as,omitempty" jsonschema:"description=Name of the context file to create/update during project initialization,default=AGENTS.md,example=AGENTS.md,example=CRUSH.md,example=CLAUDE.md,example=docs/LLMs.md"`
+	InitializeAs              string       `json:"initialize_as,omitempty" jsonschema:"description=Name of the context file to create/update during project initialization,default=AGENTS.md,example=AGENTS.md,example=TACK.md,example=CLAUDE.md,example=docs/LLMs.md"`
 	AutoLSP                   *bool        `json:"auto_lsp,omitempty" jsonschema:"description=Automatically setup LSPs based on root markers,default=true"`
 	Progress                  *bool        `json:"progress,omitempty" jsonschema:"description=Show indeterminate progress updates during long operations,default=true"`
 	Notifications             string       `json:"notifications,omitempty" jsonschema:"description=Notification style to use. Options: auto (default)\\, native\\, osc\\, bell\\, disabled. Auto selects based on environment: native for local sessions\\, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
-	DisabledSkills            []string     `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
+	DisabledSkills            []string     `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=tack-config"`
 }
 
 // IsProjectTrusted reports whether project-local dynamic resources may be loaded.
@@ -706,7 +706,7 @@ func (h *HookConfig) TimeoutDuration() time.Duration {
 	return time.Duration(h.Timeout) * time.Second
 }
 
-// Config holds the configuration for crush.
+// Config holds the configuration for tack.
 type Config struct {
 	Schema string `json:"$schema,omitempty"`
 

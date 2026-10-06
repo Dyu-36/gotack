@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/filetracker"
+	"github.com/Dyu-36/tack-engine/internal/filetracker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -245,16 +245,16 @@ var _ filetracker.Service = mockFileTracker{}
 func TestReadBuiltinFile(t *testing.T) {
 	t.Parallel()
 
-	t.Run("reads crush-config skill", func(t *testing.T) {
+	t.Run("reads tack-config skill", func(t *testing.T) {
 		t.Parallel()
 
 		resp, err := readBuiltinFile(ViewParams{
-			FilePath: "crush://skills/crush-config/SKILL.md",
+			FilePath: "tack://skills/tack-config/SKILL.md",
 		}, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Content)
 		// The hardening step rebrands model-visible skill prose to Tack;
-		// built-in skill IDs stay crush-* for compatibility.
+		// built-in skill IDs stay tack-* for compatibility.
 		require.Contains(t, resp.Content, "Tack Configuration")
 	})
 
@@ -262,7 +262,7 @@ func TestReadBuiltinFile(t *testing.T) {
 		t.Parallel()
 
 		resp, err := readBuiltinFile(ViewParams{
-			FilePath: "crush://skills/nonexistent/SKILL.md",
+			FilePath: "tack://skills/nonexistent/SKILL.md",
 		}, nil)
 		require.NoError(t, err)
 		require.True(t, resp.IsError)
@@ -272,14 +272,14 @@ func TestReadBuiltinFile(t *testing.T) {
 		t.Parallel()
 
 		resp, err := readBuiltinFile(ViewParams{
-			FilePath: "crush://skills/crush-config/SKILL.md",
+			FilePath: "tack://skills/tack-config/SKILL.md",
 		}, nil)
 		require.NoError(t, err)
 
 		var meta ViewResponseMetadata
 		require.NoError(t, json.Unmarshal([]byte(resp.Metadata), &meta))
 		require.Equal(t, ViewResourceSkill, meta.ResourceType)
-		require.Equal(t, "crush-config", meta.ResourceName)
+		require.Equal(t, "tack-config", meta.ResourceName)
 		require.NotEmpty(t, meta.ResourceDescription)
 	})
 
@@ -287,7 +287,7 @@ func TestReadBuiltinFile(t *testing.T) {
 		t.Parallel()
 
 		resp, err := readBuiltinFile(ViewParams{
-			FilePath: "crush://skills/crush-config/SKILL.md",
+			FilePath: "tack://skills/tack-config/SKILL.md",
 			Offset:   5,
 		}, nil)
 		require.NoError(t, err)

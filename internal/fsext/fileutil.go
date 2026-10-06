@@ -12,7 +12,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/charlievieth/fastwalk"
-	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/csync"
 )
 
 type FileInfo struct {
@@ -28,7 +28,7 @@ func SkipHidden(path string) bool {
 	}
 
 	commonIgnoredDirs := map[string]bool{
-		".crush":           true,
+		".tack":           true,
 		".tack":            true,
 		"node_modules":     true,
 		"vendor":           true,
@@ -59,7 +59,7 @@ func SkipHidden(path string) bool {
 }
 
 // FastGlobWalker provides gitignore-aware file walking with fastwalk
-// It uses hierarchical ignore checking like git does, checking .gitignore/.crushignore
+// It uses hierarchical ignore checking like git does, checking .gitignore/.tackignore
 // files in each directory from the root to the target path.
 type FastGlobWalker struct {
 	directoryLister *directoryLister
@@ -72,13 +72,13 @@ func NewFastGlobWalker(searchPath string) *FastGlobWalker {
 }
 
 // ShouldSkip checks if a file path should be skipped based on hierarchical gitignore,
-// crushignore, and hidden file rules.
+// tackignore, and hidden file rules.
 func (w *FastGlobWalker) ShouldSkip(path string) bool {
 	return w.directoryLister.shouldIgnore(path, nil, false)
 }
 
 // ShouldSkipDir checks if a directory path should be skipped based on hierarchical
-// gitignore, crushignore, and hidden file rules.
+// gitignore, tackignore, and hidden file rules.
 func (w *FastGlobWalker) ShouldSkipDir(path string) bool {
 	return w.directoryLister.shouldIgnore(path, nil, true)
 }

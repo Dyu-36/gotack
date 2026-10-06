@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/Dyu-36/tack-engine/internal/csync"
+	"github.com/Dyu-36/tack-engine/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,15 +77,15 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 	// the developer's real config.
 	globalDir := t.TempDir()
 	dataDir := t.TempDir()
-	t.Setenv("CRUSH_GLOBAL_CONFIG", globalDir)
-	t.Setenv("CRUSH_GLOBAL_DATA", dataDir)
+	t.Setenv("TACK_GLOBAL_CONFIG", globalDir)
+	t.Setenv("TACK_GLOBAL_DATA", dataDir)
 
-	t.Run("does not pick up crush.json above non-git project", func(t *testing.T) {
+	t.Run("does not pick up tack.json above non-git project", func(t *testing.T) {
 		parent := t.TempDir()
 
-		// crush.json above the project must not be adopted.
+		// tack.json above the project must not be adopted.
 		require.NoError(t, os.WriteFile(
-			filepath.Join(parent, "crush.json"),
+			filepath.Join(parent, "tack.json"),
 			[]byte(`{}`),
 			0o644,
 		))
@@ -95,11 +95,11 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 
 		got := lookupConfigs(project)
 		for _, p := range got {
-			require.NotEqual(t, filepath.Join(parent, "crush.json"), p)
+			require.NotEqual(t, filepath.Join(parent, "tack.json"), p)
 		}
 	})
 
-	t.Run("does not climb out of git worktree to find crush.json", func(t *testing.T) {
+	t.Run("does not climb out of git worktree to find tack.json", func(t *testing.T) {
 		if _, err := exec.LookPath("git"); err != nil {
 			t.Skip("git not available")
 		}
@@ -107,7 +107,7 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 		parent := t.TempDir()
 
 		require.NoError(t, os.WriteFile(
-			filepath.Join(parent, "crush.json"),
+			filepath.Join(parent, "tack.json"),
 			[]byte(`{}`),
 			0o644,
 		))
@@ -119,20 +119,20 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 		require.NoError(t, gitInit.Run())
 
 		got := lookupConfigs(worktree)
-		strayEval, err := filepath.EvalSymlinks(filepath.Join(parent, "crush.json"))
+		strayEval, err := filepath.EvalSymlinks(filepath.Join(parent, "tack.json"))
 		require.NoError(t, err)
 		for _, p := range got {
 			pEval, err := filepath.EvalSymlinks(p)
 			if err != nil {
 				continue
 			}
-			require.NotEqual(t, strayEval, pEval, "must not adopt parent crush.json")
+			require.NotEqual(t, strayEval, pEval, "must not adopt parent tack.json")
 		}
 	})
 
-	t.Run("picks up crush.json inside the project", func(t *testing.T) {
+	t.Run("picks up tack.json inside the project", func(t *testing.T) {
 		project := t.TempDir()
-		local := filepath.Join(project, "crush.json")
+		local := filepath.Join(project, "tack.json")
 		require.NoError(t, os.WriteFile(local, []byte(`{}`), 0o644))
 
 		got := lookupConfigs(project)
@@ -150,7 +150,7 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 				break
 			}
 		}
-		require.True(t, foundLocal, "expected project crush.json to be in lookup result: %v", got)
+		require.True(t, foundLocal, "expected project tack.json to be in lookup result: %v", got)
 	})
 
 	t.Run("global config is always included regardless of boundary", func(t *testing.T) {
@@ -163,24 +163,24 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 		require.Contains(t, got, GlobalConfigData())
 	})
 
-	t.Run("global shell config (crushrc) is included", func(t *testing.T) {
+	t.Run("global shell config (tackrc) is included", func(t *testing.T) {
 		project := t.TempDir()
 
 		got := lookupConfigs(project)
-		// A global crushrc is discovered only beside the user config. The data
-		// directory is machine-owned state and must never execute a crushrc.
+		// A global tackrc is discovered only beside the user config. The data
+		// directory is machine-owned state and must never execute a tackrc.
 		require.Contains(t, got, shellConfigSibling(GlobalConfig()))
 		require.NotContains(t, got, shellConfigSibling(GlobalConfigData()))
 	})
 
-	t.Run("project crushrc and .crushrc are discovered", func(t *testing.T) {
+	t.Run("project tackrc and .tackrc are discovered", func(t *testing.T) {
 		project := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(project, "crushrc"), []byte(""), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(project, ".crushrc"), []byte(""), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(project, "tackrc"), []byte(""), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(project, ".tackrc"), []byte(""), 0o644))
 
 		got := lookupConfigs(project)
-		require.Contains(t, got, filepath.Join(project, "crushrc"))
-		require.Contains(t, got, filepath.Join(project, ".crushrc"))
+		require.Contains(t, got, filepath.Join(project, "tackrc"))
+		require.Contains(t, got, filepath.Join(project, ".tackrc"))
 	})
 
 	t.Run("system config is loaded first", func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 		require.NotEmpty(t, got)
 		// The system-wide config must be first so it has the lowest
 		// priority when configs are merged.
-		require.Equal(t, "/etc/crush/crush.json", got[0])
+		require.Equal(t, "/etc/tack/tack.json", got[0])
 	})
 }
 
@@ -229,7 +229,7 @@ func TestLoadFromConfigPaths_InvalidJSON(t *testing.T) {
 }
 
 // TestLoadFromConfigPaths_ConflictWarningNamesKeys verifies that when a JSON
-// config and a crushrc coexist in the same directory, the merge warning names
+// config and a tackrc coexist in the same directory, the merge warning names
 // the overlapping top-level keys so incremental migrations can spot stale
 // duplicates.
 func TestLoadFromConfigPaths_ConflictWarningNamesKeys(t *testing.T) {
@@ -245,28 +245,28 @@ func TestLoadFromConfigPaths_ConflictWarningNamesKeys(t *testing.T) {
 	t.Run("names overlapping keys", func(t *testing.T) {
 		buf := capture(t)
 		tmpDir := t.TempDir()
-		jsonPath := filepath.Join(tmpDir, "crush.json")
-		rcPath := filepath.Join(tmpDir, "crushrc")
+		jsonPath := filepath.Join(tmpDir, "tack.json")
+		rcPath := filepath.Join(tmpDir, "tackrc")
 		require.NoError(t, os.WriteFile(jsonPath, []byte(`{"options":{"debug":true},"providers":{}}`), 0o644))
 		require.NoError(t, os.WriteFile(rcPath, []byte("option debug true\n"), 0o644))
 
 		_, _, err := loadFromConfigPaths(context.Background(), []string{jsonPath, rcPath})
 		require.NoError(t, err)
-		require.Contains(t, buf.String(), "crushrc taking precedence")
+		require.Contains(t, buf.String(), "tackrc taking precedence")
 		require.Contains(t, buf.String(), `"conflicting_keys":"options"`)
 	})
 
 	t.Run("no warning when nothing overlaps", func(t *testing.T) {
 		buf := capture(t)
 		tmpDir := t.TempDir()
-		jsonPath := filepath.Join(tmpDir, "crush.json")
-		rcPath := filepath.Join(tmpDir, "crushrc")
+		jsonPath := filepath.Join(tmpDir, "tack.json")
+		rcPath := filepath.Join(tmpDir, "tackrc")
 		require.NoError(t, os.WriteFile(jsonPath, []byte(`{"providers":{}}`), 0o644))
 		require.NoError(t, os.WriteFile(rcPath, []byte("option debug true\n"), 0o644))
 
 		_, _, err := loadFromConfigPaths(context.Background(), []string{jsonPath, rcPath})
 		require.NoError(t, err)
-		require.NotContains(t, buf.String(), "crushrc taking precedence",
+		require.NotContains(t, buf.String(), "tackrc taking precedence",
 			"disjoint coexistence should not warn")
 	})
 }
@@ -387,10 +387,10 @@ func TestConfig_setDefaults(t *testing.T) {
 		require.Equal(t, filepath.Join(workingDir, "state"), cfg.Options.DataDirectory)
 	})
 
-	t.Run("does not adopt .crush from a parent project", func(t *testing.T) {
+	t.Run("does not adopt .tack from a parent project", func(t *testing.T) {
 		parent := t.TempDir()
 
-		// .crush in the parent: it should not be reused by the child
+		// .tack in the parent: it should not be reused by the child
 		// because there is no git context joining them.
 		require.NoError(t, os.Mkdir(filepath.Join(parent, defaultDataDirectory), 0o755))
 
@@ -407,14 +407,14 @@ func TestConfig_setDefaults(t *testing.T) {
 		)
 	})
 
-	t.Run("does not climb out of git worktree to find .crush", func(t *testing.T) {
+	t.Run("does not climb out of git worktree to find .tack", func(t *testing.T) {
 		if _, err := exec.LookPath("git"); err != nil {
 			t.Skip("git not available")
 		}
 
 		parent := t.TempDir()
 
-		// Stray .crush above the worktree root.
+		// Stray .tack above the worktree root.
 		require.NoError(t, os.Mkdir(filepath.Join(parent, defaultDataDirectory), 0o755))
 
 		worktree := filepath.Join(parent, "worktree")
@@ -443,7 +443,7 @@ func TestConfig_setDefaults(t *testing.T) {
 
 		strayEval, err := filepath.EvalSymlinks(filepath.Join(parent, defaultDataDirectory))
 		require.NoError(t, err)
-		require.NotEqual(t, strayEval, gotEval, "must not adopt parent .crush")
+		require.NotEqual(t, strayEval, gotEval, "must not adopt parent .tack")
 
 		subEval, err := filepath.EvalSymlinks(sub)
 		require.NoError(t, err)
@@ -1782,7 +1782,7 @@ func TestConfig_configureProvidersDisableDefaultProviders(t *testing.T) {
 
 func TestConfig_setDefaultsDisableDefaultProvidersEnvVar(t *testing.T) {
 	t.Run("sets option from environment variable", func(t *testing.T) {
-		t.Setenv("CRUSH_DISABLE_DEFAULT_PROVIDERS", "true")
+		t.Setenv("TACK_DISABLE_DEFAULT_PROVIDERS", "true")
 
 		cfg := &Config{}
 		cfg.setDefaults("/tmp", "")
@@ -1805,7 +1805,7 @@ func TestConfig_setDefaultsDisableDefaultProvidersEnvVar(t *testing.T) {
 func TestConfig_configureSelectedModels(t *testing.T) {
 	t.Run("reload mode should not persist fallback defaults", func(t *testing.T) {
 		dir := t.TempDir()
-		globalPath := filepath.Join(dir, "crush.json")
+		globalPath := filepath.Join(dir, "tack.json")
 		require.NoError(t, os.WriteFile(globalPath, []byte(`{"models":{"large":{"provider":"ghost","model":"missing"}}}`), 0o600))
 
 		knownProviders := []catwalk.Provider{
@@ -2008,7 +2008,7 @@ func TestConfig_configureSelectedModels(t *testing.T) {
 	})
 	t.Run("resolve and persist fallback under writeMu does not deadlock", func(t *testing.T) {
 		dir := t.TempDir()
-		globalPath := filepath.Join(dir, "crush.json")
+		globalPath := filepath.Join(dir, "tack.json")
 		require.NoError(t, os.WriteFile(globalPath, []byte(`{}`), 0o600))
 
 		knownProviders := []catwalk.Provider{
