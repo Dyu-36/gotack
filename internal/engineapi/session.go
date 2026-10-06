@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 const sessionPath = "/v1/workspaces/{id}/sessions/{sid}"
@@ -16,7 +17,7 @@ func (c *Client) GetSession(ctx context.Context, wsID, sessionID string) (Sessio
 	}
 	var sess Session
 	path := expandPath(sessionPath, "id", wsID, "sid", sessionID)
-	if err := c.doJSON(ctx, "GET", path, nil, &sess); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &sess); err != nil {
 		return Session{}, err
 	}
 	return sess, nil
@@ -32,7 +33,7 @@ func (c *Client) SaveSession(ctx context.Context, wsID string, sess Session) (Se
 	}
 	var saved Session
 	path := expandPath(sessionPath, "id", wsID, "sid", sess.ID)
-	if err := c.doJSON(ctx, "PUT", path, bytes.NewReader(body), &saved); err != nil {
+	if err := c.doJSON(ctx, http.MethodPut, path, bytes.NewReader(body), &saved); err != nil {
 		return Session{}, err
 	}
 	return saved, nil
@@ -42,7 +43,7 @@ func (c *Client) DeleteSession(ctx context.Context, wsID, sessionID string) erro
 	if wsID == "" || sessionID == "" {
 		return errors.New("engineapi: workspace id and session id are required")
 	}
-	return c.doJSON(ctx, "DELETE", expandPath(sessionPath, "id", wsID, "sid", sessionID), nil, nil)
+	return c.doJSON(ctx, http.MethodDelete, expandPath(sessionPath, "id", wsID, "sid", sessionID), nil, nil)
 }
 
 func (c *Client) CloneSession(ctx context.Context, wsID, sessionID string) (Session, error) {
@@ -51,7 +52,7 @@ func (c *Client) CloneSession(ctx context.Context, wsID, sessionID string) (Sess
 	}
 	var sess Session
 	path := expandPath(sessionPath, "id", wsID, "sid", sessionID) + "/clone"
-	if err := c.doJSON(ctx, "POST", path, nil, &sess); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &sess); err != nil {
 		return Session{}, err
 	}
 	return sess, nil
@@ -69,7 +70,7 @@ func (c *Client) ForkSession(ctx context.Context, wsID, sessionID, messageID str
 	}
 	var sess Session
 	path := expandPath(sessionPath, "id", wsID, "sid", sessionID) + "/fork"
-	if err := c.doJSON(ctx, "POST", path, bytes.NewReader(body), &sess); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &sess); err != nil {
 		return Session{}, err
 	}
 	return sess, nil

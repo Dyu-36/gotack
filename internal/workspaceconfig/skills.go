@@ -78,9 +78,10 @@ func RegisterSkillsPathsWithTrust(base context.Context, api *engineapi.Client, w
 		return fmt.Errorf("skills config read: %w", err)
 	}
 
-	kept := make([]string, 0, len(current.SkillsPaths())+len(bundledSkillsDirs))
+	currentPaths := current.SkillsPaths()
+	kept := make([]string, 0, len(currentPaths)+len(bundledSkillsDirs))
 	kept = append(kept, bundledSkillsDirs...)
-	for _, path := range current.SkillsPaths() {
+	for _, path := range currentPaths {
 		if slices.ContainsFunc(projectSkills, func(projectPath string) bool {
 			return skillPathKey(path) == skillPathKey(projectPath)
 		}) {
@@ -95,7 +96,7 @@ func RegisterSkillsPathsWithTrust(base context.Context, api *engineapi.Client, w
 		}
 	}
 	merged := MergeSkillsPaths(kept, additions...)
-	if slices.Equal(merged, current.SkillsPaths()) {
+	if slices.Equal(merged, currentPaths) {
 		return nil
 	}
 	if err := api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeWorkspace, "options.skills_paths", merged); err != nil {

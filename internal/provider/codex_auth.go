@@ -154,7 +154,7 @@ func DefaultOpenAIOAuthOptions() OpenAIOAuthOptions {
 	}
 }
 
-func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenAIOAuthToken, error) {
+func withOpenAIOAuthDefaults(opts OpenAIOAuthOptions) OpenAIOAuthOptions {
 	if opts.ClientID == "" {
 		opts.ClientID = defaultOpenAIClientID
 	}
@@ -173,6 +173,11 @@ func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenA
 	if opts.LoginTimeout == 0 {
 		opts.LoginTimeout = 3 * time.Minute
 	}
+	return opts
+}
+
+func StartOpenAIOAuthLogin(ctx context.Context, opts OpenAIOAuthOptions) (*OpenAIOAuthToken, error) {
+	opts = withOpenAIOAuthDefaults(opts)
 
 	verifier, challenge, err := generateOpenAIPKCE()
 	if err != nil {

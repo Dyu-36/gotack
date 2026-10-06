@@ -59,13 +59,14 @@ func (c *Client) GetWorkspaceConfig(ctx context.Context, wsID string) (Workspace
 		return WorkspaceConfig{}, errors.New("engineapi: workspace id is required")
 	}
 	var cfg WorkspaceConfig
-	if err := c.doJSON(ctx, "GET", expandPath("/v1/workspaces/{id}/config", "id", wsID), nil, &cfg); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, expandPath(workspaceConfigPath, "id", wsID), nil, &cfg); err != nil {
 		return WorkspaceConfig{}, err
 	}
 	return cfg, nil
 }
 
 const (
+	workspaceConfigPath    = "/v1/workspaces/{id}/config"
 	configSetPath          = "/v1/workspaces/{id}/config/set"
 	configSetBatchPath     = "/v1/workspaces/{id}/config/set-batch"
 	configRemovePath       = "/v1/workspaces/{id}/config/remove"

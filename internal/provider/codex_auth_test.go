@@ -12,6 +12,73 @@ import (
 	"time"
 )
 
+func TestWithOpenAIOAuthDefaults(t *testing.T) {
+	customClient := &http.Client{Timeout: 11 * time.Second}
+	customBrowser := func(string) error { return nil }
+	tests := []struct {
+		name         string
+		input        OpenAIOAuthOptions
+		wantClient   *http.Client
+		wantClientID string
+		wantAuthURL  string
+		wantTokenURL string
+		wantPort     int
+		wantTimeout  time.Duration
+	}{
+		{
+			name:         "fills missing values",
+			input:        OpenAIOAuthOptions{},
+			wantClientID: defaultOpenAIClientID,
+			wantAuthURL:  defaultOpenAIAuthURL,
+			wantTokenURL: defaultOpenAITokenURL,
+			wantPort:     defaultOpenAIRedirectPort,
+			wantTimeout:  3 * time.Minute,
+		},
+		{
+			name: "preserves overrides",
+			input: OpenAIOAuthOptions{
+				ClientID:     "custom-client",
+				AuthURL:      "https://auth.example.test",
+				TokenURL:     "https://token.example.test",
+				Port:         1234,
+				HTTPClient:   customClient,
+				OpenBrowser:  customBrowser,
+				LoginTimeout: 11 * time.Second,
+			},
+			wantClient:   customClient,
+			wantClientID: "custom-client",
+			wantAuthURL:  "https://auth.example.test",
+			wantTokenURL: "https://token.example.test",
+			wantPort:     1234,
+			wantTimeout:  11 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := withOpenAIOAuthDefaults(tt.input)
+			if got.ClientID != tt.wantClientID || got.AuthURL != tt.wantAuthURL || got.TokenURL != tt.wantTokenURL {
+				t.Fatalf("oauth endpoints = (%q, %q, %q), want (%q, %q, %q)", got.ClientID, got.AuthURL, got.TokenURL, tt.wantClientID, tt.wantAuthURL, tt.wantTokenURL)
+			}
+			if got.Port != tt.wantPort || got.LoginTimeout != tt.wantTimeout {
+				t.Fatalf("oauth timing = (port %d, timeout %s), want (port %d, timeout %s)", got.Port, got.LoginTimeout, tt.wantPort, tt.wantTimeout)
+			}
+			if tt.wantClient != nil {
+				if got.HTTPClient != tt.wantClient {
+					t.Fatal("oauth HTTP client override was not preserved")
+				}
+				if got.OpenBrowser == nil {
+					t.Fatal("oauth browser callback override was not preserved")
+				}
+				return
+			}
+			if got.HTTPClient == nil || got.HTTPClient.Timeout != 30*time.Second {
+				t.Fatalf("default HTTP client = %#v, want 30s timeout", got.HTTPClient)
+			}
+		})
+	}
+}
+
 func TestGenerateOpenAIPKCE(t *testing.T) {
 	v, c, err := generateOpenAIPKCE()
 	if err != nil {

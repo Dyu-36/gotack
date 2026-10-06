@@ -13,7 +13,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const defaultTitle = "New session"
+const (
+	defaultTitle    = "New session"
+	maxTitleWorkers = 4
+)
 
 type Service struct {
 	api *engineapi.Client
@@ -48,9 +51,9 @@ func (s *Service) List(ctx context.Context) ([]engineapi.Session, error) {
 		return nil, err
 	}
 	var pending sync.WaitGroup
-	for worker := 0; worker < min(4, len(sessions)); worker++ {
+	for worker := 0; worker < min(maxTitleWorkers, len(sessions)); worker++ {
 		pending.Go(func() {
-			for i := worker; i < len(sessions); i += 4 {
+			for i := worker; i < len(sessions); i += maxTitleWorkers {
 				if !isDefaultTitle(sessions[i].Title) || sessions[i].MessageCount == 0 {
 					continue
 				}
