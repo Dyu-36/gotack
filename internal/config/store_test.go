@@ -325,7 +325,7 @@ func TestReloadFromDisk_UsesNewConfigValues(t *testing.T) {
 
 	// Isolate from the host's global config so only test-provided
 	// providers are visible.
-	t.Setenv("TACK_GLOBAL_CONFIG", dir)
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", dir)
 	t.Setenv("TACK_GLOBAL_DATA", dir)
 	resetProviderState()
 	t.Cleanup(resetProviderState)

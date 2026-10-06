@@ -31,7 +31,7 @@ func loadTackShErr(t *testing.T, script string) (*config.ConfigStore, error) {
 	t.Setenv("HOME", isolated)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(isolated, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(isolated, ".local", "share"))
-	t.Setenv("TACK_GLOBAL_CONFIG", filepath.Join(isolated, ".config", "tack"))
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", filepath.Join(isolated, ".config", "tack"))
 	t.Setenv("TACK_GLOBAL_DATA", filepath.Join(isolated, ".local", "share", "tack"))
 
 	workDir := t.TempDir()

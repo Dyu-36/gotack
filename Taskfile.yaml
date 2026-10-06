@@ -73,7 +73,7 @@ tasks:
     desc: Run build with custom config to test onboarding
     env:
       TACK_GLOBAL_DATA: tmp/onboarding/data
-      TACK_GLOBAL_CONFIG: tmp/onboarding/config
+      TACK_ENGINE_GLOBAL_CONFIG: tmp/onboarding/config
     cmds:
       - task: build
       - rm -rf tmp/onboarding

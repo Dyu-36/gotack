@@ -77,7 +77,7 @@ func TestLookupConfigs_BoundedByProject(t *testing.T) {
 	// the developer's real config.
 	globalDir := t.TempDir()
 	dataDir := t.TempDir()
-	t.Setenv("TACK_GLOBAL_CONFIG", globalDir)
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", globalDir)
 	t.Setenv("TACK_GLOBAL_DATA", dataDir)
 
 	t.Run("does not pick up tack.json above non-git project", func(t *testing.T) {

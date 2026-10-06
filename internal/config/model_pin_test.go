@@ -38,7 +38,7 @@ func TestModelSelectionSurvivesPeerWrite(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "tack.json")
 
-	t.Setenv("TACK_GLOBAL_CONFIG", dir)
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", dir)
 	t.Setenv("TACK_GLOBAL_DATA", dir)
 	resetProviderState()
 	t.Cleanup(resetProviderState)
@@ -75,7 +75,7 @@ func TestModelSelectionYieldsToDiskWhenUnchosen(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "tack.json")
 
-	t.Setenv("TACK_GLOBAL_CONFIG", dir)
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", dir)
 	t.Setenv("TACK_GLOBAL_DATA", dir)
 	resetProviderState()
 	t.Cleanup(resetProviderState)

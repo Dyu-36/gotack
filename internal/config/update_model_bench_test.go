@@ -15,7 +15,7 @@ func BenchmarkUpdatePreferredModel(b *testing.B) {
 	dir := b.TempDir()
 	configPath := filepath.Join(dir, "tack.json")
 
-	b.Setenv("TACK_GLOBAL_CONFIG", dir)
+	b.Setenv("TACK_ENGINE_GLOBAL_CONFIG", dir)
 	b.Setenv("TACK_GLOBAL_DATA", dir)
 	resetProviderState()
 	b.Cleanup(resetProviderState)
@@ -77,7 +77,7 @@ func BenchmarkReloadFromDisk(b *testing.B) {
 	dir := b.TempDir()
 	configPath := filepath.Join(dir, "tack.json")
 
-	b.Setenv("TACK_GLOBAL_CONFIG", dir)
+	b.Setenv("TACK_ENGINE_GLOBAL_CONFIG", dir)
 	b.Setenv("TACK_GLOBAL_DATA", dir)
 	resetProviderState()
 	b.Cleanup(resetProviderState)

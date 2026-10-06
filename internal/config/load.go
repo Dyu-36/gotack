@@ -1195,10 +1195,9 @@ func migrateDisableNotifications() {
 	}
 }
 
-// GlobalConfig returns the global configuration file path for the application.
 func GlobalConfig() string {
-	if tackGlobal := os.Getenv("TACK_GLOBAL_CONFIG"); tackGlobal != "" {
-		return filepath.Join(tackGlobal, fmt.Sprintf("%s.json", appName))
+	if engineGlobal := os.Getenv("TACK_ENGINE_GLOBAL_CONFIG"); engineGlobal != "" {
+		return filepath.Join(engineGlobal, fmt.Sprintf("%s.json", appName))
 	}
 	return filepath.Join(home.Config(), appName, fmt.Sprintf("%s.json", appName))
 }

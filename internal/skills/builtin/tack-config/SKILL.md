@@ -310,7 +310,8 @@ user-invocable: true
 
 - `TACK_VERSION` — exported into `tackrc` at load; the running version (or
   `devel` for local builds).
-- `TACK_GLOBAL_CONFIG` — override global config location.
+- `TACK_ENGINE_GLOBAL_CONFIG` — override engine config location.
+- `TACK_GLOBAL_CONFIG` — override global prompt-resource location.
 - `TACK_GLOBAL_DATA` — override data directory location.
 - `TACK_SKILLS_DIR` — override default skills directory.
 

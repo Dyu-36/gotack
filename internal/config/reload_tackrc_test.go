@@ -20,7 +20,7 @@ func isolateReloadEnv(t *testing.T) (workDir, dataDir string) {
 	t.Setenv("HOME", isolated)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(isolated, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(isolated, ".local", "share"))
-	t.Setenv("TACK_GLOBAL_CONFIG", filepath.Join(isolated, ".config", "tack"))
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", filepath.Join(isolated, ".config", "tack"))
 	t.Setenv("TACK_GLOBAL_DATA", filepath.Join(isolated, ".local", "share", "tack"))
 	return t.TempDir(), t.TempDir()
 }
@@ -114,7 +114,7 @@ func TestReloadFromDisk_HangingTackrcIsInterruptible(t *testing.T) {
 func TestLoad_TracksNotYetCreatedGlobalTackrc(t *testing.T) {
 	workDir, dataDir := isolateReloadEnv(t)
 	globalRC := filepath.Join(t.TempDir(), "tackrc")
-	t.Setenv("TACK_GLOBAL_CONFIG", filepath.Dir(globalRC))
+	t.Setenv("TACK_ENGINE_GLOBAL_CONFIG", filepath.Dir(globalRC))
 
 	// A provider must be configured so Load runs past its early
 	// "not configured" return and reaches the staleness snapshot capture.

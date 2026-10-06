@@ -223,22 +223,6 @@ func TestConnect_CreatesTackDB(t *testing.T) {
 	require.FileExists(t, tackPath, "Connect should create tack.db")
 }
 
-func TestConnect_MigratesLegacyDatabase(t *testing.T) {
-	t.Cleanup(ResetPool)
-
-	dataDir := t.TempDir()
-	legacyPath := filepath.Join(dataDir, legacyDatabaseFileName)
-	targetPath := filepath.Join(dataDir, DatabaseFileName)
-	require.NoError(t, os.WriteFile(legacyPath, []byte("legacy-data"), 0o600))
-	require.NoError(t, os.WriteFile(legacyPath+"-wal", []byte("wal"), 0o600))
-
-	resolved := resolveDBPath(dataDir)
-	require.Equal(t, targetPath, resolved)
-	require.FileExists(t, targetPath)
-	require.FileExists(t, targetPath+"-wal")
-	require.NoFileExists(t, legacyPath)
-}
-
 // ResetPool closes all pooled connections and clears the pool. This is
 // intended for use in tests to ensure a clean state between test cases.
 func ResetPool() {

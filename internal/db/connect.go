@@ -75,26 +75,10 @@ func WithDataDirLock(enable bool) ConnectOption {
 	return func(o *connectOptions) { o.lockDataDir = enable }
 }
 
-const (
-	DatabaseFileName       = "tack.db"
-	legacyDatabaseFileName = "crush.db"
-)
+const DatabaseFileName = "tack.db"
 
 func resolveDBPath(dataDir string) string {
-	target := filepath.Join(dataDir, DatabaseFileName)
-	legacy := filepath.Join(dataDir, legacyDatabaseFileName)
-	if _, err := os.Stat(target); err == nil {
-		return target
-	}
-	if _, err := os.Stat(legacy); err == nil {
-		_ = os.Rename(filepath.Join(dataDir, legacyDatabaseFileName+"-wal"), filepath.Join(dataDir, DatabaseFileName+"-wal"))
-		_ = os.Rename(filepath.Join(dataDir, legacyDatabaseFileName+"-shm"), filepath.Join(dataDir, DatabaseFileName+"-shm"))
-		if err := os.Rename(legacy, target); err == nil {
-			return target
-		}
-		return legacy
-	}
-	return target
+	return filepath.Join(dataDir, DatabaseFileName)
 }
 
 // Connect opens a SQLite database connection for the given data
@@ -207,14 +191,6 @@ func Release(dataDir string) error {
 	defer poolMu.Unlock()
 
 	entry, ok := pool[absPath]
-	if !ok {
-		legacyAbs, _ := filepath.Abs(filepath.Join(dataDir, legacyDatabaseFileName))
-		if legacyEntry, okLegacy := pool[legacyAbs]; okLegacy {
-			entry = legacyEntry
-			absPath = legacyAbs
-			ok = true
-		}
-	}
 	if !ok {
 		return nil
 	}
