@@ -35,14 +35,14 @@ func (a *App) GetSettings() SettingsInfo {
 }
 
 func (a *App) configWorkspaceID(ctx context.Context, svc *bridgeServices) (string, error) {
-	if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
+	if desc, ok := svc.Workspace.Current(); ok && desc.WorkspaceID != "" {
 		return desc.WorkspaceID, nil
 	}
 	catalogPath := filepath.Join(appconfig.Dir(), "catalog-workspace")
 	if err := os.MkdirAll(catalogPath, 0o755); err != nil {
 		return "", fmt.Errorf("create catalog workspace directory: %w", err)
 	}
-	ws, err := svc.api.CreateWorkspace(ctx, catalogPath, false)
+	ws, err := svc.API.CreateWorkspace(ctx, catalogPath, false)
 	if err != nil {
 		return "", fmt.Errorf("create catalog workspace: %w", err)
 	}
@@ -61,7 +61,7 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	providers, err := providerdomain.ListCatalog(ctx, svc.api, workspaceID)
+	providers, err := providerdomain.ListCatalog(ctx, svc.API, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -98,14 +98,14 @@ func (a *App) DeleteProvider(providerID string) error {
 	if err != nil {
 		return err
 	}
-	desc, ok := svc.ws.Current()
+	desc, ok := svc.Workspace.Current()
 	if !ok || desc.WorkspaceID == "" {
 		return fmt.Errorf("no workspace is open")
 	}
 
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
-	engineConfig, err := svc.api.GetWorkspaceConfig(ctx, desc.WorkspaceID)
+	engineConfig, err := svc.API.GetWorkspaceConfig(ctx, desc.WorkspaceID)
 	if err != nil {
 		return fmt.Errorf("read provider state before deletion: %w", err)
 	}
@@ -119,7 +119,7 @@ func (a *App) DeleteProvider(providerID string) error {
 		}
 		a.cfg = &next
 	}
-	if err := providerdomain.DeleteEngineConfig(ctx, svc.api, desc.WorkspaceID, providerID, clearModels); err != nil {
+	if err := providerdomain.DeleteEngineConfig(ctx, svc.API, desc.WorkspaceID, providerID, clearModels); err != nil {
 		return err
 	}
 	a.vision.Clear()

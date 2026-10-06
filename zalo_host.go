@@ -28,18 +28,18 @@ func (a *App) prepareZaloTurn(ctx context.Context, existingSession, chatID strin
 	if err != nil {
 		return zalo.Turn{}, err
 	}
-	workspace, ok := svc.ws.Current()
+	workspace, ok := svc.Workspace.Current()
 	if !ok {
 		return zalo.Turn{}, errors.New("no workspace is open")
 	}
 	turn := zalo.Turn{SessionID: existingSession, WorkspaceID: workspace.WorkspaceID, WorkspacePath: workspace.Path}
 	if turn.SessionID == "" {
-		created, err := svc.api.CreateSession(ctx, turn.WorkspaceID, "Zalo: "+chatID)
+		created, err := svc.API.CreateSession(ctx, turn.WorkspaceID, "Zalo: "+chatID)
 		if err != nil {
 			return zalo.Turn{}, err
 		}
 		turn.SessionID = created.ID
-	} else if _, err := svc.api.GetSession(ctx, turn.WorkspaceID, turn.SessionID); err != nil {
+	} else if _, err := svc.API.GetSession(ctx, turn.WorkspaceID, turn.SessionID); err != nil {
 		return zalo.Turn{}, err
 	}
 	return turn, nil
@@ -50,15 +50,15 @@ func (a *App) runZaloTurn(ctx context.Context, turn zalo.Turn, text string) erro
 	if err != nil {
 		return err
 	}
-	return svc.api.SendPromptWithPurpose(ctx, turn.WorkspaceID, turn.SessionID, text, turn.ID, "zalo", nil)
+	return svc.API.SendPromptWithPurpose(ctx, turn.WorkspaceID, turn.SessionID, text, turn.ID, "zalo", nil)
 }
 
 func (a *App) stopZaloTurn(ctx context.Context, turn zalo.Turn) error {
 	connection := a.getConn()
-	if connection == nil || connection.api == nil {
+	if connection == nil || connection.API == nil {
 		return errors.New("engine connection is unavailable")
 	}
-	return connection.api.CancelPrompt(ctx, turn.WorkspaceID, turn.SessionID)
+	return connection.API.CancelPrompt(ctx, turn.WorkspaceID, turn.SessionID)
 }
 
 func (a *App) zaloSessionTitle(ctx context.Context, sessionID string) (string, error) {
@@ -66,7 +66,7 @@ func (a *App) zaloSessionTitle(ctx context.Context, sessionID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	sessions, err := svc.sess.List(ctx)
+	sessions, err := svc.Session.List(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -93,10 +93,10 @@ func (a *App) zaloCurrentModel(context.Context) (string, error) {
 
 func (a *App) workspacePath() string {
 	c := a.getConn()
-	if c == nil || c.ws == nil {
+	if c == nil || c.Workspace == nil {
 		return ""
 	}
-	desc, ok := c.ws.Current()
+	desc, ok := c.Workspace.Current()
 	if !ok {
 		return ""
 	}

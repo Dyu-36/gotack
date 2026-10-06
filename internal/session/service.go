@@ -176,14 +176,6 @@ func (s *Service) Messages(ctx context.Context, id string) ([]engineapi.Message,
 	return s.api.Messages(ctx, wsID, id)
 }
 
-func (s *Service) Send(ctx context.Context, id, text string) (string, error) {
-	return s.SendWithAttachments(ctx, id, text, nil)
-}
-
-func (s *Service) SendWithInputBudget(ctx context.Context, id, text string, maxInputTokens int64) (string, error) {
-	return s.sendWithAttachmentsAndBudget(ctx, id, text, nil, maxInputTokens)
-}
-
 func (s *Service) SendWithAttachments(ctx context.Context, id, text string, items []attachments.Prepared) (string, error) {
 	return s.sendWithAttachmentsAndBudget(ctx, id, text, items, 0)
 }

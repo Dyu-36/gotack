@@ -32,7 +32,7 @@ func settingsInfoFromProvider(settings providerdomain.Settings) SettingsInfo {
 
 func (a *App) applyEffectiveProviderSettings(settings SettingsInfo, apiKey string) (SettingsInfo, error) {
 	if svc, err := a.services(); err == nil {
-		if desc, ok := svc.ws.Current(); ok && desc.WorkspaceID != "" {
+		if desc, ok := svc.Workspace.Current(); ok && desc.WorkspaceID != "" {
 			redirected, err := a.redirectStrandedChatGPTSelection(svc, desc.WorkspaceID, settings, apiKey)
 			if err != nil {
 				return settings, err
@@ -48,11 +48,11 @@ func (a *App) applyProviderSettings(settings SettingsInfo, apiKey string) error 
 	if err != nil {
 		return needWorkspace(apiKey, "Tack engine is not running")
 	}
-	desc, ok := svc.ws.Current()
+	desc, ok := svc.Workspace.Current()
 	if !ok || desc.WorkspaceID == "" {
 		return needWorkspace(apiKey, "no workspace is open")
 	}
-	return providerdomain.Apply(a.ctx, svc.api, desc.WorkspaceID, providerSettingsFromInfo(settings), apiKey)
+	return providerdomain.Apply(a.ctx, svc.API, desc.WorkspaceID, providerSettingsFromInfo(settings), apiKey)
 }
 
 func needWorkspace(apiKey, reason string) error {

@@ -15,7 +15,7 @@ type visionCacheKey struct {
 }
 
 func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
-	if a.cfg == nil || svc == nil || svc.api == nil || svc.ws == nil {
+	if a.cfg == nil || svc == nil || svc.API == nil || svc.Workspace == nil {
 		return false
 	}
 	providerID := strings.TrimSpace(a.cfg.Provider)
@@ -26,7 +26,7 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	if override, ok := a.cfg.ModelCapabilities[modelID]; ok && override.SupportsVision != nil && !*override.SupportsVision {
 		return false
 	}
-	desc, ok := svc.ws.Current()
+	desc, ok := svc.Workspace.Current()
 	if !ok || desc.WorkspaceID == "" {
 		return false
 	}
@@ -40,7 +40,7 @@ func (a *App) isCurrentModelVision(svc *bridgeServices) bool {
 	}
 	ctx, cancel := context.WithTimeout(base, 10*time.Second)
 	defer cancel()
-	supportsVision, err := provider.SupportsVision(ctx, svc.api, desc.WorkspaceID, providerID, modelID)
+	supportsVision, err := provider.SupportsVision(ctx, svc.API, desc.WorkspaceID, providerID, modelID)
 	if err != nil {
 		if a.log != nil {
 			a.log.Warn("could not resolve model attachment capability; using text fallback", "provider", providerID, "model", modelID, "err", err)

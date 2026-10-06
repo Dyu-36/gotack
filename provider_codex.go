@@ -21,7 +21,7 @@ func (a *App) migrateChatGPTProviderCredential(svc *bridgeServices) {
 		a.log.Warn("could not resolve a workspace for the Codex credential migration", "err", err)
 		return
 	}
-	moved, err := providerdomain.MigrateChatGPTOAuthToCodex(a.ctx, svc.api, workspaceID)
+	moved, err := providerdomain.MigrateChatGPTOAuthToCodex(a.ctx, svc.API, workspaceID)
 	if err != nil {
 		a.log.Warn("could not move the ChatGPT credential to the Codex provider", "err", err)
 		return
@@ -40,7 +40,7 @@ func (a *App) repairStrandedChatGPTSelection(svc *bridgeServices, workspaceID st
 	if a.cfg == nil {
 		return
 	}
-	cfg, err := svc.api.GetWorkspaceConfig(a.ctx, workspaceID)
+	cfg, err := svc.API.GetWorkspaceConfig(a.ctx, workspaceID)
 	if err != nil {
 		a.warnCodexMigration("could not check the saved provider selection", "err", err)
 		return
@@ -64,7 +64,7 @@ func (a *App) repointSavedModelAtCodex(svc *bridgeServices, workspaceID string) 
 		return
 	}
 
-	modelID, err := providerdomain.SelectCodexModel(a.ctx, svc.api, workspaceID, a.cfg.Model, a.cfg.Thinking)
+	modelID, err := providerdomain.SelectCodexModel(a.ctx, svc.API, workspaceID, a.cfg.Model, a.cfg.Thinking)
 	if err != nil {
 		a.warnCodexMigration("could not repoint the saved model at the Codex provider", "err", err)
 		return
@@ -87,7 +87,7 @@ func (a *App) warnCodexMigration(message string, args ...any) {
 }
 
 func (a *App) redirectStrandedChatGPTSelection(svc *bridgeServices, workspaceID string, settings SettingsInfo, apiKey string) (SettingsInfo, error) {
-	redirected, err := providerdomain.RedirectStrandedChatGPTSelection(a.ctx, svc.api, workspaceID, providerSettingsFromInfo(settings), apiKey)
+	redirected, err := providerdomain.RedirectStrandedChatGPTSelection(a.ctx, svc.API, workspaceID, providerSettingsFromInfo(settings), apiKey)
 	if err != nil {
 		return settings, err
 	}

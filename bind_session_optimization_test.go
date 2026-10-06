@@ -53,7 +53,7 @@ func TestCurrentModelVisionCachesCatalogLookup(t *testing.T) {
 	a := NewApp()
 	a.ctx = context.Background()
 	a.cfg = &appconfig.Config{Provider: "openai", Model: "vision-model"}
-	svc := &bridgeServices{api: api, ws: ws}
+	svc := &bridgeServices{API: api, Workspace: ws}
 	first := a.isCurrentModelVision(svc)
 	second := a.isCurrentModelVision(svc)
 	if !first || !second {

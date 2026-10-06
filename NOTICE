@@ -1,0 +1,6 @@
+Gotack
+Copyright 2026 Dyu-36 and Gotack contributors.
+
+Gotack desktop host source is licensed under the Apache License, Version 2.0.
+The separately pinned tack-engine and other bundled dependencies retain their
+own licenses. See THIRD_PARTY_NOTICES.md and the distributed licenses directory.

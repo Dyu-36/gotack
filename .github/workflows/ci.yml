@@ -10,8 +10,6 @@ permissions:
   contents: read
 
 env:
-  WAILS_VERSION: v2.15.0
-  PNPM_VERSION: 11.20.0
   STATICCHECK_VERSION: v0.8.1
   DEADCODE_VERSION: v0.49.0
 
@@ -78,28 +76,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+      - name: Set up desktop build tools
+        uses: ./.github/actions/setup-desktop
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
       - name: Generate Wails bindings
-        run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@$WAILS_VERSION
-          wails generate module
+        run: wails generate module
       - name: Check frontend
         run: pnpm --dir frontend check
       - name: Test frontend

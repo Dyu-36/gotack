@@ -1,0 +1,13 @@
+:where(.settings-card) .setting-section { display: grid; gap: 10px; }
+:where(.settings-card) .section-title { font-size: 11px; font-weight: 700; color: var(--mm-tertiary); letter-spacing: .08em; text-transform: uppercase; }
+:where(.settings-card) .field-label { margin-top: 3px; font-size: 12px; font-weight: 600; color: var(--mm-secondary); }
+:where(.settings-card) .field { width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-text); font-size: 12px; outline: none; }
+:where(.settings-card) .field:focus { border-color: var(--mm-accent); }
+:where(.settings-card) .hint { margin: -3px 0 0; font-size: 11px; line-height: 1.5; color: var(--mm-tertiary); }
+:where(.settings-card) .notice { padding: 9px 10px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); font-size: 11px; line-height: 1.5; display: grid; gap: 4px; }
+:where(.settings-card) .option-btn { padding: 8px; border: 1px solid var(--mm-border); border-radius: 7px; background: var(--mm-panel); color: var(--mm-secondary); font-size: 12px; cursor: pointer; transition: all 120ms ease; }
+:where(.settings-card) .option-btn:hover { background: var(--mm-hover); color: var(--mm-text); }
+:where(.settings-card) .option-btn.active { border-color: var(--mm-accent); color: var(--mm-text); box-shadow: 0 0 0 1px var(--mm-accent); background: var(--mm-bg); }
+:where(.settings-card) .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 0; font-size: 12px; color: var(--mm-text); }
+:where(.settings-card) .toggle-row span { display: grid; gap: 2px; }
+:where(.settings-card) .toggle-row small { color: var(--mm-tertiary); font-size: 10px; }

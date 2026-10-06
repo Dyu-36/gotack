@@ -1,18 +1,6 @@
 package main
 
-import (
-	"context"
-	"errors"
-	"fmt"
-
-	"github.com/Dyu-36/gotack/internal/engine"
-	"github.com/Dyu-36/gotack/internal/engineapi"
-	"github.com/Dyu-36/gotack/internal/session"
-	"github.com/Dyu-36/gotack/internal/uievents"
-	"github.com/Dyu-36/gotack/internal/workspace"
-)
-
-var _ engine.EventConsumer = (*uievents.Forwarder)(nil)
+import "errors"
 
 type EngineInfo struct {
 	Status   string `json:"status"`
@@ -23,29 +11,12 @@ type EngineInfo struct {
 	Error    string `json:"error,omitempty"`
 }
 
-func (a *App) engineInfo() EngineInfo {
-	info := EngineInfo{Status: string(engine.StatusStopped)}
-	if a.link != nil {
-		status := a.link.Status()
-		info.Status = string(status)
-		info.Running = status == engine.StatusRunning
-		info.Endpoint = a.link.Endpoint().Address
-		info.Version = a.link.Version()
-		info.Error = a.link.LastError()
-	}
-	if a.sup != nil {
-		info.Owned = a.sup.Owned()
-	}
-	return info
-}
-
+func (a *App) engineInfo() EngineInfo   { return EngineInfo(a.host.Info()) }
 func (a *App) EngineStatus() EngineInfo { return a.engineInfo() }
-
 func (a *App) StartEngine() EngineInfo {
 	a.tryConnect()
 	return a.EngineStatus()
 }
-
 func (a *App) StopEngine() EngineInfo {
 	a.stopTransport()
 	if a.sup != nil {
@@ -53,187 +24,10 @@ func (a *App) StopEngine() EngineInfo {
 	}
 	return a.EngineStatus()
 }
-
 func (a *App) ReconnectEngine() error {
 	a.stopTransport()
 	if !a.tryConnect() {
 		return errors.New("engine connect already in progress")
 	}
 	return nil
-}
-
-func (a *App) tryConnect() bool {
-	scope, started := a.link.BeginConnect(context.Background())
-	if !started {
-		return false
-	}
-	a.emit(uievents.EngineStatus, a.engineInfo())
-	go a.connect(scope)
-	return true
-}
-
-func (a *App) connect(scope context.Context) {
-	err := a.link.Connect(scope, func(ctx context.Context, api *engineapi.Client, ep engineapi.Endpoint, version string) error {
-		callbacks := uievents.Callbacks{
-			RunDone: a.runDone,
-		}
-		fwd := uievents.NewForwarder(a.log, a.emit, callbacks)
-		ws := workspace.NewService(api)
-		sess := session.NewService(api, ws)
-		if !a.commitAttach(ctx, api, fwd, ws, sess, ep, version) {
-			return engine.ErrAttachSuperseded
-		}
-
-		svc := &bridgeServices{api: api, ws: ws, sess: sess}
-		a.migrateChatGPTProviderCredential(svc)
-		if !a.link.IsCurrent(ctx) {
-			return engine.ErrAttachSuperseded
-		}
-		a.link.MarkRunning()
-		workspaceWarning := ""
-		if info, err := a.activateAssistantWorkspace(svc); err != nil {
-			a.log.Warn("could not attach the default workspace", "err", err)
-			workspaceWarning = fmt.Sprintf("initialize assistant workspace: %v", err)
-		} else if err := a.rebindWorkspaceRuntime(info.WorkspaceID); err != nil {
-			a.log.Warn("could not apply assistant workspace runtime", "err", err)
-			workspaceWarning = fmt.Sprintf("apply assistant workspace runtime: %v", err)
-		}
-
-		a.log.Info("engine connected", "endpoint", ep.Address, "version", version, "owned", a.sup.Owned())
-		if !a.link.IsCurrent(ctx) {
-			return engine.ErrAttachSuperseded
-		}
-		status := a.engineInfo()
-		if status.Error == "" {
-			status.Error = workspaceWarning
-		}
-		a.emit(uievents.EngineStatus, status)
-
-		a.reapplySavedWorkspaceSettings()
-		a.startZaloIfEnabled()
-		return nil
-	})
-	switch {
-	case err == nil:
-	case errors.Is(err, engine.ErrAttachSuperseded):
-	default:
-		a.failConnect(scope, err.Error())
-	}
-}
-
-func (a *App) commitAttach(
-	ctx context.Context,
-	api *engineapi.Client,
-	fwd *uievents.Forwarder,
-	ws *workspace.Service,
-	sess *session.Service,
-	ep engineapi.Endpoint,
-	version string,
-) bool {
-	a.attachMu.Lock()
-	defer a.attachMu.Unlock()
-	if a.getConn() == nil || !a.link.IsCurrent(ctx) {
-		return false
-	}
-	// Commit the lifecycle state and service bundle under one application-level
-	// critical section. Reconnect/stop takes the same lock, so it cannot cancel
-	// the scope between these two commits and leave a half-attached connection.
-	if !a.link.CommitAttach(ctx, ep, version) {
-		return false
-	}
-	a.swapConn(func(c *conn) *conn {
-		c.api = api
-		c.fwd = fwd
-		c.ws = ws
-		c.sess = sess
-		return c
-	})
-	return true
-}
-
-func (a *App) failConnect(scope context.Context, reason string) {
-	if !a.link.IsCurrent(scope) {
-		return
-	}
-	if a.log != nil {
-		a.log.Error("engine connect failed", "reason", reason)
-	}
-	a.link.Fail(reason)
-	a.emit(uievents.EngineStatus, a.engineInfo())
-}
-
-func (a *App) transportLost(scope context.Context, reason string) {
-	if !a.link.TransportLost(scope, reason) {
-		return
-	}
-	if a.log != nil {
-		a.log.Warn("engine transport lost", "reason", reason)
-	}
-	a.emit(uievents.EngineStatus, a.engineInfo())
-}
-
-func (a *App) attachStream(scope context.Context, workspaceID string) error {
-	c := a.getConn()
-	if c == nil || c.api == nil || c.fwd == nil {
-		return engine.ErrTransportNotWired
-	}
-	return engine.AttachStream(scope, c.api, c.fwd, workspaceID, a.transportLost)
-}
-
-func (a *App) startStream(scope context.Context, workspaceID string) {
-	if err := a.attachStream(scope, workspaceID); err != nil {
-		a.transportLost(scope, err.Error())
-	}
-}
-
-func (a *App) replaceWorkspaceStream(workspaceID string) error {
-	if workspaceID == "" {
-		return engine.ErrWorkspaceIDRequired
-	}
-	if a.getConn() == nil {
-		return engine.ErrNoConnection
-	}
-
-	scope := a.link.ReplaceStreamScope(a.ctx)
-	if err := a.attachStream(scope, workspaceID); err != nil {
-		a.link.CancelScope()
-		return err
-	}
-	return nil
-}
-
-func (a *App) stopTransport() {
-	a.attachMu.Lock()
-	defer a.attachMu.Unlock()
-	if a.zalo != nil {
-		a.zalo.Stop()
-	}
-	if a.getConn() == nil {
-		return
-	}
-	var fwd *uievents.Forwarder
-	a.swapConn(func(c *conn) *conn {
-		fwd = c.fwd
-		c.api = nil
-		c.fwd = nil
-		c.ws = nil
-		c.sess = nil
-		return c
-	})
-	a.vision.Clear()
-	a.link.Disconnect()
-	if fwd != nil {
-		fwd.Stop()
-	}
-	a.emit(uievents.EngineStatus, a.engineInfo())
-}
-
-type bridgeServices = conn
-
-func (a *App) services() (*bridgeServices, error) {
-	c := a.getConn()
-	if c == nil || c.api == nil || c.ws == nil || c.sess == nil || a.link.Status() != engine.StatusRunning {
-		return nil, errors.New("engine is not running")
-	}
-	return c, nil
 }

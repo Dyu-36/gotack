@@ -9,24 +9,16 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/appconfig"
 	"github.com/Dyu-36/gotack/internal/attachments"
+	"github.com/Dyu-36/gotack/internal/desktop"
 	"github.com/Dyu-36/gotack/internal/engine"
-	"github.com/Dyu-36/gotack/internal/engineapi"
 	"github.com/Dyu-36/gotack/internal/logging"
 	"github.com/Dyu-36/gotack/internal/projecttrust"
-	"github.com/Dyu-36/gotack/internal/session"
-	"github.com/Dyu-36/gotack/internal/uievents"
-	"github.com/Dyu-36/gotack/internal/workspace"
 	workspaceconfig "github.com/Dyu-36/gotack/internal/workspaceconfig"
 	"github.com/Dyu-36/gotack/internal/zalo"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-type conn struct {
-	api  *engineapi.Client
-	fwd  *uievents.Forwarder
-	ws   *workspace.Service
-	sess *session.Service
-}
+type conn = desktop.Connection
 
 type engineController interface {
 	Owned() bool
@@ -42,7 +34,7 @@ type App struct {
 	log *slog.Logger
 
 	sup  engineController
-	link *engine.Link
+	host *desktop.Host
 
 	zalo         *zalo.Manager
 	projectTrust *projecttrust.Store
@@ -50,37 +42,33 @@ type App struct {
 	workspaceRuntime     *workspaceconfig.Manager
 	workspaceRuntimeOnce sync.Once
 
-	vision   sync.Map
-	conn     atomic.Pointer[conn]
-	attachMu sync.Mutex
+	vision sync.Map
 
 	oauthMu     sync.Mutex
 	oauthCancel context.CancelFunc
 	oauthURL    string
 }
 
-func (a *App) swapConn(mutate func(*conn) *conn) *conn {
-	for {
-		cur := a.conn.Load()
-		next := cur
-		if next == nil {
-			next = &conn{}
-		} else {
-			clone := *cur
-			next = &clone
-		}
-		updated := mutate(next)
-		if a.conn.CompareAndSwap(cur, updated) {
-			return updated
-		}
-	}
-}
+func (a *App) swapConn(mutate func(*conn) *conn) *conn { return a.host.Update(mutate) }
 
-func (a *App) getConn() *conn { return a.conn.Load() }
+func (a *App) getConn() *conn { return a.host.Get() }
 
 func NewApp() *App {
-	a := &App{link: engine.NewLink(nil)}
-	a.conn.Store(&conn{})
+	a := &App{host: desktop.New()}
+	a.host.Emit = a.emit
+	a.host.Owned = func() bool { return a.sup != nil && a.sup.Owned() }
+	a.host.RunDone = a.runDone
+	a.host.Hooks = desktop.Hooks{
+		Prepare:    a.migrateChatGPTProviderCredential,
+		Initialize: a.initializeEngineWorkspace,
+		Ready:      func() { a.reapplySavedWorkspaceSettings(); a.startZaloIfEnabled() },
+		Disconnect: func() {
+			if a.zalo != nil {
+				a.zalo.Stop()
+			}
+			a.vision.Clear()
+		},
+	}
 	return a
 }
 
@@ -102,7 +90,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 	sup := engine.NewSupervisor(a.log, cfg.EngineBinary)
 	a.sup = sup
-	a.link = engine.NewLink(sup, expectedEngineCommit(cfg.EngineBinary))
+	a.host.Link = engine.NewLink(sup, expectedEngineCommit(cfg.EngineBinary))
+	a.host.Log = a.log
 
 	a.projectTrust = projecttrust.New(filepath.Join(appconfig.Dir(), "project-trust.json"))
 	a.zalo = zalo.NewManager(filepath.Join(appconfig.Dir(), "zalo.json"), zalo.Runtime{
@@ -130,21 +119,16 @@ func (a *App) showMainWindow() {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.shutdownOnce.Do(func() {
-		if a.link != nil {
-			a.link.CancelScope()
-		}
+		a.host.Link.CancelScope()
 		if a.zalo != nil {
 			a.zalo.Stop()
 		}
-		if c := a.getConn(); c != nil && c.fwd != nil {
-			c.fwd.Stop()
-		}
+		a.host.Close()
 		if a.sup != nil && a.sup.Owned() {
 			if err := a.sup.Stop(); err != nil && a.log != nil {
 				a.log.Error("stop owned engine on exit", "err", err)
 			}
 		}
-		a.conn.Store(nil)
 		if a.cfg != nil {
 			if err := appconfig.Save(a.cfg); err != nil && a.log != nil {
 				a.log.Error("save desktop settings on exit", "err", err)

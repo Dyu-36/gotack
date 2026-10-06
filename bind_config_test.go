@@ -61,20 +61,20 @@ func TestListProvidersWithoutCurrentWorkspace(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	app.swapConn(func(c *conn) *conn {
-		c.api = api
-		c.ws = ws
-		c.sess = session.NewService(api, ws)
+		c.API = api
+		c.Workspace = ws
+		c.Session = session.NewService(api, ws)
 		return c
 	})
 
-	scope, started := app.link.BeginConnect(context.Background())
+	scope, started := app.host.Link.BeginConnect(context.Background())
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
+	if !app.host.Link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
-	app.link.MarkRunning()
+	app.host.Link.MarkRunning()
 
 	providers, err := app.ListProviders()
 	if err != nil {
@@ -263,16 +263,16 @@ func TestDeleteProviderIsSafetyFirstAndRetryableAtEveryFailureBoundary(t *testin
 			app.ctx = context.Background()
 			app.cfg = &appconfig.Config{Provider: "anthropic", Model: "claude", CustomURL: "https://api.example"}
 			app.swapConn(func(c *conn) *conn {
-				c.api = api
-				c.ws = ws
-				c.sess = session.NewService(api, ws)
+				c.API = api
+				c.Workspace = ws
+				c.Session = session.NewService(api, ws)
 				return c
 			})
-			scope, started := app.link.BeginConnect(context.Background())
-			if !started || !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
+			scope, started := app.host.Link.BeginConnect(context.Background())
+			if !started || !app.host.Link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 				t.Fatal("could not attach test engine")
 			}
-			app.link.MarkRunning()
+			app.host.Link.MarkRunning()
 			if _, err := ws.Open(context.Background(), workspacePath); err != nil {
 				t.Fatalf("open workspace: %v", err)
 			}

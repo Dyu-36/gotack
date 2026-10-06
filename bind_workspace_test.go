@@ -92,7 +92,7 @@ func TestWorkspaceActivationDoesNotTouchPermissions(t *testing.T) {
 					}
 					defer transport.CloseIdleConnections()
 					api := engineapi.NewClient(&http.Client{Transport: transport})
-					svc := &bridgeServices{api: api, ws: workspace.NewService(api)}
+					svc := &bridgeServices{API: api, Workspace: workspace.NewService(api)}
 					app := &App{ctx: context.Background(), cfg: cfg}
 					for attempt := 0; attempt < 2; attempt++ {
 						var info WorkspaceInfo

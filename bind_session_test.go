@@ -128,7 +128,7 @@ func TestCurrentModelVisionUsesEngineCatalog(t *testing.T) {
 	a := NewApp()
 	a.ctx = context.Background()
 	a.cfg = &appconfig.Config{Provider: "opencode-go", Model: "minimax-m3"}
-	if a.isCurrentModelVision(&bridgeServices{api: api, ws: ws}) {
+	if a.isCurrentModelVision(&bridgeServices{API: api, Workspace: ws}) {
 		t.Fatal("opencode-go/minimax-m3 was treated as vision despite engine catalog false")
 	}
 }
@@ -182,16 +182,18 @@ func TestSetCurrentSessionReattachesMissingEventStream(t *testing.T) {
 	a := NewApp()
 	a.ctx = context.Background()
 	a.log = slog.New(slog.DiscardHandler)
-	a.conn.Store(&conn{
-		api: api,
-		ws:  ws,
-		fwd: uievents.NewForwarder(a.log, func(string, any) {}, uievents.Callbacks{}),
+	a.swapConn(func(*conn) *conn {
+		return &conn{
+			API:       api,
+			Workspace: ws,
+			Forwarder: uievents.NewForwarder(a.log, func(string, any) {}, uievents.Callbacks{}),
+		}
 	})
 	if err := a.setCurrentSession("session-1"); err != nil {
 		t.Fatalf("setCurrentSession() error = %v", err)
 	}
 	t.Cleanup(func() {
-		a.link.CancelScope()
+		a.host.Link.CancelScope()
 	})
 
 	if got := currentSessionCalls.Load(); got != 2 {

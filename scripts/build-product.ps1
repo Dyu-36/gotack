@@ -60,6 +60,16 @@ try {
     Copy-Item -LiteralPath "$engineExecutable.build.json" -Destination (Join-Path $staging 'resources/tack-engine.exe.build.json')
     Get-ChildItem -LiteralPath $runtimeRoot -Force | Copy-Item -Destination (Join-Path $staging 'resources/python') -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination (Join-Path $staging 'README.md')
+    foreach ($notice in @('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot $notice) -Destination (Join-Path $staging ('licenses/gotack-' + $notice))
+        Copy-Item -LiteralPath (Join-Path $repoRoot $notice) -Destination (Join-Path $staging $notice)
+    }
+    New-Item -ItemType Directory -Path (Join-Path $staging 'frontend/public') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'frontend/public/tack.png') -Destination (Join-Path $staging 'frontend/public/tack.png')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs') -Destination (Join-Path $staging 'docs') -Recurse
+    foreach ($document in @('CONTRIBUTING.md', 'SECURITY.md')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot $document) -Destination (Join-Path $staging $document)
+    }
     $engineLicense = Join-Path $engineRoot 'LICENSE.md'
     if (-not (Test-Path -LiteralPath $engineLicense -PathType Leaf)) {
         throw 'Pinned engine license is missing'

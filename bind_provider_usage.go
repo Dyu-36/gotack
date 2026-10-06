@@ -68,12 +68,12 @@ func (a *App) getChatGPTProviderUsage(now time.Time) (ProviderUsageInfo, error) 
 	if err != nil {
 		return unavailableProviderUsage(codexProviderID, codexProviderName, "Chưa đăng nhập ChatGPT.", now), err
 	}
-	if moved, moveErr := providerdomain.MigrateChatGPTOAuthToCodex(ctx, svc.api, workspaceID); moveErr != nil {
+	if moved, moveErr := providerdomain.MigrateChatGPTOAuthToCodex(ctx, svc.API, workspaceID); moveErr != nil {
 		a.warnCodexMigration("could not move the ChatGPT credential before loading usage", "err", moveErr)
 	} else if moved {
 		a.repointSavedModelAtCodex(svc, workspaceID)
 	}
-	usage, err := providerdomain.LoadChatGPTUsage(ctx, svc.api, workspaceID, providerUsageHTTPClient, chatGPTUsageEndpoint, now)
+	usage, err := providerdomain.LoadChatGPTUsage(ctx, svc.API, workspaceID, providerUsageHTTPClient, chatGPTUsageEndpoint, now)
 	return providerUsageInfoFromDomain(usage), err
 }
 

@@ -58,14 +58,14 @@ func (a *App) setCurrentSession(sessionID string) error {
 		return errors.New("session id is required")
 	}
 	c := a.getConn()
-	if c == nil || c.api == nil || c.ws == nil {
+	if c == nil || c.API == nil || c.Workspace == nil {
 		return errors.New("engine services unavailable")
 	}
-	desc, ok := c.ws.Current()
+	desc, ok := c.Workspace.Current()
 	if !ok {
 		return errors.New("workspace not selected")
 	}
-	if err := c.api.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err == nil {
+	if err := c.API.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err == nil {
 		return nil
 	} else if !engineapi.IsClientNotAttached(err) {
 		return err
@@ -75,10 +75,10 @@ func (a *App) setCurrentSession(sessionID string) error {
 		return fmt.Errorf("reattach workspace event stream: %w", err)
 	}
 	c = a.getConn()
-	if c == nil || c.api == nil {
+	if c == nil || c.API == nil {
 		return errors.New("engine services unavailable after event stream reattach")
 	}
-	if err := c.api.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err != nil {
+	if err := c.API.SetCurrentSession(a.ctx, desc.WorkspaceID, sessionID); err != nil {
 		return fmt.Errorf("set current session after event stream reattach: %w", err)
 	}
 	return nil
@@ -95,7 +95,7 @@ func (a *App) ListSessions() ([]SessionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessions, err := svc.sess.List(a.ctx)
+	sessions, err := svc.Session.List(a.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (a *App) CreateSession(title string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	session, err := svc.sess.Create(a.ctx, title)
+	session, err := svc.Session.Create(a.ctx, title)
 	if err != nil {
 		return SessionInfo{}, err
 	}
@@ -120,7 +120,7 @@ func (a *App) CloneSession(id string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	session, err := svc.sess.Clone(a.ctx, id)
+	session, err := svc.Session.Clone(a.ctx, id)
 	if err != nil {
 		return SessionInfo{}, err
 	}
@@ -133,7 +133,7 @@ func (a *App) ForkSession(id, messageID string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	session, err := svc.sess.Fork(a.ctx, id, messageID)
+	session, err := svc.Session.Fork(a.ctx, id, messageID)
 	if err != nil {
 		return SessionInfo{}, err
 	}
@@ -146,7 +146,7 @@ func (a *App) CompactSession(id string) error {
 	if err != nil {
 		return err
 	}
-	return svc.sess.Compact(a.ctx, id)
+	return svc.Session.Compact(a.ctx, id)
 }
 
 func (a *App) RenameSession(id, title string) (SessionInfo, error) {
@@ -154,7 +154,7 @@ func (a *App) RenameSession(id, title string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	session, err := svc.sess.Rename(a.ctx, id, title)
+	session, err := svc.Session.Rename(a.ctx, id, title)
 	if err != nil {
 		return SessionInfo{}, err
 	}
@@ -166,7 +166,7 @@ func (a *App) DeleteSession(id string) error {
 	if err != nil {
 		return err
 	}
-	if err := svc.sess.Delete(a.ctx, id); err != nil {
+	if err := svc.Session.Delete(a.ctx, id); err != nil {
 		return err
 	}
 	return nil
@@ -179,7 +179,7 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	messages, err := svc.sess.Messages(a.ctx, id)
+	messages, err := svc.Session.Messages(a.ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, err
 		}
 		prepared = append(prepared, item)
 	}
-	runID, err := svc.sess.SendWithAttachments(a.ctx, id, prompt, prepared)
+	runID, err := svc.Session.SendWithAttachments(a.ctx, id, prompt, prepared)
 	if err != nil {
 		return "", err
 	}
@@ -226,7 +226,7 @@ func (a *App) CancelPrompt(id string) error {
 	if err != nil {
 		return err
 	}
-	return svc.sess.Cancel(a.ctx, id)
+	return svc.Session.Cancel(a.ctx, id)
 }
 
 func toSessionInfo(session engineapi.Session) SessionInfo {

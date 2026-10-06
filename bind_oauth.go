@@ -79,10 +79,10 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		}
 		return ChatGPTOAuthStatus{}, fmt.Errorf("chatgpt oauth login failed: %w", err)
 	}
-	if err := providerdomain.SeedCodex(a.ctx, svc.api, workspaceID, engineapi.ConfigScopeGlobal); err != nil {
+	if err := providerdomain.SeedCodex(a.ctx, svc.API, workspaceID, engineapi.ConfigScopeGlobal); err != nil {
 		return ChatGPTOAuthStatus{}, err
 	}
-	if err := svc.api.SetProviderOAuthToken(a.ctx, workspaceID, engineapi.ConfigScopeGlobal, codexProviderID, token); err != nil {
+	if err := svc.API.SetProviderOAuthToken(a.ctx, workspaceID, engineapi.ConfigScopeGlobal, codexProviderID, token); err != nil {
 		return ChatGPTOAuthStatus{}, fmt.Errorf("save oauth token to engine: %w", err)
 	}
 
@@ -91,7 +91,7 @@ func (a *App) LoginChatGPTOAuth() (ChatGPTOAuthStatus, error) {
 		current = appconfig.Defaults()
 	}
 	if current.Provider == "" || current.Provider == openAIProviderID || current.Provider == codexProviderID {
-		modelID, err := providerdomain.ApplyChatGPTLoginSelection(a.ctx, svc.api, workspaceID, current.Model, current.Thinking)
+		modelID, err := providerdomain.ApplyChatGPTLoginSelection(a.ctx, svc.API, workspaceID, current.Model, current.Thinking)
 		if err != nil {
 			return ChatGPTOAuthStatus{}, err
 		}
@@ -129,13 +129,13 @@ func (a *App) GetChatGPTOAuthStatus() (ChatGPTOAuthStatus, error) {
 	}
 	ctx, cancel := context.WithTimeout(base, 10*time.Second)
 	defer cancel()
-	if moved, err := providerdomain.MigrateChatGPTOAuthToCodex(ctx, svc.api, workspaceID); err != nil {
+	if moved, err := providerdomain.MigrateChatGPTOAuthToCodex(ctx, svc.API, workspaceID); err != nil {
 		a.warnCodexMigration("could not move the ChatGPT credential to the Codex provider", "err", err)
 	} else if moved {
 		a.repointSavedModelAtCodex(svc, workspaceID)
 	}
 
-	status, err := providerdomain.ChatGPTAuthStatus(ctx, svc.api, workspaceID, time.Now())
+	status, err := providerdomain.ChatGPTAuthStatus(ctx, svc.API, workspaceID, time.Now())
 	if err != nil {
 		return ChatGPTOAuthStatus{}, err
 	}

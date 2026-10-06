@@ -39,20 +39,20 @@ func TestGetChatGPTOAuthStatus_Connected(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	app.swapConn(func(c *conn) *conn {
-		c.api = api
-		c.ws = ws
-		c.sess = session.NewService(api, ws)
+		c.API = api
+		c.Workspace = ws
+		c.Session = session.NewService(api, ws)
 		return c
 	})
 
-	scope, started := app.link.BeginConnect(context.Background())
+	scope, started := app.host.Link.BeginConnect(context.Background())
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
+	if !app.host.Link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
-	app.link.MarkRunning()
+	app.host.Link.MarkRunning()
 
 	status, err := app.GetChatGPTOAuthStatus()
 	if err != nil {
@@ -94,20 +94,20 @@ func TestGetChatGPTOAuthStatus_Disconnected(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	app.swapConn(func(c *conn) *conn {
-		c.api = api
-		c.ws = ws
-		c.sess = session.NewService(api, ws)
+		c.API = api
+		c.Workspace = ws
+		c.Session = session.NewService(api, ws)
 		return c
 	})
 
-	scope, started := app.link.BeginConnect(context.Background())
+	scope, started := app.host.Link.BeginConnect(context.Background())
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
+	if !app.host.Link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
-	app.link.MarkRunning()
+	app.host.Link.MarkRunning()
 
 	status, err := app.GetChatGPTOAuthStatus()
 	if err != nil {
@@ -209,20 +209,20 @@ func TestGetChatGPTOAuthStatusMigratesLegacyCredential(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	app.swapConn(func(c *conn) *conn {
-		c.api = api
-		c.ws = ws
-		c.sess = session.NewService(api, ws)
+		c.API = api
+		c.Workspace = ws
+		c.Session = session.NewService(api, ws)
 		return c
 	})
 
-	scope, started := app.link.BeginConnect(context.Background())
+	scope, started := app.host.Link.BeginConnect(context.Background())
 	if !started {
 		t.Fatal("fresh link must accept a connect attempt")
 	}
-	if !app.link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
+	if !app.host.Link.CommitAttach(scope, engineapi.Endpoint{}, "test") {
 		t.Fatal("commit attach rejected a live scope")
 	}
-	app.link.MarkRunning()
+	app.host.Link.MarkRunning()
 
 	app.cfg = &appconfig.Config{
 		Provider:  openAIProviderID,
@@ -275,7 +275,7 @@ func TestRepointSavedModelAtCodexKeepsDeliberateProvider(t *testing.T) {
 	app.ctx = context.Background()
 	app.cfg = &appconfig.Config{Provider: "anthropic", Model: "claude-sonnet"}
 
-	app.repointSavedModelAtCodex(&bridgeServices{api: api, ws: workspace.NewService(api)}, "catalog-ws")
+	app.repointSavedModelAtCodex(&bridgeServices{API: api, Workspace: workspace.NewService(api)}, "catalog-ws")
 
 	if app.cfg.Provider != "anthropic" || app.cfg.Model != "claude-sonnet" {
 		t.Fatalf("saved selection = %q/%q, want anthropic/claude-sonnet", app.cfg.Provider, app.cfg.Model)

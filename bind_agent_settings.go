@@ -49,7 +49,7 @@ func (a *App) GetAgentSettings() (AgentSettingsInfo, error) {
 	if err != nil {
 		return AgentSettingsInfo{}, err
 	}
-	cfg, err := svc.api.GetWorkspaceConfig(ctx, workspaceID)
+	cfg, err := svc.API.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
 		return AgentSettingsInfo{}, err
 	}
@@ -79,14 +79,14 @@ func (a *App) SaveAgentSettings(disabledTools []string) (AgentSettingsInfo, erro
 		return AgentSettingsInfo{}, err
 	}
 	if len(disabled) == 0 {
-		if err := svc.api.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeGlobal, "options.disabled_tools"); err != nil {
+		if err := svc.API.RemoveConfigField(ctx, workspaceID, engineapi.ConfigScopeGlobal, "options.disabled_tools"); err != nil {
 			return AgentSettingsInfo{}, err
 		}
-	} else if err := svc.api.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeGlobal, "options.disabled_tools", disabled); err != nil {
+	} else if err := svc.API.SetConfigField(ctx, workspaceID, engineapi.ConfigScopeGlobal, "options.disabled_tools", disabled); err != nil {
 		return AgentSettingsInfo{}, err
 	}
-	if desc, ok := svc.ws.Current(); ok {
-		_ = svc.api.RefreshPromptContext(ctx, desc.WorkspaceID)
+	if desc, ok := svc.Workspace.Current(); ok {
+		_ = svc.API.RefreshPromptContext(ctx, desc.WorkspaceID)
 	}
 	return AgentSettingsInfo{Tools: append([]string(nil), coreAgentTools...), DisabledTools: disabled}, nil
 }

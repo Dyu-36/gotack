@@ -44,6 +44,7 @@ frontend/package.json.md5
 # ==========================================
 # IDEs / Editors / Agent Configs
 # ==========================================
+/AGENTS.md
 .codex/
 .vscode/
 .idea/
@@ -83,8 +84,14 @@ Desktop.ini
 # Workspace runtime data directories
 /.tack/
 
+# Local history archives
+/.history-backup/
+
 # Vendored upstream source (own git history)
 /third_party/engine-source/
+/.engine-source/
+/product-sources/
+/package-inspection/
 
 # Reproducible downloaded runtime payloads; build/release tooling recreates these as needed.
 /resources/bin/*

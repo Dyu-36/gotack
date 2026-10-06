@@ -69,31 +69,13 @@ jobs:
           ref: ${{ needs.sources.outputs.engine_sha }}
           path: .engine-source
           persist-credentials: false
-      - uses: actions/setup-go@v6
+      - name: Set up product build tools
+        uses: ./.github/actions/setup-desktop
         with:
-          go-version-file: go.mod
-          cache-dependency-path: |
+          python: 'true'
+          go-cache-dependency-path: |
             go.sum
             .engine-source/go.sum
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-          run_install: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13.15'
-          architecture: x64
-          cache: pip
-          cache-dependency-path: scripts/timetable-requirements.lock
-      - name: Install Wails
-        run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot install Wails' }
       - name: Check shipped engine dead code on Windows
         shell: pwsh
         run: |
@@ -116,7 +98,7 @@ jobs:
       - name: Detect host concurrency defects
         shell: pwsh
         run: |
-          go test -race -mod=readonly -count=1 ./internal/zalo ./internal/engine ./internal/workspaceconfig
+          go test -race -mod=readonly -count=1 ./internal/desktop ./internal/zalo ./internal/engine ./internal/workspaceconfig
           if ($LASTEXITCODE -ne 0) { throw 'Race-detector tests failed' }
       - name: Require real IPC contract tests
         shell: pwsh

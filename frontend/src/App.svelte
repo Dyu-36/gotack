@@ -4,7 +4,7 @@
   import Sidebar from './components/Sidebar.svelte'
   import ChatArea from './components/ChatArea.svelte'
   import ProviderUsageBadge from './components/ProviderUsageBadge.svelte'
-  import SettingsModal from './components/SettingsModal.svelte'
+  import SettingsModal from './features/settings/SettingsModal.svelte'
   import { createLiveConversationState } from './features/conversations/live-conversation-state.svelte'
 
   import { onMount } from 'svelte'

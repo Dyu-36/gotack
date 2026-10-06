@@ -75,12 +75,12 @@ func (a *App) ListRecentWorkspaces() []string {
 }
 
 func (a *App) rebindWorkspaceRuntime(workspaceID string) error {
-	if a.link == nil || a.link.Status() != engine.StatusRunning {
+	if a.host.Link == nil || a.host.Link.Status() != engine.StatusRunning {
 		return nil
 	}
 	var scope context.Context
 	if a.getConn() != nil {
-		scope = a.link.ReplaceStreamScope(a.ctx)
+		scope = a.host.Link.ReplaceStreamScope(a.ctx)
 	}
 	if scope != nil {
 		a.startStream(scope, workspaceID)
@@ -91,12 +91,12 @@ func (a *App) rebindWorkspaceRuntime(workspaceID string) error {
 	if err != nil {
 		return err
 	}
-	desc, ok := svc.ws.Current()
+	desc, ok := svc.Workspace.Current()
 	if !ok || desc.WorkspaceID != workspaceID {
 		return nil
 	}
 	trust := a.inspectWorkspaceTrust(desc.Path)
-	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trust.Trusted); err != nil {
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.API, desc, trust.Trusted); err != nil {
 		if a.log != nil {
 			a.log.Warn("workspace runtime apply failed", "workspace", desc.Path, "err", err)
 		}
@@ -113,7 +113,7 @@ func (a *App) activateCurrent(svc *bridgeServices, desc workspace.Descriptor, re
 }
 
 func (a *App) activateWorkspace(svc *bridgeServices, path string, remember bool) (WorkspaceInfo, error) {
-	desc, err := svc.ws.Open(a.ctx, path)
+	desc, err := svc.Workspace.Open(a.ctx, path)
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
@@ -162,10 +162,10 @@ func (a *App) persistCorrectedSelection(settings SettingsInfo) {
 }
 
 func (a *App) activateAssistantWorkspace(svc *bridgeServices) (WorkspaceInfo, error) {
-	if desc, ok := svc.ws.Current(); ok && isDefaultWorkspace(desc.Path) {
+	if desc, ok := svc.Workspace.Current(); ok && isDefaultWorkspace(desc.Path) {
 		return a.workspaceInfo(desc), nil
 	}
-	desc, err := svc.ws.OpenWithDataDir(a.ctx, defaultWorkspacePath(), defaultWorkspaceDataDir())
+	desc, err := svc.Workspace.OpenWithDataDir(a.ctx, defaultWorkspacePath(), defaultWorkspaceDataDir())
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
@@ -206,10 +206,10 @@ func (a *App) OpenWorkspace(path string) (WorkspaceInfo, error) {
 
 func (a *App) CurrentWorkspace() *WorkspaceInfo {
 	c := a.getConn()
-	if c == nil || c.ws == nil {
+	if c == nil || c.Workspace == nil {
 		return nil
 	}
-	desc, ok := c.ws.Current()
+	desc, ok := c.Workspace.Current()
 	if !ok {
 		return nil
 	}
@@ -225,7 +225,7 @@ func (a *App) SetWorkspaceTrust(trusted bool) (WorkspaceInfo, error) {
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	desc, ok := svc.ws.Current()
+	desc, ok := svc.Workspace.Current()
 	if !ok {
 		return WorkspaceInfo{}, fmt.Errorf("no workspace is open")
 	}
@@ -233,16 +233,16 @@ func (a *App) SetWorkspaceTrust(trusted bool) (WorkspaceInfo, error) {
 		a.projectTrust = projecttrust.New(filepath.Join(appconfig.Dir(), "project-trust.json"))
 	}
 	previous := a.inspectWorkspaceTrust(desc.Path)
-	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, trusted); err != nil {
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.API, desc, trusted); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	if err := a.projectTrust.Set(desc.Path, trusted); err != nil {
 		// Runtime was applied but persistence failed; restore the prior runtime
 		// decision before returning so disk and engine never knowingly diverge.
-		_ = a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, previous.Trusted)
+		_ = a.workspaceRuntimeManager().Apply(a.ctx, svc.API, desc, previous.Trusted)
 		return WorkspaceInfo{}, err
 	}
-	if err := svc.api.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
+	if err := svc.API.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
 		a.log.Debug("prompt refresh deferred until agent initialization", "err", err)
 	}
 	return a.workspaceInfo(desc), nil
@@ -253,22 +253,22 @@ func (a *App) ResetWorkspaceTrust() (WorkspaceInfo, error) {
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	desc, ok := svc.ws.Current()
+	desc, ok := svc.Workspace.Current()
 	if !ok {
 		return WorkspaceInfo{}, fmt.Errorf("no workspace is open")
 	}
 	previous := a.inspectWorkspaceTrust(desc.Path)
 	status := projecttrust.Status{Path: desc.Path, Trusted: true}
-	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, status.Trusted); err != nil {
+	if err := a.workspaceRuntimeManager().Apply(a.ctx, svc.API, desc, status.Trusted); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	if a.projectTrust != nil {
 		if err := a.projectTrust.Clear(desc.Path); err != nil {
-			_ = a.workspaceRuntimeManager().Apply(a.ctx, svc.api, desc, previous.Trusted)
+			_ = a.workspaceRuntimeManager().Apply(a.ctx, svc.API, desc, previous.Trusted)
 			return WorkspaceInfo{}, err
 		}
 	}
-	if err := svc.api.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
+	if err := svc.API.RefreshPromptContext(a.ctx, desc.WorkspaceID); err != nil && a.log != nil {
 		a.log.Debug("prompt refresh deferred until agent initialization", "err", err)
 	}
 	return a.workspaceInfo(desc), nil

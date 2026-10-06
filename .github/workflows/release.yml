@@ -32,32 +32,13 @@ jobs:
           ref: ${{ steps.pin.outputs.sha }}
           path: .engine-source
           persist-credentials: false
-      - uses: actions/setup-go@v6
+      - name: Set up product build tools
+        uses: ./.github/actions/setup-desktop
         with:
-          go-version-file: go.mod
-          cache-dependency-path: |
+          python: 'true'
+          go-cache-dependency-path: |
             go.sum
             .engine-source/go.sum
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-          run_install: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13.15'
-          architecture: x64
-          cache: pip
-          cache-dependency-path: scripts/timetable-requirements.lock
-      - name: Install pinned Wails
-        shell: pwsh
-        run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
-          if ($LASTEXITCODE -ne 0) { throw 'Wails installation failed' }
       - name: Build the same verified product as CI
         shell: pwsh
         run: ./scripts/build-product.ps1 -EngineSource .engine-source
@@ -66,7 +47,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Expand-Archive artifacts/gotack-windows-amd64.zip -DestinationPath package-inspection
-          foreach ($path in @('gotack.exe', 'resources/tack-engine.exe', 'resources/python/python.exe', 'resources/python/runtime-manifest.json', 'licenses/tack-engine-LICENSE', 'product-manifest.json')) {
+          foreach ($path in @('gotack.exe', 'resources/tack-engine.exe', 'resources/python/python.exe', 'resources/python/runtime-manifest.json', 'licenses/tack-engine-LICENSE', 'licenses/gotack-LICENSE', 'licenses/gotack-NOTICE', 'licenses/gotack-THIRD_PARTY_NOTICES.md', 'docs/architecture.md', 'product-manifest.json')) {
             if (-not (Test-Path -LiteralPath (Join-Path package-inspection $path) -PathType Leaf)) { throw "Missing product component: $path" }
           }
       - name: Upload exact portable artifact

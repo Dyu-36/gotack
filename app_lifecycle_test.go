@@ -18,7 +18,7 @@ func TestShutdownStopsOnlyOwnedEngineOnce(t *testing.T) {
 		app := NewApp()
 		sup := &lifecycleEngine{owned: owned}
 		app.sup = sup
-		scope := app.link.ReplaceStreamScope(context.Background())
+		scope := app.host.Link.ReplaceStreamScope(context.Background())
 		app.shutdown(context.Background())
 		app.shutdown(context.Background())
 		if scope.Err() == nil {
