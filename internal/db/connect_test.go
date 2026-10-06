@@ -223,19 +223,20 @@ func TestConnect_CreatesTackDB(t *testing.T) {
 	require.FileExists(t, tackPath, "Connect should create tack.db")
 }
 
-func TestConnect_MigratesLegacyTackDB(t *testing.T) {
+func TestConnect_MigratesLegacyDatabase(t *testing.T) {
 	t.Cleanup(ResetPool)
 
 	dataDir := t.TempDir()
-	tackPath := filepath.Join(dataDir, "tack.db")
-	require.NoError(t, os.WriteFile(tackPath, []byte("legacy-data"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "tack.db-wal"), []byte("wal"), 0o600))
+	legacyPath := filepath.Join(dataDir, legacyDatabaseFileName)
+	targetPath := filepath.Join(dataDir, DatabaseFileName)
+	require.NoError(t, os.WriteFile(legacyPath, []byte("legacy-data"), 0o600))
+	require.NoError(t, os.WriteFile(legacyPath+"-wal", []byte("wal"), 0o600))
 
 	resolved := resolveDBPath(dataDir)
-	require.Equal(t, filepath.Join(dataDir, "tack.db"), resolved)
-	require.FileExists(t, filepath.Join(dataDir, "tack.db"))
-	require.FileExists(t, filepath.Join(dataDir, "tack.db-wal"))
-	require.NoFileExists(t, tackPath)
+	require.Equal(t, targetPath, resolved)
+	require.FileExists(t, targetPath)
+	require.FileExists(t, targetPath+"-wal")
+	require.NoFileExists(t, legacyPath)
 }
 
 // ResetPool closes all pooled connections and clears the pool. This is

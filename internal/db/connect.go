@@ -77,7 +77,7 @@ func WithDataDirLock(enable bool) ConnectOption {
 
 const (
 	DatabaseFileName       = "tack.db"
-	legacyDatabaseFileName = "tack.db"
+	legacyDatabaseFileName = "crush.db"
 )
 
 func resolveDBPath(dataDir string) string {
@@ -87,8 +87,8 @@ func resolveDBPath(dataDir string) string {
 		return target
 	}
 	if _, err := os.Stat(legacy); err == nil {
-		_ = os.Rename(filepath.Join(dataDir, "tack.db-wal"), filepath.Join(dataDir, "tack.db-wal"))
-		_ = os.Rename(filepath.Join(dataDir, "tack.db-shm"), filepath.Join(dataDir, "tack.db-shm"))
+		_ = os.Rename(filepath.Join(dataDir, legacyDatabaseFileName+"-wal"), filepath.Join(dataDir, DatabaseFileName+"-wal"))
+		_ = os.Rename(filepath.Join(dataDir, legacyDatabaseFileName+"-shm"), filepath.Join(dataDir, DatabaseFileName+"-shm"))
 		if err := os.Rename(legacy, target); err == nil {
 			return target
 		}
