@@ -3,6 +3,7 @@ import { type ChatAttachment, type Conversation, type ReasoningEffort, type Sess
 import { catalog, REASONING_EFFORT_OPTIONS } from './catalog.svelte'
 import { createEngineState } from './live-conversation-engine.svelte'
 import { createMessageState } from './live-conversation-messages.svelte'
+import { t } from '../../lib/i18n.svelte'
 
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const DEFAULT_WORKSPACE_LABEL = 'C:\\'
@@ -22,7 +23,7 @@ export function createLiveConversationState() {
   let streamingText = $state('')
   let provider = $state('')
   let model = $state('')
-  let modelLabel = $state('Model mặc định')
+  let modelLabel = $state('')
   let thinking = $state<ReasoningEffort>('high')
   let apiKey = $state('')
   let customUrl = $state('')
@@ -101,7 +102,7 @@ export function createLiveConversationState() {
     get streamingText() { return streamingText },
     get provider() { return provider },
     get model() { return model },
-    get modelLabel() { return modelLabel },
+    get modelLabel() { return modelLabel || t('composer.defaultModel') },
     get thinking() { return thinking },
     get thinkingLabel() {
       const selected = catalog.configuredModels.find((m) => m.id === model && (!provider || m.providerId === provider))

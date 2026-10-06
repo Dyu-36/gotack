@@ -2,7 +2,8 @@ import { desktop, type MessageInfo, type PromptFilePick, type WorkspaceInfo } fr
 import { catalog } from './catalog.svelte'
 import { fileToAttachment, pathToAttachment } from './attachments'
 import { ChatMessage, type ChatAttachment, type Conversation, type Message } from './types.svelte'
-import { conversationTitle, NEW_CONVERSATION_TITLE } from './title'
+import { conversationTitle, newConversationTitle } from './title'
+import { t } from '../../lib/i18n.svelte'
 
 const SESSION_MEMORY_PREFIX = 'gotack.active-session:'
 const DEFAULT_WORKSPACE_LABEL = 'C:\\'
@@ -115,11 +116,11 @@ export function createMessageState(deps: MessageDeps) {
       messages: [],
     }))
     if (!deps.conversations.value.length) {
-      const created = await desktop.createSession(NEW_CONVERSATION_TITLE)
+      const created = await desktop.createSession(newConversationTitle())
       deps.conversations.value = [{
         id: created.id,
         parentSessionId: created.parent_session_id || undefined,
-        title: created.title || NEW_CONVERSATION_TITLE,
+        title: created.title || newConversationTitle(),
         updatedAt: created.updated_at || Date.now(),
         pinned: false,
         status: 'idle',
@@ -170,11 +171,11 @@ export function createMessageState(deps: MessageDeps) {
     if (!await deps.waitForReady()) return
     await deps.waitForSelection()
     try {
-      const s = await desktop.createSession(NEW_CONVERSATION_TITLE)
+      const s = await desktop.createSession(newConversationTitle())
       const c: Conversation = {
         id: s.id,
         parentSessionId: s.parent_session_id || undefined,
-        title: s.title || NEW_CONVERSATION_TITLE,
+        title: s.title || newConversationTitle(),
         updatedAt: s.updated_at || Date.now(),
         pinned: false,
         status: 'idle',
@@ -195,7 +196,7 @@ export function createMessageState(deps: MessageDeps) {
       const c: Conversation = {
         id: s.id,
         parentSessionId: s.parent_session_id || id,
-        title: s.title || NEW_CONVERSATION_TITLE,
+        title: s.title || newConversationTitle(),
         updatedAt: s.updated_at || Date.now(),
         pinned: false,
         status: 'idle',
@@ -213,7 +214,7 @@ export function createMessageState(deps: MessageDeps) {
       const c: Conversation = {
         id: s.id,
         parentSessionId: s.parent_session_id || id,
-        title: s.title || NEW_CONVERSATION_TITLE,
+        title: s.title || newConversationTitle(),
         updatedAt: s.updated_at || Date.now(),
         pinned: false,
         status: 'idle',
@@ -257,7 +258,7 @@ export function createMessageState(deps: MessageDeps) {
     if (!await deps.waitForSelection()) return
     let current = activeConversation()
     if (!current) {
-      deps.reportError('Hội thoại chưa sẵn sàng', 'Send prompt')
+      deps.reportError(t('error.notReady'), 'Send prompt')
       return
     }
     if (current.status === 'streaming') {
@@ -310,7 +311,7 @@ export function createMessageState(deps: MessageDeps) {
     try {
       attachPaths(await desktop.pickPromptFiles())
     } catch (cause) {
-      deps.reportError(cause, 'Đính kèm tệp')
+      deps.reportError(cause, t('error.attach'))
     }
   }
 
@@ -321,7 +322,7 @@ export function createMessageState(deps: MessageDeps) {
         deps.attachments.value = [...deps.attachments.value, attachment]
         deps.clearError()
       } catch (cause) {
-        deps.reportError(cause, 'Đính kèm tệp')
+        deps.reportError(cause, t('error.attach'))
       }
     }
   }

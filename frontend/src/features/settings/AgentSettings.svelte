@@ -1,6 +1,7 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner'
   import { onMount } from 'svelte'
+  import { t } from '../../lib/i18n.svelte'
   import { desktop, type AgentSettingsInfo, type WorkspaceInfo } from '../../platform/desktop'
 
   let agentSettings = $state<AgentSettingsInfo>({ tools: [], disabled_tools: [] })
@@ -22,7 +23,7 @@
     agentBusy = true
     try {
       agentSettings = await desktop.saveAgentSettings([...disabled])
-      toast.success('Đã cập nhật tool của agent')
+      toast.success(t('agent.toastToolsUpdated'))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -34,7 +35,7 @@
     agentBusy = true
     try {
       workspaceInfo = await desktop.setWorkspaceTrust(trusted)
-      toast.success(trusted ? 'Đã trust project' : 'Đã chặn tài nguyên động của project')
+      toast.success(trusted ? t('agent.toastTrusted') : t('agent.toastUntrusted'))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -46,7 +47,7 @@
     agentBusy = true
     try {
       workspaceInfo = await desktop.resetWorkspaceTrust()
-      toast.success('Đã xóa quyết định trust riêng của project')
+      toast.success(t('agent.toastResetTrust'))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -57,13 +58,13 @@
 </script>
 
 <section class="setting-section">
-  <div class="section-title">Công cụ agent</div>
-  <p class="hint">Mặc định Gotack bật toàn bộ 6 công cụ lõi. Đây là cấu hình capability, không phải cơ chế xin quyền từng lần.</p>
+  <div class="section-title">{t('agent.toolsTitle')}</div>
+  <p class="hint">{t('agent.toolsHint')}</p>
   {#each agentSettings.tools as tool (tool)}
     <label class="toggle-row">
       <span>
         <strong>{tool}</strong>
-        <small>{tool === 'powershell' ? 'Thực thi lệnh hệ thống với quyền của người dùng đang chạy Gotack.' : 'Công cụ lõi của agent.'}</small>
+        <small>{tool === 'powershell' ? t('agent.powershellDesc') : t('agent.coreToolDesc')}</small>
       </span>
       <input
         type="checkbox"
@@ -74,21 +75,21 @@
     </label>
   {/each}
 
-  <div class="section-title mt-3">Project Trust</div>
+  <div class="section-title mt-3">{t('agent.trustTitle')}</div>
   {#if workspaceInfo}
     <div class="notice">
-      <div><strong>Workspace:</strong> <code>{workspaceInfo.path}</code></div>
-      <div><strong>Trạng thái:</strong> {workspaceInfo.trusted ? 'Trusted' : workspaceInfo.trust_required ? 'Chưa quyết định' : 'Không trusted'}</div>
+      <div><strong>{t('agent.workspace')}:</strong> <code>{workspaceInfo.path}</code></div>
+      <div><strong>{t('agent.status')}:</strong> {workspaceInfo.trusted ? t('agent.statusTrusted') : workspaceInfo.trust_required ? t('agent.statusUndecided') : t('agent.statusUntrusted')}</div>
       {#if workspaceInfo.protected_resources?.length}
-        <p class="hint">Tài nguyên động: {workspaceInfo.protected_resources.join(', ')}</p>
+        <p class="hint">{t('agent.dynamicResources', { list: workspaceInfo.protected_resources.join(', ') })}</p>
       {:else}
-        <p class="hint">Workspace không có tài nguyên động cần trust.</p>
+        <p class="hint">{t('agent.noDynamic')}</p>
       {/if}
     </div>
     <div class="flex flex-wrap justify-end gap-2">
-      <button type="button" class="btn-notion text-xs" disabled={agentBusy} onclick={() => void setProjectTrust(false)}>Không trust</button>
-      <button type="button" class="btn-notion text-xs" disabled={agentBusy} onclick={() => void resetProjectTrust()}>Kế thừa</button>
-      <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={agentBusy} onclick={() => void setProjectTrust(true)}>Trust project</button>
+      <button type="button" class="btn-notion text-xs" disabled={agentBusy} onclick={() => void setProjectTrust(false)}>{t('agent.untrust')}</button>
+      <button type="button" class="btn-notion text-xs" disabled={agentBusy} onclick={() => void resetProjectTrust()}>{t('agent.inherit')}</button>
+      <button type="button" class="px-3 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium disabled:opacity-40" disabled={agentBusy} onclick={() => void setProjectTrust(true)}>{t('agent.trustProject')}</button>
     </div>
   {/if}
 </section>

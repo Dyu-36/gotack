@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Toaster } from 'svelte-sonner'
   import { createThemeState } from './app/theme.svelte'
+  import { t } from './lib/i18n.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import ChatArea from './components/ChatArea.svelte'
   import ProviderUsageBadge from './components/ProviderUsageBadge.svelte'
@@ -98,8 +99,8 @@
   {#if conversations.workspaceInfo?.trust_required}
     <div class="trust-overlay" role="presentation">
       <div class="trust-card" role="dialog" aria-modal="true" aria-labelledby="project-trust-title">
-        <h2 id="project-trust-title">Project này có tài nguyên động</h2>
-        <p>Gotack phát hiện resource có thể thay đổi hành vi agent trong workspace này. Tool và quyền hệ điều hành vẫn giữ nguyên; quyết định này chỉ kiểm soát việc nạp resource của project.</p>
+        <h2 id="project-trust-title">{t('app.trust.title')}</h2>
+        <p>{t('app.trust.body')}</p>
         {#if conversations.workspaceInfo.protected_resources?.length}
           <ul>
             {#each conversations.workspaceInfo.protected_resources as resource (resource)}
@@ -108,8 +109,8 @@
           </ul>
         {/if}
         <div class="trust-actions">
-          <button type="button" class="btn-notion" onclick={() => void conversations.setWorkspaceTrust(false)}>Mở không trust</button>
-          <button type="button" class="trust-primary" onclick={() => void conversations.setWorkspaceTrust(true)}>Trust project</button>
+          <button type="button" class="btn-notion" onclick={() => void conversations.setWorkspaceTrust(false)}>{t('app.trust.openWithoutTrust')}</button>
+          <button type="button" class="trust-primary" onclick={() => void conversations.setWorkspaceTrust(true)}>{t('app.trust.trustProject')}</button>
         </div>
       </div>
     </div>

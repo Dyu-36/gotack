@@ -1,5 +1,6 @@
 import type { ChatAttachment } from './types.svelte'
 import type { PromptFilePick } from '../../platform/desktop'
+import { t } from '../../lib/i18n.svelte'
 
 const FALLBACK_MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
 let maxAttachmentSize = FALLBACK_MAX_ATTACHMENT_SIZE
@@ -68,7 +69,7 @@ export function mimeFromName(fileName: string): string {
 
 export async function fileToAttachment(file: File): Promise<ChatAttachment> {
   if (file.size > maxAttachmentSize) {
-    throw new Error(`Tệp “${file.name}” vượt quá hạn mức ${formatAttachmentSize(maxAttachmentSize)}`)
+    throw new Error(t('attachments.tooLarge', { name: file.name, size: formatAttachmentSize(maxAttachmentSize) }))
   }
 
   const content = await readFileAsBase64(file)
@@ -97,10 +98,10 @@ export function pathToAttachment(pick: PromptFilePick): ChatAttachment {
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(reader.error ?? new Error(`Không thể đọc tệp “${file.name}”`))
+    reader.onerror = () => reject(reader.error ?? new Error(t('attachments.readFailed', { name: file.name })))
     reader.onload = () => {
       if (typeof reader.result !== 'string') {
-        reject(new Error(`Không thể đọc tệp “${file.name}”`))
+        reject(new Error(t('attachments.readFailed', { name: file.name })))
         return
       }
       const comma = reader.result.indexOf(',')

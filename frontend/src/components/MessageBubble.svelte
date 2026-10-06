@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
+  import { t } from '../lib/i18n.svelte'
   import type { Message } from '../features/conversations/types.svelte'
   import { chatLinks } from '../lib/markdown'
   import { attachmentDataURL, formatAttachmentSize, isPreviewableImage } from '../features/conversations/attachments'
@@ -77,7 +78,7 @@
   <div class="flex justify-end mb-4 group animate-fade-in pl-12 sm:pl-24">
     <div class="max-w-[80%] sm:max-w-[75%] min-w-0 flex flex-col items-end">
       {#if message.attachments.length}
-        <div class="flex flex-wrap justify-end gap-2 mb-2 max-w-full" aria-label="Tệp đã gửi">
+        <div class="flex flex-wrap justify-end gap-2 mb-2 max-w-full" aria-label={t('message.sentFilesAria')}>
           {#each message.attachments as attachment (attachment.id)}
             {#if attachment.content && isPreviewableImage(attachment.mimeType)}
               <div class="sent-image" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
@@ -105,16 +106,16 @@
           type="button"
           class="text-xs text-mm-secondary hover:text-mm-text transition-colors cursor-pointer"
           onclick={copyContent}
-          title="Sao chép nội dung"
+          title={t('message.copyTitle')}
         >
-          {copied ? 'Đã sao chép' : 'Sao chép'}
+          {copied ? t('message.copied') : t('message.copy')}
         </button>
         {#if onFork}
           <button
             type="button"
             class="text-xs text-mm-secondary hover:text-mm-text transition-colors cursor-pointer"
             onclick={() => onFork?.(message.id)}
-            title="Tạo nhánh hội thoại từ tin nhắn này"
+            title={t('message.forkTitle')}
           >
             Fork
           </button>
@@ -133,18 +134,18 @@
           <StreamingMarkdown content={message.content} {isStreaming} />
         </div>
       {:else if isStreaming}
-        <AgentWorking label="Đang suy nghĩ…" />
+        <AgentWorking label={t('message.thinking')} />
       {/if}
 
       {#if message.attachments.length}
-        <div class="mt-2 flex flex-col gap-2" aria-label="Tệp kết quả">
+        <div class="mt-2 flex flex-col gap-2" aria-label={t('message.resultFilesAria')}>
           {#each message.attachments as attachment (attachment.id)}
             <div class="generated-file">
               <button type="button" class="generated-file-main" disabled={!attachment.path} onclick={() => openGeneratedFile(attachment.path)}>
                 <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h6" /></svg>
                 <span class="min-w-0 text-left"><span class="block truncate font-medium">{attachment.fileName}</span><span class="block text-2xs opacity-70">{formatAttachmentSize(attachment.size)}</span></span>
               </button>
-              {#if attachment.path}<button type="button" class="generated-file-reveal" onclick={() => revealGeneratedFile(attachment.path)} title="Hiện trong thư mục">Thư mục</button>{/if}
+              {#if attachment.path}<button type="button" class="generated-file-reveal" onclick={() => revealGeneratedFile(attachment.path)} title={t('message.revealTitle')}>{t('message.folder')}</button>{/if}
             </div>
           {/each}
         </div>
@@ -159,18 +160,18 @@
             type="button"
             class="text-xs text-mm-secondary hover:text-mm-text transition-colors flex items-center gap-1 cursor-pointer"
             onclick={copyContent}
-            title="Sao chép câu trả lời"
+            title={t('message.copyAnswerTitle')}
           >
             {#if copied}
               <svg class="w-3.5 h-3.5 text-mm-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              <span class="text-mm-success">Đã sao chép</span>
+              <span class="text-mm-success">{t('message.copied')}</span>
             {:else}
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
-              <span>Sao chép</span>
+              <span>{t('message.copy')}</span>
             {/if}
           </button>
         </div>

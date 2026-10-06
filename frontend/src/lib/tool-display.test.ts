@@ -21,19 +21,19 @@ describe('parseToolDisplay', () => {
     const input = JSON.stringify({ CommandLine: 'pnpm test' })
     const res = parseToolDisplay('run_command', input, false)
     expect(res.category).toBe('terminal')
-    expect(res.actionLabel).toBe('Đang chạy lệnh')
+    expect(res.actionLabel).toBe('Running command')
     expect(res.detailLabel).toBe('pnpm test')
     expect(res.isCode).toBe(true)
 
     const finished = parseToolDisplay('run_command', input, true)
-    expect(finished.actionLabel).toBe('Đã chạy lệnh')
+    expect(finished.actionLabel).toBe('Ran command')
   })
 
   it('parses view_file with AbsolutePath', () => {
     const input = JSON.stringify({ AbsolutePath: 'D:\\gotack\\main.go' })
     const res = parseToolDisplay('view_file', input, false)
     expect(res.category).toBe('read')
-    expect(res.actionLabel).toBe('Đang đọc tệp')
+    expect(res.actionLabel).toBe('Reading file')
     expect(res.detailLabel).toBe('main.go')
   })
 
@@ -41,7 +41,7 @@ describe('parseToolDisplay', () => {
     const input = JSON.stringify({ TargetFile: 'D:/gotack/frontend/src/app.css' })
     const res = parseToolDisplay('write_to_file', input, true)
     expect(res.category).toBe('edit')
-    expect(res.actionLabel).toBe('Đã cập nhật tệp')
+    expect(res.actionLabel).toBe('Updated file')
     expect(res.detailLabel).toBe('app.css')
   })
 
@@ -49,7 +49,7 @@ describe('parseToolDisplay', () => {
     const input = JSON.stringify({ Query: 'toolActivity' })
     const res = parseToolDisplay('grep_search', input, false)
     expect(res.category).toBe('search')
-    expect(res.actionLabel).toBe('Đang tìm kiếm')
+    expect(res.actionLabel).toBe('Searching')
     expect(res.detailLabel).toBe('"toolActivity"')
   })
 
@@ -57,7 +57,7 @@ describe('parseToolDisplay', () => {
     const input = JSON.stringify({ DirectoryPath: 'D:/gotack/frontend' })
     const res = parseToolDisplay('list_dir', input, true)
     expect(res.category).toBe('list')
-    expect(res.actionLabel).toBe('Đã duyệt thư mục')
+    expect(res.actionLabel).toBe('Browsed folder')
     expect(res.detailLabel).toBe('frontend')
   })
 
@@ -70,7 +70,7 @@ describe('parseToolDisplay', () => {
   it('handles plain text input gracefully', () => {
     const res = parseToolDisplay('unknown_tool', 'simple string info', true)
     expect(res.category).toBe('generic')
-    expect(res.actionLabel).toBe('Hoàn thành công cụ')
+    expect(res.actionLabel).toBe('Tool finished')
     expect(res.detailLabel).toBe('simple string info')
   })
 
@@ -78,7 +78,7 @@ describe('parseToolDisplay', () => {
     for (const name of ['mcp_resource', 'schedule_job', 'subagent']) {
       const res = parseToolDisplay(name, '{}', true)
       expect(res.category).toBe('generic')
-      expect(res.actionLabel).toBe('Hoàn thành công cụ')
+      expect(res.actionLabel).toBe('Tool finished')
       expect(res.detailLabel).toBe(name)
     }
   })
@@ -86,8 +86,8 @@ describe('parseToolDisplay', () => {
 
 describe('formatToolGroupSummary', () => {
   it('formats empty or single tool', () => {
-    expect(formatToolGroupSummary([])).toBe('0 công cụ')
-    expect(formatToolGroupSummary([{ toolName: 'run_command' }])).toBe('1 công cụ (chạy lệnh)')
+    expect(formatToolGroupSummary([])).toBe('0 tools')
+    expect(formatToolGroupSummary([{ toolName: 'run_command' }])).toBe('1 tool (run commands)')
   })
 
   it('formats multiple unique categories', () => {
@@ -96,7 +96,7 @@ describe('formatToolGroupSummary', () => {
       { toolName: 'write_to_file' },
       { toolName: 'run_command' },
     ]
-    expect(formatToolGroupSummary(tools)).toBe('3 công cụ (đọc tệp, sửa tệp, chạy lệnh)')
+    expect(formatToolGroupSummary(tools)).toBe('3 tools (read files, edit files, run commands)')
   })
 
   it('deduplicates repeating tool categories', () => {
@@ -104,6 +104,6 @@ describe('formatToolGroupSummary', () => {
       { toolName: 'view_file' },
       { toolName: 'read_resource' },
     ]
-    expect(formatToolGroupSummary(tools)).toBe('2 công cụ (đọc tệp)')
+    expect(formatToolGroupSummary(tools)).toBe('2 tools (read files)')
   })
 })

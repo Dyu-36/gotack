@@ -1,6 +1,7 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner'
   import { untrack } from 'svelte'
+  import { t } from '../../lib/i18n.svelte'
   import { catalog } from '../conversations/catalog.svelte'
   import ProviderSettings from './ProviderSettings.svelte'
   import AgentSettings from './AgentSettings.svelte'
@@ -81,15 +82,15 @@
 </script>
 
 <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-sm flex items-center justify-center p-4" role="presentation">
-  <div class="settings-card" role="dialog" aria-modal="true" aria-label="Cài đặt Gotack">
+  <div class="settings-card" role="dialog" aria-modal="true" aria-label={t('settings.dialogAria')}>
     <header class="px-5 py-4 border-b border-mm-border flex items-center justify-between">
       <div>
-        <h2 class="text-base font-semibold text-mm-text">Cài đặt</h2>
+        <h2 class="text-base font-semibold text-mm-text">{t('settings.title')}</h2>
       </div>
-      <button type="button" class="btn-notion px-2 py-1 text-xs" onclick={onClose}>Đóng</button>
+      <button type="button" class="btn-notion px-2 py-1 text-xs" onclick={onClose}>{t('settings.close')}</button>
     </header>
 
-    <nav class="settings-tabs" aria-label="Mục cài đặt">
+    <nav class="settings-tabs" aria-label={t('settings.tabsAria')}>
       <button
         type="button"
         class="tab-btn"
@@ -125,7 +126,7 @@
         onclick={() => (activeTab = 'appearance')}
       >
         <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4 4 4 0 014-4h.5a3 3 0 003-3V9a5 5 0 0110 0v2a5 5 0 01-5 5h-1a2 2 0 00-2 2v2a1 1 0 01-1 1H7z" /></svg>
-        Giao diện
+        {t('settings.appearance')}
       </button>
     </nav>
 
@@ -141,8 +142,8 @@
 
     <footer class="px-5 py-3 border-t border-mm-border flex items-center justify-end">
       <div class="flex gap-2">
-        <button type="button" class="btn-notion px-3 py-1.5 text-xs" onclick={onClose}>Hủy</button>
-        <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={save} disabled={savingSettings}>Lưu & áp dụng</button>
+        <button type="button" class="btn-notion px-3 py-1.5 text-xs" onclick={onClose}>{t('settings.cancel')}</button>
+        <button type="button" class="px-4 py-1.5 rounded-md bg-mm-accent text-white text-xs font-medium" onclick={save} disabled={savingSettings}>{t('settings.saveApply')}</button>
       </div>
     </footer>
   </div>

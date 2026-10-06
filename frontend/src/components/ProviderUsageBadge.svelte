@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { t } from '../lib/i18n.svelte'
   import {
     desktop,
     events,
@@ -34,7 +35,7 @@
     usage?.provider_name || catalog.provider(providerId)?.name || providerId,
   )
   const badgeText = $derived.by(() => {
-    if (loading && !usage) return 'Đang tải hạn mức…'
+    if (loading && !usage) return t('usage.loading')
     if (usage?.available && windows.length) {
       const visible = windows
         .slice(0, 2)
@@ -42,7 +43,7 @@
       if (windows.length > 2) visible.push(`+${windows.length - 2}`)
       return visible.join(' · ')
     }
-    return 'Hạn mức —'
+    return t('usage.dash')
   })
 
   function errorText(cause: unknown): string {
@@ -107,9 +108,9 @@
       type="button"
       class="usage-trigger"
       class:reached={usage?.limit_reached}
-      aria-label={`Hạn mức ${providerName}`}
+      aria-label={t('usage.aria', { provider: providerName })}
       aria-expanded={open}
-      title={`Hạn mức ${providerName}`}
+      title={t('usage.aria', { provider: providerName })}
       onclick={toggleOpen}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -119,7 +120,7 @@
       </svg>
       <span>{badgeText}</span>
       {#if loading}
-        <span class="spinner" aria-label="Đang làm mới"></span>
+        <span class="spinner" aria-label={t('usage.refreshing')}></span>
       {/if}
     </button>
 
@@ -127,10 +128,10 @@
       <button
         type="button"
         class="usage-dismiss"
-        aria-label="Đóng hạn mức provider"
+        aria-label={t('usage.dismissAria')}
         onclick={() => (open = false)}
       ></button>
-      <section class="usage-popover" aria-label={`Hạn mức ${providerName}`}>
+      <section class="usage-popover" aria-label={t('usage.aria', { provider: providerName })}>
         <header>
           <div class="provider-heading">
             <strong>{providerName || 'Provider'}</strong>
@@ -141,8 +142,8 @@
           <button
             type="button"
             class="refresh-button"
-            title="Làm mới hạn mức"
-            aria-label="Làm mới hạn mức"
+            title={t('usage.refreshing')}
+            aria-label={t('usage.refreshing')}
             disabled={loading}
             onclick={() => void refresh(providerId)}
           >
@@ -156,7 +157,7 @@
         {#if error}
           <div class="usage-message" role="status">{error}</div>
         {:else if loading && !usage}
-          <div class="usage-message" role="status">Đang đọc hạn mức từ provider…</div>
+          <div class="usage-message" role="status">{t('usage.reading')}</div>
         {:else if usage?.available && windows.length}
           <div class="window-list">
             {#each windows as item (item.id)}
@@ -164,30 +165,30 @@
               <div class="window-row">
                 <div class="window-title">
                   <span>{usageWindowLabel(item)}</span>
-                  <strong>{remaining}% còn lại</strong>
+                  <strong>{t('usage.remaining', { n: remaining })}</strong>
                 </div>
                 <div
                   class="usage-meter"
                   role="progressbar"
-                  aria-label={`${usageWindowLabel(item)} còn lại`}
+                  aria-label={t('usage.remaining', { n: remaining })}
                   aria-valuemin="0"
                   aria-valuemax="100"
                   aria-valuenow={remaining}
                 >
                   <span style={`width: ${remaining}%`}></span>
                 </div>
-                <div class="reset-at">Đặt lại {formatUsageReset(item.resets_at)}</div>
+                <div class="reset-at">{t('usage.resetAt', { time: formatUsageReset(item.resets_at) })}</div>
               </div>
             {/each}
           </div>
         {:else}
           <div class="usage-message">
-            {usage?.unavailable_reason ?? 'Provider chưa cung cấp hạn mức qua API.'}
+            {usage?.unavailable_reason ?? t('usage.unavailable')}
           </div>
         {/if}
 
         <footer>
-          Provider trả về tỷ lệ quota; Gotack không suy đoán số token tuyệt đối.
+          {t('usage.footer')}
         </footer>
       </section>
     {/if}

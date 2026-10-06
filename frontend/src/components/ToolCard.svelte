@@ -1,5 +1,6 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
+  import { t } from '../lib/i18n.svelte'
   import type { Message } from '../features/conversations/types.svelte'
   import { parseToolDisplay } from '../lib/tool-display'
 
@@ -46,7 +47,7 @@
   class:is-running={isRunning}
   class:is-expanded={expanded}
   role="region"
-  aria-label={`Công cụ ${displayInfo.detailLabel}`}
+  aria-label={t('tool.aria', { detail: displayInfo.detailLabel })}
 >
   <button
     type="button"
@@ -117,7 +118,7 @@
         class:text-emerald-600={!isRunning}
         class:dark:text-emerald-400={!isRunning}
       >
-        {isRunning ? 'đang chạy' : 'đã trả kết quả'}
+        {isRunning ? t('tool.running') : t('tool.done')}
       </span>
 
       <svg
@@ -155,12 +156,12 @@
         type="button"
         class="copy-btn absolute top-3.5 right-3.5 px-2.5 py-1 rounded text-xs bg-mm-panel border border-mm-border text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-all opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 shadow-xs cursor-pointer"
         onclick={copyParams}
-        title="Sao chép tham số"
+        title={t('tool.copyParams')}
       >
         {#if copied}
-          <span class="text-mm-success font-medium">Đã chép</span>
+          <span class="text-mm-success font-medium">{t('tool.copied')}</span>
         {:else}
-          <span>Sao chép</span>
+          <span>{t('tool.copy')}</span>
         {/if}
       </button>
     </div>

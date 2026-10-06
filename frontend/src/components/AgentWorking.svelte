@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte'
+
   type Props = {
     label?: string
   }
 
-  let { label = 'Đang làm việc…' }: Props = $props()
+  let { label = t('chatarea.working') }: Props = $props()
 </script>
 
 <div class="agent-working" role="status" aria-label={label}>

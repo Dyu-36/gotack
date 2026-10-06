@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { getLocale, localeTag, t, toggleLocale } from '../lib/i18n.svelte'
+
   type Session = {
     id: string
     parentSessionId?: string
@@ -94,9 +96,9 @@
   function formatDate(ts: number): string {
     const date = new Date(ts)
     const diff = Date.now() - date.getTime()
-    if (diff < 86_400_000) return date.toLocaleTimeString('vi', { hour: '2-digit', minute: '2-digit' })
-    if (diff < 604_800_000) return date.toLocaleDateString('vi', { weekday: 'short' })
-    return date.toLocaleDateString('vi', { day: '2-digit', month: '2-digit' })
+    if (diff < 86_400_000) return date.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' })
+    if (diff < 604_800_000) return date.toLocaleDateString(localeTag(), { weekday: 'short' })
+    return date.toLocaleDateString(localeTag(), { day: '2-digit', month: '2-digit' })
   }
 
   function startRename(session: Session) {
@@ -109,7 +111,7 @@
   })
 
   function requestDelete(session: Session) {
-    if (!window.confirm(`Xóa hội thoại "${session.title}"? Thao tác này không thể hoàn tác.`)) return
+    if (!window.confirm(t('sidebar.deleteConfirm', { title: session.title }))) return
     onDelete(session.id)
   }
 
@@ -131,13 +133,13 @@
   }
 </script>
 
-<aside class="w-sidebar h-full flex flex-col bg-mm-sidebar border-r border-mm-border overflow-hidden" aria-label="Danh sách hội thoại">
+<aside class="w-sidebar h-full flex flex-col bg-mm-sidebar border-r border-mm-border overflow-hidden" aria-label={t('sidebar.list')}>
   <div class="flex items-center justify-between px-3 pt-3 pb-1" data-wails-drag-region>
     <div class="flex items-center gap-2">
       <img src="/tack.png" alt="Gotack Logo" class="w-6 h-6 object-contain" />
       <span class="text-sm font-semibold text-mm-text">Gotack</span>
     </div>
-    <button type="button" class="p-1 rounded hover:bg-mm-hover" title="Thu gọn sidebar" aria-label="Thu gọn sidebar" onclick={onCollapse}>
+    <button type="button" class="p-1 rounded hover:bg-mm-hover" title={t('sidebar.collapse')} aria-label={t('sidebar.collapse')} onclick={onCollapse}>
       <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7M18 19l-7-7 7-7" /></svg>
     </button>
   </div>
@@ -145,7 +147,7 @@
   <div class="px-2.5 pt-2 pb-1">
     <button type="button" class="mm-nav-item group w-full justify-center gap-2.5 h-new-chat text-md font-medium" onclick={onNewSession}>
       <svg class="w-5 h-5 text-mm-secondary group-hover:text-mm-text" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-      <span>Hội thoại mới</span>
+      <span>{t('sidebar.newChat')}</span>
     </button>
   </div>
 
@@ -153,7 +155,7 @@
     <button type="button" class="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md bg-mm-panel hover:bg-mm-hover border border-mm-border/60 text-left transition-colors group" title={workspace} onclick={onPickWorkspace}>
       <div class="flex items-center gap-2 min-w-0 flex-1">
         <svg class="w-3.5 h-3.5 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-        <div class="flex-1 min-w-0"><div class="text-3xs text-mm-tertiary uppercase tracking-wider font-semibold">Thư mục mặc định</div><div class="text-xs text-mm-text truncate font-mono">{workspace}</div></div>
+        <div class="flex-1 min-w-0"><div class="text-3xs text-mm-tertiary uppercase tracking-wider font-semibold">{t('sidebar.defaultFolder')}</div><div class="text-xs text-mm-text truncate font-mono">{workspace}</div></div>
       </div>
       <svg class="w-3 h-3 text-mm-tertiary group-hover:text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
     </button>
@@ -162,38 +164,38 @@
   <div class="px-2.5 pt-1 pb-2">
     <div class="relative">
       <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-      <input type="text" bind:value={searchQuery} placeholder="Tìm kiếm..." aria-label="Tìm hội thoại" class="w-full h-8 pl-8 pr-2 text-sm rounded-md bg-mm-panel border border-transparent focus:border-mm-border focus:bg-mm-bg text-mm-text placeholder:text-mm-tertiary" />
+      <input type="text" bind:value={searchQuery} placeholder={t('sidebar.search')} aria-label={t('sidebar.searchAria')} class="w-full h-8 pl-8 pr-2 text-sm rounded-md bg-mm-panel border border-transparent focus:border-mm-border focus:bg-mm-bg text-mm-text placeholder:text-mm-tertiary" />
     </div>
   </div>
 
   <div class="px-3"><div class="border-t border-mm-border"></div></div>
-  <div class="px-3 pt-2 pb-1"><span class="text-xs font-medium text-mm-tertiary uppercase tracking-wider">Gần đây</span></div>
+  <div class="px-3 pt-2 pb-1"><span class="text-xs font-medium text-mm-tertiary uppercase tracking-wider">{t('sidebar.recent')}</span></div>
 
   <div class="flex-1 overflow-y-auto scroll-stable px-1.5 pb-2">
     {#if filteredSessions.length === 0}
-      <div class="px-3 py-4 text-xs text-mm-tertiary">Không có hội thoại phù hợp.</div>
+      <div class="px-3 py-4 text-xs text-mm-tertiary">{t('sidebar.noMatches')}</div>
     {/if}
     {#each filteredSessions as session (session.id)}
       <div class="relative group session-row">
         {#if editingId === session.id}
           <div class="flex items-center gap-1 px-2 h-item mx-1">
-            <input class="input-inline flex-1" bind:this={renameInput} bind:value={editingTitle} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
+            <input class="input-inline flex-1" bind:this={renameInput} bind:value={editingTitle} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label={t('sidebar.nameAria')} />
           </div>
         {:else}
           <button type="button" class:mm-nav-active={activeSessionId === session.id} class="mm-nav-item w-full text-left h-item" style={`padding-left: ${8 + sessionDepth(session) * 14}px`} onclick={() => onSelectSession(session.id)}>
             {#if session.parentSessionId}<span class="text-mm-tertiary text-xs shrink-0" aria-hidden="true">↳</span>{/if}
             <svg class="w-3.5 h-3.5 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
             <div class="flex-1 min-w-0 pr-1"><div class="truncate text-sm leading-tight">{session.title}</div><div class="text-xs text-mm-tertiary mt-0.5">{formatDate(session.updatedAt)}</div></div>
-            {#if session.streaming}<span class="w-1.5 h-1.5 rounded-pill bg-mm-accent shrink-0" title="Đang trả lời"></span>{/if}
+            {#if session.streaming}<span class="w-1.5 h-1.5 rounded-pill bg-mm-accent shrink-0" title={t('sidebar.responding')}></span>{/if}
           </button>
           <div class="session-actions absolute right-2 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-mm-panel rounded-md">
-            <button type="button" class="p-1 hover:bg-mm-hover rounded" title="Nhân bản hội thoại" aria-label={`Nhân bản hội thoại ${session.title}`} onclick={(event) => { event.stopPropagation(); onClone(session.id) }}>
+            <button type="button" class="p-1 hover:bg-mm-hover rounded" title={t('sidebar.duplicate')} aria-label={t('sidebar.duplicateAria', { title: session.title })} onclick={(event) => { event.stopPropagation(); onClone(session.id) }}>
               <svg class="w-3 h-3 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8h11v11H8zM5 16H4a1 1 0 01-1-1V4a1 1 0 011-1h11a1 1 0 011 1v1" /></svg>
             </button>
-            <button type="button" class="p-1 hover:bg-mm-hover rounded" title="Đổi tên" onclick={(event) => { event.stopPropagation(); startRename(session) }}>
+            <button type="button" class="p-1 hover:bg-mm-hover rounded" title={t('sidebar.rename')} onclick={(event) => { event.stopPropagation(); startRename(session) }}>
               <svg class="w-3 h-3 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
             </button>
-            <button type="button" class="session-icon-btn delete-session-btn" aria-label={`Xóa hội thoại ${session.title}`} onclick={(event) => { event.stopPropagation(); requestDelete(session) }}>
+            <button type="button" class="session-icon-btn delete-session-btn" aria-label={t('sidebar.deleteAria', { title: session.title })} onclick={(event) => { event.stopPropagation(); requestDelete(session) }}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" /></svg>
             </button>
           </div>
@@ -207,10 +209,13 @@
       <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6M9 8h6M17 16h6" />
       </svg>
-      <span>Cài đặt</span>
+      <span>{t('sidebar.settings')}</span>
+    </button>
+    <button type="button" class="p-2 rounded-md text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-colors text-xs font-semibold tracking-wide" title={t('app.languageToggle')} aria-label={t('app.languageToggle')} onclick={toggleLocale}>
+      {getLocale() === 'en' ? 'VI' : 'EN'}
     </button>
     {#if onToggleTheme}
-      <button type="button" class="p-2 rounded-md text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-colors" title={isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} aria-label="Đổi giao diện" onclick={onToggleTheme}>
+      <button type="button" class="p-2 rounded-md text-mm-secondary hover:text-mm-text hover:bg-mm-hover transition-colors" title={isDark ? t('sidebar.toLight') : t('sidebar.toDark')} aria-label={t('sidebar.toggleThemeAria')} onclick={onToggleTheme}>
         {#if isDark}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
         {:else}

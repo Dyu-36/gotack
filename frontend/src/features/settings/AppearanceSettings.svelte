@@ -1,6 +1,7 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner'
   import { onMount } from 'svelte'
+  import { t } from '../../lib/i18n.svelte'
   import { desktop } from '../../platform/desktop'
   import type { Theme } from './types'
 
@@ -25,7 +26,7 @@
     try {
       await desktop.setAutoStart(next)
       autoStart = next
-      toast.success(next ? 'Đã bật khởi động cùng Windows' : 'Đã tắt khởi động cùng Windows')
+      toast.success(next ? t('appearance.toastAutoStartOn') : t('appearance.toastAutoStartOff'))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -36,7 +37,7 @@
 </script>
 
 <section class="setting-section">
-  <div class="section-title">Giao diện</div>
+  <div class="section-title">{t('appearance.title')}</div>
   <div class="grid grid-cols-3 gap-2">
     {#each ['system', 'light', 'dark'] as value}
       <button
@@ -48,18 +49,18 @@
           onThemeChange(selectedTheme)
         }}
       >
-        {value === 'system' ? 'Hệ thống' : value === 'light' ? 'Sáng' : 'Tối'}
+        {value === 'system' ? t('appearance.system') : value === 'light' ? t('appearance.light') : t('appearance.dark')}
       </button>
     {/each}
   </div>
 
-  <div class="section-title">Ứng dụng</div>
+  <div class="section-title">{t('appearance.appTitle')}</div>
   <label class="toggle-row">
     <span>
-      <strong>Khởi động cùng Windows</strong>
-      <small>Tack chạy ẩn trong khay hệ thống ngay khi đăng nhập để Zalo bot luôn trực.</small>
+      <strong>{t('appearance.autoStart')}</strong>
+      <small>{t('appearance.autoStartHint')}</small>
     </span>
     <input type="checkbox" checked={autoStart} disabled={autoStartBusy} onchange={toggleAutoStart} />
   </label>
-  <p class="hint">Trên Windows, đóng cửa sổ chỉ ẩn Gotack xuống khay; Zalo tiếp tục hoạt động khi được bật. Chọn Quit Gotack trong khay hệ thống để thoát và dừng engine.</p>
+  <p class="hint">{t('appearance.trayHint')}</p>
 </section>

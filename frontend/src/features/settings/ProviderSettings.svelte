@@ -1,6 +1,7 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner'
   import { onMount } from 'svelte'
+  import { t } from '../../lib/i18n.svelte'
   import { catalog } from '../conversations/catalog.svelte'
   import { desktop, type ChatGPTOAuthStatus } from '../../platform/desktop'
 
@@ -50,13 +51,13 @@
     isLoggingInChatGPT = true
     chatgptOAuthURL = ''
     try {
-      toast.info('Đang mở trình duyệt để đăng nhập tài khoản ChatGPT...')
+      toast.info(t('providers.toastOpeningBrowser'))
       chatgptOAuthStatus = await desktop.loginChatGPTOAuth()
       await catalog.refresh()
       toast.success(
         chatgptOAuthStatus?.email
-          ? `Đã liên kết tài khoản ChatGPT: ${chatgptOAuthStatus.email}`
-          : 'Đăng nhập ChatGPT OAuth thành công!',
+          ? t('providers.toastLinked', { email: chatgptOAuthStatus.email })
+          : t('providers.toastOAuthSuccess'),
       )
     } catch (cause) {
       const msg = cause instanceof Error ? cause.message : String(cause)
@@ -72,7 +73,7 @@
   async function cancelLoginWithChatGPT() {
     try {
       await desktop.cancelChatGPTOAuth()
-      toast.info('Đã hủy phiên đăng nhập ChatGPT')
+      toast.info(t('providers.toastLoginCanceled'))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -86,22 +87,22 @@
     try {
       await navigator.clipboard.writeText(chatgptOAuthURL)
       isCopiedOAuthURL = true
-      toast.success('Đã sao chép link đăng nhập!')
+      toast.success(t('providers.toastLinkCopied'))
       setTimeout(() => {
         isCopiedOAuthURL = false
       }, 2000)
     } catch {
-      toast.error('Không thể sao chép vào clipboard')
+      toast.error(t('providers.toastCopyFailed'))
     }
   }
 
   async function logoutChatGPT() {
-    if (!window.confirm('Đăng xuất tài khoản ChatGPT và hủy liên kết OAuth?')) return
+    if (!window.confirm(t('providers.logoutConfirm'))) return
     try {
       await desktop.logoutChatGPTOAuth()
       chatgptOAuthStatus = { connected: false }
       await catalog.refresh()
-      toast.success('Đã đăng xuất tài khoản ChatGPT')
+      toast.success(t('providers.toastLoggedOut'))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     }
@@ -116,7 +117,7 @@
   }
 
   async function deleteConfiguredProvider(providerID: string, name: string) {
-    if (!window.confirm(`Xóa cấu hình provider ${name}? Provider sẽ bị tắt trong Tack và credential đã lưu sẽ bị xóa.`)) return
+    if (!window.confirm(t('providers.deleteConfirm', { name }))) return
     deletingProvider = providerID
     try {
       await desktop.deleteProvider(providerID)
@@ -126,7 +127,7 @@
         currentCustomUrl = ''
       }
       await catalog.refresh()
-      toast.success(`Đã xóa provider ${name}`)
+      toast.success(t('providers.toastDeleted', { name }))
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -137,7 +138,7 @@
 </script>
 
 <section class="setting-section">
-  <div class="section-title">Provider đã cấu hình</div>
+  <div class="section-title">{t('providers.configuredTitle')}</div>
   {#if catalog.status === 'ready'}
     {#if configuredProviders.length}
       <div class="provider-list">
@@ -147,14 +148,14 @@
               <strong>{item.name}</strong>
               <small>{item.credential_kind === 'oauth' ? 'OAuth' : 'API key'}</small>
             </div>
-            <code class="provider-secret">{item.credential_kind === 'oauth' ? 'OAuth credential' : '••••••••••••••••'}</code>
+            <code class="provider-secret">{item.credential_kind === 'oauth' ? t('providers.oauthCredential') : '••••••••••••••••'}</code>
             <div class="provider-actions">
               <button
                 type="button"
                 class="icon-btn delete-btn"
                 disabled={deletingProvider === item.id}
-                title={`Xóa ${item.name}`}
-                aria-label={`Xóa provider ${item.name}`}
+                title={t('providers.deleteTitle', { name: item.name })}
+                aria-label={t('providers.deleteAria', { name: item.name })}
                 onclick={() => void deleteConfiguredProvider(item.id, item.name)}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" /></svg>
@@ -164,12 +165,12 @@
         {/each}
       </div>
     {:else}
-      <p class="hint">Chưa có provider nào được tải thành công. Cấu hình credential bên dưới rồi lưu.</p>
+      <p class="hint">{t('providers.noneLoaded')}</p>
     {/if}
 
-    <label class="field-label" for="provider-select">Thêm / chỉnh provider</label>
+    <label class="field-label" for="provider-select">{t('providers.addEdit')}</label>
     <select id="provider-select" class="field" value={selectedProvider} onchange={(event) => chooseProvider(event.currentTarget.value)} aria-label="Provider">
-      <option value="" disabled>Chọn provider</option>
+      <option value="" disabled>{t('providers.select')}</option>
       {#each catalog.providers as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
     </select>
     {#if selectedProvider}
@@ -180,19 +181,19 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
             </div>
             <div class="oauth-info">
-              <strong>Xác thực tài khoản ChatGPT (OAuth PKCE)</strong>
-              <p>Sử dụng tài khoản ChatGPT (Free, Go, Plus, Pro, Business, Edu hoặc Enterprise) trực tiếp qua trình duyệt mà không cần tạo OpenAI API Key riêng.</p>
+              <strong>{t('providers.oauthTitle')}</strong>
+              <p>{t('providers.oauthDesc')}</p>
             </div>
           </div>
           {#if isLoggingInChatGPT}
             <div class="oauth-progress-box">
               <div class="oauth-waiting-badge">
                 <svg class="animate-spin h-3.5 w-3.5 text-emerald-500" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
-                <span>Đang chờ hoàn tất đăng nhập trên trình duyệt...</span>
+                <span>{t('providers.waitingBrowser')}</span>
               </div>
               {#if chatgptOAuthURL}
                 <div class="oauth-url-box">
-                  <label class="oauth-url-label" for="oauth-link-input">Link đăng nhập (dán vào trình duyệt bạn muốn):</label>
+                  <label class="oauth-url-label" for="oauth-link-input">{t('providers.loginLinkLabel')}</label>
                   <div class="flex gap-2 items-center">
                     <input
                       id="oauth-link-input"
@@ -207,7 +208,7 @@
                       class="btn-notion text-xs whitespace-nowrap px-2.5 py-1.5"
                       onclick={copyOAuthURL}
                     >
-                      {isCopiedOAuthURL ? '✓ Đã chép' : 'Sao chép link'}
+                      {isCopiedOAuthURL ? t('providers.copiedLink') : t('providers.copyLink')}
                     </button>
                   </div>
                 </div>
@@ -218,7 +219,7 @@
                   class="btn-notion text-xs text-red-500 hover:text-red-600 px-3 py-1"
                   onclick={cancelLoginWithChatGPT}
                 >
-                  Hủy đăng nhập
+                  {t('providers.cancelLogin')}
                 </button>
               </div>
             </div>
@@ -226,11 +227,11 @@
             <div class="oauth-connected">
               <div class="oauth-badge">
                 <span class="status-dot"></span>
-                <span>Đã kết nối {chatgptOAuthStatus.email ? `(${chatgptOAuthStatus.email})` : ''} {chatgptOAuthStatus.plan ? `· Gói: ${chatgptOAuthStatus.plan.toUpperCase()}` : ''}</span>
+                <span>Đã kết nối {chatgptOAuthStatus.email ? `(${chatgptOAuthStatus.email})` : ''} {chatgptOAuthStatus.plan ? `· ${t('providers.plan', { plan: chatgptOAuthStatus.plan.toUpperCase() })}` : ''}</span>
               </div>
               <div class="oauth-actions">
-                <button type="button" class="btn-notion text-xs text-red-500 hover:text-red-600" onclick={logoutChatGPT}>Đăng xuất</button>
-                <button type="button" class="btn-notion text-xs" onclick={loginWithChatGPT}>Đăng nhập lại</button>
+                <button type="button" class="btn-notion text-xs text-red-500 hover:text-red-600" onclick={logoutChatGPT}>{t('providers.logout')}</button>
+                <button type="button" class="btn-notion text-xs" onclick={loginWithChatGPT}>{t('providers.loginAgain')}</button>
               </div>
             </div>
           {:else}
@@ -241,7 +242,7 @@
                 onclick={loginWithChatGPT}
               >
                 <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
-                <span>Đăng nhập bằng tài khoản ChatGPT</span>
+                <span>{t('providers.loginButton')}</span>
               </button>
             </div>
           {/if}
@@ -249,25 +250,25 @@
       {/if}
 
       {#if selectedProvider === 'codex'}
-        <p class="hint">Codex đăng nhập bằng tài khoản ChatGPT nên không dùng API key hay endpoint riêng. Cần OpenAI API Key thì chọn provider <code>OpenAI</code>.</p>
+        <p class="hint">{t('providers.codexHint')}</p>
       {:else}
-        <label class="field-label" for="endpoint">Custom endpoint (tùy chọn)</label>
+        <label class="field-label" for="endpoint">{t('providers.customEndpoint')}</label>
         <input id="endpoint" class="field font-mono" bind:value={currentCustomUrl} placeholder={providerInfo?.api_endpoint ?? 'https://…'} />
-        <p class="hint">Ghi vào <code>providers.{selectedProvider}.base_url</code> qua API cấu hình của Tack.</p>
+        <p class="hint">{t('providers.baseUrlHint', { provider: selectedProvider })}</p>
 
-        <label class="field-label" for="api-key">API key</label>
+        <label class="field-label" for="api-key">{t('providers.apiKey')}</label>
         <div class="flex gap-2">
-          <input id="api-key" class="field flex-1 font-mono" type={showApiKey ? 'text' : 'password'} bind:value={currentApiKey} autocomplete="off" placeholder="Bỏ trống để giữ credential hiện tại" />
-          <button type="button" class="btn-notion px-3 text-xs" onclick={() => (showApiKey = !showApiKey)}>{showApiKey ? 'Ẩn' : 'Hiện'}</button>
+          <input id="api-key" class="field flex-1 font-mono" type={showApiKey ? 'text' : 'password'} bind:value={currentApiKey} autocomplete="off" placeholder={t('providers.apiKeyPlaceholder')} />
+          <button type="button" class="btn-notion px-3 text-xs" onclick={() => (showApiKey = !showApiKey)}>{showApiKey ? t('providers.hide') : t('providers.show')}</button>
         </div>
-        <p class="hint">Credential được Tack lưu an toàn. Danh sách phía trên chỉ hiện provider có credential sử dụng được.</p>
+        <p class="hint">{t('providers.credentialHint')}</p>
       {/if}
     {/if}
 
   {:else if catalog.status === 'loading'}
-    <p class="hint">Đang tải danh sách provider...</p>
+    <p class="hint">{t('providers.loading')}</p>
   {:else if catalog.status === 'error'}
-    <p class="hint">Không tải được provider catalog: {catalog.error}. Tack sẽ tự thử lại khi backend sẵn sàng.</p>
+    <p class="hint">{t('providers.error', { error: catalog.error })}</p>
   {/if}
 </section>
 

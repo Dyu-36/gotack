@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
+  import { getLocale, t, toggleLocale } from '../lib/i18n.svelte'
   import Composer from './Composer.svelte'
   import MessageBubble from './MessageBubble.svelte'
   import AgentWorking from './AgentWorking.svelte'
@@ -50,7 +51,7 @@
     attachments = [],
     backendReady = false,
     isStreaming = false,
-    modelLabel = 'Model mặc định',
+    modelLabel = '',
     thinkingLabel = 'Think: Auto',
     selectedModelId = '',
     selectedProviderId = '',
@@ -130,30 +131,18 @@
     {
       key: 'files',
       badgeClass: 'bg-blue-500/10 dark:bg-blue-500/15 border-blue-500/25 dark:border-blue-400/30 text-blue-600 dark:text-blue-400 group-hover:bg-blue-500/20 group-hover:border-blue-500/40',
-      title: 'Tìm & xử lý tệp',
-      desc: 'Tìm, đọc, đổi tên, sắp xếp hoặc cập nhật tệp trên máy',
-      prompt: 'Hãy giúp tôi tìm và xử lý các tệp/thư mục sau trên máy: ',
     },
     {
       key: 'docs',
       badgeClass: 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/25 dark:border-emerald-400/30 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-500/20 group-hover:border-emerald-500/40',
-      title: 'Soạn tài liệu',
-      desc: 'Tạo hoặc chỉnh sửa nội dung và tài liệu làm việc',
-      prompt: 'Hãy giúp tôi soạn hoặc chỉnh sửa tài liệu sau: ',
     },
     {
       key: 'analyze',
       badgeClass: 'bg-violet-500/10 dark:bg-violet-500/15 border-violet-500/25 dark:border-violet-400/30 text-violet-600 dark:text-violet-400 group-hover:bg-violet-500/20 group-hover:border-violet-500/40',
-      title: 'Phân tích thông tin',
-      desc: 'Đọc dữ liệu, tài liệu hoặc tệp và rút ra kết luận',
-      prompt: 'Hãy phân tích nội dung/dữ liệu sau và đưa ra kết luận hữu ích: ',
     },
     {
       key: 'task',
       badgeClass: 'bg-amber-500/10 dark:bg-amber-500/15 border-amber-500/25 dark:border-amber-400/30 text-amber-600 dark:text-amber-400 group-hover:bg-amber-500/20 group-hover:border-amber-500/40',
-      title: 'Thực hiện tác vụ',
-      desc: 'Tự tìm cách và dùng công cụ trên máy để hoàn thành việc',
-      prompt: 'Hãy thực hiện tác vụ sau trên máy của tôi và hoàn thành đến cùng: ',
     },
   ]
 
@@ -243,16 +232,16 @@
 <div class="flex flex-col h-full min-h-0">
   <div class="flex items-center gap-2 px-4 py-2.5 border-b border-mm-border shrink-0" data-wails-drag-region>
     {#if !sidebarOpen}
-      <button type="button" class="p-1 rounded hover:bg-mm-hover mr-1" onclick={onOpenSidebar} title="Mở sidebar" aria-label="Mở sidebar">
+      <button type="button" class="p-1 rounded hover:bg-mm-hover mr-1" onclick={onOpenSidebar} title={t('chatarea.openSidebar')} aria-label={t('chatarea.openSidebar')}>
         <svg class="w-4 h-4 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M6 5l7 7-7 7" /></svg>
       </button>
     {/if}
 
     <div class="flex-1 min-w-0 flex items-center gap-2">
       {#if isRenaming}
-        <input bind:this={renameInput} class="input-inline w-full max-w-xs font-medium" bind:value={renameValue} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label="Tên hội thoại" />
+        <input bind:this={renameInput} class="input-inline w-full max-w-xs font-medium" bind:value={renameValue} onkeydown={handleRenameKeydown} onblur={commitRename} aria-label={t('sidebar.nameAria')} />
       {:else}
-        <button type="button" class="flex items-center gap-1 text-sm font-medium text-mm-text hover:bg-mm-hover px-2 py-1 rounded-md truncate max-w-xs" onclick={startRename} title="Nhấn để đổi tên">
+        <button type="button" class="flex items-center gap-1 text-sm font-medium text-mm-text hover:bg-mm-hover px-2 py-1 rounded-md truncate max-w-xs" onclick={startRename} title={t('chatarea.renameHint')}>
           <span class="truncate">{sessionTitle}</span>
           <svg class="w-3 h-3 text-mm-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
         </button>
@@ -268,7 +257,7 @@
 
     <div class="flex items-center gap-1">
       {#if onToggleTheme}
-        <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors" title={isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} aria-label="Đổi giao diện" onclick={onToggleTheme}>
+        <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors" title={isDark ? t('sidebar.toLight') : t('sidebar.toDark')} aria-label={t('sidebar.toggleThemeAria')} onclick={onToggleTheme}>
           {#if isDark}
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
           {:else}
@@ -277,11 +266,14 @@
         </button>
       {/if}
 
-      <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled={isStreaming || messages.length === 0} title="Compact context" aria-label="Nén ngữ cảnh hội thoại" onclick={onCompactSession}>
+      <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled={isStreaming || messages.length === 0} title={t('chatarea.compact')} aria-label={t('chatarea.compactAria')} onclick={onCompactSession}>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M7 12h10M10 16h4" /></svg>
       </button>
-      <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors" title="Cài đặt" aria-label="Mở cài đặt" onclick={onOpenSettings}>
+      <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors" title={t('sidebar.settings')} aria-label={t('chatarea.settingsAria')} onclick={onOpenSettings}>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+      </button>
+      <button type="button" class="p-1.5 rounded hover:bg-mm-hover text-mm-secondary hover:text-mm-text transition-colors text-xs font-semibold tracking-wide" title={t('app.languageToggle')} aria-label={t('app.languageToggle')} onclick={toggleLocale}>
+        {getLocale() === 'en' ? 'VI' : 'EN'}
       </button>
     </div>
   </div>
@@ -292,14 +284,14 @@
         <div class="flex flex-col items-center text-center mb-8">
           <div class="w-16 h-16 rounded-2xl bg-mm-panel border border-mm-border flex items-center justify-center shadow-panel mb-4 p-2.5"><img src="/tack.png" alt="Gotack Logo" class="w-full h-full object-contain" /></div>
           <h2 class="hero-title font-bold tracking-tight text-mm-text">Gotack</h2>
-          <p class="text-sm text-mm-secondary mt-2 max-w-lg">Làm việc với tệp, tài liệu và công cụ trên toàn bộ máy. Chọn thư mục chỉ để đặt ngữ cảnh mặc định.</p>
+          <p class="text-sm text-mm-secondary mt-2 max-w-lg">{t('chatarea.heroDesc')}</p>
         </div>
         <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           {#each promptCards as card (card.key)}
             <button
               type="button"
               class="group relative flex items-start gap-3.5 p-4 rounded-xl bg-mm-panel hover:bg-mm-hover border border-mm-border/80 hover:border-mm-border-strong text-left transition-all duration-150 cursor-pointer shadow-sm hover:shadow-panel"
-              onclick={() => { onInput(input.trim() ? `${input.trimEnd()}\n${card.prompt}` : card.prompt); composer?.focus() }}
+              onclick={() => { const prompt = t(`cards.${card.key}.prompt`); onInput(input.trim() ? `${input.trimEnd()}\n${prompt}` : prompt); composer?.focus() }}
             >
               <div class="w-10 h-10 rounded-xl flex items-center justify-center border shrink-0 transition-transform duration-150 group-hover:scale-105 {card.badgeClass}" aria-hidden="true">
                 {#if card.key === 'files'}
@@ -329,9 +321,9 @@
               </div>
               <div class="flex-1 min-w-0 pr-2">
                 <div class="text-sm font-semibold text-mm-text group-hover:text-mm-accent transition-colors flex items-center gap-1.5">
-                  <span>{card.title}</span>
+                  <span>{t(`cards.${card.key}.title`)}</span>
                 </div>
-                <div class="text-xs text-mm-secondary mt-1 leading-relaxed">{card.desc}</div>
+                <div class="text-xs text-mm-secondary mt-1 leading-relaxed">{t(`cards.${card.key}.desc`)}</div>
               </div>
               <div class="opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all duration-150 text-mm-tertiary group-hover:text-mm-secondary self-center shrink-0" aria-hidden="true">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,7 +336,7 @@
       </div>
     </div>
   {:else}
-    <div bind:this={scroller} onscroll={handleScroll} class="messages relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label="Nội dung hội thoại" aria-live="polite" aria-relevant="additions text" aria-busy={isStreaming}>
+    <div bind:this={scroller} onscroll={handleScroll} class="messages relative flex-1 overflow-y-auto scroll-stable min-h-0" role="log" aria-label={t('chatarea.messagesAria')} aria-live="polite" aria-relevant="additions text" aria-busy={isStreaming}>
       <div bind:this={messageList} class="max-w-5xl mx-auto px-4 pt-6 pb-6">
         {#each displayItems as item, idx (item.type === 'tool-group' ? item.id : item.message.id)}
           {#if item.type === 'tool-group'}
@@ -368,12 +360,12 @@
             <div class="w-6 h-6 flex-shrink-0 rounded-md bg-mm-panel border border-mm-border flex items-center justify-center p-0.5 mt-0.5 overflow-hidden shadow-xs">
               <img src="/tack.png" alt="Gotack" class="w-full h-full object-contain" />
             </div>
-            <AgentWorking label="Đang làm việc…" />
+            <AgentWorking label={t('chatarea.working')} />
           </div>
         {/if}
       </div>
       {#if !pinned}
-        <button type="button" class="jump-latest" onclick={jumpToLatest}>Xuống tin mới nhất</button>
+        <button type="button" class="jump-latest" onclick={jumpToLatest}>{t('chatarea.jumpLatest')}</button>
       {/if}
     </div>
   {/if}

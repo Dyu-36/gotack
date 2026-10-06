@@ -35,8 +35,8 @@ afterEach(() => {
 describe('extended reasoning compatibility', () => {
   it('exposes minimal and xhigh in the picker vocabulary', () => {
     expect(REASONING_EFFORT_OPTIONS).toEqual(expect.arrayContaining([
-      { id: 'minimal', label: 'Minimal (Tối thiểu)', short: 'Min' },
-      { id: 'xhigh', label: 'X-High (Rất sâu)', short: 'X-High' },
+      { id: 'minimal', labelKey: 'reasoning.minimal', short: 'Min' },
+      { id: 'xhigh', labelKey: 'reasoning.xhigh', short: 'X-High' },
     ]))
   })
 

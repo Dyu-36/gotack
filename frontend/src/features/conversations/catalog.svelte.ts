@@ -1,14 +1,14 @@
 import { desktop, type ModelCatalogEntry, type ProviderCatalogEntry } from '../../platform/desktop'
 import type { ReasoningEffort } from './types.svelte'
 
-export const REASONING_EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; short: string }> = [
-  { id: 'none', label: 'None (Không suy luận)', short: 'None' },
-  { id: 'minimal', label: 'Minimal (Tối thiểu)', short: 'Min' },
-  { id: 'low', label: 'Low (Thấp)', short: 'Low' },
-  { id: 'medium', label: 'Medium (Vừa)', short: 'Med' },
-  { id: 'high', label: 'High (Sâu)', short: 'High' },
-  { id: 'xhigh', label: 'X-High (Rất sâu)', short: 'X-High' },
-  { id: 'max', label: 'Max (Tối đa)', short: 'Max' },
+export const REASONING_EFFORT_OPTIONS: Array<{ id: ReasoningEffort; labelKey: string; short: string }> = [
+  { id: 'none', labelKey: 'reasoning.none', short: 'None' },
+  { id: 'minimal', labelKey: 'reasoning.minimal', short: 'Min' },
+  { id: 'low', labelKey: 'reasoning.low', short: 'Low' },
+  { id: 'medium', labelKey: 'reasoning.medium', short: 'Med' },
+  { id: 'high', labelKey: 'reasoning.high', short: 'High' },
+  { id: 'xhigh', labelKey: 'reasoning.xhigh', short: 'X-High' },
+  { id: 'max', labelKey: 'reasoning.max', short: 'Max' },
 ]
 
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error'

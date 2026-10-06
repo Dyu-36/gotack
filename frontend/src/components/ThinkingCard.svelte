@@ -1,5 +1,6 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
+  import { t } from '../lib/i18n.svelte'
   import type { Message } from '../features/conversations/types.svelte'
   import { formatToolGroupSummary } from '../lib/tool-display'
   import ToolCard from './ToolCard.svelte'
@@ -18,7 +19,7 @@
   class="thinking-card animate-tool-in mb-3 mr-8 sm:mr-20"
   class:is-expanded={expanded}
   role="region"
-  aria-label={`Suy nghĩ (${summary})`}
+  aria-label={t('thinking.aria', { summary })}
 >
   <button
     type="button"
@@ -36,14 +37,14 @@
       </div>
 
       <div class="flex items-baseline gap-1.5 min-w-0 truncate text-sm">
-        <span class="font-medium text-mm-text shrink-0">Suy nghĩ</span>
+        <span class="font-medium text-mm-text shrink-0">{t('thinking.label')}</span>
         <span class="text-mm-tertiary truncate font-normal">· {summary}</span>
       </div>
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
       <span class="status-pill text-xs px-2 py-0.5 rounded font-medium bg-emerald-500-15 text-emerald-600 dark:text-emerald-400">
-        đã xử lý
+        {t('thinking.done')}
       </span>
 
       <svg

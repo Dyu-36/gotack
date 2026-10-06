@@ -12,7 +12,7 @@ const window = (seconds: number, remaining: number, name?: string) => ({
 describe('provider usage presentation', () => {
   it('labels common provider-defined windows', () => {
     expect(usageWindowLabel(window(18_000, 75))).toBe('5h')
-    expect(usageWindowLabel(window(604_800, 25))).toBe('Tuần')
+    expect(usageWindowLabel(window(604_800, 25))).toBe('Week')
     expect(usageWindowLabel(window(86_400, 50, 'Codex Spark'))).toBe('Codex Spark · 24h')
   })
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte'
   import { catalog, REASONING_EFFORT_OPTIONS } from '../features/conversations/catalog.svelte'
   import { attachmentDataURL, formatAttachmentSize, isPreviewableImage } from '../features/conversations/attachments'
   import type { ChatAttachment, ReasoningEffort } from '../features/conversations/types.svelte'
@@ -27,7 +28,7 @@
 
   let {
     value,
-    modelLabel = 'Model mặc định',
+    modelLabel = '',
     thinkingLabel = 'Think: High',
     isStreaming = false,
     ready = false,
@@ -55,6 +56,8 @@
 
   let canSend = $derived((value.trim().length > 0 || attachments.length > 0) && !isStreaming && ready)
 
+  let displayModelLabel = $derived(modelLabel || t('composer.defaultModel'))
+
   let selectedModel = $derived(
     catalog.configuredModels.find((m) => m.id === selectedModelId && (!selectedProviderId || m.providerId === selectedProviderId)),
   )
@@ -75,8 +78,8 @@
     }
 
     return [
-      { id: 'none' as ReasoningEffort, label: 'Off (Tắt suy luận)', short: 'Off' },
-      { id: 'high' as ReasoningEffort, label: 'On (Bật suy luận)', short: 'On' },
+      { id: 'none' as ReasoningEffort, labelKey: 'reasoning.off', short: 'Off' },
+      { id: 'high' as ReasoningEffort, labelKey: 'reasoning.on', short: 'On' },
     ]
   })
 
@@ -169,12 +172,12 @@
     multiple
     class="hidden"
     onchange={handleFileSelection}
-    aria-label="Tải lên tệp đính kèm"
+    aria-label={t('composer.uploadAria')}
   />
 
   <div class="rounded-mm border border-mm-border bg-mm-bg transition-all focus-within:border-mm-accent/60 focus-within:ring-2 focus-within:ring-mm-accent/15 shadow-sm">
     {#if attachments.length}
-      <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label="Tệp đính kèm">
+      <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label={t('composer.attachmentsAria')}>
         {#each attachments as attachment (attachment.id)}
           <div class="attachment-preview group/attachment" title={`${attachment.fileName} · ${formatAttachmentSize(attachment.size)}`}>
             {#if attachment.content && isPreviewableImage(attachment.mimeType)}
@@ -186,8 +189,8 @@
             <button
               type="button"
               class="attachment-remove"
-              aria-label={`Gỡ tệp ${attachment.fileName}`}
-              title="Gỡ tệp"
+              aria-label={t('composer.removeFileAria', { name: attachment.fileName })}
+              title={t('composer.removeFile')}
               onclick={() => onRemoveAttachment(attachment.id)}
             >×</button>
           </div>
@@ -195,8 +198,8 @@
       </div>
       {#if hasImageAttachments && selectedModel && !selectedModel.supports_vision}
         <div class="px-3 pt-1.5 pb-0 text-3xs text-mm-tertiary flex items-center gap-1">
-          <span class="text-amber-500 font-semibold">ℹ️ Text-only Model:</span>
-          <span>Gotack sẽ tự động OCR bóc tách nội dung văn bản từ ảnh khi gửi.</span>
+          <span class="text-amber-500 font-semibold">ℹ️ {t('composer.textOnlyModel')}</span>
+          <span>{t('composer.ocrNote')}</span>
         </div>
       {/if}
     {/if}
@@ -208,10 +211,10 @@
         oninput={(event) => onInput(event.currentTarget.value)}
         onkeydown={handleKeydown}
         onpaste={handlePaste}
-        placeholder="Nhập tin nhắn hoặc dán ảnh... (Enter để gửi, Shift+Enter để xuống dòng)"
+        placeholder={t('composer.placeholder')}
         rows="1"
         aria-busy={!ready}
-        aria-label="Nội dung tin nhắn"
+        aria-label={t('composer.messageAria')}
         class="w-full resize-none bg-transparent text-mm-text text-base leading-relaxed placeholder:text-mm-tertiary overflow-y-auto scroll-stable min-h-6 max-h-[var(--composer-max-h)] focus:outline-none focus-visible:outline-none focus:ring-0"
       ></textarea>
     </div>
@@ -221,8 +224,8 @@
         <button
           type="button"
           class="p-1.5 rounded text-mm-tertiary hover:text-mm-text hover:bg-mm-hover transition-colors"
-          title="Đính kèm tệp hoặc ảnh"
-          aria-label="Đính kèm tệp"
+          title={t('composer.attachTitle')}
+          aria-label={t('composer.attachAria')}
           onclick={() => (onPickFiles ? void onPickFiles() : fileInput?.click())}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
@@ -235,7 +238,7 @@
             type="button"
             class="mm-model-select flex items-center gap-1.5 px-2 text-xs"
             onclick={() => { thinkingMenuOpen = !thinkingMenuOpen; modelMenuOpen = false }}
-            aria-label="Chọn mức độ suy luận (Reasoning Effort)"
+            aria-label={t('composer.thinkingAria')}
           >
             <svg class="w-3.5 h-3.5 text-mm-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
             <span>{thinkingLabel}</span>
@@ -254,7 +257,7 @@
                   onclick={() => pickThinking(opt.id)}
                 >
                   <div class="flex items-center gap-1.5">
-                    <span>{opt.label}</span>
+                    <span>{t(opt.labelKey)}</span>
                   </div>
                   {#if selectedThinkingId === opt.id}
                     <svg class="w-3.5 h-3.5 text-mm-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
@@ -270,10 +273,10 @@
             type="button"
             class="mm-model-select flex items-center gap-1.5 px-2 text-xs"
             onclick={() => { modelMenuOpen = !modelMenuOpen; thinkingMenuOpen = false; if (catalog.status === 'idle') catalog.refresh() }}
-            aria-label="Chọn Model AI"
+            aria-label={t('composer.modelAria')}
           >
             <span class="w-2 h-2 rounded-full bg-mm-accent"></span>
-            <span class="max-w-36 truncate font-medium">{modelLabel}</span>
+            <span class="max-w-36 truncate font-medium">{displayModelLabel}</span>
             <svg class="w-3 h-3 text-mm-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
           </button>
 
@@ -288,8 +291,8 @@
                 <input
                   type="text"
                   bind:value={modelSearch}
-                  placeholder="Chọn model cho agent..."
-                  aria-label="Tìm model"
+                  placeholder={t('composer.modelSearchPlaceholder')}
+                  aria-label={t('composer.modelSearchAria')}
                   class="w-full h-7 px-2 text-xs rounded bg-mm-panel border border-mm-border focus:border-mm-accent text-mm-text placeholder:text-mm-tertiary outline-none"
                   onclick={(e) => e.stopPropagation()}
                 />
@@ -297,7 +300,7 @@
 
               <div class="max-h-64 overflow-y-auto scroll-stable space-y-2 pr-0.5">
                 {#if catalog.status === 'loading'}
-                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Đang tải danh sách model...</div>
+                  <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{t('composer.loadingModels')}</div>
                 {:else if catalog.status === 'error'}
                   <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{catalog.error}</div>
                 {:else}
@@ -312,7 +315,7 @@
                         <button
                           type="button"
                           class="menu-item flex items-center justify-between group"
-                          class:active={selectedModelId === m.id || modelLabel === m.name}
+                          class:active={selectedModelId === m.id || displayModelLabel === m.name}
                           onclick={() => pickModel(m.id, m.name, m.providerId)}
                         >
                           <div class="flex-1 min-w-0 pr-2">
@@ -330,7 +333,7 @@
                             {/if}
                           </div>
 
-                          {#if selectedModelId === m.id || modelLabel === m.name}
+                          {#if selectedModelId === m.id || displayModelLabel === m.name}
                             <svg class="w-3.5 h-3.5 text-mm-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                           {/if}
                         </button>
@@ -339,7 +342,7 @@
                   {/each}
 
                   {#if filteredModels.length === 0}
-                    <div class="px-2 py-4 text-center text-xs text-mm-tertiary">Không tìm thấy model phù hợp</div>
+                    <div class="px-2 py-4 text-center text-xs text-mm-tertiary">{t('composer.noModels')}</div>
                   {/if}
                 {/if}
               </div>
@@ -351,7 +354,7 @@
                   onclick={() => { modelMenuOpen = false; onOpenSettings() }}
                 >
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  <span>Cấu hình Providers & Xác thực OAuth / API Key...</span>
+                  <span>{t('composer.configureProviders')}</span>
                 </button>
               </div>
             </div>
@@ -359,11 +362,11 @@
         </div>
 
         {#if isStreaming}
-          <button type="button" class="mm-send-btn" title="Dừng" aria-label="Dừng" onclick={onStop}>
+          <button type="button" class="mm-send-btn" title={t('composer.stop')} aria-label={t('composer.stop')} onclick={onStop}>
             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>
           </button>
         {:else}
-          <button type="button" class="mm-send-btn" title="Gửi" aria-label="Gửi" disabled={!canSend} onclick={onSend}>
+          <button type="button" class="mm-send-btn" title={t('composer.send')} aria-label={t('composer.send')} disabled={!canSend} onclick={onSend}>
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5M5 12l7-7 7 7" /></svg>
           </button>
         {/if}

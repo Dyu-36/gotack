@@ -1,3 +1,5 @@
+import { t } from './i18n.svelte'
+
 export type ToolCategory = 'terminal' | 'read' | 'edit' | 'search' | 'list' | 'generic'
 
 export type ToolDisplayInfo = {
@@ -93,22 +95,22 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
   let actionLabel = ''
   switch (category) {
     case 'terminal':
-      actionLabel = finished ? 'Đã chạy lệnh' : 'Đang chạy lệnh'
+      actionLabel = finished ? t('tools.runDone') : t('tools.runDoing')
       break
     case 'read':
-      actionLabel = finished ? 'Đã đọc tệp' : 'Đang đọc tệp'
+      actionLabel = finished ? t('tools.readDone') : t('tools.readDoing')
       break
     case 'edit':
-      actionLabel = finished ? 'Đã cập nhật tệp' : 'Đang cập nhật tệp'
+      actionLabel = finished ? t('tools.editDone') : t('tools.editDoing')
       break
     case 'search':
-      actionLabel = finished ? 'Đã tìm kiếm' : 'Đang tìm kiếm'
+      actionLabel = finished ? t('tools.searchDone') : t('tools.searchDoing')
       break
     case 'list':
-      actionLabel = finished ? 'Đã duyệt thư mục' : 'Đang duyệt thư mục'
+      actionLabel = finished ? t('tools.listDone') : t('tools.listDoing')
       break
     default:
-      actionLabel = finished ? 'Hoàn thành công cụ' : 'Đang thực thi'
+      actionLabel = finished ? t('tools.genericDone') : t('tools.genericDoing')
       break
   }
 
@@ -129,19 +131,19 @@ export function parseToolDisplay(name?: string, rawInput?: string, finished = fa
 }
 
 export function formatToolGroupSummary(tools: readonly { toolName?: string }[]): string {
-  if (!tools || tools.length === 0) return '0 công cụ'
-  const countStr = tools.length === 1 ? '1 công cụ' : `${tools.length} công cụ`
+  if (!tools || tools.length === 0) return t('tools.count0')
+  const countStr = tools.length === 1 ? t('tools.count1') : t('tools.countN', { n: tools.length })
   const labels: string[] = []
-  for (const t of tools) {
-    const cat = parseToolDisplay(t.toolName).category
+  for (const tool of tools) {
+    const cat = parseToolDisplay(tool.toolName).category
     let name = ''
     switch (cat) {
-      case 'read': name = 'đọc tệp'; break
-      case 'edit': name = 'sửa tệp'; break
-      case 'terminal': name = 'chạy lệnh'; break
-      case 'search': name = 'tìm kiếm'; break
-      case 'list': name = 'duyệt thư mục'; break
-      default: name = t.toolName || 'công cụ'; break
+      case 'read': name = t('tools.cat.read'); break
+      case 'edit': name = t('tools.cat.edit'); break
+      case 'terminal': name = t('tools.cat.terminal'); break
+      case 'search': name = t('tools.cat.search'); break
+      case 'list': name = t('tools.cat.list'); break
+      default: name = tool.toolName || t('tools.cat.fallback'); break
     }
     if (!labels.includes(name)) labels.push(name)
   }
