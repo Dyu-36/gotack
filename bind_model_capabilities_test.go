@@ -16,6 +16,13 @@ func TestListProvidersCapabilityOverrides(t *testing.T) {
 	t.Setenv("AppData", root)
 	t.Setenv("XDG_CONFIG_HOME", root)
 	yes, no := true, false
+	configFor := func(model string, vision, reason *bool) *appconfig.Config {
+		return &appconfig.Config{
+			ModelCapabilities: map[string]appconfig.ModelCapabilityOverride{
+				model: {SupportsVision: vision, CanReason: reason},
+			},
+		}
+	}
 	tests := []struct {
 		name   string
 		config *appconfig.Config
@@ -24,11 +31,11 @@ func TestListProvidersCapabilityOverrides(t *testing.T) {
 	}{
 		{name: "nil configuration", vision: true},
 		{name: "no override", config: &appconfig.Config{}, vision: true},
-		{name: "disable vision", config: &appconfig.Config{ModelCapabilities: map[string]appconfig.ModelCapabilityOverride{"model": {SupportsVision: &no}}}},
-		{name: "enable reasoning", config: &appconfig.Config{ModelCapabilities: map[string]appconfig.ModelCapabilityOverride{"model": {CanReason: &yes}}}, vision: true, reason: true},
-		{name: "empty override", config: &appconfig.Config{ModelCapabilities: map[string]appconfig.ModelCapabilityOverride{"model": {}}}, vision: true},
-		{name: "unrelated override", config: &appconfig.Config{ModelCapabilities: map[string]appconfig.ModelCapabilityOverride{"other": {SupportsVision: &no, CanReason: &yes}}}, vision: true},
-		{name: "vision enable preserves text only model", config: &appconfig.Config{ModelCapabilities: map[string]appconfig.ModelCapabilityOverride{"text": {SupportsVision: &yes}}}, vision: true},
+		{name: "disable vision", config: configFor("model", &no, nil)},
+		{name: "enable reasoning", config: configFor("model", nil, &yes), vision: true, reason: true},
+		{name: "empty override", config: configFor("model", nil, nil), vision: true},
+		{name: "unrelated override", config: configFor("other", &no, &yes), vision: true},
+		{name: "vision enable preserves text only model", config: configFor("text", &yes, nil), vision: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -37,7 +44,10 @@ func TestListProvidersCapabilityOverrides(t *testing.T) {
 				case "/v1/workspaces":
 					return jsonHTTPResponse(http.StatusOK, `{"id":"catalog","path":"catalog"}`), nil
 				case "/v1/workspaces/catalog/providers":
-					return jsonHTTPResponse(http.StatusOK, `[{"id":"test","models":[{"id":"model","supports_vision":true},{"id":"text","supports_vision":false,"can_reason":true}]}]`), nil
+					return jsonHTTPResponse(http.StatusOK, `[{"id":"test","models":[
+						{"id":"model","supports_vision":true},
+						{"id":"text","supports_vision":false,"can_reason":true}
+					]}]`), nil
 				case "/v1/workspaces/catalog/config":
 					return jsonHTTPResponse(http.StatusOK, `{}`), nil
 				default:

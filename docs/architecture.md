@@ -4,6 +4,10 @@ Gotack is one Go module containing a Windows desktop application and its private
 supporting packages. The agent runtime is a separate repository, built from the
 exact commit in `.tack-pin`.
 
+Development skill examples under `agent/skills` belong to the separate module
+declared in `agent/go.mod`. Application build and test commands do not compile
+these reference examples or require their illustrative dependencies.
+
 ```text
 Svelte UI
    ↓ Wails bindings and events
