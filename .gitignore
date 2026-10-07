@@ -54,9 +54,6 @@ frontend/package.json.md5
 *.swo
 .omp/
 .qoder/
-mcp.json
-.codebase-memory/
-.cbmignore
 .agents/
 .claude/
 skills-lock.json
