@@ -63,7 +63,7 @@ func (a *App) ListProviders() ([]engineapi.Provider, error) {
 		return nil, err
 	}
 	if a.providerCatalog == nil {
-		return nil, errors.New("Pi model catalog is not initialized")
+		return nil, errors.New("model catalog is not initialized")
 	}
 	providers, err := a.providerCatalog.List(ctx, svc.API, workspaceID)
 	if err != nil {

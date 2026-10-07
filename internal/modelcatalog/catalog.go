@@ -133,11 +133,6 @@ type Client struct {
 	retryAt time.Time
 }
 
-// New creates a client using the Pi catalog and the supplied disk cache path.
-func New(cachePath string) *Client {
-	return NewWithOptions(Options{CachePath: cachePath})
-}
-
 // NewWithOptions creates a client with optional endpoint, transport, TTL, and logger.
 func NewWithOptions(options Options) *Client {
 	if options.URL == "" {

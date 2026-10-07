@@ -71,7 +71,7 @@ func TestMergePiModelsUpdatesAndPrunesManagedEntries(t *testing.T) {
 	managed := engineapi.Model{ID: "managed", Name: "Old name", ContextWindow: 10}
 	stale := engineapi.Model{ID: "stale", Name: "Stale model"}
 	baseline := engineapi.Model{ID: "old-default", Name: "Old default"}
-	userEdited := engineapi.Model{ID: "managed", Name: "Edited by user", ContextWindow: 10}
+	userEdited := engineapi.Model{ID: "edited-model", Name: "Edited by user", ContextWindow: 10}
 	custom := engineapi.Model{ID: "custom-model", Name: "Custom model"}
 	newModel := engineapi.Model{ID: "new-model", Name: "New model", CanReason: true}
 
@@ -81,19 +81,11 @@ func TestMergePiModelsUpdatesAndPrunesManagedEntries(t *testing.T) {
 	}
 	current := []engineapi.Model{managed, stale, baseline, userEdited, custom}
 	currentRoutes := map[string]engineapi.ModelRoute{
-		"managed":        priorRoute,
-		"stale":          priorRoute,
-		"managed-edited": customRoute,
-		"custom-model":   customRoute,
+		"managed":      priorRoute,
+		"stale":        priorRoute,
+		"edited-model": customRoute,
+		"custom-model": customRoute,
 	}
-	// Use a separately named edited model so its ID does not collide with the
-	// earlier pristine entry in the test fixture.
-	current = []engineapi.Model{managed, stale, baseline, userEdited, custom}
-	userEdited.ID = "edited-model"
-	current[3] = userEdited
-	currentRoutes["edited-model"] = customRoute
-	delete(currentRoutes, "managed-edited")
-
 	got, manifest, routes := mergePiModels(
 		current,
 		[]engineapi.Model{baseline},
