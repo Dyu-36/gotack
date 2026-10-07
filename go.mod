@@ -47,3 +47,7 @@ require (
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 )
+
+// Wails v2.13-v2.16 ship a Svelte 5 overlay invoked with the Svelte 4 constructor API.
+// Keep the Go 1.27-compatible CLI pin above; use the last working runtime bundle.
+replace github.com/wailsapp/wails/v2 => github.com/wailsapp/wails/v2 v2.12.0

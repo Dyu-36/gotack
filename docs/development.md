@@ -1,7 +1,7 @@
 # Development and product builds
 
 Use PowerShell 7 x64 on Windows for the shipped product. Requirements are the Go
-version in `go.mod`, Node.js 24, pnpm 11.20.0, Wails v2.15.0 and Python for packaging.
+version in `go.mod`, Node.js 24, pnpm 11.20.0, Wails CLI v2.15.0 and Python for packaging.
 The shared CI action pins the frontend, Wails and packaging tool versions.
 Engine tests require Git Bash with `sh` and `bash` on `PATH`. Race-detector checks
 also require cgo and a C compiler available to Go.
@@ -24,11 +24,25 @@ building. The engine repository retains its required license notices. Pass
 ## Desktop development
 
 ```powershell
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 pnpm --dir frontend install --frozen-lockfile
 wails generate module
 ./scripts/build-engine.ps1 -EngineSource tack-engine-source
 wails dev
 ```
+
+The CLI stays at v2.15.0 for Go 1.27 binding generation. `go.mod` deliberately
+replaces the Wails application module with v2.12.0: v2.13–v2.16 bundle a Svelte 5
+reconnect overlay but instantiate it with `new Overlay(...)`, causing
+`Cannot read properties of null (reading 'nodes')` in `/wails/ipc.js`. The v2.12.0
+bundle uses the compatible constructor API; no module-cache patches are needed.
+This pins the whole Wails runtime, not only its overlay. Keep the replacement
+until an upstream release passes the browser reconnect smoke check:
+
+1. Open the Wails DevServer URL printed by `wails dev`, not Vite's port 5173.
+2. Stop the backend. The reconnect overlay must appear without a JavaScript error.
+3. Restart `wails dev` on the same address. The overlay must disappear, and
+   `window.go.main.App.ListProviders()` must resolve again without reloading the tab.
 
 Windows x64 Wails builds also verify and bundle the pinned engine through a
 post-build hook. A tested copy is cached in `resources/bin/` so `wails build
