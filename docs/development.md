@@ -6,6 +6,19 @@ The shared CI action pins the frontend, Wails and packaging tool versions.
 Engine tests require Git Bash with `sh` and `bash` on `PATH`. Race-detector checks
 also require cgo and a C compiler available to Go.
 
+## Codebase memory for OpenCode
+
+The repository's `opencode.json` connects OpenCode to the local
+`codebase-memory-mcp` executable. Install it from the
+[official releases](https://github.com/DeusData/codebase-memory-mcp/releases/latest)
+using the platform's installer, and ensure the executable is on `PATH`.
+From this repository, run `opencode mcp list` to check that
+`codebase-memory-mcp` is connected. Ask the agent to index this repository
+(or call `index_repository` with its absolute path), then check `index_status`
+and query a symbol with `search_graph`. The graph is stored locally; a fresh
+clone must be indexed separately. Updates use the upstream installer (or the
+package manager used for installation).
+
 ## Engine checkout
 
 The engine is maintained in its own Go module and repository, not nested as a
