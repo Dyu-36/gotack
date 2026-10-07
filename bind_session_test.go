@@ -133,6 +133,15 @@ func TestCurrentModelVisionUsesEngineCatalog(t *testing.T) {
 	}
 }
 
+func TestSendPromptRejectsSavedOpenRouterBatchModel(t *testing.T) {
+	a := NewApp()
+	a.cfg = &appconfig.Config{Provider: "openrouter", Model: "deepseek/deepseek-v4.1-flash:batch"}
+	runID, err := a.SendPrompt("session", "hello", nil)
+	if runID != "" || err == nil || !strings.Contains(err.Error(), "select a chat model without :batch") {
+		t.Fatalf("SendPrompt() = %q, %v; want guidance before contacting the engine", runID, err)
+	}
+}
+
 type contextBody struct {
 	ctx context.Context
 }

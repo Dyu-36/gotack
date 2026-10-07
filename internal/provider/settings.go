@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
@@ -38,6 +39,19 @@ func Reasoning(value string) (effort string, think bool) {
 	}
 }
 
+func isOpenRouterBatchModel(providerID, modelID string) bool {
+	return strings.TrimSpace(providerID) == "openrouter" &&
+		slices.Contains(strings.Split(strings.TrimSpace(modelID), ":")[1:], "batch")
+}
+
+// ValidateChatModel rejects models that require an asynchronous Batch API.
+func ValidateChatModel(providerID, modelID string) error {
+	if isOpenRouterBatchModel(providerID, modelID) {
+		return fmt.Errorf("OpenRouter model %q is for batch processing only; select a chat model without :batch in the model picker", strings.TrimSpace(modelID))
+	}
+	return nil
+}
+
 func ProviderUsesOAuth(ctx context.Context, api *engineapi.Client, workspaceID, providerID string) (bool, error) {
 	if providerID == CodexID {
 		return true, nil
@@ -58,6 +72,11 @@ func Apply(ctx context.Context, api *engineapi.Client, workspaceID string, setti
 	}
 	modelID := strings.TrimSpace(settings.Model)
 	endpoint := strings.TrimSpace(settings.CustomURL)
+	if !settings.ProviderOnly {
+		if err := ValidateChatModel(providerID, modelID); err != nil {
+			return err
+		}
+	}
 
 	if apiKey != "" && credentialProvider == "" {
 		return errors.New("provider is required before storing an API key")

@@ -143,7 +143,7 @@ func (p *PiCatalog) List(ctx context.Context, api *engineapi.Client, workspaceID
 		}
 		if hasConfig && !providerConfig.Disable && !accountScopedOpenAI {
 			engineDefaults := runtimeProvider.Models
-			merged, managed, routes := mergePiModels(providerConfig.Models, engineDefaults, workspaceManifest[providerID], desired, providerConfig.ModelRoutes, desiredRoutes, selectedModelIDs(config, providerID))
+			merged, managed, routes := mergePiModels(chatModelsForProvider(providerID, providerConfig.Models), engineDefaults, workspaceManifest[providerID], desired, providerConfig.ModelRoutes, desiredRoutes, selectedModelIDs(config, providerID))
 			providerModels[providerID] = merged
 			workspaceManifest[providerID] = managed
 			if !engineModelSlicesEqual(providerConfig.Models, merged) {
@@ -177,7 +177,7 @@ func (p *PiCatalog) List(ctx context.Context, api *engineapi.Client, workspaceID
 		entry.Name = name
 		entry.Type = providerType
 		entry.APIEndpoint = baseURL
-		entry.Models = providerModels[providerID]
+		entry.Models = chatModelsForProvider(providerID, providerModels[providerID])
 		applyCredentialStatus(&entry, providerConfig, hasConfig)
 		if len(entry.Models) == 0 && !entry.Configured {
 			continue // Do not offer setup for providers with no callable Pi models.
@@ -207,6 +207,7 @@ func (p *PiCatalog) List(ctx context.Context, api *engineapi.Client, workspaceID
 		if providerID != CodexID {
 			entry.Models = explicitConfiguredModels(providerConfig.Models, runtimeProvider.Models, selectedModelIDs(config, providerID))
 		}
+		entry.Models = chatModelsForProvider(providerID, entry.Models)
 		applyCredentialStatus(&entry, providerConfig, true)
 		setPiDefaults(&entry)
 		providerTemplates[providerID] = entry
@@ -305,7 +306,7 @@ func (p *PiCatalog) Prepare(ctx context.Context, api *engineapi.Client, workspac
 	}
 	workspaceManifest := manifest.workspace(workspaceID)
 	engineDefaults := runtimeProvider.Models
-	merged, managed, routes := mergePiModels(providerConfig.Models, engineDefaults, workspaceManifest[providerID], desired, providerConfig.ModelRoutes, desiredRoutes, selectedModelIDs(config, providerID))
+	merged, managed, routes := mergePiModels(chatModelsForProvider(providerID, providerConfig.Models), engineDefaults, workspaceManifest[providerID], desired, providerConfig.ModelRoutes, desiredRoutes, selectedModelIDs(config, providerID))
 	modelFields := map[string]any{
 		"providers." + providerID + ".models":          wireModels(merged),
 		"providers." + providerID + ".model_routes":    routes,
@@ -513,6 +514,11 @@ func supportedPiModels(providerID string, models []modelcatalog.Model, providerB
 	var supported []engineapi.Model
 	routes := make(map[string]engineapi.ModelRoute)
 	for _, model := range models {
+		// Pi lists OpenRouter batch variants as chat models using the same API
+		// as interactive models, but OpenRouter only serves them via Batch API.
+		if isOpenRouterBatchModel(providerID, model.ID) {
+			continue
+		}
 		if model.Enabled != nil && !*model.Enabled {
 			continue
 		}
@@ -550,6 +556,15 @@ func supportedPiModels(providerID string, models []modelcatalog.Model, providerB
 	}
 	sort.Slice(supported, func(i, j int) bool { return supported[i].ID < supported[j].ID })
 	return supported, routes
+}
+
+func chatModelsForProvider(providerID string, models []engineapi.Model) []engineapi.Model {
+	if providerID != "openrouter" {
+		return models
+	}
+	return slices.DeleteFunc(slices.Clone(models), func(model engineapi.Model) bool {
+		return isOpenRouterBatchModel(providerID, model.ID)
+	})
 }
 
 func piReasoningLevels(model modelcatalog.Model) []string {

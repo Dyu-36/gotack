@@ -1,8 +1,12 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
@@ -157,6 +161,130 @@ func TestPiCatalogPreservesCustomEndpointAndUsesPerModelEndpointWhenUnmodified(t
 		t.Fatal("the current Pi endpoint should not be treated as a custom override")
 	}
 }
+
+func TestPiCatalogExcludesOpenRouterBatchVariants(t *testing.T) {
+	t.Parallel()
+	models := []modelcatalog.Model{
+		{ID: "deepseek/deepseek-v4.1-flash", API: "openai-completions", Type: "chat", Input: []string{"text"}},
+		{ID: "deepseek/deepseek-v4.1-flash:batch", API: "openai-completions", Type: "chat", Input: []string{"text"}},
+		{ID: "deepseek/deepseek-v4.1-flash:batch:nitro", API: "openai-completions", Type: "chat"},
+		{ID: "deepseek/deepseek-v4.1-flash:nitro:batch", API: "openai-completions", Type: "chat"},
+		{ID: "vendor/model:free", API: "openai-completions", Type: "chat"},
+		{ID: "vendor/model:nitro", API: "openai-completions", Type: "chat"},
+	}
+	got, routes := supportedPiModels("openrouter", models, "https://openrouter.ai/api/v1", false)
+	var ids []string
+	for _, model := range got {
+		ids = append(ids, model.ID)
+	}
+	want := []string{"deepseek/deepseek-v4.1-flash", "vendor/model:free", "vendor/model:nitro"}
+	if !slices.Equal(ids, want) || len(routes) != len(want) {
+		t.Fatalf("chat models = %v, routes = %v; want %v", ids, routes, want)
+	}
+}
+
+func TestPiCatalogRemovesSavedOpenRouterBatchModels(t *testing.T) {
+	for _, operation := range []string{"list", "prepare", "disabled"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			const baseID = "deepseek/deepseek-v4.1-flash"
+			const batchID = baseID + ":batch"
+			base := modelcatalog.Model{ID: baseID, API: "openai-completions", BaseURL: "https://openrouter.ai/api/v1", Type: "chat"}
+			batch := base
+			batch.ID = batchID
+			source := piTestCatalogSource{"openrouter": {baseID: base, batchID: batch}}
+			current := []engineapi.Model{{ID: batchID, Name: "Saved batch model"}, {ID: "custom:free", Name: "Custom free model"}}
+			cfg := engineapi.WorkspaceConfig{
+				Providers: map[string]engineapi.ProviderConfig{"openrouter": {
+					Name: "OpenRouter", Type: "openai-compat", APIKey: "test-key", BaseURL: base.BaseURL,
+					Disable: operation == "disabled", Models: current,
+					ModelRoutes: map[string]engineapi.ModelRoute{batchID: {API: "openai-completions"}},
+				}},
+				Models: map[string]engineapi.SelectedModel{"large": {Provider: "openrouter", Model: batchID}},
+			}
+			var writtenModels []engineapi.Model
+			var writtenRoutes map[string]engineapi.ModelRoute
+			transport := piTestTransport(func(req *http.Request) (*http.Response, error) {
+				var body any
+				switch req.Method + " " + req.URL.Path {
+				case "GET /v1/workspaces/ws/providers":
+					body = []engineapi.Provider{{ID: "openrouter", Name: "OpenRouter", Type: "openai-compat", Models: current[:1], DefaultLargeModelID: batchID}}
+				case "GET /v1/workspaces/ws/config":
+					body = cfg
+				case "POST /v1/workspaces/ws/config/set-batch":
+					var payload struct {
+						Fields map[string]json.RawMessage `json:"fields"`
+					}
+					if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+						t.Fatal(err)
+					}
+					if err := json.Unmarshal(payload.Fields["providers.openrouter.models"], &writtenModels); err != nil {
+						t.Fatal(err)
+					}
+					if err := json.Unmarshal(payload.Fields["providers.openrouter.model_routes"], &writtenRoutes); err != nil {
+						t.Fatal(err)
+					}
+					body = map[string]any{}
+				default:
+					t.Fatalf("unexpected engine request: %s %s", req.Method, req.URL.Path)
+				}
+				data, err := json.Marshal(body)
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(data)))}, err
+			})
+			api := engineapi.NewClient(&http.Client{Transport: transport})
+			catalog := NewPiCatalog(source, "")
+			if operation == "prepare" {
+				if err := catalog.Prepare(t.Context(), api, "ws", "openrouter"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				providers, err := catalog.List(t.Context(), api, "ws")
+				if err != nil {
+					t.Fatal(err)
+				}
+				entry, ok := findProvider(providers, "openrouter")
+				if !ok || entry.DefaultLargeModelID == batchID {
+					t.Fatalf("OpenRouter defaults still select batch: %#v", entry)
+				}
+				assertPiChatModelIDs(t, entry.Models, []string{"custom:free", baseID})
+			}
+			if operation == "disabled" {
+				if writtenModels != nil {
+					t.Fatal("disabled provider should not be synchronized")
+				}
+				return
+			}
+			assertPiChatModelIDs(t, writtenModels, []string{"custom:free", baseID})
+			if _, exists := writtenRoutes[batchID]; exists {
+				t.Fatal("saved batch route was not removed")
+			}
+			if cfg.Providers["openrouter"].Models[0].ID != batchID {
+				t.Fatal("filter mutated the original config slice")
+			}
+		})
+	}
+}
+
+func assertPiChatModelIDs(t *testing.T, models []engineapi.Model, want []string) {
+	t.Helper()
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("chat model IDs = %v, want %v", ids, want)
+	}
+}
+
+type piTestCatalogSource modelcatalog.Catalog
+
+func (s piTestCatalogSource) Load(context.Context) (modelcatalog.Catalog, error) {
+	return modelcatalog.Catalog(s), nil
+}
+
+type piTestTransport func(*http.Request) (*http.Response, error)
+
+func (f piTestTransport) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestExplicitConfiguredModelsHidesMissingPiDefaultsButKeepsCustomAndSelected(t *testing.T) {
 	defaults := []engineapi.Model{

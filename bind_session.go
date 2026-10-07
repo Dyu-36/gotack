@@ -7,6 +7,7 @@ import (
 
 	"github.com/Dyu-36/gotack/internal/attachments"
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	providerdomain "github.com/Dyu-36/gotack/internal/provider"
 )
 
 type SessionInfo struct {
@@ -192,6 +193,11 @@ func (a *App) SessionMessages(id string) ([]MessageInfo, error) {
 }
 
 func (a *App) SendPrompt(id, text string, input []PromptAttachment) (string, error) {
+	if a.cfg != nil {
+		if err := providerdomain.ValidateChatModel(a.cfg.Provider, a.cfg.Model); err != nil {
+			return "", err
+		}
+	}
 	svc, err := a.services()
 	if err != nil {
 		return "", err

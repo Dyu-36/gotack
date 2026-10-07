@@ -45,6 +45,11 @@ func (a *App) applyEffectiveProviderSettings(settings SettingsInfo, apiKey strin
 }
 
 func (a *App) applyProviderSettings(settings SettingsInfo, apiKey string) error {
+	if !settings.ProviderOnly {
+		if err := providerdomain.ValidateChatModel(settings.Provider, settings.Model); err != nil {
+			return err
+		}
+	}
 	svc, err := a.services()
 	if err != nil {
 		return needWorkspace(apiKey, "Tack engine is not running")

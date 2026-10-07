@@ -144,6 +144,7 @@ func TestApplyProviderSettingsValidatesBeforeMutation(t *testing.T) {
 		{"Codex rejects API keys", SettingsInfo{Provider: codexProviderID}, "sk-test"},
 		{"OAuth rejects custom endpoints", SettingsInfo{Provider: codexProviderID, CustomURL: "https://example.invalid"}, ""},
 		{"config paths reject unsafe provider ids", SettingsInfo{Provider: "bad.id", ProviderOnly: true}, ""},
+		{"OpenRouter rejects batch chat models", SettingsInfo{Provider: "openrouter", Model: "deepseek/deepseek-v4.1-flash:batch"}, "sk-test"},
 	}
 
 	for _, tc := range cases {

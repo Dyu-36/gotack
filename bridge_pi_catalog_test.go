@@ -120,6 +120,20 @@ func TestBridgePiCatalogModels(t *testing.T) {
 	if err := api.SetProviderAPIKey(ctx, ws.ID, engineapi.ConfigScopeGlobal, "openai", "contract-key"); err != nil {
 		t.Fatalf("set known provider key: %v", err)
 	}
+	const batchModelID = "deepseek/deepseek-v4.1-flash:batch"
+	if err := api.SetConfigFields(ctx, ws.ID, engineapi.ConfigScopeWorkspace, map[string]any{
+		"providers.openrouter.api_key":         "contract-key",
+		"providers.openrouter.base_url":        providerHTTP.URL + "/v1",
+		"providers.openrouter.catalog_models":  true,
+		"providers.openrouter.discover_models": false,
+		"providers.openrouter.models":          []provider.LocalEngineModel{{ID: batchModelID, Name: "Saved batch model"}},
+		"providers.openrouter.model_routes":    map[string]engineapi.ModelRoute{batchModelID: {API: "openai-completions"}},
+	}); err != nil {
+		t.Fatalf("seed saved OpenRouter batch model: %v", err)
+	}
+	if err := api.SetPreferredModelPair(ctx, ws.ID, engineapi.ConfigScopeWorkspace, engineapi.SelectedModel{Provider: "openrouter", Model: batchModelID}); err != nil {
+		t.Fatalf("seed saved batch selection: %v", err)
+	}
 
 	listed, err := catalog.List(ctx, api, ws.ID)
 	if err != nil {
@@ -127,6 +141,19 @@ func TestBridgePiCatalogModels(t *testing.T) {
 	}
 	if !bridgeHasPiModel(listed, "pi-contract", "pi-contract-v1") {
 		t.Fatalf("first Pi model is not selectable from provider catalog: %+v", listed)
+	}
+	if bridgeHasPiModel(listed, "openrouter", batchModelID) || !bridgeHasPiModel(listed, "openrouter", "deepseek/deepseek-v4.1-flash") {
+		t.Fatal("OpenRouter picker must offer the base chat model and exclude the saved batch variant")
+	}
+	batchConfig, err := api.GetWorkspaceConfig(ctx, ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bridgeHasConfiguredPiModel(batchConfig.Providers["openrouter"].Models, batchModelID) {
+		t.Fatal("saved batch model was not removed from real engine config")
+	}
+	if _, exists := batchConfig.Providers["openrouter"].ModelRoutes[batchModelID]; exists {
+		t.Fatal("saved batch route was not removed from real engine config")
 	}
 	knownConfigured := false
 	for _, entry := range listed {
@@ -326,6 +353,10 @@ func bridgePiCatalog(baseURL string, includeSecond bool) modelcatalog.Catalog {
 		}
 	}
 	return modelcatalog.Catalog{
+		"openrouter": {
+			"deepseek/deepseek-v4.1-flash":       {ID: "deepseek/deepseek-v4.1-flash", API: "openai-completions", BaseURL: baseURL + "/v1", Input: []string{"text"}, Type: "chat"},
+			"deepseek/deepseek-v4.1-flash:batch": {ID: "deepseek/deepseek-v4.1-flash:batch", API: "openai-completions", BaseURL: baseURL + "/v1", Input: []string{"text"}, Type: "chat"},
+		},
 		"pi-contract": models,
 		"openai": {
 			"pi-openai-contract": {
