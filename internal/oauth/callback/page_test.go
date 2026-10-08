@@ -23,8 +23,8 @@ func TestWrite_Success(t *testing.T) {
 	require.Contains(t, page, `data-delay="5"`)
 	// Everything needed to render must be inlined, so the page still
 	// works with no network beyond the optional web font.
-	require.Contains(t, page, "<svg")
-	require.Contains(t, page, "data:image/svg")
+	require.Contains(t, page, `alt="Gotack"`)
+	require.Contains(t, page, "data:image/png")
 }
 
 // TestWrite_FailureDoesNotAutoClose guards the choice not to yank an error
@@ -48,25 +48,6 @@ func TestWrite_FailureDoesNotAutoClose(t *testing.T) {
 	require.NotContains(t, page, `data-delay=`)
 }
 
-// TestWrite_GrumpyOnFailure proves the artwork matches the outcome: a
-// grumpy heart when authorization fails, the smiling one when it works.
-// The two are told apart by a path unique to each drawing.
-func TestWrite_GrumpyOnFailure(t *testing.T) {
-	t.Parallel()
-
-	// The grumpy drawing carries a dark red accent (#ab2454) that the
-	// smiling heart does not.
-	const grumpy = "#ab2454"
-
-	var failed strings.Builder
-	require.NoError(t, Write(&failed, Result{ErrorCode: "access_denied"}))
-	require.Contains(t, failed.String(), grumpy)
-
-	var ok strings.Builder
-	require.NoError(t, Write(&ok, Result{Subject: "linear"}))
-	require.NotContains(t, ok.String(), grumpy)
-}
-
 // TestWrite_TerseFailure covers providers that report an error code with no
 // description: the page must still explain itself rather than trailing off.
 func TestWrite_TerseFailure(t *testing.T) {
@@ -80,7 +61,7 @@ func TestWrite_TerseFailure(t *testing.T) {
 	require.Contains(t, page, "did not")
 	// With no subject the sentence must not dangle on a preposition.
 	require.NotContains(t, page, "access to <span")
-	require.Contains(t, page, "Tack was not granted access.")
+	require.Contains(t, page, "Gotack was not granted access.")
 }
 
 // TestWrite_EscapesUntrustedText proves provider-supplied strings cannot

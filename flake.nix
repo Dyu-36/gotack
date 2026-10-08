@@ -1,5 +1,5 @@
 {
-  description = "Gotack development environment";
+  description = "Tack Engine development environment for Gotack";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

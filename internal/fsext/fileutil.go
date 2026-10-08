@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dyu-36/tack-engine/internal/csync"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/charlievieth/fastwalk"
-	"github.com/Dyu-36/tack-engine/internal/csync"
 )
 
 type FileInfo struct {
@@ -28,7 +28,7 @@ func SkipHidden(path string) bool {
 	}
 
 	commonIgnoredDirs := map[string]bool{
-		".tack":           true,
+		".tack":            true,
 		"node_modules":     true,
 		"vendor":           true,
 		"dist":             true,

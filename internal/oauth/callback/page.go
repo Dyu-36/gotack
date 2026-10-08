@@ -2,7 +2,7 @@
 // an OAuth redirect flow.
 //
 // The page is the only part of authorization the user sees outside the
-// terminal, so it is worth more than a line of plain text: it reports
+// Gotack application: it reports
 // whether authorization worked, names what was authorized, explains any
 // failure in the provider's own words, and offers to close itself.
 //
@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-//go:embed page.html page.css page.js heartbit.svg heartbit-grumpy.svg charm.svg
+//go:embed page.html page.css page.js gotack.png
 var assets embed.FS
 
 // closeDelay is how long the page counts down before asking the browser to
@@ -65,19 +65,10 @@ func Write(w io.Writer, r Result) error {
 	if err != nil {
 		return fmt.Errorf("read callback script: %w", err)
 	}
-	mark, err := assets.ReadFile("heartbit.svg")
+	mark, err := assets.ReadFile("gotack.png")
 	if err != nil {
 		return fmt.Errorf("read callback artwork: %w", err)
 	}
-	grumpy, err := assets.ReadFile("heartbit-grumpy.svg")
-	if err != nil {
-		return fmt.Errorf("read callback grumpy artwork: %w", err)
-	}
-	logo, err := assets.ReadFile("charm.svg")
-	if err != nil {
-		return fmt.Errorf("read callback logo: %w", err)
-	}
-
 	data := struct {
 		Title            string
 		Kind             string
@@ -90,8 +81,7 @@ func Write(w io.Writer, r Result) error {
 		CloseDelay       int
 		CSS              template.CSS
 		JS               template.JS
-		Heartbit         template.HTML
-		Charm            template.HTML
+		Icon             template.URL
 		Favicon          template.URL
 	}{
 		Subject:          r.Subject,
@@ -99,37 +89,29 @@ func Write(w io.Writer, r Result) error {
 		ErrorDescription: r.ErrorDescription,
 		CSS:              template.CSS(css),
 		JS:               template.JS(js),
-		Charm:            template.HTML(logo),
 	}
 
-	// The artwork reflects the outcome: a smiling heart on success, a
-	// grumpy one when the authorization did not go through. The favicon
-	// matches so the tab itself carries the state.
-	art := mark
-	if r.Failed() {
-		art = grumpy
-	}
-	data.Heartbit = template.HTML(art)
-	data.Favicon = template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(art))
+	data.Icon = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(mark))
+	data.Favicon = data.Icon
 
 	if r.Failed() {
-		data.Title = "Authorization failed — Tack"
+		data.Title = "Authorization failed — Gotack"
 		data.Kind = "failed"
 		data.Heading = "Authorization failed"
-		data.Detail = "Tack was not granted access to"
+		data.Detail = "Gotack was not granted access to"
 		if r.Subject == "" {
-			data.Detail = "Tack was not granted access."
+			data.Detail = "Gotack was not granted access."
 		}
 		// A failed page keeps itself open: the reader needs the reason,
 		// and closing the tab out from under them would take it away.
-		data.Status = "Close this tab and try again from Tack."
+		data.Status = "Close this tab and try again from Gotack."
 	} else {
-		data.Title = "Authorized — Tack"
+		data.Title = "Authorized — Gotack"
 		data.Kind = "ok"
 		data.Heading = "You’re all set"
-		data.Detail = "Tack is now connected to"
+		data.Detail = "Gotack is now connected to"
 		if r.Subject == "" {
-			data.Detail = "Tack is now connected."
+			data.Detail = "Gotack is now connected."
 		}
 		// Replaced by the countdown as soon as the script runs, so this
 		// text is what a reader without JavaScript is left with.

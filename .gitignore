@@ -37,6 +37,7 @@ Thumbs.db
 # Binary output directory
 /bin/
 /dist/
+/tack-engine
 
 # Local environment variables
 .env

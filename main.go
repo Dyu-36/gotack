@@ -17,6 +17,14 @@ import (
 	"github.com/Dyu-36/tack-engine/internal/server"
 )
 
+// @title Tack Engine API
+// @version 1.0
+// @description Local agent runtime for Gotack. Provides workspaces, sessions, agents, tools, LSP and MCP over local IPC or development TCP.
+// @contact.name Gotack contributors
+// @contact.url https://github.com/Dyu-36/tack-engine
+// @license.name FSL-1.1-MIT (inherited engine source)
+// @license.url https://github.com/Dyu-36/tack-engine/blob/main/LICENSE.md
+// @BasePath /v1
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		slog.Error("tack-engine failed", "error", err)

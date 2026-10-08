@@ -10,12 +10,12 @@ const docTemplate = `{
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
         "contact": {
-            "name": "Charm",
-            "url": "https://charm.sh"
+            "name": "Gotack contributors",
+            "url": "https://github.com/Dyu-36/tack-engine"
         },
         "license": {
-            "name": "MIT",
-            "url": "https://github.com/Dyu-36/tack-engine/blob/main/LICENSE"
+            "name": "FSL-1.1-MIT (inherited engine source)",
+            "url": "https://github.com/Dyu-36/tack-engine/blob/main/LICENSE.md"
         },
         "version": "{{.Version}}"
     },
@@ -431,6 +431,46 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/refresh-prompt": {
+            "post": {
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Refresh agent prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -2275,7 +2315,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_tack_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_proto.Message"
                             }
                         }
                     },
@@ -2611,7 +2651,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Question batch answer",
+                        "description": "Question answers",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -2653,7 +2693,7 @@ const docTemplate = `{
                 "tags": [
                     "questions"
                 ],
-                "summary": "Cancel question batch",
+                "summary": "Cancel pending question",
                 "parameters": [
                     {
                         "type": "string",
@@ -2668,12 +2708,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/proto.QuestionAnswerResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/proto.Error"
                         }
                     },
                     "404": {
@@ -3070,7 +3104,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_tack_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_proto.Message"
                             }
                         }
                     },
@@ -3120,7 +3154,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_tack_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_proto.Message"
                             }
                         }
                     },
@@ -3669,7 +3703,7 @@ const docTemplate = `{
         "csync.Map-string-config_ProviderConfig": {
             "type": "object"
         },
-        "github_com_charmbracelet_tack_internal_config.Config": {
+        "github_com_Dyu-36_tack-engine_internal_config.Config": {
             "type": "object",
             "properties": {
                 "$schema": {
@@ -3705,7 +3739,7 @@ const docTemplate = `{
                     }
                 },
                 "options": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Options"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Options"
                 },
                 "permissions": {
                     "$ref": "#/definitions/config.Permissions"
@@ -3733,7 +3767,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_charmbracelet_tack_internal_config.Options": {
+        "github_com_Dyu-36_tack-engine_internal_config.Options": {
             "type": "object",
             "properties": {
                 "attribution": {
@@ -3770,6 +3804,12 @@ const docTemplate = `{
                 "disable_provider_auto_update": {
                     "type": "boolean"
                 },
+                "disabled_extensions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "disabled_skills": {
                     "type": "array",
                     "items": {
@@ -3777,6 +3817,12 @@ const docTemplate = `{
                     }
                 },
                 "disabled_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "extension_paths": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -3797,6 +3843,9 @@ const docTemplate = `{
                 "progress": {
                     "type": "boolean"
                 },
+                "project_trusted": {
+                    "type": "boolean"
+                },
                 "skills_paths": {
                     "type": "array",
                     "items": {
@@ -3808,7 +3857,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_charmbracelet_tack_internal_config.Scope": {
+        "github_com_Dyu-36_tack-engine_internal_config.Scope": {
             "type": "integer",
             "enum": [
                 0,
@@ -3819,7 +3868,7 @@ const docTemplate = `{
                 "ScopeWorkspace"
             ]
         },
-        "github_com_charmbracelet_tack_internal_proto.Message": {
+        "github_com_Dyu-36_tack-engine_internal_proto.Message": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -3969,6 +4018,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/proto.Attachment"
                     }
                 },
+                "max_input_tokens": {
+                    "description": "MaxInputTokens is an optional per-run aggregate input budget. A zero\nvalue leaves ordinary runs unlimited; the desktop review path is the\nonly caller that sets it.",
+                    "type": "integer"
+                },
                 "prompt": {
                     "type": "string"
                 },
@@ -4054,7 +4107,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4068,7 +4121,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/config.SelectedModelType"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4086,7 +4139,7 @@ const docTemplate = `{
                     }
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4106,7 +4159,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4117,7 +4170,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4128,7 +4181,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4144,7 +4197,7 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 }
             }
         },
@@ -4155,7 +4208,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Scope"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope"
                 },
                 "value": {}
             }
@@ -4760,7 +4813,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "config": {
-                    "$ref": "#/definitions/github_com_charmbracelet_tack_internal_config.Config"
+                    "$ref": "#/definitions/github_com_Dyu-36_tack-engine_internal_config.Config"
                 },
                 "data_dir": {
                     "type": "string"
@@ -4828,8 +4881,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "/v1",
 	Schemes:          []string{},
-	Title:            "Tack API",
-	Description:      "Tack is a terminal-based AI coding assistant. This API is served over a Unix socket (or Windows named pipe) and provides programmatic access to workspaces, sessions, agents, LSP, MCP, and more.",
+	Title:            "Tack Engine API",
+	Description:      "Local agent runtime for Gotack. Provides workspaces, sessions, agents, tools, LSP and MCP over local IPC or development TCP.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

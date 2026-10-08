@@ -78,16 +78,10 @@ body {
   margin: 0 auto 1.75rem;
 }
 
-.mark svg {
+.mark img {
   width: 100%;
   height: auto;
   display: block;
-}
-
-/* Tint the heart to match the outcome so the state is legible before a
-   single word is read. */
-.card.failed .mark .heart {
-  fill: var(--coral);
 }
 
 h1 {
@@ -203,12 +197,4 @@ h1 {
 
 .brand a:hover {
   opacity: 0.8;
-}
-
-.brand svg {
-  display: block;
-  height: 1.5rem;
-  width: auto;
-  /* viewBox-only SVGs collapse to 0 width under height + width:auto. */
-  aspect-ratio: 153 / 47;
 }

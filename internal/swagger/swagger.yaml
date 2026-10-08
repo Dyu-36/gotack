@@ -333,7 +333,7 @@ definitions:
     - TrailerStyleAssistedBy
   csync.Map-string-config_ProviderConfig:
     type: object
-  github_com_charmbracelet_tack_internal_config.Config:
+  github_com_Dyu-36_tack-engine_internal_config.Config:
     properties:
       $schema:
         type: string
@@ -358,7 +358,7 @@ definitions:
         description: We currently only support large/small as values here.
         type: object
       options:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Options'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Options'
       permissions:
         $ref: '#/definitions/config.Permissions'
       providers:
@@ -375,7 +375,7 @@ definitions:
       tools:
         $ref: '#/definitions/config.Tools'
     type: object
-  github_com_charmbracelet_tack_internal_config.Options:
+  github_com_Dyu-36_tack-engine_internal_config.Options:
     properties:
       attribution:
         $ref: '#/definitions/config.Attribution'
@@ -404,11 +404,19 @@ definitions:
         type: boolean
       disable_provider_auto_update:
         type: boolean
+      disabled_extensions:
+        items:
+          type: string
+        type: array
       disabled_skills:
         items:
           type: string
         type: array
       disabled_tools:
+        items:
+          type: string
+        type: array
+      extension_paths:
         items:
           type: string
         type: array
@@ -422,6 +430,8 @@ definitions:
         type: string
       progress:
         type: boolean
+      project_trusted:
+        type: boolean
       skills_paths:
         items:
           type: string
@@ -429,7 +439,7 @@ definitions:
       tui:
         $ref: '#/definitions/config.TUIOptions'
     type: object
-  github_com_charmbracelet_tack_internal_config.Scope:
+  github_com_Dyu-36_tack-engine_internal_config.Scope:
     enum:
     - 0
     - 1
@@ -437,7 +447,7 @@ definitions:
     x-enum-varnames:
     - ScopeGlobal
     - ScopeWorkspace
-  github_com_charmbracelet_tack_internal_proto.Message:
+  github_com_Dyu-36_tack-engine_internal_proto.Message:
     properties:
       created_at:
         type: integer
@@ -540,6 +550,12 @@ definitions:
         items:
           $ref: '#/definitions/proto.Attachment'
         type: array
+      max_input_tokens:
+        description: |-
+          MaxInputTokens is an optional per-run aggregate input budget. A zero
+          value leaves ordinary runs unlimited; the desktop review path is the
+          only caller that sets it.
+        type: integer
       prompt:
         type: string
       run_id:
@@ -596,7 +612,7 @@ definitions:
       enabled:
         type: boolean
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     type: object
   proto.ConfigModelRequest:
     properties:
@@ -605,7 +621,7 @@ definitions:
       model_type:
         $ref: '#/definitions/config.SelectedModelType'
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     type: object
   proto.ConfigModelsRequest:
     properties:
@@ -616,7 +632,7 @@ definitions:
           a slot.
         type: object
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     required:
     - models
     type: object
@@ -631,21 +647,21 @@ definitions:
       provider_id:
         type: string
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     type: object
   proto.ConfigRefreshOAuthRequest:
     properties:
       provider_id:
         type: string
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     type: object
   proto.ConfigRemoveRequest:
     properties:
       key:
         type: string
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     type: object
   proto.ConfigSetBatchRequest:
     properties:
@@ -655,7 +671,7 @@ definitions:
           entry.
         type: object
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
     required:
     - fields
     type: object
@@ -664,7 +680,7 @@ definitions:
       key:
         type: string
       scope:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Scope'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Scope'
       value: {}
     type: object
   proto.CurrentSession:
@@ -1068,7 +1084,7 @@ definitions:
       client_id:
         type: string
       config:
-        $ref: '#/definitions/github_com_charmbracelet_tack_internal_config.Config'
+        $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_config.Config'
       data_dir:
         type: string
       debug:
@@ -1117,15 +1133,14 @@ definitions:
     - Hour
 info:
   contact:
-    name: Charm
-    url: https://charm.sh
-  description: Tack is a terminal-based AI coding assistant. This API is served over
-    a Unix socket (or Windows named pipe) and provides programmatic access to workspaces,
-    sessions, agents, LSP, MCP, and more.
+    name: Gotack contributors
+    url: https://github.com/Dyu-36/tack-engine
+  description: Local agent runtime for Gotack. Provides workspaces, sessions, agents,
+    tools, LSP and MCP over local IPC or development TCP.
   license:
-    name: MIT
-    url: https://github.com/Dyu-36/tack-engine/blob/main/LICENSE
-  title: Tack API
+    name: FSL-1.1-MIT (inherited engine source)
+    url: https://github.com/Dyu-36/tack-engine/blob/main/LICENSE.md
+  title: Tack Engine API
   version: "1.0"
 paths:
   /clients/{client_id}:
@@ -1401,6 +1416,32 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Initialize agent
+      tags:
+      - agent
+  /workspaces/{id}/agent/refresh-prompt:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Refresh agent prompt
       tags:
       - agent
   /workspaces/{id}/agent/sessions/{sid}:
@@ -2599,7 +2640,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_charmbracelet_tack_internal_proto.Message'
+              $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_proto.Message'
             type: array
         "404":
           description: Not Found
@@ -2817,7 +2858,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: Question batch answer
+      - description: Question answers
         in: body
         name: request
         required: true
@@ -2856,10 +2897,6 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/proto.QuestionAnswerResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/proto.Error'
         "404":
           description: Not Found
           schema:
@@ -2868,7 +2905,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/proto.Error'
-      summary: Cancel question batch
+      summary: Cancel pending question
       tags:
       - questions
   /workspaces/{id}/sessions:
@@ -3121,7 +3158,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_charmbracelet_tack_internal_proto.Message'
+              $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_proto.Message'
             type: array
         "404":
           description: Not Found
@@ -3154,7 +3191,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_charmbracelet_tack_internal_proto.Message'
+              $ref: '#/definitions/github_com_Dyu-36_tack-engine_internal_proto.Message'
             type: array
         "404":
           description: Not Found
