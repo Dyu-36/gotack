@@ -23,7 +23,9 @@ When a C compiler is available, also run the race suite used by Windows CI:
 go test -race -tags gotacktest -mod=readonly ./...
 ```
 
-Format Go changes with `gofmt`. Format the OAuth callback HTML, CSS and JavaScript
+Format Go changes with `go fmt ./...`, which uses the module's selected toolchain.
+If invoking `gofmt` directly, use the binary from that toolchain's `GOROOT` rather
+than an older system installation. Format the OAuth callback HTML, CSS and JavaScript
 with Prettier, retaining template actions on one line inside HTML tags. Commit
 source and lockfiles; keep binaries, generated previews and local state out of
 Git.

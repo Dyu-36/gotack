@@ -47,7 +47,7 @@ tasks:
   fmt:
     desc: Format Go source
     cmds:
-      - gofumpt -w .
+      - go fmt ./...
 
   fmt:html:
     desc: Format the OAuth callback page
