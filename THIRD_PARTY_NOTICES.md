@@ -7,9 +7,12 @@ It does not replace the licenses of the separately built engine or dependencies.
 
 Gotack communicates over local IPC with [Dyu-36/tack-engine](https://github.com/Dyu-36/tack-engine),
 pinned to the exact commit in `.tack-pin`. That repository contains a derivative of code originally published by Charmbracelet.
-The current pinned engine's `LICENSE.md` identifies FSL-1.1-MIT and credits
-Charmbracelet, Inc. The product build copies that exact file into
-`licenses/tack-engine-LICENSE`; the engine's own license remains authoritative.
+The engine's `LICENSE.md` preserves FSL-1.1-MIT and MIT terms on inherited source,
+and scopes Apache-2.0 to its independently authored Gotack documentation and
+artwork. The engine as a whole is not offered under Apache-2.0 alone. The product
+build copies its complete license into `licenses/tack-engine-LICENSE` and includes
+its `NOTICE` and `THIRD_PARTY_NOTICES.md` when present; the engine's own terms
+remain authoritative.
 
 ## Go, frontend and timetable dependencies
 

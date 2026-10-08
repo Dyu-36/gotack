@@ -85,6 +85,12 @@ try {
         throw 'Pinned engine license is missing'
     }
     Copy-Item -LiteralPath $engineLicense -Destination (Join-Path $staging 'licenses/tack-engine-LICENSE')
+    foreach ($engineNotice in @('NOTICE', 'THIRD_PARTY_NOTICES.md')) {
+        $engineNoticePath = Join-Path $engineRoot $engineNotice
+        if (Test-Path -LiteralPath $engineNoticePath -PathType Leaf) {
+            Copy-Item -LiteralPath $engineNoticePath -Destination (Join-Path $staging ('licenses/tack-engine-' + $engineNotice))
+        }
+    }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'internal/modelcatalog/LICENSE.pi') -Destination (Join-Path $staging 'licenses/pi-LICENSE')
     $hostRevision = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify desktop revision' }
