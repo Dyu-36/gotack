@@ -1,5 +1,4 @@
 param(
-    [string]$EngineSource = (Join-Path $PSScriptRoot '../tack-engine-source'),
     [string]$Python = 'python',
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '../artifacts')
 )
@@ -10,7 +9,7 @@ if (-not $IsWindows -or -not [Environment]::Is64BitProcess) {
     throw 'The packaged desktop target is Windows x64; use PowerShell 7 x64 on Windows'
 }
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$engineRoot = (Resolve-Path -LiteralPath $EngineSource).Path
+$engineRoot = Join-Path $repoRoot 'internal/agentcore'
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 
 function Invoke-Checked {
@@ -31,8 +30,8 @@ try {
     & (Join-Path $PSScriptRoot 'stop-app.ps1')
     Invoke-Checked 'pnpm' @('--dir', 'frontend', 'install', '--frozen-lockfile')
     Invoke-Checked 'wails' @('generate', 'module')
-    Invoke-Checked 'go' @('test', '-mod=readonly', '-count=1', './...')
-    Invoke-Checked 'go' @('vet', '-mod=readonly', './...')
+    Invoke-Checked 'go' @('test', '-tags', 'gotacktest', '-mod=readonly', '-count=1', './...')
+    Invoke-Checked 'go' @('vet', '-tags', 'gotacktest', '-copylocks=false', '-mod=readonly', './...')
     Invoke-Checked 'go' @('run', './internal/uievents/gen/main.go')
     Invoke-Checked 'git' @('diff', '--exit-code', '--', 'frontend/src/platform/events.generated.ts')
     Invoke-Checked 'pnpm' @('--dir', 'frontend', 'check')
@@ -41,19 +40,21 @@ try {
 
     # Keep the verified sidecar outside build/bin so Wails -clean cannot erase
     # it. The desktop post-build hook copies it beside the compiled host.
-    & (Join-Path $PSScriptRoot 'build-engine.ps1') -EngineSource $engineRoot -Output (Join-Path $repoRoot 'resources/bin/tack-engine.exe')
-    Invoke-Checked 'wails' @('build', '-platform', 'windows/amd64', '-clean', '-webview2', 'download')
+    & (Join-Path $PSScriptRoot 'build-engine.ps1') -Output (Join-Path $repoRoot 'resources/bin/gotack.exe')
+    $verifiedEngine = Join-Path $repoRoot 'resources/bin/gotack.exe'
+    $buildInfo = Get-Content -LiteralPath "$verifiedEngine.build.json" -Raw | ConvertFrom-Json
+    Invoke-Checked 'wails' @('build', '-ldflags', $buildInfo.linker_flags, '-platform', 'windows/amd64', '-clean', '-webview2', 'download')
     # The Wails output layout is an invariant: one host binary plus the bundled
-    # engine under resources/. A path passed to -o would leave a duplicate host
+    # terminal/server beside it. A path passed to -o would leave a duplicate host
     # tree behind, so refuse to package an output that violates it.
     & (Join-Path $PSScriptRoot 'verify-build-output.ps1')
 
-    $engineExecutable = Join-Path $repoRoot 'build/bin/resources/tack-engine.exe'
+    $engineExecutable = Join-Path $repoRoot 'build/bin/gotack.exe'
     Invoke-Checked $Python @((Join-Path $PSScriptRoot 'build-timetable-runtime.py'))
 
     $env:GOTACK_TEST_ENGINE = $engineExecutable
     $env:GOTACK_REQUIRE_ENGINE = '1'
-    Invoke-Checked 'go' @('test', '-mod=readonly', '-count=1', '-run', '^TestBridge', '-v', '.')
+    Invoke-Checked 'go' @('test', '-tags', 'gotacktest', '-mod=readonly', '-count=1', '-run', '^TestBridge', '-v', '.')
     $engineManifest = Get-Content -LiteralPath "$engineExecutable.build.json" -Raw | ConvertFrom-Json
     $runtimeRoot = Join-Path $repoRoot 'build/bin/resources/python'
     $runtimeManifest = Get-Content -LiteralPath (Join-Path $runtimeRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json
@@ -65,9 +66,9 @@ try {
     $staging = Join-Path $repoRoot ('build/bin/product-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $staging 'resources/python') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $staging 'licenses') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'build/bin/gotack.exe') -Destination (Join-Path $staging 'gotack.exe')
-    Copy-Item -LiteralPath $engineExecutable -Destination (Join-Path $staging 'resources/tack-engine.exe')
-    Copy-Item -LiteralPath "$engineExecutable.build.json" -Destination (Join-Path $staging 'resources/tack-engine.exe.build.json')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'build/bin/gotack-desktop.exe') -Destination (Join-Path $staging 'gotack-desktop.exe')
+    Copy-Item -LiteralPath $engineExecutable -Destination (Join-Path $staging 'gotack.exe')
+    Copy-Item -LiteralPath "$engineExecutable.build.json" -Destination (Join-Path $staging 'gotack.exe.build.json')
     Get-ChildItem -LiteralPath $runtimeRoot -Force | Copy-Item -Destination (Join-Path $staging 'resources/python') -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination (Join-Path $staging 'README.md')
     foreach ($notice in @('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md')) {
@@ -100,7 +101,9 @@ try {
         target = 'windows-amd64'
         host_commit = $hostRevision
         engine_commit = $engineManifest.engine_commit
-        host_sha256 = (Get-FileHash -LiteralPath (Join-Path $staging 'gotack.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        source_digest = $engineManifest.source_digest
+        protocol = $engineManifest.protocol
+        host_sha256 = (Get-FileHash -LiteralPath (Join-Path $staging 'gotack-desktop.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         engine_sha256 = $engineManifest.executable_sha256
         timetable_runtime_manifest_sha256 = (Get-FileHash -LiteralPath (Join-Path $staging 'resources/python/runtime-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
         checks = @('desktop-tests', 'desktop-vet', 'frontend-check', 'frontend-tests', 'frontend-build', 'engine-tests', 'engine-vet', 'real-ipc-contract', 'packaged-cp-sat', 'excel-template-roundtrip')

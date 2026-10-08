@@ -37,8 +37,8 @@ Include screenshots for visible UI changes. Report vulnerabilities through
 
 ## Engine and product validation
 
-The engine is a separate repository. Its checkout must match `.tack-pin` and be
-clean before packaging. Follow [the development guide](docs/development.md) to
+The engine lives in `internal/agentcore` and is built from the same commit as
+the desktop and terminal. Run Go tests with `-tags gotacktest`. Follow [the development guide](docs/development.md) to
 run required real IPC tests or build the complete Windows distribution.
 
 CI checks tests, vet, staticcheck, deadcode, formatting, generated events, frontend
@@ -48,4 +48,4 @@ checks and product integration. The shared toolchain setup lives in
 ## Contributions and licensing
 
 Gotack host source uses Apache-2.0; see [LICENSE](LICENSE). Keep existing notices
-and distinguish host changes from the separately licensed engine and dependencies.
+and distinguish host changes from the imported engine and dependencies.

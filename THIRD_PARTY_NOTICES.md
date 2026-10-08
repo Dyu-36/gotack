@@ -1,13 +1,15 @@
 # Third-party components
 
 The Apache-2.0 license in this repository applies to the Gotack desktop host.
-It does not replace the licenses of the separately built engine or dependencies.
+It does not replace the licenses of the imported engine or dependencies.
 
 ## Agent engine
 
-Gotack communicates over local IPC with [Dyu-36/tack-engine](https://github.com/Dyu-36/tack-engine),
-pinned to the exact commit in `.tack-pin`. That repository contains a derivative of code originally published by Charmbracelet.
-The engine's `LICENSE.md` preserves FSL-1.1-MIT and MIT terms on inherited source,
+Gotack imports the engine under `internal/agentcore` from historical
+Dyu-36/tack-engine revision `00205e5f73fa9bac13c46e055a7a076b3bb51d50`.
+Its Git history is preserved in this repository. It contains a derivative of code
+originally published by Charmbracelet.
+The engine's `internal/agentcore/LICENSE.md` preserves FSL-1.1-MIT and MIT terms on inherited source,
 and scopes Apache-2.0 to its independently authored Gotack documentation and
 artwork. The engine as a whole is not offered under Apache-2.0 alone. The product
 build copies its complete license into `licenses/tack-engine-LICENSE` and includes

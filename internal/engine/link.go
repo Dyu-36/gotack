@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Dyu-36/gotack/internal/buildinfo"
 	"net/http"
 	"strings"
 	"sync"
@@ -134,6 +135,12 @@ func (l *Link) Connect(scope context.Context, ready ReadyFunc) error {
 		return fmt.Errorf("handshake: %w", err)
 	}
 
+	if vi.Protocol != buildinfo.Protocol {
+		return fmt.Errorf("engine protocol mismatch: expected %d, got %d; rebuild or reinstall Gotack", buildinfo.Protocol, vi.Protocol)
+	}
+	if buildinfo.SourceDigest != "" && vi.SourceDigest != buildinfo.SourceDigest {
+		return fmt.Errorf("engine source mismatch; rebuild or reinstall Gotack")
+	}
 	if l.expectedCommit != "" && vi.Commit != l.expectedCommit {
 		return fmt.Errorf("engine commit mismatch: expected %s, got %s; reinstall the bundled engine", l.expectedCommit, vi.Commit)
 	}

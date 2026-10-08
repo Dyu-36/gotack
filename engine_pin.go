@@ -1,16 +1,12 @@
 package main
 
-import (
-	_ "embed"
-	"strings"
-)
+import "github.com/Dyu-36/gotack/internal/buildinfo"
 
-//go:embed .tack-pin
-var packagedEngineCommit string
+var packagedEngineCommit = buildinfo.Revision()
 
 func expectedEngineCommit(customBinary string) string {
 	if customBinary != "" {
 		return ""
 	}
-	return strings.TrimSpace(packagedEngineCommit)
+	return packagedEngineCommit
 }

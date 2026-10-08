@@ -65,7 +65,7 @@ func bridgeTestRuntime(t *testing.T) (*engineapi.Client, string) {
 	if err != nil {
 		t.Fatalf("engine handshake: %v", err)
 	}
-	if vi.Commit != strings.TrimSpace(packagedEngineCommit) {
+	if packagedEngineCommit != "" && vi.Commit != strings.TrimSpace(packagedEngineCommit) {
 		t.Fatalf("wrong engine: expected %s, got %s", strings.TrimSpace(packagedEngineCommit), vi.Commit)
 	}
 	t.Logf("verified engine commit=%s version=%s platform=%s", vi.Commit, vi.Version, vi.Platform)

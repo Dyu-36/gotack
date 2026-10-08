@@ -1,136 +1,67 @@
-# Development and product builds
+# Development
 
-Use PowerShell 7 x64 on Windows for the shipped product. Requirements are the Go
-version in `go.mod`, Node.js 24, pnpm 11.20.0, Wails CLI v2.15.0 and Python for packaging.
-The shared CI action pins the frontend, Wails and packaging tool versions.
-Engine tests require Git Bash with `sh` and `bash` on `PATH`. Race-detector checks
-also require cgo and a C compiler available to Go.
+Clone only `github.com/Dyu-36/gotack`. The main branch contains all engine source,
+terminal code, desktop code, licenses and release tooling. One `go.mod` builds
+both interfaces; no engine checkout, download, pin file or source override is needed.
 
-## Codebase memory for OpenCode
-
-The repository's `opencode.json` connects OpenCode to the local
-`codebase-memory-mcp` executable. Install it from the
-[official releases](https://github.com/DeusData/codebase-memory-mcp/releases/latest)
-using the platform's installer, and ensure the executable is on `PATH`.
-From this repository, run `opencode mcp list` to check that
-`codebase-memory-mcp` is connected. Ask the agent to index this repository
-(or call `index_repository` with its absolute path), then check `index_status`
-and query a symbol with `search_graph`. The graph is stored locally; a fresh
-clone must be indexed separately. Updates use the upstream installer (or the
-package manager used for installation).
-
-## Engine checkout
-
-The engine is maintained in its own Go module and repository, not nested as a
-host-repository submodule:
+Use Windows x64, PowerShell 7, Go from `go.mod`, Node.js 24, pnpm 11.20.0
+and Wails v2.15.0 for the complete desktop product.
 
 ```powershell
-git clone --no-checkout https://github.com/Dyu-36/tack-engine.git tack-engine-source
-git -C tack-engine-source checkout --detach (Get-Content .tack-pin -Raw).Trim()
-```
-
-The committed `.tack-pin` identifies the exact engine source revision. Keep the
-checkout clean: the build checks its revision and source contents before
-building. The engine repository retains its required license notices. Pass
-`-EngineSource <path>` to use a checkout outside the workspace.
-
-## Desktop development
-
-```powershell
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 pnpm --dir frontend install --frozen-lockfile
 wails generate module
-./scripts/build-engine.ps1 -EngineSource tack-engine-source
-wails dev
+go test -tags gotacktest -mod=readonly ./...
+go vet -tags gotacktest -copylocks=false -mod=readonly ./...
+pnpm --dir frontend check
+pnpm --dir frontend test
+pnpm --dir frontend build
+go build -o build/bin/gotack.exe ./cmd/gotack
+./build/bin/gotack.exe chat --workspace .
+wails build -clean
 ```
 
-The CLI stays at v2.15.0 for Go 1.27 binding generation. `go.mod` deliberately
-replaces the Wails application module with v2.12.0: v2.13–v2.16 bundle a Svelte 5
-reconnect overlay but instantiate it with `new Overlay(...)`, causing
-`Cannot read properties of null (reading 'nodes')` in `/wails/ipc.js`. The v2.12.0
-bundle uses the compatible constructor API; no module-cache patches are needed.
-This pins the whole Wails runtime, not only its overlay. Keep the replacement
-until an upstream release passes the browser reconnect smoke check:
+The inherited engine's cross-package test helpers and tests use `gotacktest`;
+production builds omit that tag. The JSON schema alias uses a value receiver,
+so engine vet disables only the copylocks analyzer.
 
-1. Open the Wails DevServer URL printed by `wails dev`, not Vite's port 5173.
-2. Stop the backend. The reconnect overlay must appear without a JavaScript error.
-3. Restart `wails dev` on the same address. The overlay must disappear, and
-   `window.go.main.App.ListProviders()` must resolve again without reloading the tab.
+`gotack chat` reads prompts interactively and streams responses. `gotack run`
+accepts a prompt after its flags. `--session ID` resumes persisted messages.
+Both use the shared IPC client and process supervisor. `gotack serve` starts the
+same server directly and accepts `--host`, `--data-dir`, and `--debug`.
+The former `server` command remains an alias for custom binary configurations.
 
-Windows x64 Wails builds also verify and bundle the pinned engine through a
-post-build hook. A tested copy is cached in `resources/bin/` so `wails build
--clean` retains it. If no verified copy exists, the hook builds from
-`tack-engine-source` (or the checkout in `GOTACK_ENGINE_SOURCE`). The build
-fails with setup instructions if that source is missing. Keep the generated
-`resources/` directory beside `gotack.exe`; no engine entry in `PATH` is needed.
-Reconnect searches again if the engine was installed after Gotack started.
+Configuration paths, `.tack` workspace databases, desktop settings, global
+provider credentials, trust decisions, and the IPC endpoint remain compatible.
+The terminal reuses the desktop's configured engine override, workspace models,
+and trust store. New terminal workspaces request tool permissions by default;
+`--yolo` is an explicit opt-in. Loading project prompts/skills requires an existing
+trust decision made through the desktop when protected resources are present.
 
-For a browser-only UI preview, use `pnpm --dir frontend dev`. Conversations use
-DEV-only fixtures when the desktop bridge is unavailable. Production requires
-the Wails bridge. See [CONTRIBUTING](../CONTRIBUTING.md) for checks.
-
-## Build outputs
-
-Wails v2 fixes the desktop output directory at `build/bin/<outputfilename>`, so
-`wails.json` cannot relocate it. Keep one output per purpose:
-
-- `build/bin/` — Wails output: `gotack.exe` plus the bundled `resources/tack-engine.exe`.
-- `resources/bin/tack-engine.exe` — tested engine cache that survives `wails build -clean`.
-- `artifacts/` — the distribution written by `scripts/build-product.ps1`.
-
-Always build with `wails build -clean`: it drops stale entries such as a locked
-`gotack.exe~`. Never pass a directory to `-o`: Wails joins that value onto
-`build/bin`, so `-o pi-update/gotack.exe` leaves a duplicate host and a second
-engine copy behind. `scripts/verify-build-output.ps1` checks the layout and
-`scripts/ensure-engine.ps1` refuses to bundle an engine outside `build/bin`; the
-product build packages only an output that passes both.
-
-Windows cannot replace a running host binary, so the Wails pre-build hook and
-`scripts/build-product.ps1` run `scripts/stop-app.ps1` first. It stops
-`gotack.exe` and `tack-engine.exe` started from `build/bin`, leaves same-named
-processes started elsewhere alone, and fails if the output files stay locked.
-
-## Real host-engine contract tests
+For validated builds and the complete portable distribution:
 
 ```powershell
-$env:GOTACK_TEST_ENGINE = (Resolve-Path build/bin/resources/tack-engine.exe).Path
+./scripts/build-engine.ps1
+$env:GOTACK_TEST_ENGINE = (Resolve-Path build/bin/gotack.exe).Path
 $env:GOTACK_REQUIRE_ENGINE = '1'
-go test -mod=readonly -count=1 -run '^TestBridge' -v .
+go test -tags gotacktest -count=1 -run '^TestBridge' -v .
+./scripts/build-product.ps1
 ```
 
-These variables make tests use the actual pinned sidecar. Without an engine path,
-ordinary `go test ./...` skips those integration tests.
+All product components build from the same Gotack commit. The build manifest
+records the source SHA256 digest, commit, protocol, executable checksum, and
+validation results. Both binaries embed the same digest and reject stale engines.
+Direct development builds always enforce protocol compatibility and check the
+commit when Go embeds it. The portable output contains `gotack.exe`,
+`gotack-desktop.exe`, Python timetable resources, notices and documentation.
+Release automation inventories and attests that exact archive.
 
-## Complete Windows distribution
+Build output belongs in `build/bin`; do not pass a directory to Wails `-o`.
+The post-build hook builds the terminal/server next to the desktop. The pre-build
+hook stops only processes running from this repository's output directory.
+Generated frontend bindings, distributions, runtime downloads and artifacts are
+ignored. Use `scripts/clean.ps1` for generated output cleanup.
 
-```powershell
-./scripts/build-product.ps1 -EngineSource <path-to-exact-pinned-tack-engine>
-```
-
-The build runs desktop tests/vet and frontend checks/tests/build, verifies and
-builds the pinned engine, builds Wails, prepares the offline Python/OR-Tools
-runtime and exercises real IPC. Timetable validation requires CP-SAT and round
-trips of both canonical Excel templates.
-
-The portable archive contains `gotack.exe`, `resources/tack-engine.exe`, the
-Python runtime, host and engine licenses, a product manifest and SHA-256 checksums.
-Product CI checks the complete distribution and concurrency behavior; release
-automation additionally writes an SBOM and build attestations.
-
-## Local cleanup
-
-Preview cleanup before removing generated local files:
-
-```powershell
-./scripts/clean.ps1 -WhatIf
-./scripts/clean.ps1
-./scripts/clean.ps1 -BuildOutputs -Dependencies -WhatIf
-./scripts/clean.ps1 -BuildOutputs -Dependencies
-```
-
-The default removes `artifacts/` and the empty legacy `internal/changes/` directory.
-`-BuildOutputs` also removes `build/bin/`, `frontend/dist/` and `frontend/wailsjs/`.
-`-Dependencies` also removes the two Node dependency directories. Restore them
-with the install, bindings and build commands above before developing again.
-Build icons, manifests, source, lockfiles, engine checkout and local history
-backups are retained. History archives in `.history-backup/` are ignored.
+Engine history was merged into Gotack before importing source from revision
+`00205e5f73fa9bac13c46e055a7a076b3bb51d50`. Its authoritative license and notices
+are preserved in `internal/agentcore/`. The historical engine repository is no
+longer an input to any build, test, or release command.

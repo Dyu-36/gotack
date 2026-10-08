@@ -1,76 +1,55 @@
 param(
-    [string]$EngineSource = (Join-Path $PSScriptRoot '../tack-engine-source'),
-    [string]$Output = (Join-Path $PSScriptRoot '../build/bin/resources/tack-engine.exe')
+    [string]$Output = (Join-Path $PSScriptRoot '../build/bin/gotack.exe')
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$engineRoot = (Resolve-Path -LiteralPath $EngineSource).Path
+$engineRoot = $repoRoot
 $outputPath = [IO.Path]::GetFullPath($Output)
-$pin = (Get-Content -LiteralPath (Join-Path $repoRoot '.tack-pin') -Raw).Trim()
-if ($pin -notmatch '^[0-9a-f]{40}$') { throw 'Invalid engine pin' }
-$revision = (& git -C $engineRoot rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $revision -ne $pin) {
-    throw "Engine checkout must match .tack-pin: $pin"
-}
-$dirty = @(& git -C $engineRoot status --porcelain --untracked-files=normal)
-if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
-    throw 'Refusing to package an engine with modified or untracked sources'
-}
+$revision = (& git -C $repoRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot identify Gotack revision' }
 
 Push-Location $engineRoot
 try {
     # The engine keeps its cross-package test harness behind the gotacktest
     # build tag so it never ships; type-checking tests therefore needs the tag.
     & go test -tags gotacktest -mod=readonly -count=1 ./...
-    if ($LASTEXITCODE -ne 0) { throw 'Pinned engine tests failed; packaging stopped' }
+    if ($LASTEXITCODE -ne 0) { throw 'Unified product tests failed; packaging stopped' }
     # JSONSchemaAlias intentionally uses a value receiver so invopop/jsonschema
     # can discover it on non-pointer generic Map types. Disable only vet's
     # copylocks analyzer; all other vet analyzers still gate packaging.
     & go vet -tags gotacktest -copylocks=false -mod=readonly ./...
-    if ($LASTEXITCODE -ne 0) { throw 'Pinned engine analysis failed; packaging stopped' }
+    if ($LASTEXITCODE -ne 0) { throw 'Unified product analysis failed; packaging stopped' }
 } finally {
     Pop-Location
 }
-$dirty = @(& git -C $engineRoot status --porcelain --untracked-files=normal)
-if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
-    throw 'Engine sources changed while validating; packaging stopped'
-}
-$sourceFiles = @(& git -C $engineRoot -c core.quotepath=false ls-files --cached)
-if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate engine source' }
-$sourceEntries = @(foreach ($relativePath in ($sourceFiles | Sort-Object -Unique -CaseSensitive)) {
-    $sourcePath = Join-Path $engineRoot $relativePath
-    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-        throw "Missing tracked source: $relativePath"
-    }
-    $digest = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$relativePath $digest"
-})
-$sourceBytes = [Text.Encoding]::UTF8.GetBytes(($sourceEntries -join "`n"))
-$hasher = [Security.Cryptography.SHA256]::Create()
-$sourceDigest = [BitConverter]::ToString($hasher.ComputeHash($sourceBytes)).Replace('-', '').ToLowerInvariant()
-$hasher.Dispose()
+$source = & (Join-Path $PSScriptRoot 'source-info.ps1')
+$sourceDigest = $source.Digest
 $commitEpoch = (& git -C $engineRoot show -s --format=%ct HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read source timestamp' }
 $builtAt = [DateTimeOffset]::FromUnixTimeSeconds([long]$commitEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
-$package = 'github.com/Dyu-36/tack-engine/internal/version'
-$linkerFlags = "-X $package.Commit=$revision -X $package.BuildID=$sourceDigest -X $package.SourceDigest=$sourceDigest -X $package.BuiltAt=$builtAt"
+$package = 'github.com/Dyu-36/gotack/internal/agentcore/version'
+$linkerFlags = "-X github.com/Dyu-36/gotack/internal/buildinfo.Commit=$revision -X github.com/Dyu-36/gotack/internal/buildinfo.SourceDigest=$sourceDigest -X $package.Commit=$revision -X $package.BuildID=$sourceDigest -X $package.SourceDigest=$sourceDigest -X $package.BuiltAt=$builtAt"
 New-Item -ItemType Directory -Path (Split-Path -Parent $outputPath) -Force | Out-Null
 $stagedOutput = "$outputPath.stage-$PID"
 try {
     Push-Location $engineRoot
     try {
-        & go build -mod=readonly -trimpath -ldflags $linkerFlags -o $stagedOutput .
+        & go build -mod=readonly -trimpath -ldflags $linkerFlags -o $stagedOutput ./cmd/gotack
         if ($LASTEXITCODE -ne 0) { throw 'Engine compilation failed' }
     } finally {
         Pop-Location
     }
+    $after = & (Join-Path $PSScriptRoot 'source-info.ps1')
+    if ($after.Digest -ne $sourceDigest -or $after.Commit -ne $revision) { throw 'Sources changed during compilation' }
     $manifest = [ordered]@{
         schema = 1
+        protocol = 1
+        linker_flags = $linkerFlags
         engine_commit = $revision
         source_digest = $sourceDigest
-        source_files = $sourceEntries.Count
+        source_files = $source.Files
         source_timestamp = $builtAt
         executable_sha256 = (Get-FileHash -LiteralPath $stagedOutput -Algorithm SHA256).Hash.ToLowerInvariant()
         tests_run = $true

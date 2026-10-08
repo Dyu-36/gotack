@@ -22,7 +22,7 @@ func TestHostDoesNotImportEngineSourceInternals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unquote import in %s: %v", name, err)
 			}
-			if strings.Contains(path, "tack-engine-source/internal/") {
+			if !strings.Contains(filepath.ToSlash(name), "internal/agentcore/") && !strings.HasPrefix(filepath.ToSlash(name), "cmd/gotack/") && strings.Contains(path, "github.com/Dyu-36/gotack/internal/agentcore/") {
 				t.Errorf("%s imports forbidden engine source internal package %q", name, path)
 			}
 		}

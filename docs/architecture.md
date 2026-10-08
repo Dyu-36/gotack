@@ -1,8 +1,10 @@
 # Architecture
 
-Gotack is one Go module containing a Windows desktop application and its private
-supporting packages. The agent runtime is a separate repository, built from the
-exact commit in `.tack-pin`.
+Gotack is one Go module containing the desktop, terminal, and agent runtime.
+`cmd/gotack` supplies chat, run, and serve commands; `internal/terminal` owns the
+terminal UI and `internal/agentcore` owns agent execution. Desktop and terminal
+share `internal/engine` and `internal/engineapi` across the local IPC boundary.
+The terminal/server binary is `gotack`; the Wails binary is `gotack-desktop`.
 
 Development skill examples under `agent/skills` belong to the separate module
 declared in `agent/go.mod`. Application build and test commands do not compile
@@ -119,11 +121,11 @@ See [Go package naming](https://go.dev/blog/package-names).
 separates core/server code, shared UI and desktop integration.
 [Pi](https://github.com/earendil-works/pi#packages) separates provider APIs, agent
 runtime and the coding-agent application. Gotack follows these responsibility
-boundaries using Go/Wails packages and a separately pinned engine.
+boundaries using Go/Wails packages and the imported engine across local IPC.
 
 ## Source and generated files
 
-Keep source, tests, lockfiles, `.tack-pin`, skill templates and build icons/manifests.
+Keep source, tests, lockfiles, build identity metadata, skill templates and build icons/manifests.
 `build/bin/`, `frontend/dist/`, `frontend/wailsjs/`, `node_modules/` and `artifacts/`
 are generated, ignored local outputs. Inside `build/bin/` the complete expected
 content is the host binary and its `resources/` payload, and the development

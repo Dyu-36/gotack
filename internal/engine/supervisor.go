@@ -63,7 +63,7 @@ func defaultBinary() string {
 		ext = ".exe"
 	}
 
-	primary := "tack-engine" + ext
+	primary := "gotack" + ext
 
 	for _, envKey := range []string{"GOTACK_ENGINE", "GOTACK_TEST_ENGINE"} {
 		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
@@ -102,11 +102,6 @@ func defaultBinary() string {
 
 	if found, err := exec.LookPath(primary); err == nil {
 		return found
-	}
-	if primary != "tack-engine" {
-		if found, err := exec.LookPath("tack-engine"); err == nil {
-			return found
-		}
 	}
 
 	return primary
@@ -158,7 +153,7 @@ func (s *Supervisor) Start() (engineapi.Endpoint, error) {
 	}
 
 	ep := s.ipcEndpoint()
-	cmd := exec.Command(bin, "server", "--host", ep.Network+"://"+ep.Address)
+	cmd := exec.Command(bin, "serve", "--host", ep.Network+"://"+ep.Address)
 	engineDir := filepath.Join(appconfig.Dir(), "engine")
 	if err := os.MkdirAll(engineDir, 0o700); err != nil {
 		return engineapi.Endpoint{}, fmt.Errorf("engine: prepare isolated configuration: %w", err)
@@ -229,6 +224,24 @@ func isolatedEngineEnvironment(root string) []string {
 		env = append(env, key+"="+overrides[key])
 	}
 	return env
+}
+
+// ConfigureServerEnvironment gives `gotack serve` the same configuration and
+// data roots as an engine launched by either frontend.
+func ConfigureServerEnvironment() error {
+	root := filepath.Join(appconfig.Dir(), "engine")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
+	for _, entry := range isolatedEngineEnvironment(root) {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			if err := os.Setenv(key, value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Supervisor) wait(cmd *exec.Cmd, logFile *os.File, done chan struct{}) {

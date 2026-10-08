@@ -63,7 +63,7 @@ func (tr *engineTransport) roundTrip() http.RoundTripper {
 			tr.mu.Lock()
 			tr.versionHits++
 			tr.mu.Unlock()
-			payload, _ := json.Marshal(map[string]string{"version": tr.version, "platform": "test"})
+			payload, _ := json.Marshal(map[string]any{"version": tr.version, "platform": "test", "protocol": 1})
 			return respond(http.StatusOK, io.NopCloser(strings.NewReader(string(payload))), "application/json")
 		case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/v1/workspaces/") && strings.HasSuffix(req.URL.Path, "/events"):
 			return respond(http.StatusOK, tr.streamBody(req), "text/event-stream")

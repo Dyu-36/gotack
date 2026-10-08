@@ -119,7 +119,7 @@ func TestSupervisorStartUsesEndpointAndReusesProcess(t *testing.T) {
 	}
 	wg.Wait()
 
-	want := []string{"server", "--host", ep.Network + "://" + ep.Address}
+	want := []string{"serve", "--host", ep.Network + "://" + ep.Address}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		data, err := os.ReadFile(statePath)

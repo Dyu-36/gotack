@@ -19,8 +19,8 @@ func TestDefaultBinaryResolvesTackEngineName(t *testing.T) {
 	if bin == "" {
 		t.Fatal("expected non-empty default engine binary")
 	}
-	if !strings.Contains(bin, "tack-engine") {
-		t.Fatalf("defaultBinary() = %s, expected tack-engine", bin)
+	if !strings.Contains(bin, "gotack") {
+		t.Fatalf("defaultBinary() = %s, expected gotack", bin)
 	}
 }
 

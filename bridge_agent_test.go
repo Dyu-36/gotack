@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Dyu-36/gotack/internal/engineapi"
+	"github.com/Dyu-36/gotack/internal/terminal"
 	"github.com/google/uuid"
 )
 
@@ -207,4 +209,56 @@ wait:
 	if err != nil || len(visibleMessages) != 0 {
 		t.Fatalf("remote run leaked into selected desktop session: %d %v", len(visibleMessages), err)
 	}
+	// The terminal resumes the exact session created through the desktop API,
+	// attaches its own SSE client, streams a new turn, then releases only itself.
+	var terminalOutput, diagnostic bytes.Buffer
+	if err := terminal.Run(ctx, []string{"run", "--workspace", root, "--session", remote.ID, "Confirm the edit again."}, strings.NewReader(""), &terminalOutput, &diagnostic); err != nil {
+		t.Fatalf("terminal real IPC run: %v (%s)", err, diagnostic.String())
+	}
+	if !strings.Contains(terminalOutput.String(), "Agent contract verified") {
+		t.Fatalf("terminal did not render persisted/streamed response: %q", terminalOutput.String())
+	}
+	if _, err := api.GetSession(ctx, ws.ID, remote.ID); err != nil {
+		t.Fatalf("terminal exit interrupted the desktop client: %v", err)
+	}
+	// A fresh terminal turn must also perform real tools through permission
+	// requests, with the answer travelling back over the same IPC API.
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.SetPermissionsSkip(ctx, ws.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	input, answers := io.Pipe()
+	defer input.Close()
+	defer answers.Close()
+	terminalOutput.Reset()
+	permissionOutput := &terminalPermissionWriter{answers: answers}
+	if err := terminal.Run(ctx, []string{"run", "--workspace", root, "Read roundtrip.txt, replace before with after, then confirm the edit."}, input, &terminalOutput, permissionOutput); err != nil {
+		t.Fatalf("terminal real tools/permissions: %v (%s)", err, permissionOutput.String())
+	}
+	if permissionOutput.approvals == 0 {
+		t.Fatal("terminal never requested permission for real tools")
+	}
+	data, err = os.ReadFile(path)
+	if err != nil || string(data) != "after\n" {
+		t.Fatalf("terminal tool did not persist edit: %q %v", data, err)
+	}
+}
+
+type terminalPermissionWriter struct {
+	bytes.Buffer
+	answers   io.Writer
+	approvals int
+}
+
+func (w *terminalPermissionWriter) Write(p []byte) (int, error) {
+	n, err := w.Buffer.Write(p)
+	if strings.Contains(string(p), "Allow?") {
+		w.approvals++
+		if _, answerErr := io.WriteString(w.answers, "y\n"); answerErr != nil {
+			return n, answerErr
+		}
+	}
+	return n, err
 }

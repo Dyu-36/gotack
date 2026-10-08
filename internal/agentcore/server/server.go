@@ -1,0 +1,233 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"github.com/Dyu-36/gotack/internal/appconfig"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/Dyu-36/gotack/internal/agentcore/backend"
+	"github.com/Dyu-36/gotack/internal/agentcore/config"
+	_ "github.com/Dyu-36/gotack/internal/agentcore/swagger"
+	httpswagger "github.com/swaggo/http-swagger/v2"
+)
+
+// ErrServerClosed is returned when the server is closed.
+var ErrServerClosed = http.ErrServerClosed
+
+// DefaultHost shares the desktop and terminal's existing IPC endpoint.
+func DefaultHost() string {
+	ep := appconfig.PipeEndpoint()
+	return ep.Network + "://" + ep.Address
+}
+
+// ParseHostURL parses a host URL into a [url.URL].
+func ParseHostURL(host string) (*url.URL, error) {
+	proto, addr, ok := strings.Cut(host, "://")
+	if !ok {
+		return nil, fmt.Errorf("invalid host format: %s", host)
+	}
+
+	var basePath string
+	if proto == "tcp" {
+		parsed, err := url.Parse("tcp://" + addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tcp address: %v", err)
+		}
+		addr = parsed.Host
+		basePath = parsed.Path
+	}
+	return &url.URL{
+		Scheme: proto,
+		Host:   addr,
+		Path:   basePath,
+	}, nil
+}
+
+// Server represents a Tack server bound to a specific address.
+type Server struct {
+	// Addr can be a TCP address, a Unix socket path, or a Windows named pipe.
+	Addr    string
+	network string
+
+	h  *http.Server
+	ln net.Listener
+
+	backend *backend.Backend
+	logger  *slog.Logger
+}
+
+// NewServer creates a new [Server] with the given network and address.
+func NewServer(cfg *config.ConfigStore, network, address string) *Server {
+	s := new(Server)
+	s.Addr = address
+	s.network = network
+
+	// The backend is created with a shutdown callback that triggers
+	// a graceful server shutdown (e.g. when the last workspace is
+	// removed).
+	s.backend = backend.New(context.Background(), cfg, func() {
+		go func() {
+			slog.Info("Shutting down server...")
+			if err := s.Shutdown(context.Background()); err != nil {
+				slog.Error("Failed to shutdown server", "error", err)
+			}
+		}()
+	})
+	s.installHandler()
+	if network == "tcp" {
+		s.h.Addr = address
+	}
+	return s
+}
+
+// installHandler builds the protocol/router around s.backend and
+// assigns the resulting http.Server to s.h. Extracted from
+// [NewServer] so test harnesses can wire a Server around a
+// pre-constructed backend.
+func (s *Server) installHandler() {
+	var p http.Protocols
+	p.SetHTTP1(true)
+	p.SetUnencryptedHTTP2(true)
+	c := &controllerV1{backend: s.backend, server: s}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/health", c.handleGetHealth)
+	mux.HandleFunc("GET /v1/version", c.handleGetVersion)
+	mux.HandleFunc("GET /v1/config", c.handleGetConfig)
+	mux.HandleFunc("POST /v1/control", c.handlePostControl)
+	mux.HandleFunc("DELETE /v1/clients/{client_id}", c.handleDeleteClient)
+	mux.HandleFunc("GET /v1/workspaces", c.handleGetWorkspaces)
+	mux.HandleFunc("POST /v1/workspaces", c.handlePostWorkspaces)
+	mux.HandleFunc("DELETE /v1/workspaces/{id}", c.handleDeleteWorkspaces)
+	mux.HandleFunc("POST /v1/workspaces/{id}/current-session", c.handlePostWorkspaceCurrentSession)
+	mux.HandleFunc("GET /v1/workspaces/{id}", c.handleGetWorkspace)
+	mux.HandleFunc("GET /v1/workspaces/{id}/config", c.handleGetWorkspaceConfig)
+	mux.HandleFunc("GET /v1/workspaces/{id}/events", c.handleGetWorkspaceEvents)
+	mux.HandleFunc("GET /v1/workspaces/{id}/providers", c.handleGetWorkspaceProviders)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions", c.handleGetWorkspaceSessions)
+	mux.HandleFunc("POST /v1/workspaces/{id}/sessions", c.handlePostWorkspaceSessions)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}", c.handleGetWorkspaceSession)
+	mux.HandleFunc("PUT /v1/workspaces/{id}/sessions/{sid}", c.handlePutWorkspaceSession)
+	mux.HandleFunc("DELETE /v1/workspaces/{id}/sessions/{sid}", c.handleDeleteWorkspaceSession)
+	mux.HandleFunc("POST /v1/workspaces/{id}/sessions/{sid}/clone", c.handlePostWorkspaceSessionClone)
+	mux.HandleFunc("POST /v1/workspaces/{id}/sessions/{sid}/fork", c.handlePostWorkspaceSessionFork)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/history", c.handleGetWorkspaceSessionHistory)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/messages", c.handleGetWorkspaceSessionMessages)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/messages/user", c.handleGetWorkspaceSessionUserMessages)
+	mux.HandleFunc("GET /v1/workspaces/{id}/messages/user", c.handleGetWorkspaceAllUserMessages)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/filetracker/files", c.handleGetWorkspaceSessionFileTrackerFiles)
+	mux.HandleFunc("POST /v1/workspaces/{id}/filetracker/read", c.handlePostWorkspaceFileTrackerRead)
+	mux.HandleFunc("GET /v1/workspaces/{id}/filetracker/lastread", c.handleGetWorkspaceFileTrackerLastRead)
+	mux.HandleFunc("GET /v1/workspaces/{id}/lsps", c.handleGetWorkspaceLSPs)
+	mux.HandleFunc("GET /v1/workspaces/{id}/lsps/{lsp}/diagnostics", c.handleGetWorkspaceLSPDiagnostics)
+	mux.HandleFunc("POST /v1/workspaces/{id}/lsps/start", c.handlePostWorkspaceLSPStart)
+	mux.HandleFunc("POST /v1/workspaces/{id}/lsps/stop", c.handlePostWorkspaceLSPStopAll)
+	mux.HandleFunc("GET /v1/workspaces/{id}/permissions/skip", c.handleGetWorkspacePermissionsSkip)
+	mux.HandleFunc("POST /v1/workspaces/{id}/permissions/skip", c.handlePostWorkspacePermissionsSkip)
+	mux.HandleFunc("POST /v1/workspaces/{id}/permissions/grant", c.handlePostWorkspacePermissionsGrant)
+	mux.HandleFunc("POST /v1/workspaces/{id}/questions/answer", c.handlePostWorkspaceQuestionsAnswer)
+	mux.HandleFunc("POST /v1/workspaces/{id}/questions/cancel", c.handlePostWorkspaceQuestionsCancel)
+
+	mux.HandleFunc("GET /v1/workspaces/{id}/agent", c.handleGetWorkspaceAgent)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent", c.handlePostWorkspaceAgent)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/init", c.handlePostWorkspaceAgentInit)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/update", c.handlePostWorkspaceAgentUpdate)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/refresh-prompt", c.handlePostWorkspaceAgentRefreshPrompt)
+	mux.HandleFunc("GET /v1/workspaces/{id}/agent/sessions/{sid}", c.handleGetWorkspaceAgentSession)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/sessions/{sid}/cancel", c.handlePostWorkspaceAgentSessionCancel)
+	mux.HandleFunc("GET /v1/workspaces/{id}/agent/sessions/{sid}/prompts/queued", c.handleGetWorkspaceAgentSessionPromptQueued)
+	mux.HandleFunc("GET /v1/workspaces/{id}/agent/sessions/{sid}/prompts/list", c.handleGetWorkspaceAgentSessionPromptList)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/sessions/{sid}/prompts/clear", c.handlePostWorkspaceAgentSessionPromptClear)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/sessions/{sid}/summarize", c.handlePostWorkspaceAgentSessionSummarize)
+	mux.HandleFunc("POST /v1/workspaces/{id}/agent/sessions/{sid}/shell", c.handlePostWorkspaceAgentSessionShell)
+	mux.HandleFunc("GET /v1/workspaces/{id}/agent/default-small-model", c.handleGetWorkspaceAgentDefaultSmallModel)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/set", c.handlePostWorkspaceConfigSet)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/set-batch", c.handlePostWorkspaceConfigSetBatch)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/remove", c.handlePostWorkspaceConfigRemove)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/model", c.handlePostWorkspaceConfigModel)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/models", c.handlePostWorkspaceConfigModels)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/compact", c.handlePostWorkspaceConfigCompact)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/provider-key", c.handlePostWorkspaceConfigProviderKey)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/import-copilot", c.handlePostWorkspaceConfigImportCopilot)
+	mux.HandleFunc("POST /v1/workspaces/{id}/config/refresh-oauth", c.handlePostWorkspaceConfigRefreshOAuth)
+	mux.HandleFunc("GET /v1/workspaces/{id}/project/needs-init", c.handleGetWorkspaceProjectNeedsInit)
+	mux.HandleFunc("POST /v1/workspaces/{id}/project/init", c.handlePostWorkspaceProjectInit)
+	mux.HandleFunc("GET /v1/workspaces/{id}/project/init-prompt", c.handleGetWorkspaceProjectInitPrompt)
+	mux.HandleFunc("GET /v1/workspaces/{id}/skills", c.handleGetWorkspaceSkills)
+	mux.HandleFunc("POST /v1/workspaces/{id}/skills/read", c.handlePostWorkspaceSkillRead)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/refresh-tools", c.handlePostWorkspaceMCPRefreshTools)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/read-resource", c.handlePostWorkspaceMCPReadResource)
+	mux.HandleFunc("GET /v1/workspaces/{id}/mcp/prompts", c.handleGetWorkspaceMCPPrompts)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/get-prompt", c.handlePostWorkspaceMCPGetPrompt)
+	mux.HandleFunc("GET /v1/workspaces/{id}/mcp/states", c.handleGetWorkspaceMCPStates)
+	mux.HandleFunc("GET /v1/workspaces/{id}/mcp/pending-auth", c.handleGetWorkspaceMCPPendingAuth)
+	mux.HandleFunc("GET /v1/workspaces/{id}/mcp/auth-url", c.handleGetWorkspaceMCPAuthURL)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/auth", c.handlePostWorkspaceMCPAuth)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/refresh-prompts", c.handlePostWorkspaceMCPRefreshPrompts)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/refresh-resources", c.handlePostWorkspaceMCPRefreshResources)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/docker/enable", c.handlePostWorkspaceMCPEnableDocker)
+	mux.HandleFunc("POST /v1/workspaces/{id}/mcp/docker/disable", c.handlePostWorkspaceMCPDisableDocker)
+	mux.Handle("/v1/docs/", httpswagger.WrapHandler)
+	s.h = &http.Server{
+		Protocols: &p,
+		Handler:   s.recoverHandler(s.loggingHandler(mux)),
+	}
+}
+
+// Serve accepts incoming connections on the listener.
+func (s *Server) Serve(ln net.Listener) error {
+	return s.h.Serve(ln)
+}
+
+// ListenAndServe starts the server and begins accepting connections.
+func (s *Server) ListenAndServe() error {
+	if s.ln != nil {
+		return fmt.Errorf("server already started")
+	}
+	ln, removedStale, err := listen(s.network, s.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", s.Addr, err)
+	}
+	if removedStale && s.logger != nil {
+		s.logger.Warn("Removed stale socket before binding", "address", s.Addr)
+	}
+	return s.Serve(ln)
+}
+
+func (s *Server) closeListener() {
+	if s.ln != nil {
+		s.ln.Close()
+		s.ln = nil
+	}
+}
+
+// Shutdown gracefully shuts down the server without interrupting active
+// connections.
+func (s *Server) Shutdown(ctx context.Context) error {
+	defer func() { s.closeListener() }()
+	return s.h.Shutdown(ctx)
+}
+
+func (s *Server) logDebug(r *http.Request, msg string, args ...any) {
+	if s.logger != nil {
+		s.logger.With(
+			slog.String("method", r.Method),
+			slog.String("url", r.URL.String()),
+			slog.String("remote_addr", r.RemoteAddr),
+		).Debug(msg, args...)
+	}
+}
+
+func (s *Server) logError(r *http.Request, msg string, args ...any) {
+	if s.logger != nil {
+		s.logger.With(
+			slog.String("method", r.Method),
+			slog.String("url", r.URL.String()),
+			slog.String("remote_addr", r.RemoteAddr),
+		).Error(msg, args...)
+	}
+}

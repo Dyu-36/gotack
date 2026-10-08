@@ -1,0 +1,46 @@
+//go:build gotacktest
+
+package backend
+
+import (
+	"testing"
+
+	"charm.land/catwalk/pkg/catwalk"
+	"github.com/Dyu-36/gotack/internal/agentcore/config"
+	"github.com/Dyu-36/gotack/internal/agentcore/csync"
+	"github.com/Dyu-36/gotack/internal/agentcore/oauth"
+	openaioauth "github.com/Dyu-36/gotack/internal/agentcore/oauth/openai"
+	"github.com/stretchr/testify/require"
+)
+
+func TestGetWorkspaceProvidersProjectsConfiguredCodexCatalog(t *testing.T) {
+	b, _ := newTestBackend(t)
+	ws, _ := insertTestWorkspace(t, b, "/tmp/codex-catalog")
+	providerMap := csync.NewMap[string, config.ProviderConfig]()
+	providerMap.Set(openaioauth.ProviderID, config.ProviderConfig{
+		Name:       "ChatGPT (Codex)",
+		BaseURL:    openaioauth.CodexBackendURL,
+		OAuthToken: &oauth.Token{AccessToken: "access"},
+		Models:     []catwalk.Model{{ID: "gpt-live", Name: "Live"}},
+	})
+	ws.Cfg = config.NewStore(&config.Config{
+		Providers: providerMap,
+		Options:   &config.Options{DisableDefaultProviders: true},
+	})
+
+	value, err := b.GetWorkspaceProviders(ws.ID)
+	require.NoError(t, err)
+	providers, ok := value.([]catwalk.Provider)
+	require.True(t, ok)
+
+	for _, provider := range providers {
+		if provider.ID != catwalk.InferenceProvider(openaioauth.ProviderID) {
+			continue
+		}
+		require.Equal(t, openaioauth.CodexBackendURL, provider.APIEndpoint)
+		require.Equal(t, "gpt-live", provider.DefaultLargeModelID)
+		require.Equal(t, []catwalk.Model{{ID: "gpt-live", Name: "Live"}}, provider.Models)
+		return
+	}
+	t.Fatal("configured Codex provider is missing from the /providers projection")
+}

@@ -1,6 +1,6 @@
 param(
     [string]$BinDirectory = (Join-Path $PSScriptRoot '../build/bin'),
-    [string]$HostBinary = 'gotack.exe'
+    [string]$HostBinary = 'gotack-desktop.exe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,13 +22,13 @@ $unexpected = @(foreach ($entry in @(Get-ChildItem -LiteralPath $binRoot -Force)
     $isHost = $entry.Name -eq $HostBinary -and -not $entry.PSIsContainer
     $isResources = $entry.PSIsContainer -and $entry.Name -eq 'resources'
     $isLoader = -not $entry.PSIsContainer -and $entry.Extension -ieq '.dll'
-    if (-not ($isHost -or $isResources -or $isLoader)) { $entry.Name }
+    if (-not ($isHost -or $isResources -or $isLoader -or ($entry.Name -in @('gotack.exe', 'gotack.exe.build.json')))) { $entry.Name }
 })
 if ($unexpected.Count -gt 0) {
     throw ("Unexpected entries in the Wails output directory {0}: {1}. Build with 'wails build -clean' and never pass a directory to -o." -f $binRoot, ($unexpected -join ', '))
 }
 
-$engine = Join-Path $binRoot 'resources/tack-engine.exe'
+$engine = Join-Path $binRoot 'gotack.exe'
 $engineManifest = "$engine.build.json"
 foreach ($required in @($engine, $engineManifest)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -36,9 +36,11 @@ foreach ($required in @($engine, $engineManifest)) {
     }
 }
 $manifest = Get-Content -LiteralPath $engineManifest -Raw | ConvertFrom-Json
-$pin = (Get-Content -LiteralPath (Join-Path $repoRoot '.tack-pin') -Raw).Trim()
+$source = & (Join-Path $PSScriptRoot 'source-info.ps1')
+$pin = $source.Commit
+if ($manifest.source_digest -ne $source.Digest -or $manifest.protocol -ne 1) { throw 'Bundled runtime source or protocol mismatch' }
 if ($manifest.engine_commit -ne $pin) {
-    throw "Bundled engine $($manifest.engine_commit) does not match .tack-pin $pin"
+    throw "Bundled engine $($manifest.engine_commit) does not match Gotack commit $pin"
 }
 if ($manifest.tests_run -ne $true) {
     throw 'Bundled engine manifest does not record passing engine tests'

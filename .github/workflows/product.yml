@@ -15,59 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sources:
-    name: Exact product sources
-    runs-on: ubuntu-latest
-    outputs:
-      engine_sha: ${{ steps.pin.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - name: Resolve engine pin
-        id: pin
-        shell: bash
-        run: |
-          set -euo pipefail
-          pin="$(tr -d '\r\n' < .tack-pin)"
-          [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid .tack-pin'; exit 1; }
-          echo "sha=$pin" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v5
-        with:
-          repository: Dyu-36/tack-engine
-          ref: ${{ steps.pin.outputs.sha }}
-          path: .engine-source
-          persist-credentials: false
-      - name: Archive source provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p product-sources
-          git archive --format=tar.gz HEAD > product-sources/gotack.tar.gz
-          git -C .engine-source archive --format=tar.gz HEAD > product-sources/tack-engine.tar.gz
-          printf 'host=%s\nengine=%s\n' "$(git rev-parse HEAD)" "$(git -C .engine-source rev-parse HEAD)" > product-sources/revisions.txt
-          (cd product-sources && sha256sum *.tar.gz > SHA256SUMS)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: product-sources
-          path: product-sources/
-          if-no-files-found: error
-          retention-days: 14
-
   windows-product:
     name: Complete Windows distribution
-    needs: sources
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
         with:
-          persist-credentials: false
-      - uses: actions/checkout@v5
-        with:
-          repository: Dyu-36/tack-engine
-          ref: ${{ needs.sources.outputs.engine_sha }}
-          path: .engine-source
           persist-credentials: false
       - name: Set up product build tools
         uses: ./.github/actions/setup-desktop
@@ -75,26 +29,9 @@ jobs:
           python: 'true'
           go-cache-dependency-path: |
             go.sum
-            .engine-source/go.sum
-      - name: Check shipped engine dead code on Windows
-        shell: pwsh
-        run: |
-          go install golang.org/x/tools/cmd/deadcode@v0.49.0
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot install deadcode analyzer' }
-          Push-Location .engine-source
-          try {
-            $dead = @(deadcode .)
-            if ($LASTEXITCODE -ne 0) { throw 'deadcode analysis failed' }
-            if ($dead.Count -gt 0) {
-              $dead | ForEach-Object { Write-Host $_ }
-              throw 'Unreachable code remains in the shipped Windows engine'
-            }
-          } finally {
-            Pop-Location
-          }
       - name: Build verified complete product
         shell: pwsh
-        run: ./scripts/build-product.ps1 -EngineSource .engine-source
+        run: ./scripts/build-product.ps1
       - name: Detect host concurrency defects
         shell: pwsh
         run: |
@@ -105,7 +42,7 @@ jobs:
         env:
           GOTACK_REQUIRE_ENGINE: '1'
         run: |
-          $env:GOTACK_TEST_ENGINE = "$env:GITHUB_WORKSPACE/build/bin/resources/tack-engine.exe"
+          $env:GOTACK_TEST_ENGINE = "$env:GITHUB_WORKSPACE/build/bin/gotack.exe"
           go test -mod=readonly -count=1 -run '^TestBridge' -v .
           if ($LASTEXITCODE -ne 0) { throw 'Bridge contract tests failed' }
       - uses: actions/upload-artifact@v4

@@ -19,35 +19,21 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - name: Read exact engine revision
-        id: pin
-        shell: pwsh
-        run: |
-          $pin = (Get-Content .tack-pin -Raw).Trim()
-          if ($pin -notmatch '^[0-9a-f]{40}$') { throw 'Invalid engine pin' }
-          "sha=$pin" >> $env:GITHUB_OUTPUT
-      - uses: actions/checkout@v5
-        with:
-          repository: Dyu-36/tack-engine
-          ref: ${{ steps.pin.outputs.sha }}
-          path: .engine-source
-          persist-credentials: false
       - name: Set up product build tools
         uses: ./.github/actions/setup-desktop
         with:
           python: 'true'
           go-cache-dependency-path: |
             go.sum
-            .engine-source/go.sum
       - name: Build the same verified product as CI
         shell: pwsh
-        run: ./scripts/build-product.ps1 -EngineSource .engine-source
+        run: ./scripts/build-product.ps1
       - name: Inspect complete portable contents
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Expand-Archive artifacts/gotack-windows-amd64.zip -DestinationPath package-inspection
-          foreach ($path in @('gotack.exe', 'resources/tack-engine.exe', 'resources/python/python.exe', 'resources/python/runtime-manifest.json', 'licenses/tack-engine-LICENSE', 'licenses/gotack-LICENSE', 'licenses/gotack-NOTICE', 'licenses/gotack-THIRD_PARTY_NOTICES.md', 'docs/architecture.md', 'product-manifest.json')) {
+          foreach ($path in @('gotack-desktop.exe', 'gotack.exe', 'resources/python/python.exe', 'resources/python/runtime-manifest.json', 'licenses/tack-engine-LICENSE', 'licenses/gotack-LICENSE', 'licenses/gotack-NOTICE', 'licenses/gotack-THIRD_PARTY_NOTICES.md', 'docs/architecture.md', 'product-manifest.json')) {
             if (-not (Test-Path -LiteralPath (Join-Path package-inspection $path) -PathType Leaf)) { throw "Missing product component: $path" }
           }
       - name: Upload exact portable artifact

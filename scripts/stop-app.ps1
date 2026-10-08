@@ -1,5 +1,5 @@
 param(
-    [string[]]$ProcessName = @('gotack', 'tack-engine'),
+    [string[]]$ProcessName = @('gotack-desktop', 'gotack', 'tack-engine'),
     [int]$TimeoutSeconds = 15
 )
 
@@ -35,7 +35,7 @@ foreach ($name in $ProcessName) {
     }
 }
 
-foreach ($target in @((Join-Path $binRoot 'gotack.exe'), (Join-Path $binRoot 'resources/tack-engine.exe'))) {
+foreach ($target in @((Join-Path $binRoot 'gotack-desktop.exe'), (Join-Path $binRoot 'gotack.exe'))) {
     while (Test-Path -LiteralPath $target -PathType Leaf) {
         try {
             $stream = [IO.File]::Open($target, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)

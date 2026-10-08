@@ -1,0 +1,11 @@
+Tack Engine — the agent runtime for Gotack
+Gotack-specific work: Copyright 2026 Dyu-36 and Gotack contributors.
+
+This repository includes source originally published as Crush by Charmbracelet.
+Copyright 2025-2026 Charmbracelet, Inc.
+Copyright (c) 2025-03-21 - 2025-05-30 Kujtim Hoxha
+
+The inherited source retains the FSL-1.1-MIT terms and MIT notice in LICENSE.md.
+The independently authored documentation identified there uses Apache-2.0.
+Dependencies retain their respective licenses. This notice does not replace
+or expand any license grant.
