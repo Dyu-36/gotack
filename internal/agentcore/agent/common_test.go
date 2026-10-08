@@ -1,0 +1,195 @@
+//go:build gotacktest
+
+package agent
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"testing"
+
+	"charm.land/catwalk/pkg/catwalk"
+	"charm.land/fantasy"
+	"charm.land/fantasy/providers/openaicompat"
+	"charm.land/x/vcr"
+	"github.com/Dyu-36/gotack/internal/agentcore/agent/prompt"
+	"github.com/Dyu-36/gotack/internal/agentcore/agent/tools"
+	"github.com/Dyu-36/gotack/internal/agentcore/config"
+	"github.com/Dyu-36/gotack/internal/agentcore/csync"
+	"github.com/Dyu-36/gotack/internal/agentcore/db"
+	"github.com/Dyu-36/gotack/internal/agentcore/filetracker"
+	"github.com/Dyu-36/gotack/internal/agentcore/history"
+	"github.com/Dyu-36/gotack/internal/agentcore/lsp"
+	"github.com/Dyu-36/gotack/internal/agentcore/message"
+	"github.com/Dyu-36/gotack/internal/agentcore/permission"
+	"github.com/Dyu-36/gotack/internal/agentcore/session"
+	"github.com/stretchr/testify/require"
+
+	_ "github.com/joho/godotenv/autoload"
+)
+
+// fakeEnv is an environment for testing.
+type fakeEnv struct {
+	workingDir  string
+	sessions    session.Service
+	messages    message.Service
+	permissions permission.Service
+	history     history.Service
+	filetracker *filetracker.Service
+	lspClients  *csync.Map[string, *lsp.Client]
+}
+
+type builderFunc func(t *testing.T, r *vcr.Recorder) (fantasy.LanguageModel, error)
+
+type modelPair struct {
+	name       string
+	largeModel builderFunc
+	smallModel builderFunc
+}
+
+func hyperBuilder(model string) builderFunc {
+	return func(t *testing.T, r *vcr.Recorder) (fantasy.LanguageModel, error) {
+		provider, err := openaicompat.New(
+			openaicompat.WithBaseURL("https://hyper.charm.land/v1"),
+			openaicompat.WithAPIKey(os.Getenv("TACK_HYPER_API_KEY")),
+			openaicompat.WithHTTPClient(&http.Client{Transport: r}),
+		)
+		if err != nil {
+			return nil, err
+		}
+		return provider.LanguageModel(t.Context(), model)
+	}
+}
+
+func testEnv(t *testing.T) fakeEnv {
+	workingDir := filepath.Join("/tmp/tack-test/", t.Name())
+	os.RemoveAll(workingDir)
+
+	err := os.MkdirAll(workingDir, 0o755)
+	require.NoError(t, err)
+
+	conn, err := db.Connect(t.Context(), t.TempDir())
+	require.NoError(t, err)
+
+	q := db.New(conn)
+	sessions := session.NewService(q, conn)
+	messages := message.NewService(q)
+
+	permissions := permission.NewPermissionService(workingDir, true, []string{})
+	history := history.NewService(q, conn)
+	filetrackerService := filetracker.NewService(q)
+	lspClients := csync.NewMap[string, *lsp.Client]()
+
+	t.Cleanup(func() {
+		conn.Close()
+		os.RemoveAll(workingDir)
+	})
+
+	return fakeEnv{
+		workingDir,
+		sessions,
+		messages,
+		permissions,
+		history,
+		&filetrackerService,
+		lspClients,
+	}
+}
+
+func testSessionAgent(env fakeEnv, large, small fantasy.LanguageModel, systemPrompt string, tools ...fantasy.AgentTool) SessionAgent {
+	largeModel := Model{
+		Model: large,
+		CatwalkCfg: catwalk.Model{
+			ContextWindow:    200000,
+			DefaultMaxTokens: 10000,
+		},
+	}
+	smallModel := Model{
+		Model: small,
+		CatwalkCfg: catwalk.Model{
+			ContextWindow:    200000,
+			DefaultMaxTokens: 10000,
+		},
+	}
+	agent := NewSessionAgent(SessionAgentOptions{
+		LargeModel:   largeModel,
+		SmallModel:   smallModel,
+		SystemPrompt: systemPrompt,
+		IsYolo:       true,
+		Sessions:     env.sessions,
+		Messages:     env.messages,
+		Tools:        tools,
+	})
+	return agent
+}
+
+func coderAgent(r *vcr.Recorder, env fakeEnv, large, small fantasy.LanguageModel) (SessionAgent, error) {
+	prompt, err := coderPrompt(
+		prompt.WithWorkingDir(filepath.ToSlash(env.workingDir)),
+	)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.Init(env.workingDir, "", false)
+	if err != nil {
+		return nil, err
+	}
+
+	// NOTE(@andreynering): Set a fixed config to ensure cassettes match
+	// independently of user config on `$HOME/.config/tack/tack.json`.
+	cfg.Config().Options.Attribution = &config.Attribution{
+		TrailerStyle:  "co-authored-by",
+		GeneratedWith: true,
+	}
+
+	// Clear some fields to avoid issues with VCR cassette matching.
+	cfg.Config().Options.SkillsPaths = nil
+	cfg.Config().Options.DisabledSkills = []string{"tack-config"}
+	cfg.Config().Options.ContextPaths = nil
+	cfg.Config().Options.GlobalContextPaths = nil
+	cfg.Config().LSP = nil
+
+	systemPrompt, err := prompt.Build(context.TODO(), large.Provider(), large.Model(), cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Normalize volatile prompt fields only in the recorded-provider fixture.
+	systemPrompt = regexp.MustCompile(`(?m)^Current date and time: .*`).ReplaceAllString(systemPrompt, "Current date and time: 1/1/2025")
+	systemPrompt = regexp.MustCompile(`(?m)^Current platform: .*`).ReplaceAllString(systemPrompt, "Current platform: linux")
+
+	allTools := []fantasy.AgentTool{
+		tools.NewBashTool(env.workingDir),
+		tools.NewEditTool(env.history, *env.filetracker, env.workingDir),
+		tools.NewGlobTool(env.workingDir, cfg.Config().Tools.Glob),
+		tools.NewGrepTool(env.workingDir, cfg.Config().Tools.Grep),
+		tools.NewViewTool(*env.filetracker, nil, env.workingDir),
+		tools.NewWriteTool(env.history, *env.filetracker, env.workingDir),
+	}
+
+	return testSessionAgent(env, large, small, systemPrompt, allTools...), nil
+}
+
+// createSimpleGoProject creates a simple Go project structure in the given directory.
+// It creates a go.mod file and a main.go file with a basic hello world program.
+func createSimpleGoProject(t *testing.T, dir string) {
+	goMod := `module example.com/testproject
+
+go 1.23
+`
+	err := os.WriteFile(dir+"/go.mod", []byte(goMod), 0o644)
+	require.NoError(t, err)
+
+	mainGo := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, World!")
+}
+`
+	err = os.WriteFile(dir+"/main.go", []byte(mainGo), 0o644)
+	require.NoError(t, err)
+}
